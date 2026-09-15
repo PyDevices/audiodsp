@@ -1,5 +1,15 @@
 ## Unreleased
 
+- `audiomodal.Bank`: a bank of resonators, which is what a struck object
+  is. N two-pole resonators fed one excitation, summed in float and
+  quantised once, parameterised by 60 dB decay time rather than Q. It is
+  a node rather than a chain of `audiobiquad.Biquad` because the sum has
+  to happen before the quantiser: a six-mode 58 Hz kick built out of
+  `Biquad` nodes measures a 4113 Hz spectral centroid against 73.8 Hz
+  summed in float, and `audioroute.Splitter` stops at four taps anyway.
+  Reaches CircuitPython through the additive path. Shared C in
+  `src/shared/audioif_modal.c`.
+
 - `audiomath.remix_s16`: interleaved native-endian s16 1↔2 channel convert
   (stereo frames to (L+R)/2, or a mono sample duplicated). Shared C in
   `src/shared/audioif_remix.c`, bound on the usermod and the CPython

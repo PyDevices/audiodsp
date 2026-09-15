@@ -65,7 +65,7 @@ python -m pip install --index-url https://test.pypi.org/simple/ pydevices-audioi
 This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiodelays`, `audiofreeverb`, `audiospeed`, `audiodynamics`, `audioroute`,
 `audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audioconvolve`,
-`audiobiquad`, `audioverb`, and the
+`audiobiquad`, `audioverb`, `audiomodal`, and the
 `audiorender` package.
 `audiomp3` remains firmware-only. The distribution declares no *required*
 runtime dependencies and does not itself publish an `audioif` import; its
@@ -125,6 +125,7 @@ waveshaper whose curve is data, applied above the sample rate),
 feedback loop with an odd saturator inside it), `audioconvolve` (apply a
 measured or synthesized impulse response, by partitioned FFT), `audioverb`
 (a reverberation tank whose line lengths and output taps come from Python),
+`audiomodal` (a bank of resonators, which is what a struck object is),
 `audioroute.MidSide` (scale the difference between a stereo pair's channels)
 and `audiobiquad` (below) have no ancestor anywhere and are audioif's own.
 `apply_cp_patches.sh` adds every one of them to a CircuitPython tree too.
@@ -266,6 +267,39 @@ ladder.clear()                 # empty the integrators; stops a sustained tone
 
 See [docs/upstream-diff.md](docs/upstream-diff.md) for why its feedback loop
 is solved rather than delayed, and what that was measured to be worth.
+
+### `audiomodal.Bank`
+
+A bank of resonators, which is what a struck object is. Hit a drum head, a
+marimba bar, a bell or a wine glass and it rings as a sum of decaying
+sinusoids at frequencies that are not harmonics of anything; hand `Bank` that
+list and a short noise burst for the stick, and it is that object.
+
+```python
+kick = audiomodal.Bank(modes=9, sample_rate=48000, channel_count=1)
+kick.set_modes(((58.0, 0.55, 1.00), (92.4, 0.24, 0.38),
+                (123.9, 0.15, 0.24), (2200.0, 0.010, 0.30)))
+kick.play(stick)          # a short noise burst
+audio_out.play(kick)
+```
+
+Construction fixes the allocation: `sample_rate`, `channel_count` (1 or 2) and
+`modes` (1 to 64). `set_mode(index, frequency, decay, gain)` places one mode
+and `set_modes(table)` places the whole list; `decay` is a **60 dB time in
+seconds**, not a Q, and `gain` is the peak of that mode's impulse response, so
+a modal table read out of a paper goes in as published. `set()` moves `mix`
+and `gain` mid-stream without stopping anything ringing, `clear()` stops
+everything at once, and `ringing` says whether any mode still holds energy.
+
+Two behaviours worth knowing before you use it. A bare `Bank()` is **silence**,
+not a passthrough — the default `mix` is fully wet and an unconfigured bank has
+no modes — so reach for `mix=0.0` if you want the untouched signal. And unlike
+`audioecho.FeedbackDelay` and `audioverb.Tank`, the tail keeps ringing after
+the source stops, because a drum whose decay ended the instant the stick left
+would be the one thing this node exists not to be.
+
+See [docs/upstream-diff.md](docs/upstream-diff.md) for why this is a node
+rather than a chain of `audiobiquad.Biquad`, measured rather than argued.
 
 ### `audioverb.Tank`
 
