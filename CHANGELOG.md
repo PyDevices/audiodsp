@@ -1,5 +1,11 @@
 ## Unreleased
 
+- `audiomath.remix_s16`: interleaved native-endian s16 1↔2 channel convert
+  (stereo frames to (L+R)/2, or a mono sample duplicated). Shared C in
+  `src/shared/audioif_remix.c`, bound on the usermod and the CPython
+  extension. Not a graph node — `audiomixer.Mixer` still requires sources
+  that already match `channel_count`.
+
 ## v0.4.0 (2026-09-10)
 
 Brings `synthio` and `audiomixer` up to CircuitPython 10.3.0, which moves

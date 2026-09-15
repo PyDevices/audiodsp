@@ -20,6 +20,7 @@
 #include "shared/audioif_dynamics.h"
 #include "shared/audioif_splitter.h"
 #include "shared/audioif_midside.h"
+#include "shared/audioif_remix.h"
 #include "shared/audioif_multiply.h"
 #include "shared/audioif_suboctave.h"
 #include "shared/audioif_convolve.h"
@@ -2095,6 +2096,61 @@ static PyObject *audioif_midside_s16(PyObject *module, PyObject *args) {
     return result;
 }
 
+static PyObject *audioif_py_remix_s16(PyObject *module, PyObject *args) {
+    Py_buffer src = {0};
+    PyObject *dest_obj = Py_None;
+    int src_ch = 0;
+    int dst_ch = 0;
+    if (!PyArg_ParseTuple(args, "y*ii|O:remix_s16", &src, &src_ch, &dst_ch,
+        &dest_obj)) {
+        return NULL;
+    }
+    if (src_ch < 1 || src_ch > 2 || dst_ch < 1 || dst_ch > 2) {
+        PyBuffer_Release(&src);
+        PyErr_SetString(PyExc_ValueError, "channel_count must be 1 or 2");
+        return NULL;
+    }
+    const Py_ssize_t src_frame = 2 * (Py_ssize_t)src_ch;
+    if (src_frame == 0 || src.len % src_frame) {
+        PyBuffer_Release(&src);
+        PyErr_SetString(PyExc_ValueError,
+            "source must be a whole number of frames");
+        return NULL;
+    }
+    const Py_ssize_t frames = src.len / src_frame;
+    const Py_ssize_t dst_len = frames * 2 * (Py_ssize_t)dst_ch;
+    if (dest_obj == Py_None) {
+        PyObject *result = PyBytes_FromStringAndSize(NULL, dst_len);
+        if (result == NULL) {
+            PyBuffer_Release(&src);
+            return NULL;
+        }
+        audioif_remix_s16((int16_t *)PyBytes_AS_STRING(result),
+            (const int16_t *)src.buf, (uint32_t)frames,
+            (uint32_t)src_ch, (uint32_t)dst_ch);
+        PyBuffer_Release(&src);
+        return result;
+    }
+    Py_buffer dst = {0};
+    if (PyObject_GetBuffer(dest_obj, &dst,
+        PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS) < 0) {
+        PyBuffer_Release(&src);
+        return NULL;
+    }
+    if (dst.len < dst_len) {
+        PyBuffer_Release(&src);
+        PyBuffer_Release(&dst);
+        PyErr_SetString(PyExc_ValueError, "dest is too small");
+        return NULL;
+    }
+    audioif_remix_s16((int16_t *)dst.buf, (const int16_t *)src.buf,
+        (uint32_t)frames, (uint32_t)src_ch, (uint32_t)dst_ch);
+    PyBuffer_Release(&src);
+    PyBuffer_Release(&dst);
+    Py_INCREF(dest_obj);
+    return dest_obj;
+}
+
 // audiomath.SubOctave's divider. Unlike multiply_s16() above -- which is a
 // plain function, because the multiply carries no state at all -- the divider
 // is nothing but state: the count has to survive from one block to the next,
@@ -2706,6 +2762,7 @@ static PyMethodDef audioif_methods[] = {
     {"freeverb_s16", audioif_freeverb_s16, METH_VARARGS, NULL},
     {"multiply_s16", audioif_multiply_s16, METH_VARARGS, NULL},
     {"midside_s16", audioif_midside_s16, METH_VARARGS, NULL},
+    {"remix_s16", audioif_py_remix_s16, METH_VARARGS, PyDoc_STR("Interleaved s16 native-endian channel convert between 1 and 2 channels. Optional writable dest.")},
     {NULL, NULL, 0, NULL},
 };
 

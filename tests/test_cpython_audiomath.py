@@ -249,3 +249,46 @@ class UniversalTraitTest(unittest.TestCase):
         node.play(self._alternating())
         rendered = self._words(node, 6)
         self.assertNotEqual(rendered, self._alternating_words(len(rendered)))
+
+
+class RemixS16Test(unittest.TestCase):
+    def test_stereo_to_mono_averages(self):
+        src = bytes((100, 0, 50, 0, 10, 0, 0, 0))
+        out = audiomath.remix_s16(src, 2, 1)
+        self.assertEqual(bytes((75, 0, 5, 0)), bytes(out))
+
+    def test_mono_to_stereo_duplicates(self):
+        src = bytes((7, 0, 8, 0))
+        out = audiomath.remix_s16(src, 1, 2)
+        self.assertEqual(bytes((7, 0, 7, 0, 8, 0, 8, 0)), bytes(out))
+
+    def test_same_channels_copy_into_dest(self):
+        src = bytes((1, 0, 2, 0))
+        dest = bytearray(4)
+        returned = audiomath.remix_s16(src, 1, 1, dest)
+        self.assertIs(returned, dest)
+        self.assertEqual(src, bytes(dest))
+
+    def test_mono_to_stereo_expands_in_place(self):
+        # The push path's reason for `dest`: one scratch buffer, mono in the
+        # front of it, stereo across the whole of it.
+        buf = bytearray(16)
+        buf[0:8] = bytes((1, 0, 2, 0, 3, 0, 4, 0))
+        audiomath.remix_s16(memoryview(buf)[:8], 1, 2, buf)
+        self.assertEqual(
+            bytes((1, 0, 1, 0, 2, 0, 2, 0, 3, 0, 3, 0, 4, 0, 4, 0)), bytes(buf)
+        )
+
+    def test_stereo_to_mono_contracts_in_place(self):
+        buf = bytearray(bytes((100, 0, 50, 0, 10, 0, 0, 0)))
+        audiomath.remix_s16(memoryview(buf), 2, 1, buf)
+        self.assertEqual(bytes((75, 0, 5, 0)), bytes(buf)[:4])
+
+    def test_rejects_partial_frames(self):
+        with self.assertRaises(ValueError):
+            audiomath.remix_s16(bytes((1, 0, 2)), 2, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
