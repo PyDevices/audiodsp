@@ -60,6 +60,7 @@ SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_freeverb.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_dynamics.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_splitter.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_midside.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_remix.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_multiply.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_suboctave.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_feedback_delay.c

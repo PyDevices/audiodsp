@@ -29,6 +29,12 @@ the period, the input's own timbre, and no latency at all:
 `audiodelays.PitchShift` also goes down an octave, but granularly - windowed
 grains, a comb, and a buffer per instance. A divider is none of that, and does
 not sound like it.
+
+`remix_s16` is not a graph node. It is the buffer primitive a push path needs
+when the producer is stereo and the wire is mono (or the reverse): interleaved
+native-endian s16, 1↔2, optional writable destination so a caller can reuse
+scratch. `audiomixer.Mixer` cannot do this — its sources must already match
+`channel_count`.
 """
 
 from audiocore import (
@@ -44,6 +50,17 @@ __revision__ = _audioif.__revision__
 
 FRAMES = _audioif.MULTIPLY_FRAMES
 SUBOCTAVE_FRAMES = _audioif.SUBOCTAVE_FRAMES
+
+
+def remix_s16(source, src_channels, dst_channels, dest=None):
+    """Convert interleaved s16 native-endian PCM between 1 and 2 channels.
+
+    Stereo→mono is (L+R)/2. Mono→stereo duplicates the sample. Same channel
+    counts copy. Pass a writable ``dest`` to fill in place; otherwise a new
+    ``bytes`` is returned.
+    """
+    return _audioif.remix_s16(source, int(src_channels), int(dst_channels),
+                              dest)
 
 #: Option name -> the native configure() slot, in the order
 #: shared/audioif_suboctave.h declares them, which is the order the

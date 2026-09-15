@@ -40,6 +40,7 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/shared/audioif_dynamics.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_splitter.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_midside.c
+    ${MPAUDIO_SRC_DIR}/shared/audioif_remix.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_multiply.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_suboctave.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_feedback_delay.c
