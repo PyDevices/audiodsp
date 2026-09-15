@@ -13,7 +13,9 @@
 #include <stdint.h>
 
 // dst[] is frames * dst_ch samples; src[] is frames * src_ch samples.
-// src_ch and dst_ch are 1 or 2. dst may alias src only when the channel
-// counts match (a copy, or a no-op).
+// src_ch and dst_ch are 1 or 2. dst may alias src in every direction: the
+// matched-count path is a copy, the stereo-to-mono pass only ever writes
+// behind its read cursor, and the mono-to-stereo pass runs backwards for
+// the same reason. Partial overlap at some other offset is not supported.
 void audioif_remix_s16(int16_t *dst, const int16_t *src, uint32_t frames,
     uint32_t src_ch, uint32_t dst_ch);

@@ -40,7 +40,11 @@ static mp_obj_t audiomath_remix_s16(size_t n_args, const mp_obj_t *args) {
             mp_raise_ValueError(MP_ERROR_TEXT("dest is too small"));
         }
     } else {
-        dest = mp_obj_new_bytearray(dst_len, NULL);
+        // Not mp_obj_new_bytearray(dst_len, NULL): that constructor memcpy's
+        // from the pointer it is given, so NULL faults the moment dst_len is
+        // nonzero. Allocate first, then hand the buffer over by reference.
+        uint8_t *buf = m_new(uint8_t, dst_len);
+        dest = mp_obj_new_bytearray_by_ref(dst_len, buf);
         mp_get_buffer_raise(dest, &dst, MP_BUFFER_WRITE);
     }
     audioif_remix_s16((int16_t *)dst.buf, (const int16_t *)src.buf,

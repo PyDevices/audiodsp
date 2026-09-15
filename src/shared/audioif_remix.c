@@ -20,7 +20,9 @@ void audioif_remix_s16(int16_t *dst, const int16_t *src, uint32_t frames,
         }
         return;
     }
-    for (uint32_t i = 0; i < frames; i++) {
+    // Backwards: dst[2i] is at or ahead of src[i], so a forward pass would
+    // clobber samples this loop still has to read when dst aliases src.
+    for (uint32_t i = frames; i-- > 0;) {
         int16_t sample = src[i];
         dst[2u * i] = sample;
         dst[2u * i + 1u] = sample;
