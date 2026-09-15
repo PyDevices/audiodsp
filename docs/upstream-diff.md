@@ -2983,14 +2983,40 @@ long decay is precisely a pole held close to the unit circle for a long time,
 and direct form I differences two nearly-equal large numbers with about two
 decimal digits of `float` headroom left to do it in.
 
-### What it costs
+### What it costs, measured on an ESP32-P4
 
 Per mode per frame per channel: three multiplies and two adds, plus the two
-comparisons of the flush. A mode that has finished ringing costs one compare
-and nothing else. Memory is two floats of recursion state per mode per
-channel, plus three floats of mode table and three of coefficients per mode —
-so a twelve-mode mono drum is 288 bytes of state and table, and a sixty-four
-mode stereo bank is 2 KB.
+comparisons of the flush. Memory is two floats of recursion state per mode per
+channel, plus three floats of mode table and three of coefficients per mode, so
+a twelve-mode mono drum is 288 bytes and a sixty-four mode stereo bank is 2 KB.
+
+`audiocomponents/tools/measure_effect_cost.py` on
+ESP32_GENERIC_P4-PRE_REV3_C6_WIFI at 360 MHz, 48 kHz stereo, 5.333 ms block:
+
+| target | ms/blk | marginal | rt | RAM |
+|---|---:|---:|---:|---:|
+| `audiobiquad.Biquad` (for scale) | 0.347 | 0.111 | 15.4 | 1248 |
+| `audiomodal.Bank` 8 modes | 0.759 | 0.523 | 7.0 | 1456 |
+| `audiomodal.Bank` 16 modes | 1.242 | 1.006 | 4.3 | 1776 |
+| `audiomodal.Bank` 32 modes | 2.203 | 1.967 | 2.4 | 2416 |
+| `audiomodal.Bank` 64 modes | 4.118 | 3.883 | 1.3 | 3696 |
+| `audiomodal.Bank` 64, all silent | 2.030 | 1.793 | 2.6 | 3696 |
+
+Three things to read off it. A mode costs 0.061 ms per block, about **half a
+`Biquad` node**, so 64 modes in one node cost what 35 separate nodes would;
+64 separate nodes would be 7.1 ms, past the deadline, quite apart from being
+unbuildable at four taps to a splitter.
+
+The skip is worth **54%**, not the 95% the flush might suggest. A silent
+64-mode bank still costs 1.793 ms, because the loop still visits every mode
+every sample: 20 cycles per silent mode-sample, which is the indexing and the
+compare. That is the honest number to plan a resident kit against.
+
+And the sample rate decides whether this fits more than the mode count does.
+Those rows are 48 kHz stereo; a board playing 24 kHz mono does a quarter of the
+work against twice the deadline. `audioinstruments.acoustickit` holds 73 modes
+resident across two banks and measures **3.28 ms per block against 10.667 ms**
+there with eight drums sounding, which is 31% and 3.2x real time.
 
 ### How it is verified
 
