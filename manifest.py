@@ -6,7 +6,8 @@ every interpreter in the workspace. There is nothing to put here:
 
 - The native modules (``audiocore``, ``synthio``, ``audiodynamics``,
   ``audioroute``, ``audiomath``, ``audioecho``, ``audioshaper``,
-  ``audioladder``, ``audioconvolve``, ``audiobiquad``, ``audioverb``
+  ``audioladder``, ``audioconvolve``, ``audiobiquad``, ``audioverb``,
+  ``audiomodal``
   and the rest) are compiled into the firmware by
   ``micropython.mk`` /
   ``micropython.cmake`` (or, for CircuitPython, by ``apply_cp_patches.sh``).

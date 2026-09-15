@@ -2851,3 +2851,180 @@ checksums -- `wire-exact` says `mix=0` came out bit-identical to what went in
 while the whole network ran, and `tail` is the block at which the wet output
 reaches exact zero, which is the fixture a build with a rounding quantiser
 would fail while still hashing everything else plausibly.
+
+## `audiomodal`: a bank of resonators, which a chain of biquads cannot be
+
+Nothing in CircuitPython does this, and neither did micropython-vst3's engine.
+`audiomodal.Bank` rings a signal through N two-pole resonators in parallel,
+summed in `float` and quantised once: `shared/audioif_modal.c`, with the
+pole angle from `shared/audioif_trig.c` and the pole radius from a series.
+
+A struck object — a drum head, a marimba bar, a bell, a wine glass — rings as
+a sum of decaying sinusoids at frequencies that are not harmonics of anything.
+That is the whole of what this node is. It was added for the acoustic drum kit
+in audiocomponents, which has no other way to exist.
+
+### Why it is not a chain of `audiobiquad.Biquad`
+
+A band-pass at high Q *is* a resonator, so the obvious construction is N of
+them in parallel behind `audioroute.Splitter` into `audiomixer.Mixer`. That is
+the first thing this work tried, and it fails twice over. Measured, not
+argued — the same shape of answer `audioverb`'s section above gives for its
+own palette attempt:
+
+- **`audioroute.Splitter` carries four taps** (`AUDIOROUTE_MAX_TAPS`), so a
+  bank wider than four modes is not expressible without a tree of splitters
+  feeding a tree of mixers. A drum wants eight to twelve; the dossier's
+  citation for a cymbal wants between one and two thousand.
+- **Every node in such a tree quantises to int16 on the way out.** A mode 40
+  dB below the fundamental is then carried in about five bits, and what comes
+  out of the mixer is dominated by the quantisation noise of the bank's own
+  quiet modes. A six-mode 58 Hz kick at 48 kHz, identical excitation both
+  ways: **spectral centroid 4113 Hz built from `Biquad` nodes against 73.8 Hz
+  with the same six modes summed in float**, 0.86% of the energy above 1 kHz
+  against 0.00%. The first is not a duller kick. It is noise wearing a kick's
+  envelope.
+
+So the sum has to happen before the quantiser, which means one node. Note that
+the usual argument in this document — an argument added to audioif's copy of a
+CircuitPython module would not exist on a stock board — does **not** apply
+here: `audiobiquad` is already ours. The reason is the one above, plus the two
+below, and together they make a different node rather than a wider one. The
+name is the room.
+
+### Decay time, not Q
+
+`audioif_filter_f32.c` clamps Q to `AUDIOIF_FILTER_F32_MAX_Q` = 60, and says
+why: an RBJ section's pole radius is `sqrt((1 - alpha) / (1 + alpha))` with
+`alpha = sin(w0) / 2Q`, so alpha going to zero is a filter that rings for
+ever. That rail is right for a filter and fatal for a resonator bank. A 20"
+ride's partials ring for seconds, and `Q = pi*f*T60/ln(1000)` puts a 3 kHz
+mode with a 3 s decay at **Q = 4093, sixty-eight times the cap**.
+
+So a bank asks for `decay` in seconds. The bound is then explicit
+(`AUDIOIF_MODAL_MAX_DECAY`, thirty seconds), it is stated in the unit the
+caller is already thinking in, and it never approaches the coefficient corner
+the cap was protecting against — the radius is computed directly rather than
+arrived at through an alpha that has gone small.
+
+`gain` is likewise the peak of the mode's impulse response rather than a
+filter gain, which is what `b0 = gain * sin(w0)` buys: the impulse response of
+`y[n] = b0*x[n] - a1*y[n-1] - a2*y[n-2]` is `r^n * sin(w0*(n+1)) / sin(w0)`.
+A modal table read out of a paper goes in as published.
+
+### The exponential is a series, for the trig's reason
+
+`audioif_trig.h` explains why sine and cosine here are a polynomial rather
+than libm: three platforms' `sin()` agree to within an ulp and differ in the
+last place, and this port's rule is that one hash of one probe matches on all
+three. The pole radius needs `exp(-ln(1000) / (decay * rate))` and inherits
+the rule exactly.
+
+`audioif_modal_exp_neg()` halves its argument until it is under an eighth,
+evaluates seven Taylor terms by Horner, and squares back. Over `[0, 1/8]` the
+first dropped term is `x^8/8! < 1.5e-12`, four orders below float32's epsilon.
+Range reduction rather than a longer polynomial because the argument reaches
+~0.9 at the short end (a one-millisecond decay on an 8 kHz graph) and a single
+polynomial wide enough for that is both longer and worse at the small end,
+which is where every real mode sits.
+
+### Both state words or neither — the limit cycle
+
+This is the part worth reading, because it was written the wrong way first.
+
+`audioif_filter_f32.c` flushes each state word to exact zero on its own, below
+`1e-20`, and that is safe there. Doing the same here produced a stable limit
+cycle **above** the threshold. Measured at 220 Hz, 0.125 s decay, 8 kHz: the
+state parked at ~2.1e-19 and was still there after two thousand blocks —
+thirty-eight seconds of audio — with the output silent from block 30 onward.
+
+The mechanism is visible in one line. With no input the recursion is
+`s1' = -a1*y0 + s2`, `s2' = -a2*y0`, `y0 = s1`, and `-a1` is close to 2 for a
+high-Q pole (1.9567 for that mode). The independent flush zeroes `s2` first,
+because `a2 < -a1` makes it the smaller word; the very next sample computes
+`s1' = 1.9567*y0 + 0`, nearly double what it was, and that refills `s2` from
+it. The flush was not ending the tail. It was feeding it.
+
+Zeroing the pair together cannot reach any state but the one where the whole
+mode is off. That matters beyond tidiness: because a finished mode is *exactly*
+zero, the process loop skips it on a test that cannot be wrong by a fraction of
+an LSB, and a kit holding ten drums resident pays only for the ones sounding.
+
+What found it is worth recording too. The trait that reads the **output**
+reaching zero passed the entire time, because the output had rounded to zero
+long before. Only the trait that reads the **state** could see it, and an own
+node has no oracle that would have said anything at all. That is
+`docs/correctness-standard.md`'s argument for traits, arriving on its own.
+
+### Muting a mode is not stopping it
+
+`gain` is how new signal *enters* a mode. `a1` and `a2` are the pole. Zeroing
+the first has to leave the second alone, and `config_finish` clears the whole
+coefficient set only when the *frequency* is zero - a mode with no pole to
+speak of - never when the gain is.
+
+That distinction is the one that lets a single bank hold a whole drum kit. The
+kit arms the drum being struck and zeroes every other drum's gain, so one
+excitation plays one drum; a crash struck four bars ago goes on ringing
+underneath, because closing its input never touched its recursion. Written the
+other way first, a whisper-quiet kick cut a ringing crash from 7584 peak to
+61 - every strike silenced the entire kit, and the instrument that found it
+had been written believing the opposite.
+
+The process loop's skip follows from the same rule: it skips a mode only when
+nothing is coming in AND nothing is held, so a muted mode that is still
+ringing keeps advancing. A muted mode that has finished costs one compare.
+
+### Transposed direct form II, one corner further in
+
+Same form and the same reason as the biquad beside it (audioif#64), except
+that a resonator bank lives further into the corner than any filter does: a
+long decay is precisely a pole held close to the unit circle for a long time,
+and direct form I differences two nearly-equal large numbers with about two
+decimal digits of `float` headroom left to do it in.
+
+### What it costs, measured on an ESP32-P4
+
+Per mode per frame per channel: three multiplies and two adds, plus the two
+comparisons of the flush. Memory is two floats of recursion state per mode per
+channel, plus three floats of mode table and three of coefficients per mode, so
+a twelve-mode mono drum is 288 bytes and a sixty-four mode stereo bank is 2 KB.
+
+`audiocomponents/tools/measure_effect_cost.py` on
+ESP32_GENERIC_P4-PRE_REV3_C6_WIFI at 360 MHz, 48 kHz stereo, 5.333 ms block:
+
+| target | ms/blk | marginal | rt | RAM |
+|---|---:|---:|---:|---:|
+| `audiobiquad.Biquad` (for scale) | 0.347 | 0.111 | 15.4 | 1248 |
+| `audiomodal.Bank` 8 modes | 0.759 | 0.523 | 7.0 | 1456 |
+| `audiomodal.Bank` 16 modes | 1.242 | 1.006 | 4.3 | 1776 |
+| `audiomodal.Bank` 32 modes | 2.203 | 1.967 | 2.4 | 2416 |
+| `audiomodal.Bank` 64 modes | 4.118 | 3.883 | 1.3 | 3696 |
+| `audiomodal.Bank` 64, all silent | 2.030 | 1.793 | 2.6 | 3696 |
+
+Three things to read off it. A mode costs 0.061 ms per block, about **half a
+`Biquad` node**, so 64 modes in one node cost what 35 separate nodes would;
+64 separate nodes would be 7.1 ms, past the deadline, quite apart from being
+unbuildable at four taps to a splitter.
+
+The skip is worth **54%**, not the 95% the flush might suggest. A silent
+64-mode bank still costs 1.793 ms, because the loop still visits every mode
+every sample: 20 cycles per silent mode-sample, which is the indexing and the
+compare. That is the honest number to plan a resident kit against.
+
+And the sample rate decides whether this fits more than the mode count does.
+Those rows are 48 kHz stereo; a board playing 24 kHz mono does a quarter of the
+work against twice the deadline. `audioinstruments.acoustickit` holds 73 modes
+resident across two banks and measures **3.28 ms per block against 10.667 ms**
+there with eight drums sounding, which is 31% and 3.2x real time.
+
+### How it is verified
+
+`tests/parity/modal_probe.py` in `verify_dsp`'s set, for the three-target
+agreement `docs/correctness-standard.md` asks of an own node, and it prints
+invariants as well as PCM — the block at which the tail reaches exact zero,
+whether the bank is still sounding after its source has gone, and the peak of
+a mode whose Q a filter would refuse. `tests/test_cpython_audiomodal.py`
+carries eleven traits with their bars and the planted faults that break each,
+including the limit cycle above, which is recorded there as what it was: a
+real bug rather than a planted one.

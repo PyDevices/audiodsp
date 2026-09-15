@@ -38,6 +38,7 @@ import audiofreeverb
 import audioladder
 import audiomath
 import audiomixer
+import audiomodal
 import audioroute
 import audioshaper
 import audiospeed
@@ -94,6 +95,7 @@ NODES = (
     ("audiomath.Multiply", lambda: audiomath.Multiply(**PCM)),
     ("audiomath.SubOctave", lambda: audiomath.SubOctave(**PCM)),
     ("audiomixer.Mixer", lambda: audiomixer.Mixer(voice_count=2, **PCM)),
+    ("audiomodal.Bank", lambda: audiomodal.Bank(modes=4, **PCM)),
     ("audioroute.MidSide", lambda: audioroute.MidSide(**PCM)),
     ("audioroute.SplitterTap", lambda: audioroute.Splitter(
         source(), taps=2).tap(0)),

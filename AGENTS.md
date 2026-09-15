@@ -13,7 +13,7 @@ for source compatibility; only this repo's own name differs.
   `audiospeed/`, `audiofreeverb/`, `audiofilters/`, `audiodelays/`,
   `audiomp3/`, `audiodynamics/`, `audioroute/`, `audiomath/`, `audioecho/`,
   `audioconvolve/`, `audiobiquad/`, `audioshaper/`, `audioladder/`,
-  `audioverb/`), plus `src/cp_compat/`
+  `audioverb/`, `audiomodal/`), plus `src/cp_compat/`
   (CircuitPython-only core primitives ported as standalone compat shims, each
   individually verified against mainline MicroPython before use — not assumed
   missing) and `src/shared/` (runtime-neutral DSP the MicroPython usermod and
@@ -34,9 +34,9 @@ for source compatibility; only this repo's own name differs.
   repository builds, tests, publishes or freezes them.
 - `apply_cp_patches.sh` + `src/circuitpython_spike/` — add `audiodynamics`,
   `audioroute`, `audiomath`, `audioecho`, `audioshaper`, `audioladder`,
-  `audioconvolve`, `audiobiquad` and `audioverb` to a CircuitPython
-  tree. None of the nine is a CircuitPython port: the first two come
-  from micropython-vst3's `vstaudio` engine and the last seven are
+  `audioconvolve`, `audiobiquad`, `audioverb` and `audiomodal` to a
+  CircuitPython tree. None of the ten is a CircuitPython port: the first
+  two come from micropython-vst3's `vstaudio` engine and the last eight are
   audioif's own, so CircuitPython gains them here rather than the other
   way round.
 - `docs/porting-plan.md` — the full phased porting history, architecture,

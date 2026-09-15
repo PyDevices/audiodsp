@@ -101,6 +101,7 @@ PROBES = (
     ("waveshaper_probe.py", "audioshaper", {}, None),
     ("convolve_probe.py", "audioconvolve", {}, None),
     ("filter_f32_probe.py", "audiobiquad", {}, None),
+    ("modal_probe.py", "audiomodal", {}, None),
     # synthio.Biquad and audiofilters.Filter are CircuitPython's, so they are
     # held to CircuitPython's bytes and NOT to a stored digest -- which is the
     # whole of audioif#77: graded against its own capture, this probe reported

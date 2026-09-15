@@ -28,6 +28,7 @@
 #include "shared/audioif_shaper.h"
 #include "shared/audioif_ladder.h"
 #include "shared/audioif_tank.h"
+#include "shared/audioif_modal.h"
 #include "shared/audioif_filter_f32.h"
 
 // setup.py defines this from the VERSION file; the fallback is only for
@@ -55,6 +56,7 @@ typedef struct {
     PyObject *suboctave_state_type;
     PyObject *convolver_state_type;
     PyObject *tank_state_type;
+    PyObject *modal_state_type;
 } audioif_state_t;
 
 typedef struct {
@@ -1849,6 +1851,169 @@ static PyType_Spec tank_state_spec = {
     .slots = tank_state_slots,
 };
 
+// audiomodal.Bank's mode table, coefficients and recursion memory. One
+// allocation per array, carved up the same way the MicroPython binding does
+// it -- the DSP layer never allocates.
+typedef struct {
+    PyObject_HEAD
+    audioif_modal_config_t config;
+    audioif_modal_state_t state;
+    audioif_modal_mode_t *modes;
+    audioif_modal_coeff_t *coeffs;
+    float *s1;
+    float *s2;
+} audioif_modal_object_t;
+
+static int modal_state_init(audioif_modal_object_t *self, PyObject *args,
+    PyObject *kwargs) {
+    static char *keywords[] = {"sample_rate", "channel_count", "modes", NULL};
+    unsigned int sample_rate = 48000;
+    unsigned int channel_count = 2;
+    unsigned int modes = 8;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|III:ModalState",
+        keywords, &sample_rate, &channel_count, &modes)) {
+        return -1;
+    }
+    if (modes < 1u || modes > AUDIOIF_MODAL_MAX_MODES) {
+        PyErr_SetString(PyExc_ValueError, "modes out of range");
+        return -1;
+    }
+    if (channel_count < 1u || channel_count > 2u) {
+        PyErr_SetString(PyExc_ValueError, "channel_count must be 1 or 2");
+        return -1;
+    }
+    PyMem_Free(self->modes);
+    PyMem_Free(self->coeffs);
+    PyMem_Free(self->s1);
+    PyMem_Free(self->s2);
+    self->modes = PyMem_Calloc(modes, sizeof(audioif_modal_mode_t));
+    self->coeffs = PyMem_Calloc(modes, sizeof(audioif_modal_coeff_t));
+    if (self->modes == NULL || self->coeffs == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    audioif_modal_config_init(&self->config, sample_rate, channel_count,
+        modes, self->modes, self->coeffs);
+    uint32_t words = audioif_modal_state_floats(&self->config);
+    self->s1 = PyMem_Calloc(words, sizeof(float));
+    self->s2 = PyMem_Calloc(words, sizeof(float));
+    if (self->s1 == NULL || self->s2 == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    audioif_modal_state_init(&self->state, &self->config, self->s1, self->s2,
+        words);
+    return 0;
+}
+
+static void modal_state_dealloc(audioif_modal_object_t *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    PyMem_Free(self->modes);
+    PyMem_Free(self->coeffs);
+    PyMem_Free(self->s1);
+    PyMem_Free(self->s2);
+    self->modes = NULL;
+    self->coeffs = NULL;
+    self->s1 = NULL;
+    self->s2 = NULL;
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
+static PyObject *modal_state_configure(audioif_modal_object_t *self,
+    PyObject *args) {
+    int option;
+    double value;
+    if (!PyArg_ParseTuple(args, "id:configure", &option, &value)) return NULL;
+    if (option < AUDIOIF_MODAL_OPT_MIX || option > AUDIOIF_MODAL_OPT_GAIN) {
+        PyErr_SetString(PyExc_ValueError, "unknown modal option");
+        return NULL;
+    }
+    audioif_modal_configure(&self->config, (audioif_modal_option_t)option,
+        (float)value);
+    Py_RETURN_NONE;
+}
+
+static PyObject *modal_state_set_mode(audioif_modal_object_t *self,
+    PyObject *args) {
+    unsigned int index;
+    double frequency, decay, gain;
+    if (!PyArg_ParseTuple(args, "Iddd:set_mode", &index, &frequency, &decay,
+        &gain)) {
+        return NULL;
+    }
+    if (index >= self->config.mode_count) {
+        PyErr_SetString(PyExc_IndexError, "mode index out of range");
+        return NULL;
+    }
+    audioif_modal_set_mode(&self->config, index, (float)frequency,
+        (float)decay, (float)gain);
+    Py_RETURN_NONE;
+}
+
+static PyObject *modal_state_finish(audioif_modal_object_t *self,
+    PyObject *unused) {
+    audioif_modal_config_finish(&self->config);
+    Py_RETURN_NONE;
+}
+
+static PyObject *modal_state_reset(audioif_modal_object_t *self,
+    PyObject *unused) {
+    audioif_modal_reset(&self->state);
+    Py_RETURN_NONE;
+}
+
+static PyObject *modal_state_silent(audioif_modal_object_t *self,
+    PyObject *unused) {
+    return PyBool_FromLong(audioif_modal_silent(&self->state) ? 1 : 0);
+}
+
+static PyObject *modal_state_process(audioif_modal_object_t *self,
+    PyObject *argument) {
+    Py_buffer input = {0};
+    if (PyObject_GetBuffer(argument, &input, PyBUF_SIMPLE) < 0) return NULL;
+    const Py_ssize_t width = 2 * (Py_ssize_t)self->config.channel_count;
+    if (input.len % width) {
+        PyBuffer_Release(&input);
+        PyErr_SetString(PyExc_ValueError,
+            "input must be whole 16-bit frames for the configured channel count");
+        return NULL;
+    }
+    PyObject *result = PyBytes_FromStringAndSize(NULL, input.len);
+    if (result != NULL) {
+        audioif_modal_process_s16(&self->config, &self->state,
+            (int16_t *)PyBytes_AS_STRING(result), (const int16_t *)input.buf,
+            (uint32_t)(input.len / width));
+    }
+    PyBuffer_Release(&input);
+    return result;
+}
+
+static PyMethodDef modal_state_methods[] = {
+    {"configure", (PyCFunction)modal_state_configure, METH_VARARGS, NULL},
+    {"set_mode", (PyCFunction)modal_state_set_mode, METH_VARARGS, NULL},
+    {"finish", (PyCFunction)modal_state_finish, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)modal_state_reset, METH_NOARGS, NULL},
+    {"silent", (PyCFunction)modal_state_silent, METH_NOARGS, NULL},
+    {"process", (PyCFunction)modal_state_process, METH_O, NULL},
+    {NULL, NULL, 0, NULL},
+};
+
+static PyType_Slot modal_state_slots[] = {
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, modal_state_init},
+    {Py_tp_dealloc, modal_state_dealloc},
+    {Py_tp_methods, modal_state_methods},
+    {0, NULL},
+};
+
+static PyType_Spec modal_state_spec = {
+    .name = "_audioif.ModalState",
+    .basicsize = sizeof(audioif_modal_object_t),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = modal_state_slots,
+};
+
 // audioconvolve.Convolver's transform tables, frequency-delay line and stored
 // impulse. All state, and a great deal of it -- one allocation carved up by
 // the DSP layer, exactly as in the MicroPython binding.
@@ -2860,6 +3025,15 @@ static int audioif_exec(PyObject *module) {
     if (state->tank_state_type == NULL) return -1;
     if (PyModule_AddObjectRef(module, "TankState",
         state->tank_state_type) < 0) return -1;
+    state->modal_state_type = PyType_FromModuleAndSpec(module,
+        &modal_state_spec, NULL);
+    if (state->modal_state_type == NULL) return -1;
+    if (PyModule_AddObjectRef(module, "ModalState",
+        state->modal_state_type) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "MODAL_FRAMES",
+        AUDIOIF_MODAL_FRAMES) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "MODAL_MAX_MODES",
+        AUDIOIF_MODAL_MAX_MODES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "TANK_FRAMES",
         AUDIOIF_TANK_FRAMES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "TANK_LINES",
@@ -2894,6 +3068,7 @@ static int audioif_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->suboctave_state_type);
     Py_VISIT(state->convolver_state_type);
     Py_VISIT(state->tank_state_type);
+    Py_VISIT(state->modal_state_type);
     return 0;
 }
 
@@ -2914,6 +3089,7 @@ static int audioif_clear(PyObject *module) {
     Py_CLEAR(state->suboctave_state_type);
     Py_CLEAR(state->convolver_state_type);
     Py_CLEAR(state->tank_state_type);
+    Py_CLEAR(state->modal_state_type);
     return 0;
 }
 

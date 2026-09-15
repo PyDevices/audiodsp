@@ -33,5 +33,6 @@
 // usermod. See audiodynamics/module.c, audioroute/module.c.
 
 // audiomath, audioecho, audioshaper, audioconvolve, audiobiquad and
-// audioverb (tier 6) are audioif's own, with no ancestor anywhere.
+// audioverb and audiomodal (tier 6) are audioif's own, with no ancestor
+// anywhere.
 // See each module.c.

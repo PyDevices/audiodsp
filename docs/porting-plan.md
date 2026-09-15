@@ -82,8 +82,8 @@ tier 4  effects: audiofilters, audiodelays, audiofreeverb, audiospeed
 tier 5  audiomp3 (vendored lib/mp3 decoder; license check first)
 tier 6  outputs (new code, not a port — see below)
 tier 7  audiodynamics, audioroute, audiomath, audioecho, audioshaper,
-        audioladder, audioconvolve, audiobiquad, audioverb: native,
-        NOT ports
+        audioladder, audioconvolve, audiobiquad, audioverb,
+        audiomodal: native, NOT ports
 tier 8  lib/: pure Python built on the tiers above (audiorender here;
         audioinstruments and audioeffects have since moved to audiocomponents)
 dep     ulab: cloned sibling in the parent workspace, pinned to CP's 6.5.2
@@ -104,8 +104,8 @@ and their source is micropython-vst3 rather than CircuitPython:
   library could not be exercised offline at all.
 
   `audiomath`, `audioecho`, `audioshaper`, `audioconvolve`,
-  `audioverb` and `audioroute.MidSide` have no ancestor at all — nothing
-  upstream and nothing in the engine does any of the six. Nothing
+  `audioverb`, `audiomodal` and `audioroute.MidSide` have no ancestor at
+  all — nothing upstream and nothing in the engine does any of the seven. Nothing
   multiplies two *streams*, which is what ring modulation needs and what an
   LFO at block rate cannot reach. Nothing puts a filter inside a delay's
   feedback loop, which is what separates a tape echo from a delay with a tone
