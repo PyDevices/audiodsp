@@ -44,10 +44,11 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-#: The nine modules that are ours. Upstream CircuitPython has no counterpart to
+#: The ten modules that are ours. Upstream CircuitPython has no counterpart to
 #: any of them, which is why we carry two bindings rather than one.
 MODULES = ("audiobiquad", "audioconvolve", "audiodynamics", "audioecho",
-           "audioladder", "audiomath", "audioroute", "audioshaper", "audioverb")
+           "audioladder", "audiomath", "audiomodal", "audioroute",
+           "audioshaper", "audioverb")
 
 #: Both spellings are in use: audioif's MicroPython bindings mostly say
 #: `_locals_table` and the CircuitPython ones `_locals_dict_table`. A regex that
@@ -90,14 +91,14 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
     def test_the_tables_are_found_at_all(self):
         """A control, because the failure mode of this file is a regex that
         matches nothing and then agrees with itself. Both sides must yield the
-        thirteen types."""
+        fourteen types."""
         micropython = {}
         circuitpython = {}
         for module in MODULES:
             micropython.update(micropython_surfaces(module))
             circuitpython.update(circuitpython_surfaces(module))
-        self.assertEqual(len(micropython), 13, sorted(micropython))
-        self.assertEqual(len(circuitpython), 13, sorted(circuitpython))
+        self.assertEqual(len(micropython), 14, sorted(micropython))
+        self.assertEqual(len(circuitpython), 14, sorted(circuitpython))
 
     def test_every_type_exists_on_both_sides(self):
         for module in MODULES:

@@ -111,3 +111,9 @@ src/circuitpython_spike/shared-bindings/audioverb/Tank.h	shared-bindings/audiove
 src/circuitpython_spike/shared-bindings/audioverb/Tank.c	shared-bindings/audioverb/Tank.c
 src/circuitpython_spike/shared-module/audioverb/Tank.h	shared-module/audioverb/Tank.h
 src/circuitpython_spike/shared-module/audioverb/Tank.c	shared-module/audioverb/Tank.c
+src/circuitpython_spike/shared-bindings/audiomodal/__init__.h	shared-bindings/audiomodal/__init__.h
+src/circuitpython_spike/shared-bindings/audiomodal/__init__.c	shared-bindings/audiomodal/__init__.c
+src/circuitpython_spike/shared-bindings/audiomodal/Bank.h	shared-bindings/audiomodal/Bank.h
+src/circuitpython_spike/shared-bindings/audiomodal/Bank.c	shared-bindings/audiomodal/Bank.c
+src/circuitpython_spike/shared-module/audiomodal/Bank.h	shared-module/audiomodal/Bank.h
+src/circuitpython_spike/shared-module/audiomodal/Bank.c	shared-module/audiomodal/Bank.c

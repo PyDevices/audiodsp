@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Add audioif's audiodynamics, audioroute (Splitter, MidSide),
 # audiomath, audioecho, audioshaper, audioladder, audioconvolve,
-# audiobiquad and audioverb modules to a CircuitPython tree.
-# to a CircuitPython tree.
+# audiobiquad, audioverb and audiomodal modules to a CircuitPython tree.
 #
 #   ./apply_cp_patches.sh --dry-run [--port PORT] [--variant VARIANT]
 #   ./apply_cp_patches.sh --apply   [--port PORT] [--variant VARIANT]
@@ -51,7 +50,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run|--apply|--status) MODE="$1"; shift ;;
         --port)    PORT="$2"; shift 2 ;;
         --variant) VARIANT="$2"; shift 2 ;;
-        -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1 (try --help)" >&2; exit 1 ;;
     esac
 done
@@ -272,12 +271,14 @@ if [[ "$MODE" == "--status" ]]; then
                 shared-bindings/audioconvolve/__init__.c \
                 shared-bindings/audiobiquad/__init__.c \
                 shared-bindings/audioverb/__init__.c \
+                shared-bindings/audiomodal/__init__.c \
                 shared/audioif_dynamics.c shared/audioif_splitter.c \
                 shared/audioif_midside.c \
                 shared/audioif_multiply.c shared/audioif_suboctave.c \
                 shared/audioif_feedback_delay.c \
                 shared/audioif_shaper.c \
                 shared/audioif_ladder.c \
+                shared/audioif_modal.c \
                 shared/audioif_trig.c shared/audioif_fft.c \
                 shared/audioif_convolve.c shared/audioif_filter_f32.c \
                 shared/audioif_tank.c; do
@@ -321,7 +322,9 @@ CFLAGS += -DCIRCUITPY_AUDIOCONVOLVE=\$(CIRCUITPY_AUDIOCONVOLVE)
 CIRCUITPY_AUDIOBIQUAD ?= 0
 CFLAGS += -DCIRCUITPY_AUDIOBIQUAD=\$(CIRCUITPY_AUDIOBIQUAD)
 CIRCUITPY_AUDIOVERB ?= 0
-CFLAGS += -DCIRCUITPY_AUDIOVERB=\$(CIRCUITPY_AUDIOVERB)"
+CFLAGS += -DCIRCUITPY_AUDIOVERB=\$(CIRCUITPY_AUDIOVERB)
+CIRCUITPY_AUDIOMODAL ?= 0
+CFLAGS += -DCIRCUITPY_AUDIOMODAL=\$(CIRCUITPY_AUDIOMODAL)"
 echo
 
 echo "==> py/circuitpy_defns.mk (source patterns)"
@@ -355,6 +358,9 @@ SRC_PATTERNS += audiobiquad/%
 endif
 ifeq (\$(CIRCUITPY_AUDIOVERB),1)
 SRC_PATTERNS += audioverb/%
+endif
+ifeq (\$(CIRCUITPY_AUDIOMODAL),1)
+SRC_PATTERNS += audiomodal/%
 endif" "SRC_PATTERNS += audiodynamics/%"
 echo
 
@@ -383,6 +389,8 @@ CIRCUITPY_AUDIOBIQUAD = 1
 CFLAGS += -DCIRCUITPY_AUDIOBIQUAD=1
 CIRCUITPY_AUDIOVERB = 1
 CFLAGS += -DCIRCUITPY_AUDIOVERB=1
+CIRCUITPY_AUDIOMODAL = 1
+CFLAGS += -DCIRCUITPY_AUDIOMODAL=1
 CIRCUITPY_AUDIOSPEED = 1
 CFLAGS += -DCIRCUITPY_AUDIOSPEED=1
 
@@ -447,6 +455,8 @@ insert_line_after "$VARIANT_MK" "$BINDING_ANCHOR" $'\tshared-bindings/audiobiqua
 insert_line_after "$VARIANT_MK" "$BINDING_ANCHOR" $'\tshared-bindings/audiobiquad/__init__.c \\'
 insert_line_after "$VARIANT_MK" "$BINDING_ANCHOR" $'\tshared-bindings/audioverb/Tank.c \\'
 insert_line_after "$VARIANT_MK" "$BINDING_ANCHOR" $'\tshared-bindings/audioverb/__init__.c \\'
+insert_line_after "$VARIANT_MK" "$BINDING_ANCHOR" $'\tshared-bindings/audiomodal/Bank.c \\'
+insert_line_after "$VARIANT_MK" "$BINDING_ANCHOR" $'\tshared-bindings/audiomodal/__init__.c \\'
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audiodynamics/Dynamics.c \\'
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audioroute/MidSide.c \\'
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audioroute/Splitter.c \\'
@@ -460,6 +470,8 @@ insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audioconvolve
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audiobiquad/Biquad.c \\'
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audiobiquad/AllPass.c \\'
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audioverb/Tank.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audiomodal/Bank.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_modal.c \\'
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_dynamics.c \\'
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_splitter.c \\'
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_multiply.c \\'
@@ -505,6 +517,9 @@ if [ -f "$VARIANT_H" ]; then
 #endif
 #ifndef CIRCUITPY_AUDIOBIQUAD
 #define CIRCUITPY_AUDIOBIQUAD (0)
+#endif
+#ifndef CIRCUITPY_AUDIOMODAL
+#define CIRCUITPY_AUDIOMODAL (0)
 #endif
 #ifndef CIRCUITPY_AUDIOVERB
 #define CIRCUITPY_AUDIOVERB (0)

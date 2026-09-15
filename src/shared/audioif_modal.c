@@ -39,13 +39,35 @@ static int16_t to_s16(float value) {
     return (int16_t)(value >= 0.0f ? value + 0.5f : value - 0.5f);
 }
 
-// What makes a decaying float recursion actually arrive at zero, and here
-// also what makes "this mode has finished" an exact test.
-static float flush(float value) {
-    if (value > -AUDIOIF_MODAL_FLUSH && value < AUDIOIF_MODAL_FLUSH) {
-        return 0.0f;
+// True when one state word is small enough to be nothing.
+static bool tiny(float value) {
+    return value > -AUDIOIF_MODAL_FLUSH && value < AUDIOIF_MODAL_FLUSH;
+}
+
+// What makes a decaying float recursion actually arrive at zero, and here also
+// what makes "this mode has finished" an exact test.
+//
+// BOTH WORDS OR NEITHER, and that is not tidiness. audioif_filter_f32.c
+// flushes each word on its own, which is safe there; here it produced a stable
+// limit cycle *above* the threshold, measured at 220 Hz / 0.125 s decay /
+// 8 kHz: the state parked at ~2.1e-19 and was still there after two thousand
+// blocks, thirty-eight seconds of audio, with the output long since silent.
+//
+// The mechanism, in the one place it can be seen. With no input the recursion
+// is s1' = -a1*y0 + s2 and s2' = -a2*y0, y0 = s1, and -a1 is close to 2 for a
+// high-Q pole (1.9567 for that mode). Flushing independently zeroes s2 first,
+// because a2 < -a1 makes it the smaller word; the very next sample then
+// computes s1' = 1.9567 * y0 + 0, which is nearly twice what it was. That
+// pushes the pair back above the threshold, s2 refills from it, and the cycle
+// repeats for ever. The flush was not ending the tail, it was feeding it.
+//
+// Zeroing the pair together cannot do that: the only state it can produce is
+// the one where the whole mode is off.
+static void flush_pair(float *s1, float *s2) {
+    if (tiny(*s1) && tiny(*s2)) {
+        *s1 = 0.0f;
+        *s2 = 0.0f;
     }
-    return value;
 }
 
 // exp(-x) for x >= 0, in a fixed order on every platform.
@@ -241,8 +263,9 @@ void audioif_modal_process_s16(const audioif_modal_config_t *config,
                 // Transposed direct form II -- see the state struct in the
                 // header for why this shape and not direct form I.
                 const float y0 = c->b0 * x0 + state->s1[w];
-                state->s1[w] = flush(-c->a1 * y0 + state->s2[w]);
-                state->s2[w] = flush(-c->a2 * y0);
+                state->s1[w] = -c->a1 * y0 + state->s2[w];
+                state->s2[w] = -c->a2 * y0;
+                flush_pair(&state->s1[w], &state->s2[w]);
                 sum += y0;
             }
             out[index] = to_s16(dry * x0 + gain * sum);
