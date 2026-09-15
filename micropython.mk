@@ -71,6 +71,7 @@ SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_trig.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_fft.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_convolve.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_tank.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_modal.c
 
 # --- ulab (numpy-alike): cloned sibling dependency, pinned to match this
 #     workspace's CircuitPython checkout (see docs/porting-plan.md). Its own
@@ -207,7 +208,8 @@ SRC_USERMOD_C += \
 # --- tier 6: audiodynamics (Dynamics, DYN_*), audioroute (Splitter,
 #     MidSide), audiomath (Multiply, SubOctave), audioecho
 #     (FeedbackDelay), audioladder (Ladder), audioconvolve (Convolver),
-#     audiobiquad (Biquad, AllPass) and audioverb (Tank) ---
+#     audiobiquad (Biquad, AllPass), audioverb (Tank) and
+#     audiomodal (Bank) ---
 #
 # The modules here are not CircuitPython ports. The first two come from
 # micropython-vst3's `vstaudio` usermod, which grew them for its effects
@@ -219,8 +221,11 @@ SRC_USERMOD_C += \
 # filters in float so a tail reaches exact zero, which neither ported
 # kernel can (audioif#23, #36), and audioverb is a reverberation tank whose
 # line lengths and output taps come from Python rather than being compiled
-# in the way audiofreeverb's are. See
-# docs/upstream-diff.md.
+# in the way audiofreeverb's are, and audiomodal sums a bank of
+# resonators before the quantiser, which a chain of audiobiquads cannot
+# do at any width (audioroute.Splitter stops at four taps) or any depth
+# (every node in the chain quantises, and a quiet mode is then noise).
+# See docs/upstream-diff.md.
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiodynamics/Dynamics.c \
     $(MPAUDIO_SRC_DIR)/audiodynamics/module.c
@@ -252,6 +257,9 @@ SRC_USERMOD_C += \
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audioverb/Tank.c \
     $(MPAUDIO_SRC_DIR)/audioverb/module.c
+SRC_USERMOD_C += \
+    $(MPAUDIO_SRC_DIR)/audiomodal/Bank.c \
+    $(MPAUDIO_SRC_DIR)/audiomodal/module.c
 
 # --- tier 5: audiomp3 (MP3Decoder) ---
 #
