@@ -168,12 +168,25 @@ void audioif_modal_config_finish(audioif_modal_config_t *config) {
     for (uint32_t i = 0; i < config->mode_count; ++i) {
         const audioif_modal_mode_t *mode = &config->modes[i];
         audioif_modal_coeff_t *coeff = &config->coeffs[i];
-        if (mode->gain == 0.0f || mode->frequency <= 0.0f) {
+        if (mode->frequency <= 0.0f) {
+            // No pole to speak of. This is the only case that clears the
+            // recursion as well as the input.
             coeff->b0 = 0.0f;
             coeff->a1 = 0.0f;
             coeff->a2 = 0.0f;
             continue;
         }
+        // A gain of zero clears b0 and NOTHING ELSE, which is the difference
+        // between muting a mode and stopping it. `b0` is how new signal gets
+        // in; `a1` and `a2` are the pole, and a mode already in motion has to
+        // keep its pole or it does not decay, it simply ceases.
+        //
+        // That distinction is what lets one bank hold a whole drum kit. A kit
+        // arms the drum being struck and zeroes the gain of every other, so
+        // one excitation plays one drum - and a crash struck four bars ago
+        // goes on ringing underneath, because muting its input never touched
+        // its recursion. Written the other way first, a kick silenced a
+        // ringing crash outright: 7584 peak to 61.
         const double w0 = 2.0 * AUDIOIF_PI * (double)mode->frequency / rate;
         audioif_sincos_t sc;
         audioif_sincos(w0, &sc);
@@ -250,14 +263,15 @@ void audioif_modal_process_s16(const audioif_modal_config_t *config,
             for (uint32_t m = 0; m < modes; ++m) {
                 const uint32_t w = m * channels + channel;
                 const audioif_modal_coeff_t *c = &config->coeffs[m];
-                // A mode that is silent and is being fed nothing stays
-                // silent, and after the flush below "silent" is exactly zero
-                // rather than nearly zero -- so this test is never wrong by a
-                // fraction of an LSB, and a resident-but-quiet drum costs a
-                // compare instead of a recursion.
-                if (c->b0 == 0.0f ||
-                    (x0 == 0.0f && state->s1[w] == 0.0f &&
-                     state->s2[w] == 0.0f)) {
+                // Skip only a mode that is taking nothing in AND holding
+                // nothing: a muted mode (b0 zero) that is still ringing has
+                // to keep advancing, or muting it would be a cut rather than
+                // a mute. After the flush below "holding nothing" is exactly
+                // zero rather than nearly zero, so this test is never wrong
+                // by a fraction of an LSB, and a resident-but-finished drum
+                // costs a compare instead of a recursion.
+                if ((c->b0 == 0.0f || x0 == 0.0f) &&
+                    state->s1[w] == 0.0f && state->s2[w] == 0.0f) {
                     continue;
                 }
                 // Transposed direct form II -- see the state struct in the

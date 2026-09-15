@@ -24,6 +24,7 @@ its own output.
 | M9 | A decay `audiobiquad` refuses (Q ~ 4000) is stable and accurate | M3/M4 |
 | M10 | `clear()` leaves the node as a freshly built one | exact |
 | M11 | A starved node yields a full block, and keeps ringing through it | exact |
+| M12 | Muting a mode's gain does not stop it ringing | within 10% of unmuted |
 
 **M2 and M6 are this module's form of the identity trait** that
 `docs/correctness-standard.md` asks of every own node: an exact answer
@@ -49,6 +50,14 @@ time, because a 60 dB decay is nowhere near the flush threshold at 1e-20 -
 about -400 dB. A mode with a 0.5 s decay is silent to any ear in half a second
 and `ringing` for roughly 3.3.
 
+M12 is the trait that lets one bank hold a whole drum kit, and it was written
+after the kit found it missing. `gain` is how new signal *enters* a mode; the
+pole is `a1`/`a2`. Zeroing the gain has to leave the pole alone, or muting a
+mode is a cut rather than a mute - and a kit arms the drum being struck by
+zeroing every other drum's gain, so getting this wrong means every strike
+silences the whole kit. Measured when it was wrong: a whisper-quiet kick cut a
+ringing crash from 7584 peak to 61.
+
 M9 is the trait the module exists for at the top end. `audioif_filter_f32.c`
 caps Q at 60 and says why; a 2 kHz partial ringing for four seconds is Q =
 3638. The claim is not that a high Q is special-cased, it is that asking in
@@ -72,6 +81,7 @@ copy if that is ever worth mechanising.
 | `b0 = gain` rather than `gain * sin(w0)` | M5 | peak scales with 1/sin(w0): 21x high at 55 Hz / 8 kHz |
 | `a2 = r` rather than `r * r` | M3, M4 | 2 kHz mode lands at 1147 Hz and decays in 0.11 s instead of 4.0 |
 | range reduction dropped from `exp_neg` | M4 | short decays wrong: 1 ms asked, 1.8 ms measured |
+| `config_finish` clears `a1`/`a2` when gain is 0 | M12 | **also a real bug, not a planted one**: a muted mode ceases instead of decaying, so one drum's strike killed the rest of the kit |
 
 The second row is the one worth reading, because it was written the wrong way
 first and M7 is what found it. Flushing `s1` and `s2` independently -- which is
@@ -291,6 +301,31 @@ class ModalTraits(unittest.TestCase):
         # Still sounding with no source at all -- the opposite of what
         # audioecho.FeedbackDelay and audioverb.Tank do, deliberately.
         self.assertNotEqual(set(data), {0})
+
+    def test_m12_muting_a_mode_does_not_stop_it_ringing(self):
+        """Zeroing `gain` closes the mode's input, not its recursion.
+
+        A bank holding a whole kit mutes every drum but the one being struck,
+        so if this were wrong every strike would silence everything else.
+        """
+        table = ((220.0, 1.0, 1.0), (330.0, 1.0, 0.0))
+        free = build(table)
+        loud = strike(free, 40)
+
+        muted = build(table)
+        muted.play(impulse())
+        head = render(muted, 1)
+        muted.stop()
+        # Mute the ringing mode, exactly as an instrument arming another voice
+        # would, and keep its frequency and decay where they were.
+        muted.set_mode(0, 220.0, 1.0, 0.0)
+        tail = head + render(muted, 39)
+
+        after = max(abs(v) for v in tail[len(tail) // 2:])
+        reference = max(abs(v) for v in loud[len(loud) // 2:])
+        self.assertGreater(after, reference * 0.9,
+                           "muting cut the tail from %d to %d"
+                           % (reference, after))
 
     def test_the_surface_refuses_what_it_should(self):
         with self.assertRaises(ValueError):

@@ -2956,6 +2956,25 @@ long before. Only the trait that reads the **state** could see it, and an own
 node has no oracle that would have said anything at all. That is
 `docs/correctness-standard.md`'s argument for traits, arriving on its own.
 
+### Muting a mode is not stopping it
+
+`gain` is how new signal *enters* a mode. `a1` and `a2` are the pole. Zeroing
+the first has to leave the second alone, and `config_finish` clears the whole
+coefficient set only when the *frequency* is zero - a mode with no pole to
+speak of - never when the gain is.
+
+That distinction is the one that lets a single bank hold a whole drum kit. The
+kit arms the drum being struck and zeroes every other drum's gain, so one
+excitation plays one drum; a crash struck four bars ago goes on ringing
+underneath, because closing its input never touched its recursion. Written the
+other way first, a whisper-quiet kick cut a ringing crash from 7584 peak to
+61 - every strike silenced the entire kit, and the instrument that found it
+had been written believing the opposite.
+
+The process loop's skip follows from the same rule: it skips a mode only when
+nothing is coming in AND nothing is held, so a muted mode that is still
+ringing keeps advancing. A muted mode that has finished costs one compare.
+
 ### Transposed direct form II, one corner further in
 
 Same form and the same reason as the biquad beside it (audioif#64), except
