@@ -8,6 +8,13 @@
 # where `-I$(TOP)` makes `#include "shared/audioif_dynamics.h"` resolve exactly
 # as it does in this repo.
 
+# Included first by every src/shared/*.c that computes in float (audioif#79),
+# so it has to travel with them. If it does not, the CircuitPython build
+# fails to compile rather than quietly keeping its fused multiply-adds --
+# which is the right failure, and the reason this is an include and not a
+# flag somebody could forget to pass.
+src/shared/audioif_fp_contract.h	shared/audioif_fp_contract.h
+
 src/shared/audioif_dynamics.h	shared/audioif_dynamics.h
 src/shared/audioif_dynamics.c	shared/audioif_dynamics.c
 src/shared/audioif_splitter.h	shared/audioif_splitter.h

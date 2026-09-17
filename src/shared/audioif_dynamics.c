@@ -1,24 +1,12 @@
 // Runtime-neutral dynamics DSP. See audioif_dynamics.h for provenance.
 // SPDX-License-Identifier: MIT
 
-// EXPERIMENT (audioif#66): does forbidding fused multiply-add make the two
-// boards agree? `a * b + c` may be emitted as multiply-round-add-round, or as
-// one fused instruction rounding once. Both are legal and they differ in the
-// last bit, and which one a compiler picks depends on the target -- so the same
-// source can give different numbers on the P4's RISC-V and the S3's Xtensa. It
-// is the remaining candidate for the transient-attack split: libm is ruled out
-// (logf/expf/log10f/sqrtf are bit-identical on both boards) and contraction is
-// known to move exactly this path and no other (proven on x86 with -mfma).
-//
-// The standard `#pragma STDC FP_CONTRACT OFF` is silently IGNORED by GCC --
-// measured, it still emits vfmadd. This form works, and does not disturb the
-// rest of the optimisation: same instruction count and same vectorisation, with
-// the fused multiply-adds gone.
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC optimize("fp-contract=off")
-#elif defined(__clang__)
-#pragma clang fp contract(off)
-#endif
+// No fused multiply-add here. audioif#66 proved contraction was the whole
+// of the P4-vs-S3 split on this file's transient attack path and turned it
+// off inline; audioif#79 generalised it to the rest of the kernel, so the
+// mechanism, the two spellings that do not work and the measurements now
+// live in one place. Same pragma, same codegen -- checked, not assumed.
+#include "shared/audioif_fp_contract.h"
 
 #include "shared/audioif_dynamics.h"
 

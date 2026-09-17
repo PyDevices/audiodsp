@@ -272,6 +272,7 @@ if [[ "$MODE" == "--status" ]]; then
                 shared-bindings/audiobiquad/__init__.c \
                 shared-bindings/audioverb/__init__.c \
                 shared-bindings/audiomodal/__init__.c \
+                shared/audioif_fp_contract.h \
                 shared/audioif_dynamics.c shared/audioif_splitter.c \
                 shared/audioif_midside.c \
                 shared/audioif_multiply.c shared/audioif_suboctave.c \

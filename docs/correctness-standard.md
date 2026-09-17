@@ -165,6 +165,27 @@ this rule each one is a decision that must be written there or it is a bug.
 * **Our own node, a trait fails.** Ours, and the trait is the specification —
   unless the trait was wrong, in which case say so, change it, and say why.
 
+## The one way the same C fails this on its own
+
+Three targets compiling one file is the whole mechanism, so anything that lets a
+compiler choose its own arithmetic breaks the gate without anybody writing a
+bug. There is one such thing and it is dealt with: **fused multiply-add**.
+`a * b + c` may round twice or once, both are legal, and which one you get
+depends on the target -- the two ESP toolchains do not even fuse at the same
+number of sites in the same file. That was the whole of the P4-vs-S3 split on
+`audiodynamics` (audioif#66), and since audioif#79 every `src/shared/` file that
+computes in float includes `shared/audioif_fp_contract.h` and forbids it.
+
+The header is where the reasoning lives: the two spellings that silently do
+nothing, why it is not a build flag, and what it costs. **Add the include to any
+new shared file that does float arithmetic**, or that file alone keeps the
+behaviour the rest of the kernel has given up.
+
+This gate cannot see contraction on its own, and should not be trusted to.
+x86-64 does not fuse without `-mfma`, so all three desktop interpreters agree
+whether or not the pragma is there; the difference is a board-only one, and
+proving it needs board digests. See audioif#79 and audioif#55.
+
 ## The one thing this page does not cover
 
 Nothing establishes that a node of ours *sounds right*, or that its algorithm is

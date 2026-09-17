@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+#include "shared/audioif_fp_contract.h"
+
 #include "shared/audioif_rawsample.h"
 
 static audioif_status_t rawsample_reset(void *context,

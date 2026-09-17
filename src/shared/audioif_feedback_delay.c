@@ -8,6 +8,8 @@
 //
 // SPDX-License-Identifier: MIT
 
+#include "shared/audioif_fp_contract.h"
+
 #include "shared/audioif_feedback_delay.h"
 
 #include <math.h>

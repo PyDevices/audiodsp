@@ -1,6 +1,8 @@
 // Runtime-neutral sample-wise multiply. See audioif_multiply.h for provenance.
 // SPDX-License-Identifier: MIT
 
+#include "shared/audioif_fp_contract.h"
+
 #include "shared/audioif_multiply.h"
 
 void audioif_multiply_config_init(audioif_multiply_config_t *config) {

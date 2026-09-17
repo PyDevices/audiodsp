@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+#include "shared/audioif_fp_contract.h"
+
 #include "shared/audioif_trig.h"
 
 #include <math.h>

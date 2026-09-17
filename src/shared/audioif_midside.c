@@ -1,6 +1,8 @@
 // Runtime-neutral mid/side matrix. See audioif_midside.h for provenance.
 // SPDX-License-Identifier: MIT
 
+#include "shared/audioif_fp_contract.h"
+
 #include "shared/audioif_midside.h"
 
 void audioif_midside_config_init(audioif_midside_config_t *config) {

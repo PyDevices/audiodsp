@@ -1,6 +1,8 @@
 // Runtime-neutral octave divider. See audioif_suboctave.h for provenance.
 // SPDX-License-Identifier: MIT
 
+#include "shared/audioif_fp_contract.h"
+
 #include <stddef.h>
 
 #include "shared/audioif_suboctave.h"
