@@ -8,12 +8,12 @@
   ],
   "cpython_stdout_sha256": "544d29ca31973613163977b2f1ef7b6e2ab04bc4881cc25f3df3acafcdfd95a3",
   "audiospeed_oracle": "CircuitPython 10.2.1 source plus MicroPython executable regression",
-  "cpython_stdout_sha256_by_arch_note": "Removed 2026-09-02: the recorded aarch64 baseline described the probe's pre-checksum output format and cannot be regenerated off an aarch64 machine. An aarch64 run will now fail against the oracle hash and print the report a human needs in order to accept it, which is the documented path for a new architecture.",
-  "cpython_stdout_sha256_by_arch": {
+  "cpython_stdout_sha256_by_arch_note": "Empty since 2026-09-17, and that is the result rather than the absence of one. aarch64 held the only entry this file has ever carried: six blocks of multitap and pitchshift one byte from x86_64, accepted 2026-09-02 and re-accepted 2026-09-03 under the byte-checksum probe format. audioif#79 gave every src/shared/ file that computes in float the shared/audioif_fp_contract.h pragma, aarch64 stopped fusing, and the six blocks closed -- so the allowance was removed rather than re-recorded, and aarch64 is held to cpython_stdout_sha256 like the reference architecture is. See cpython_stdout_sha256_reproduced_by. An architecture that genuinely differs still earns an entry here: the hash, the date, and the evidence a human judged on, per Brad's 2026-09-02 rule that bit-identity is required within one architecture and not across.",
+  "cpython_stdout_sha256_by_arch": {},
+  "cpython_stdout_sha256_reproduced_by": {
     "aarch64": {
-      "sha256": "3ec1c31fb45476b0d8d2a1c8df2f5b2746ee9834a2bb31fa54d8109dd322d9e1",
-      "accepted": "2026-09-03",
-      "evidence": "Re-accepted under the byte-checksum probe format (e304ae0) from the CI report of run 33787147404 (ubuntu-24.04-arm, all five Python cells identical). 12 of 882 numeric fields differ from x86_64: the same six blocks as the 2026-09-02 acceptance -- multitap 1/0/2, 1/2/1, 2/0/5, 2/2/1, 2/2/2 and pitchshift 1/-5/1 -- each showing a byte-sum delta of exactly 1 and a different FNV byte checksum. Stated plainly: the checksums differing means the bytes differ in those six blocks; the sum deltas bound nothing about sample magnitude, and no dBFS figure is inferred. Confined to the two delay-line interpolators, consistent with fused multiply-add rounding; phaser, chorus, freeverb and speed identical, and the 16 decoded phaser samples identical. Acceptance rests on Brad's rule (bit-identity within an architecture, not across) and on the divergence being confined to those six blocks."
+      "since": "2026-09-17",
+      "evidence": "Reproduces cpython_stdout_sha256 (544d29ca31973613163977b2f1ef7b6e2ab04bc4881cc25f3df3acafcdfd95a3) exactly. Eight ubuntu-24.04-arm cells -- Python 3.11, 3.12, 3.13 and 3.14 in each of CI runs 35269077774 and 35269087728, on PR #86 at 71b917e -- all report the same digest and '0 of 882 numeric fields differ' against the committed effects_component_stdout.txt. Every field, not a sum or a sample: the whole probe stdout hashes the same on both architectures. The cause of the old divergence was compiler contraction and nothing else, which is now settled rather than inferred -- the accepted 2026-09-03 baseline said the deviation was 'confined to the two delay-line interpolators, consistent with fused multiply-add rounding', and forbidding contraction closed exactly it. The gate remains exact here: with no entry in cpython_stdout_sha256_by_arch, aarch64 is compared against cpython_stdout_sha256 itself."
     }
   }
 }

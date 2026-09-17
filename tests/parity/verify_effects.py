@@ -8,11 +8,21 @@ retire the property the accuracy program is built on.
 
 **Bit-identical audio is required within one CPU architecture, not across
 them** (Brad, 2026-09-02). The oracle hash in `effects_component.json` was
-captured on x86_64; aarch64 does not reproduce it, and is not expected to.
-Floating-point contraction (a compiler fusing `a*b+c` into one fused
-multiply-add, which rounds once instead of twice) and differing libm
-implementations both legitimately move the last bit, and both differ
-between the two architectures.
+captured on x86_64. Floating-point contraction (a compiler fusing `a*b+c`
+into one fused multiply-add, which rounds once instead of twice) and
+differing libm implementations both legitimately move the last bit, and
+both can differ between architectures.
+
+aarch64 was the live example of that and is not one any more. It carried an
+accepted baseline of its own because six blocks of `multitap` and
+`pitchshift` -- the two delay-line interpolators -- came out one byte from
+x86_64. AArch64 fuses by baseline where x86-64 does not without `-mfma`,
+and that was the whole of it: since audioif#79 put
+`shared/audioif_fp_contract.h` in every shared file that computes in float,
+aarch64 reproduces the x86_64 hash exactly. So the allowance is gone rather
+than moved, and `cpython_stdout_sha256_reproduced_by` records that the
+agreement was measured -- a later aarch64 mismatch is a regression against
+a known-matching architecture, not the drift it would have been before.
 
 "Different" must not be allowed to become a synonym for "wrong", so an
 architecture is not simply excused -- it is held to **its own exact hash**,
@@ -24,14 +34,15 @@ detector than any threshold. Accepting a new architecture is a deliberate
 act with its evidence written down beside the hash; drifting through a
 tolerance is not.
 
-A tolerance would also have been measuring the wrong thing. **What this
-gate hashes is the probe's stdout, and that stdout carries per-block
-`sum(data)` values, not PCM** -- so two samples drifting in opposite
-directions inside one block leave the sum, and therefore the hash,
-unchanged. The gate is a sum-level check wearing a PCM-level name. That
-predates this change and is tracked separately; strengthening it means
-changing the probe's output format, which invalidates the committed
-CircuitPython oracle capture and so is not a unilateral edit.
+A tolerance would also have been measuring the wrong thing. What this gate
+hashes is the probe's stdout, and every line of that stdout carries an
+FNV-1a checksum over the block's bytes as well as `sum(data)` (audioif#15,
+`e304ae0`). The checksum is what makes the hash a fingerprint of the PCM:
+`sum(data)` sums *unsigned bytes* and is invariant under a permutation of a
+block, or under any set of byte deltas that cancel. Read a deviation report
+with that split in mind -- a sum delta bounds nothing about sample
+magnitude, and two lines differing only in checksum still means their bytes
+differ.
 """
 
 import hashlib
@@ -58,10 +69,14 @@ reference_path = GOLDEN / "effects_component_stdout.txt"
 machine = platform.machine()
 reference_expected = fixture["cpython_stdout_sha256"]
 accepted = fixture.get("cpython_stdout_sha256_by_arch", {}).get(machine)
+reproduced = fixture.get(
+    "cpython_stdout_sha256_reproduced_by", {}).get(machine)
 # The reference architecture is gated on the oracle hash. Another
 # architecture is gated on its own accepted baseline if one has been
 # recorded, and otherwise on the oracle hash -- which it will fail,
-# printing the report a human needs in order to accept it.
+# printing the report a human needs in order to accept it, unless it is one
+# of the architectures measured to reproduce that hash, where matching is
+# the expectation and failing is a regression.
 expected = accepted["sha256"] if accepted else reference_expected
 
 environment = os.environ.copy()
@@ -187,6 +202,16 @@ elif accepted:
         "regression on this architecture, not cross-architecture drift -- "
         "bit-identity IS required within one architecture."
     )
+elif reproduced:
+    report.append(
+        f"  {machine} was measured reproducing the x86_64 oracle hash "
+        f"exactly ({reproduced['since']}) and no longer does. It has no "
+        "allowance of its own to fall back on, and it should not be given "
+        "one before the deviation is explained: an architecture that "
+        "agreed to the byte and stopped has had something change under it. "
+        "The evidence for the agreement, to read against what you are "
+        f"seeing now:\n    {reproduced['evidence']}"
+    )
 else:
     report.append(
         f"  {machine} has no accepted baseline yet, so it was compared "
@@ -199,7 +224,10 @@ else:
         "whether they are last-bit floating-point divergence or a defect, "
         "then add an entry to cpython_stdout_sha256_by_arch in "
         f"{fixture_path.name} with the hash, the date, and the evidence you "
-        "judged on. Note the limits of what you are reading: the sum "
+        "judged on -- or, if it turns out to match the reference hash after "
+        "all, record it in cpython_stdout_sha256_reproduced_by instead, "
+        "which grants no allowance and is what aarch64 has. Note the limits "
+        "of what you are reading: the sum "
         "fields are per-block sum(data) over unsigned bytes and bound nothing "
         "about sample magnitude (a +256/-1 pair passes them); the checksum "
         "fields differing means the bytes differ. Do not infer a dBFS figure "

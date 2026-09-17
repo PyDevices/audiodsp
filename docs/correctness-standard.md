@@ -181,10 +181,16 @@ nothing, why it is not a build flag, and what it costs. **Add the include to any
 new shared file that does float arithmetic**, or that file alone keeps the
 behaviour the rest of the kernel has given up.
 
-This gate cannot see contraction on its own, and should not be trusted to.
-x86-64 does not fuse without `-mfma`, so all three desktop interpreters agree
-whether or not the pragma is there; the difference is a board-only one, and
-proving it needs board digests. See audioif#79 and audioif#55.
+This gate cannot see contraction *on an x86-64 host*, and should not be
+trusted to. x86-64 does not fuse without `-mfma`, so all three desktop
+interpreters there agree whether or not the pragma is present, and that is the
+host almost every run happens on. aarch64 is not blind to it: AArch64 fuses by
+baseline, and CI's ARM lane had carried an accepted baseline of its own since
+2026-09-02 for six `multitap` and `pitchshift` blocks one byte from x86_64.
+Adding the pragma closed exactly those six, which is where the mechanism stops
+being inferred and starts being measured
+([docs/building-wheels.md](building-wheels.md)). Proving the board half still
+needs board digests. See audioif#79 and audioif#55.
 
 ## The one thing this page does not cover
 

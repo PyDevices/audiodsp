@@ -79,31 +79,36 @@ exactly the class an emulator reproduces only by accident. An untested
 wheel is a claim; a wheel tested on emulated hardware is a weaker claim
 than it looks.
 
-**What the ARM lane found on its first run — and it is worth knowing
-whatever happens to ARM wheels.** aarch64 does *not* reproduce audioif's
-effects output byte for byte. Three of the four parity gates
-(`verify_acceptance`, `verify_streaming`, `verify_biquad`) are identical;
-`verify_effects` is not. Measured: **6 of 744 numeric fields differ,
-largest absolute deviation 1 in every case**, confined to `multitap` and
-`pitchshift` — the two effects doing delay-line interpolation, which is
-where a compiler's fused multiply-add changes the rounding. Those fields
-are `sum(data)` over a 512-byte block, so a delta of 1 is one byte off by
-one: **1 LSB of int16, about −90 dBFS.**
+**What the ARM lane found on its first run, and what closed it.** aarch64
+reproduces audioif's effects output byte for byte, since 2026-09-17. It did
+not at first, and the gap is the part worth keeping. Three of the four
+parity gates (`verify_acceptance`, `verify_streaming`, `verify_biquad`)
+were identical from the start; `verify_effects` was not — **6 of 744
+numeric fields differed, largest absolute deviation 1 in every case**,
+confined to `multitap` and `pitchshift`, the two effects doing delay-line
+interpolation. That is where a compiler's fused multiply-add changes the
+rounding, and AArch64 fuses by baseline where x86-64 does not without
+`-mfma`. So the six blocks were accepted as an aarch64 baseline of its own,
+with the evidence written beside it.
 
-The rule this settles (Brad, 2026-09-02): **bit-identical audio is
-required within one CPU architecture, not across them.** So no tolerance
-was introduced anywhere. The gate stays exact everywhere and each
-architecture is held to its own recorded baseline, accepted deliberately
-with its evidence written beside it in
-`tests/parity/golden/effects_component.json`. That is both a faithful
-reading of the rule and a stricter regression detector than a threshold.
+[#79](https://github.com/PyDevices/audioif/issues/79) forbade contraction
+in every `src/shared/` file that computes in float, and the six blocks
+closed. Eight `ubuntu-24.04-arm` cells — Python 3.11 through 3.14 in two CI
+runs — now hash identically to the x86_64 reference, **0 of 882 numeric
+fields differing**, checksums included rather than sums alone. aarch64's
+baseline is therefore *removed* from
+`tests/parity/golden/effects_component.json` rather than updated: it is
+held to the oracle hash itself now, the same one x86_64 is held to, and
+`cpython_stdout_sha256_reproduced_by` records that the agreement was
+measured so a future mismatch reads as a regression.
 
-One caveat travels with that measurement, filed as
-[#15](https://github.com/PyDevices/audioif/issues/15): the gate hashes
-per-block **sums**, not PCM, so drifts that cancel within a block are
-invisible to it. The 1-LSB figure is therefore a lower bound on agreement,
-not a proof of it — true of every architecture the gate has ever passed,
-x86_64 included.
+The rule this settled (Brad, 2026-09-02) stands whatever any one
+architecture does: **bit-identical audio is required within one CPU
+architecture, not across them.** No tolerance was introduced anywhere. The
+gate stays exact everywhere, and an architecture that genuinely differs is
+held to its own recorded baseline, accepted deliberately with its evidence
+written beside it. That is both a faithful reading of the rule and a
+stricter regression detector than a threshold.
 
 **Release-time gap, precisely — this one IS open.** The organization
 desktop matrix (`reusable-build-native-and-wasm-wheels.yml`, at
