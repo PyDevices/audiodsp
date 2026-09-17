@@ -156,5 +156,157 @@ class TheRateRoundsToTheNearestStep(unittest.TestCase):
         self.assertEqual(round(node.rate * 65536), 71332)
 
 
+class ThePhaseCrossesASourceBuffer(unittest.TestCase):
+    """audioif#91. Upstream zeroes the accumulator every time it takes a new
+    buffer from the source, so a hold restarts its staircase 187 times a
+    second at 48 kHz and drifts. Every "before" number here was measured on
+    this twin and is in `docs/upstream-diff.md`."""
+
+    def rendered_hold(self, values, down, frames, block=BLOCK):
+        node = audiospeed.SpeedChanger(
+            audiospeed.SpeedChanger(blocks(values, block=block), down),
+            1.0 / down)
+        return render(node, frames)
+
+    def assertSameFrames(self, got, wanted):
+        """Counted, not diffed: unittest's list diff over four thousand
+        mostly-different frames takes longer than the render does."""
+        wrong = sum(1 for a, b in zip(got, wanted) if a != b)
+        self.assertEqual(
+            (wrong, len(got)), (0, len(wanted)),
+            "%d of %d frames differ" % (wrong, min(len(got), len(wanted))))
+
+    def test_the_render_does_not_depend_on_the_sources_block_size(self):
+        """The property, stated plainly: the accumulator counts source frames,
+        and a buffer boundary is not one. Upstream's render differed in about
+        8000 of every 8192 frames between these four."""
+        frames = 4096
+        values = tone(frames * 2, 100.0)
+        reference = self.rendered_hold(values, 1.8433, frames, block=64)
+        for block in (100, 256, 1000):
+            with self.subTest(block=block):
+                self.assertSameFrames(
+                    self.rendered_hold(values, 1.8433, frames, block=block),
+                    reference)
+
+    def test_a_hold_is_exactly_what_the_accumulator_says_it_is(self):
+        """Output frame `n` of a hold is `source[(((n*up)>>16)*down)>>16]`,
+        with no term for the block size. Upstream got 15657 of 16384 frames
+        wrong at N = 1.8433 and 16066 at N = 6."""
+        frames = 4096
+        for down in (1.8433, 2.5, 6.0):
+            with self.subTest(rate=down):
+                values = tone(frames * 8, 100.0)
+                mono = [values[index * 2] for index in range(frames * 8)]
+                down_fp = int(down * 65536 + 0.5)
+                up_fp = int(65536 / down + 0.5)
+                wanted = [mono[(((n * up_fp) >> 16) * down_fp) >> 16]
+                          for n in range(frames)]
+                self.assertSameFrames(
+                    self.rendered_hold(values, down, frames), wanted)
+
+    def test_the_run_lengths_stay_in_the_holds_alphabet(self):
+        """A hold at N = 2.5 repeats every sample either two or three times.
+        Upstream produced twelve runs of five as well, which is the staircase
+        restarting mid-run."""
+        frames = 8192
+        held = self.rendered_hold(tone(frames * 4, 100.0), 2.5, frames)
+        lengths = set()
+        length = 1
+        for index in range(1, len(held)):
+            if held[index] == held[index - 1]:
+                length += 1
+            else:
+                lengths.add(length)
+                length = 1
+        self.assertEqual(lengths, {2, 3})
+
+    def test_a_held_ramp_does_not_drift(self):
+        """A zero-order hold lags its input by at most one held step and never
+        accumulates. Upstream's lag reached 73 codes over 65536 frames at
+        48 kHz, and 430 at 44.1 kHz, on a ramp of one code per frame."""
+        frames = 16384
+        values = ramp(frames)
+        held = self.rendered_hold(values, 1.8433, frames)
+        dry = render(blocks(values), frames)
+        self.assertLessEqual(abs(dry[-1] - held[-1]), 2)
+
+    def test_the_image_of_a_held_tone_sits_where_a_hold_puts_it(self):
+        """The trait a rate reducer exists for. A 7 kHz tone held at 8 kHz
+        puts an image at 1 kHz, and a zero-order hold puts it within 0.22 dB
+        of the input. Upstream measured -39.9 dB, because the line is spread
+        rather than lost."""
+        frames = 4096
+        values = tone(frames, 7000.0)
+        held = self.rendered_hold(values, 6.0, frames)
+        dry = render(blocks(values), frames)
+        image = line_db(held, 1000.0) - line_db(dry, 7000.0)
+        self.assertAlmostEqual(image, sinc_db(1000.0, 8000.0), delta=0.5)
+
+    def test_the_tilt_follows_sinc(self):
+        """And the rest of the response with it: upstream missed by 1.41 dB
+        at 5 kHz, which is the drift smearing every line, not a hold."""
+        frames = 4096
+        for hz in (500.0, 1000.0, 2000.0, 5000.0):
+            with self.subTest(hz=hz):
+                values = tone(frames, hz)
+                held = self.rendered_hold(values, 1.8433, frames)
+                dry = render(blocks(values), frames)
+                measured = line_db(held, hz) - line_db(dry, hz)
+                self.assertAlmostEqual(measured, sinc_db(hz, RATE / 1.8433),
+                                       delta=0.1)
+
+    def test_a_reset_still_starts_the_stream_over(self):
+        """The fault the carry could plant. `reset_buffer` resets the source
+        too, so the accumulator genuinely belongs at zero there -- carrying a
+        remainder across it would make a replay differ from a first play."""
+        values = tone(2048, 100.0)
+        node = audiospeed.SpeedChanger(
+            audiocore.RawSample(values, sample_rate=RATE, channel_count=2),
+            1.8433)
+        first = render(node, 512)
+        audiocore.reset_buffer(node)
+        self.assertSameFrames(render(node, 512), first)
+
+    def test_a_hold_whose_source_runs_out_reports_itself_done(self):
+        """The carry can be whole frames at a rate above 1.0, so the index it
+        names can land past the buffer that follows. The stream has to end
+        there rather than spin looking for a frame nobody will send."""
+        values = tone(600, 100.0)
+        finite = audiospeed.SpeedChanger(
+            audiocore.RawSample(values, sample_rate=RATE, channel_count=2),
+            1.0)
+        node = audiospeed.SpeedChanger(
+            audiospeed.SpeedChanger(finite, 6.0), 1.0 / 6.0)
+        for pull in range(64):
+            if audiocore.get_buffer(node)[0] == audiocore.GET_BUFFER_DONE:
+                return
+        self.fail("the hold never reported itself done")
+
+    def test_a_buffer_too_short_to_hold_a_frame_ends_the_stream(self):
+        """Upstream tests `len == 0`, which was enough while the accumulator
+        was zeroed at every buffer. With the carry it is not: a buffer of no
+        whole frames never advances the index, so it has to end the stream
+        here rather than be asked for frame 0 of it. Upstream reads two bytes
+        of a four-byte frame and keeps going; in C that is a read off the end
+        of the source's buffer."""
+
+        class Stub(audiocore._AudioSample):
+            sample_rate, channel_count = RATE, 2
+            bits_per_sample, samples_signed = 16, True
+
+            def _get_buffer(self, single_channel_output=False,
+                            audio_channel=0):
+                return audiocore.GET_BUFFER_MORE_DATA, memoryview(b"\x01\x00")
+
+            def _reset_buffer(self, single_channel_output=False,
+                              audio_channel=0):
+                pass
+
+        node = audiospeed.SpeedChanger(Stub(), 1.8433)
+        self.assertEqual(audiocore.get_buffer(node)[0],
+                         audiocore.GET_BUFFER_DONE)
+
+
 if __name__ == "__main__":
     unittest.main()

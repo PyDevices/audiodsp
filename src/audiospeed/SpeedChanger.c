@@ -92,16 +92,43 @@ static bool fetch_source_buffer(audiospeed_speedchanger_obj_t *self) {
         self->source_exhausted = true;
         return false;
     }
-    if (len == 0) {
+    uint8_t bytes_per_frame = (self->base.bits_per_sample / 8) * self->base.channel_count;
+    if (len < bytes_per_frame) {
+        // Upstream tests `len == 0`. A buffer holding less than one whole
+        // frame has to be caught here too: with the carry below, the
+        // accumulator would never get past a zero-frame buffer, where
+        // upstream's unconditional `src_index = 0` reads off the end of it.
         self->source_exhausted = true;
         return false;
     }
+    // Carry the accumulator across the boundary rather than zeroing it. What
+    // this buffer consumed is the frame count of the buffer *before* it, not
+    // everything the phase was holding -- upstream throws away the remainder,
+    // so a hold restarts its staircase at every source buffer. audioif#91,
+    // docs/upstream-diff.md.
+    uint32_t consumed = self->src_sample_count << SPEED_SHIFT;
+    self->phase = self->phase >= consumed ? self->phase - consumed : 0;
     self->src_buffer = buf;
     self->src_buffer_length = len;
-    uint8_t bytes_per_frame = (self->base.bits_per_sample / 8) * self->base.channel_count;
     self->src_sample_count = len / bytes_per_frame;
     self->source_done = (result == GET_BUFFER_DONE);
-    self->phase = 0;
+    return true;
+}
+
+// Pull source buffers until the frame the accumulator names lands inside one.
+// False means the source cannot supply it. More than one pull is reachable
+// whenever the rate is above 1.0: at rate 4 the carry can be three frames, and
+// a source is free to hand back a buffer shorter than that.
+static bool advance_to_phase(audiospeed_speedchanger_obj_t *self) {
+    while ((self->phase >> SPEED_SHIFT) >= self->src_sample_count) {
+        if (self->source_done) {
+            self->source_exhausted = true;
+            return false;
+        }
+        if (!fetch_source_buffer(self)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -140,17 +167,10 @@ audioio_get_buffer_result_t audiospeed_speedchanger_get_buffer(audiospeed_speedc
     if (bytes_per_sample == 1) {
         uint8_t *out = self->output_buffer;
         while (out_frames < max_out_frames) {
-            uint32_t src_index = self->phase >> SPEED_SHIFT;
-            if (src_index >= self->src_sample_count) {
-                if (self->source_done) {
-                    self->source_exhausted = true;
-                    break;
-                }
-                if (!fetch_source_buffer(self)) {
-                    break;
-                }
-                src_index = 0;
+            if (!advance_to_phase(self)) {
+                break;
             }
+            uint32_t src_index = self->phase >> SPEED_SHIFT;
             uint8_t *src = self->src_buffer + src_index * bytes_per_frame;
             for (uint8_t c = 0; c < channels; c++) {
                 *out++ = src[c];
@@ -161,17 +181,10 @@ audioio_get_buffer_result_t audiospeed_speedchanger_get_buffer(audiospeed_speedc
     } else {
         int16_t *out = (int16_t *)self->output_buffer;
         while (out_frames < max_out_frames) {
-            uint32_t src_index = self->phase >> SPEED_SHIFT;
-            if (src_index >= self->src_sample_count) {
-                if (self->source_done) {
-                    self->source_exhausted = true;
-                    break;
-                }
-                if (!fetch_source_buffer(self)) {
-                    break;
-                }
-                src_index = 0;
+            if (!advance_to_phase(self)) {
+                break;
             }
+            uint32_t src_index = self->phase >> SPEED_SHIFT;
             int16_t *src = (int16_t *)(self->src_buffer + src_index * bytes_per_frame);
             for (uint8_t c = 0; c < channels; c++) {
                 *out++ = src[c];

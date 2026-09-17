@@ -40,8 +40,61 @@ CircuitPython 10.3.0, and ours is the arithmetically closer one. A rate already
 *on* a step is untouched by the change, which is why no stored golden moved:
 `resampler_probe.py` only ever asks for 2.0, 1.0 and 0.5.
 
+`tests/parity/speedchanger_hold_probe.py` renders the divergence and
+`verify_dsp` carries a stated skip for it on circuitpython naming both issues,
+so the three-way is not red on a departure that is deliberate. It is also where
+a MicroPython build that predates these two fixes shows up: any such binary
+renders CircuitPython's bytes here to the byte, because the port was faithful.
+
 Found by the effects program's `Bitcrusher` (audiocomponents#71) and reported
 in [upstream-reports/speedchanger-rate-rounding.md](upstream-reports/speedchanger-rate-rounding.md).
+
+## `audiospeed`: the phase accumulator crosses a source buffer, upstream's restarts (audioif#91)
+
+`audiospeed_fetch_source_buffer` calls `audiospeed_reset_phase` when it takes a
+new buffer from the source (`shared-module/audiospeed/__init__.c:87`, and the
+same line in `__init__.h:39-41`), so whatever fraction — or whole number — of a
+source frame the accumulator was carrying is thrown away at every buffer
+boundary. Only the very first frame of a buffer is ever the right one to resume
+on, and it is right only when the rate divides the buffer length exactly.
+
+What that does to a `SpeedChanger` used as a sample-and-hold, which is how the
+palette builds a lo-fi rate reducer (decimate at N, restore at 1/N):
+
+| measured on the CPython twin, 256-frame source buffers unless said otherwise | upstream | this port |
+|---|---:|---:|
+| the same hold rendered over 64-, 100-, 256- and 1000-frame buffers, frames differing from the 64-frame render, N = 1.8433 | 8023, 8077, 8076 of 8192 | 0, 0, 0 |
+| frames differing from `source[(((n·up)>>16)·down)>>16]` over 16384, N = 1.8433 / 6.0 / 2.5 | 15657 / 16066 / 16090 | 0 / 0 / 0 |
+| run lengths outside the hold's own alphabet `{2, 3}`, N = 2.5 | 12 | 0 |
+| a 1 kHz image under a 7 kHz tone held at 8 kHz, where a zero-order hold puts it at −0.22 dB | −39.86 dB | −0.22 dB |
+| worst miss against `20·log₁₀|sinc(f·T)|` over 500 Hz … 5 kHz, N = 1.8433 | 1.41 dB | 0.02 dB |
+| a full-scale ramp of one code per frame, lag after 65536 frames, at 48 / 44.1 kHz | 73 / 430 codes | 0 / 1 codes |
+
+Two ratios see none of it and are worth naming, because they are why the gate
+was green: at N = 4 over 256-frame buffers the accumulator lands exactly on the
+boundary every time and upstream renders the right answer, and `resampler_probe`
+only ever asks for 2.0, 1.0 and 0.5, which do the same.
+
+**This port carries the remainder across**, `src/audiospeed/SpeedChanger.c` and
+`src/cpython/audiospeed.py`: `fetch_source_buffer` subtracts the frames the
+*previous* buffer held rather than zeroing, and `get_buffer` pulls buffers until
+the index the accumulator names lands inside one, instead of assuming it lands
+on frame 0. `reset_buffer` still zeroes, because a reset resets the source too
+and the stream genuinely restarts there.
+
+Two things the carry made necessary and that upstream does not have. A source
+handing back a buffer shorter than one frame is now treated as exhausted; with
+the carry, upstream's `src_index = 0` against a zero-frame buffer would be an
+unbounded loop rather than the out-of-bounds read it is today. And the
+subtraction is guarded (`phase >= consumed`), so the accumulator cannot wrap
+below zero. Neither changes anything for a well-formed source.
+
+Upstream's `phase` is `uint32_t` in Q16, so a source buffer longer than 65535
+frames cannot be indexed at all. That limit is upstream's and this change
+neither widens nor narrows it.
+
+Found by the effects program's `Bitcrusher` (audiocomponents#71) and reported
+in [upstream-reports/speedchanger-phase-carry.md](upstream-reports/speedchanger-phase-carry.md).
 
 ## `audiodelays.Flanger`: we do not reproduce upstream's int32 overflow (audioif#76)
 
