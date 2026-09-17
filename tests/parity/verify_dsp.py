@@ -117,6 +117,13 @@ PROBES = (
                        "port's extension and which 10.3.0 refuses. See "
                        "docs/upstream-diff.md"},
      None),
+    # audiomixer is CircuitPython's, so like biquad_component_probe.py it is
+    # held to the interpreters agreeing rather than to a capture. The twin
+    # scaled a voice in float64 where the kernel scales in float32 and
+    # truncated a different integer on 56 of the 65536 int16 values at level
+    # 100/127 -- invisible to every stored digest in the repository, because
+    # none of their material lands on one. audioif#84.
+    ("mixer_level_precision_probe.py", "audiomixer", {}, None),
     ("tank_probe.py", "audioverb", {}, None),
     ("flanger_probe.py", "audiodelays",
      {"circuitpython": "upstream's own Flanger overflows int32 in its wet "

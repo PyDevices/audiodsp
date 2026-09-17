@@ -1,7 +1,45 @@
 """CircuitPython-compatible PCM mixer."""
 
+from struct import pack as _pack, unpack as _unpack
+
 from audiocore import GET_BUFFER_MORE_DATA, _AudioSample, get_buffer, reset_buffer
 import _audioif
+
+
+def _f32(value):
+    """`value` rounded to `float`, the way a C `(float)` cast rounds it.
+
+    `struct` is the standard library and this wheel has no dependencies, so
+    this is not numpy: `audiomixer` is a core module that has to import on a
+    bare install. See `_mod_mul` for why it is here at all.
+    """
+    return _unpack("f", _pack("f", value))[0]
+
+
+def _mod_mul(level):
+    """A voice's Q15 level as the single-precision multiplier the native
+    kernel uses.
+
+    `src/audiomixer/Mixer.c`'s `mult16signed` computes
+
+        float mod_mul = (float)level / (float)((1 << 15) - 1);
+        int32_t intermediate = (int32_t)(ai * mod_mul);
+
+    -- the quotient and the product both in `float`, then truncation toward
+    zero. This twin used to form the same product in `float64` and truncate
+    that, which lands on a different integer whenever the true product sits
+    within a float32 rounding of one: 56 of the 65536 `int16` values at level
+    100/127 alone, each off by a whole LSB. Inaudible at -90 dBFS, but the
+    effects program's class gate compares CPython bytes with MicroPython bytes,
+    so it read as nondeterminism. audioif#84.
+
+    Both roundings here are single, not double: `level` and 32767 are exact in
+    `float`, and a `float` divide computed in `double` and rounded once is the
+    correctly rounded `float` quotient (53 >= 2*24 + 2). The product of two
+    `float`s is exact in `double` for the same reason, so rounding it once is
+    the `float` product itself.
+    """
+    return _f32(_f32(level) / _f32(32767.0))
 
 
 def _source_chunk(sample):
@@ -172,6 +210,7 @@ class Mixer(_AudioSample):
                 # audioif_assign_packed_level in src/shared/audioif_synth_dsp.c,
                 # which is the authority this mirrors.
                 active = list(voice._active_level)
+                mul_lo, mul_hi = _mod_mul(active[0]), _mod_mul(active[1])
                 last_lo = last_hi = 0
                 scaled = []
                 for index in range(0, len(samples), 2):
@@ -183,13 +222,15 @@ class Mixer(_AudioSample):
                                     and ((last_lo < 0) != (lo < 0)
                                          or (last_hi < 0) != (hi < 0)))):
                             active[0], active[1] = pending
+                            mul_lo = _mod_mul(active[0])
+                            mul_hi = _mod_mul(active[1])
                         else:
                             last_lo, last_hi = lo, hi
                     scaled.append(max(-32768, min(32767,
-                        int(lo * (active[0] / 32767.0)))))
+                        int(_f32(lo * mul_lo)))))
                     if index + 1 < len(samples):
                         scaled.append(max(-32768, min(32767,
-                            int(hi * (active[1] / 32767.0)))))
+                            int(_f32(hi * mul_hi)))))
                 # Forced at the block boundary: at most one block of delay.
                 voice._active_level = pending
                 data = array.array("h", scaled).tobytes()
