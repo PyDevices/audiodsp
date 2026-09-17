@@ -21,6 +21,8 @@ src/shared/audioif_splitter.h	shared/audioif_splitter.h
 src/shared/audioif_splitter.c	shared/audioif_splitter.c
 src/shared/audioif_midside.h	shared/audioif_midside.h
 src/shared/audioif_midside.c	shared/audioif_midside.c
+src/shared/audioif_modal.h	shared/audioif_modal.h
+src/shared/audioif_modal.c	shared/audioif_modal.c
 src/shared/audioif_multiply.h	shared/audioif_multiply.h
 src/shared/audioif_multiply.c	shared/audioif_multiply.c
 src/shared/audioif_suboctave.h	shared/audioif_suboctave.h
