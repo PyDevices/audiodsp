@@ -28,7 +28,11 @@ static uint32_t rate_to_fp(mp_obj_t rate_obj) {
     // to 0 there too -- passing 0 directly is behavior-identical and avoids
     // this port's -Wfloat-conversion -Werror flagging the truncating literal.
     mp_float_t rate = mp_arg_validate_obj_float_range(rate_obj, 0, 1000, MP_QSTR_rate);
-    return (uint32_t)(rate * (1 << 16));
+    // Round to the nearest Q16 step. Upstream truncates, so a float landing a
+    // hair under its neighbour loses a whole LSB instead of arriving at it:
+    // 1/1.0000000000000004 becomes 65535/65536 rather than unity. A deliberate
+    // departure -- see docs/upstream-diff.md (audioif#92).
+    return (uint32_t)(rate * (1 << SPEED_SHIFT) + (mp_float_t)0.5);
 }
 
 // Convert 16.16 fixed-point rate to Python float

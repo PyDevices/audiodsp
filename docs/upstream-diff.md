@@ -1,5 +1,48 @@
 # Deltas from upstream CircuitPython
 
+## `audiospeed`: the Q16 rate rounds here, upstream truncates (audioif#92)
+
+CircuitPython 10.3.0 converts a rate to 16.16 fixed point with a cast
+(`shared-module/audiospeed/__init__.c:18-21`):
+
+```c
+return (uint32_t)(rate * (1 << SPEED_SHIFT));
+```
+
+A cast truncates. So a float that lands a hair *below* its Q16 neighbour loses
+a whole LSB rather than arriving at it, and the worst case of the conversion is
+one full step instead of half a step. `Resampler` reaches the same arithmetic by
+another road — `calculate_rate` in `shared-module/audiospeed/Resampler.c:11`
+casts the same way — so binding a ratio from two sample rates truncates too.
+
+Measured on `bin/circuitpython`, whose `shared-module/audiospeed/` is stock
+10.3.0, and reproduced identically on this port before the fix:
+
+| asked for | upstream's Q16 | wanted |
+|---|---:|---:|
+| `0.5 - 1e-6` | 32767 | 32768 |
+| `1.0/4.0000000000000036` | 16383 | 16384 |
+| `1.0/1.0000000000000004` | 65535 | 65536 |
+| `48000/44100`, through a `Resampler` binding | 71331 | 71332 |
+
+The third row is the one that bites. A class asking for "the hold rate = the
+running rate" computes `fs / rate_hz` in Python float, gets 1.0000000000000004
+off a log-mapped knob, and the `SpeedChanger` pair built from it is **not** an
+identity — at 44.1 kHz only, because 48 and 22.05 kHz happen to land on 1.0. A
+full-scale 441 Hz tone through that pair read **max |wet − dry| = 27666 codes**
+where a wire reads 0.
+
+**This port rounds**: `src/audiospeed/SpeedChanger.c` (`rate_to_fp`),
+`src/audiospeed/Resampler.c` (`audiospeed_resampler_set_sample_rate`) and
+`src/cpython/audiospeed.py` (the `rate` setter and `_bind_sample_rate`). So a
+rate strictly between two Q16 steps renders different bytes here and on
+CircuitPython 10.3.0, and ours is the arithmetically closer one. A rate already
+*on* a step is untouched by the change, which is why no stored golden moved:
+`resampler_probe.py` only ever asks for 2.0, 1.0 and 0.5.
+
+Found by the effects program's `Bitcrusher` (audiocomponents#71) and reported
+in [upstream-reports/speedchanger-rate-rounding.md](upstream-reports/speedchanger-rate-rounding.md).
+
 ## `audiodelays.Flanger`: we do not reproduce upstream's int32 overflow (audioif#76)
 
 CircuitPython 10.3.0's `shared-module/audiodelays/Flanger.c:365` computes the

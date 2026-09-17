@@ -22,7 +22,9 @@ class SpeedChanger(_AudioSample):
     def rate(self, value):
         value = float(value)
         if not 0 <= value <= 1000: raise ValueError("rate must be from 0 to 1000")
-        self._rate_fp = int(value * 65536) & 0xffffffff
+        # Rounded, not truncated: upstream's cast loses a whole Q16 LSB for a
+        # float a hair under its neighbour. docs/upstream-diff.md, audioif#92.
+        self._rate_fp = int(value * 65536 + 0.5) & 0xffffffff
 
     def _release(self):
         self.source = None
@@ -81,7 +83,7 @@ class Resampler(SpeedChanger):
     def _bind_sample_rate(self, sample_rate):
         self._destination_rate = sample_rate
         if self.source is not None and sample_rate:
-            self._rate_fp = int(self.sample_rate / sample_rate * 65536) & 0xffffffff
+            self._rate_fp = int(self.sample_rate / sample_rate * 65536 + 0.5) & 0xffffffff
         else:
             self._rate_fp = 1 << 16
 

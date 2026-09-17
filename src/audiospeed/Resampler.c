@@ -17,9 +17,12 @@ void audiospeed_resampler_set_sample_rate(audiospeed_resampler_obj_t *self,
     // destination -- upstream's `calculate_rate`, and the CPython twin's
     // `_bind_sample_rate`, both read it that way.
     if (self->speed.source != MP_OBJ_NULL && sample_rate != 0) {
+        // Rounded, not truncated, for the same reason `rate_to_fp` rounds:
+        // 48000/44100 is 71331.9 in Q16 and upstream's cast hands back
+        // 71331. docs/upstream-diff.md, audioif#92.
         self->speed.rate_fp = (uint32_t)(
             (mp_float_t)self->speed.base.sample_rate / sample_rate *
-            (1 << SPEED_SHIFT));
+            (1 << SPEED_SHIFT) + (mp_float_t)0.5);
     } else {
         self->speed.rate_fp = 1 << SPEED_SHIFT;
     }
