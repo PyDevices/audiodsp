@@ -1,5 +1,15 @@
 ## Unreleased
 
+- `audiomixer`: a mixer voice looping a sample too short to fill one packed
+  32-bit word — a one-frame mono `RawSample` is two bytes — never returned
+  from `get_buffer` on the native builds. `play(loop=True)` now raises
+  `ValueError` instead, and the mix-down carries a backstop that stops such a
+  voice rather than spinning on it. Refused rather than padded: padding a
+  one-frame loop halves its loop rate, and would have to copy a buffer
+  `RawSample` deliberately does not own. Upstream CircuitPython still spins
+  here (audioif#85). `MixerVoice.loop` gains a property on the CPython target,
+  which had only the `play(loop=)` argument.
+
 - `audiomodal.Bank`: a bank of resonators, which is what a struck object
   is. N two-pole resonators fed one excitation, summed in float and
   quantised once, parameterised by 60 dB decay time rather than Q. It is

@@ -300,6 +300,26 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
     audiomixer_mixervoice_obj_t *voice, bool voices_active,
     uint32_t *word_buffer, uint32_t length) {
     audiosample_base_t *sample = MP_OBJ_TO_PTR(voice->sample);
+    // A fetch that yields less than one packed word leaves buffer_length at
+    // zero, so the pass below would consume nothing and `length` would not
+    // move. One is tolerated -- a source is allowed a beat to produce -- and a
+    // second consecutive one means it never will, so the voice stops and its
+    // remainder is zero-filled like any other short voice.
+    //
+    // Nothing above catches that. The not-more-data branch either rewinds (if
+    // looping) or stops, and the fetch that follows is not examined at all, so
+    // a source that keeps handing back half a word spins here forever. That is
+    // the hang in audioif#85. The CPython twin has had two exits for this
+    // since audioif#24 -- a stop when a fetch yields nothing and claims no
+    // more, and this counter for a source that yields nothing while claiming
+    // MORE_DATA -- and each was measured to be sufficient on its own; removing
+    // both is what makes the twin hang. This side had neither.
+    //
+    // play() refuses the sample that reaches it by the documented route, with
+    // a ValueError the programmer can act on. This is the backstop under it,
+    // for the routes play() cannot see: `voice.loop = True` set afterwards,
+    // and a source whose content play()'s one fetch did not reveal.
+    uint8_t empty_fetches = 0;
     while (length != 0) {
         if (voice->buffer_length == 0) {
             if (!voice->more_data) {
@@ -325,6 +345,14 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                 // Track length in terms of words.
                 voice->buffer_length /= sizeof(uint32_t);
                 voice->more_data = result == GET_BUFFER_MORE_DATA;
+                if (voice->buffer_length == 0) {
+                    if (++empty_fetches > 1) {
+                        voice->sample = NULL;
+                        break;
+                    }
+                    continue;
+                }
+                empty_fetches = 0;
             }
         }
 

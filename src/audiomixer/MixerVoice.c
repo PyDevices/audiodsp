@@ -73,6 +73,41 @@ void common_hal_audiomixer_mixervoice_play(audiomixer_mixervoice_obj_t *self, mp
     self->loop = loop;
 
     common_hal_audiomixer_mixervoice_reset(self);
+
+    // A LOOPING SOURCE THAT CANNOT FILL ONE PACKED WORD NEVER ENDS. A voice's
+    // buffer is tracked in WORDS -- `buffer_length /= sizeof(uint32_t)` just
+    // above, and again in Mixer.c -- so a two-byte sample measures ZERO words,
+    // each pass of the mix-down consumes zero of them, and the fill does not
+    // advance. Looping is what makes it unbounded: without it the voice
+    // reaches the not-more-data-and-not-looping exit and stops. audioif#85.
+    //
+    // The condition is read off the fetch reset() just did rather than off the
+    // sample's declared length, because that is what the CPython twin can see
+    // too: on that target a source is any object with `_get_buffer`, and
+    // `max_buffer_length` is not part of the surface. Same rule, same moment,
+    // both targets -- which also catches a source whose declared buffer is
+    // ample and whose content is not, such as a one-frame WaveFile.
+    //
+    // REFUSED RATHER THAN PADDED, on two counts. Padding a one-frame mono loop
+    // up to two frames halves its loop rate, which for anything but silence is
+    // a different sound delivered without a word said; and the padding would
+    // have to be a COPY, where `RawSample` deliberately holds the caller's
+    // buffer so that writes to that array are heard. Refusing is loud and
+    // reversible; a pad is neither. ValueError, because that is already what
+    // play() raises for a sample this mixer cannot take (audiosample_must_match
+    // just above), so a caller's existing except clause covers it.
+    //
+    // `voice.loop = True` set AFTER play() is deliberately NOT guarded: the
+    // voice's buffer is legitimately empty at the end of any sample, so there
+    // is no honest way to tell that case from this one at that moment. The
+    // mix-down backstop in Mixer.c covers it -- the voice stops rather than
+    // spinning -- which is what the CPython twin has done since audioif#24.
+    if (loop && self->buffer_length == 0 && !self->more_data) {
+        // A refused play() leaves the voice stopped, not half-started.
+        self->sample = NULL;
+        self->loop = false;
+        mp_raise_ValueError(MP_ERROR_TEXT("A looped sample must fill at least one 32-bit word"));
+    }
 }
 
 bool common_hal_audiomixer_mixervoice_get_playing(audiomixer_mixervoice_obj_t *self) {

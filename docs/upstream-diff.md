@@ -3028,3 +3028,77 @@ a mode whose Q a filter would refuse. `tests/test_cpython_audiomodal.py`
 carries eleven traits with their bars and the planted faults that break each,
 including the limit cycle above, which is recorded there as what it was: a
 real bug rather than a planted one.
+
+## `audiomixer`: a looping sample under one word is refused, not spun on (audioif#85)
+
+CircuitPython's mixer counts a voice's buffer in **packed 32-bit words**:
+`MixerVoice` fetches a buffer and divides its byte length by `sizeof(uint32_t)`.
+A one-frame mono `RawSample` is two bytes, so it measures **zero words**, the
+mix-down takes zero of them on every pass, and `length` never reaches zero.
+Looping is what makes it unbounded — without it the voice reaches the
+not-more-data-and-not-looping exit and stops.
+
+```python
+mx = audiomixer.Mixer(voice_count=1, sample_rate=48000, channel_count=1,
+                      bits_per_sample=16, samples_signed=True, buffer_size=1024)
+mx.voice[0].play(audiocore.RawSample(array("h", [0]), sample_rate=48000,
+                                     channel_count=1), loop=True)
+audiocore.get_buffer(mx)          # never returns
+```
+
+Measured 2026-09-17 at the pin (`cebb7ca`): mono × 1 frame hangs on
+`cmods/bin/micropython` and on `cmods/bin/circuitpython` 10.3.0; mono × 2 or 3
+frames, and stereo × 1 or 2, all return. Found from the outside — two Phase 4
+effects primed their mixers' level gates with a one-frame silence and their
+MicroPython renders "hung for over 90 s", where a two-frame silence fixed both.
+
+**This port refuses it.** `play(loop=True)` raises `ValueError("A looped sample
+must fill at least one 32-bit word")` when the fetch it already performs comes
+back under a word with no more to come, and the mix-down carries a backstop for
+the routes `play()` cannot see. **Upstream still spins**, which is why
+`tests/parity/mixer_short_loop_probe.py` is not in `verify_dsp.py`'s `PROBES`:
+the oracle would hang the three-way rather than report a difference.
+`audiomixer` is a stock CircuitPython module and not part of
+`src/circuitpython_spike/`, so per this repository's rule the fix lands on the
+MicroPython and CPython targets only and the oracle is left alone.
+
+### Refused rather than padded
+
+Padding a one-frame mono loop up to two frames halves its loop rate. For
+anything but silence that is a different sound delivered without a word said,
+and the padding would have to be a **copy**, where `RawSample` deliberately
+holds the caller's buffer so that writes to that array are heard. Two
+CircuitPython properties broken to save one line of caller work. `ValueError` is
+also already what `play()` raises for a sample the mixer cannot take
+(`audiosample_must_match`), so a caller's existing `except` covers it.
+
+### What is guarded, and what deliberately is not
+
+`play(loop=True)` is guarded, because the fetch it performs is definitive. The
+condition is read off that fetch rather than off the sample's declared length,
+so that the CPython twin can apply the identical rule — a source there is any
+object with `_get_buffer` and has no `max_buffer_length` to read — and so that a
+source with an ample declared buffer and a one-frame file is caught too.
+
+`voice.loop = True` set **afterwards** is not guarded. At that moment an empty
+buffer is also what the end of any sample looks like, and there is no honest way
+to tell the two apart. `Mixer.c`'s mix-down carries the backstop instead: a
+second consecutive fetch yielding no word stops the voice and zero-fills its
+remainder, which is what the CPython twin has done since audioif#24. The twin
+has two such exits and each was measured to be sufficient alone — removing both
+is what makes it hang — while the native side had neither.
+
+`MixerVoice.loop` also gains a property on the CPython twin, which had only the
+`play(loop=)` argument. The MicroPython binding and CircuitPython have carried
+it all along; `tests/test_binding_parity.py` covers audioif's own nine modules
+and so never compared this one.
+
+### How it is verified
+
+`tests/parity/mixer_short_loop_probe.py`, six cases, runs unchanged on all
+three runtimes and **must be run under a timeout** — the defect is a hang, and
+an unbounded run that hangs says nothing where a killed one says everything.
+`tests/test_cpython_mixer_short_loop.py` is the half CI can run: it drives the
+probe in a subprocess with a 20-second bound, so a regression is a named failure
+rather than an untimed job hang. Removing the `play()` guard turns case 1 red;
+removing both twin exits makes case 6 hit the timeout with no output at all.

@@ -73,6 +73,38 @@ class MixerVoice:
         self._sample, self._loop = sample, bool(loop)
         result, self._remaining = _source_chunk(sample)
         self._source_more = result == GET_BUFFER_MORE_DATA
+        # A LOOPING SOURCE THAT CANNOT FILL ONE PACKED WORD NEVER ENDS. The
+        # mix-down consumes whole 32-bit words (`_source_chunk` drops the
+        # trailing bytes that do not form one), so a two-byte sample offers
+        # nothing to take, and looping means it never reaches the exit that
+        # stops a finished voice. On the native builds that is a hang rather
+        # than a short render: audioif#85.
+        #
+        # Read off the fetch just made rather than off a declared length,
+        # because a source here is any object with `_get_buffer` and has no
+        # `max_buffer_length` to read. `src/audiomixer/MixerVoice.c` applies
+        # the same rule at the same moment, and carries why this refuses
+        # rather than pads.
+        #
+        # `voice.loop = True` set AFTER play() is deliberately not guarded;
+        # the empty-fetch counter in `_get_buffer` covers it by stopping the
+        # voice, as it has since audioif#24.
+        if self._loop and not self._remaining and not self._source_more:
+            self._sample, self._loop = None, False
+            raise ValueError(
+                "A looped sample must fill at least one 32-bit word")
+
+    @property
+    def loop(self):
+        return self._loop
+
+    @loop.setter
+    def loop(self, value):
+        # The native binding has carried `MixerVoice.loop` as a GETSET since
+        # the tier-3 port and CircuitPython has it too; this side only ever had
+        # the `play(loop=)` argument, so the property is added here rather than
+        # being a new surface. It is deliberately unguarded -- see play().
+        self._loop = bool(value)
 
     def stop(self): self._sample = None
 
