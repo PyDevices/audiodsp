@@ -87,9 +87,11 @@ WORKSPACE = ROOT.parent
 PROBES = (
     ("dynamics_probe.py", "audiodynamics", {}, None),
     ("route_probe.py", "audioroute", {}, None),
-    ("route_dry_probe.py", "audioroute",
-     {"circuitpython": "its coverage variant does not compile audiospeed"},
-     None),
+    # The stated skip this used to carry -- "its coverage variant does not
+    # compile audiospeed" -- was true of the 10.2.1 oracle and stopped being
+    # true when the 10.3.0 build gained the module. It ran three ways from the
+    # day the skip went stale, so it is unskipped rather than reworded.
+    ("route_dry_probe.py", "audioroute", {}, None),
     ("midside_probe.py", "audioroute", {}, None),
     ("multiply_probe.py", "audiomath", {}, None),
     ("suboctave_probe.py", "audiomath", {}, None),
@@ -133,6 +135,26 @@ PROBES = (
      None),
     ("granular_pitch_shift_probe.py", "audiodelays", {}, None),
     ("resampler_probe.py", "audiospeed", {}, None),
+    # Two departures from 10.3.0, both of them upstream bugs this port
+    # declines to reproduce: the Q16 rate truncates there and rounds here
+    # (audioif#92), and the phase accumulator is zeroed at every source buffer
+    # there and carried here (audioif#91). See docs/upstream-diff.md.
+    #
+    # `resampler_probe.py` above cannot see either one -- it asks only for 2.0,
+    # 1.0 and 0.5, which are exact in Q16 and divide a buffer exactly -- which
+    # is why this probe exists rather than a case appended to that one.
+    #
+    # The MicroPython leg needs a build carrying the fix. Any binary from
+    # before it renders CircuitPython's bytes here, to the byte, because the
+    # port was faithful; a stale interpreter therefore fails this line for a
+    # reason that is not a defect.
+    ("speedchanger_hold_probe.py", "audiospeed",
+     {"circuitpython": "upstream's SpeedChanger truncates its Q16 rate and "
+                       "restarts its phase at every source buffer, and ours "
+                       "does neither - audioif#92 and audioif#91, both "
+                       "deliberate departures recorded in "
+                       "docs/upstream-diff.md"},
+     None),
     ("echo_filter_probe.py", "audiodelays", {}, None),
     ("freeverb_filter_probe.py", "audiofreeverb", {}, None),
 )

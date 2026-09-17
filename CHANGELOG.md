@@ -1,5 +1,27 @@
 ## Unreleased
 
+- `audiospeed.SpeedChanger` **carries its phase across a source buffer**.
+  Upstream zeroes the accumulator every time it takes a new buffer, so what the
+  node renders depends on how the node above it chunks its output: the same
+  hold over 64- and 256-frame buffers differed in 1947 frames of 2048. A
+  sample-and-hold built from a pair therefore drifted (73 codes over 65536
+  frames at 48 kHz, 430 at 44.1) and spread its images instead of placing them
+  — a 1 kHz image under a 7 kHz tone held at 8 kHz read −39.9 dB where a
+  zero-order hold puts it at −0.22. All of it is 0 now, and the render matches
+  `source[(((n·up)>>16)·down)>>16]` exactly. A rate that divides the buffer
+  length was always right, which is why the parity gate never saw it.
+  `reset_buffer` still starts the stream over. Upstream still restarts, so this
+  is a named departure — `docs/upstream-diff.md`, report drafted (audioif#91).
+
+- `audiospeed`: the 16.16 rate **rounds** now instead of truncating. Upstream
+  casts, so a float landing a hair below its Q16 neighbour lost a whole LSB —
+  `1/1.0000000000000004` came back as 65535/65536, and a `SpeedChanger` pair
+  asked for "the hold rate = the running rate" was not an identity at 44.1 kHz
+  (27666 codes of error on a full-scale tone; 48 and 22.05 kHz happened to land
+  on 1.0 and looked fine). `Resampler`'s bound ratio rounds too: 48000/44100 is
+  71332, not 71331. Upstream CircuitPython still truncates, so this is a named
+  departure — `docs/upstream-diff.md`, report drafted (audioif#92).
+
 - `audioroute.Splitter` lost the head of any block bigger than its
   8192-frame ring. `audiocore.get_buffer` takes no length, so a source hands
   back what it has — a `RawSample` over a table returns the whole table — and

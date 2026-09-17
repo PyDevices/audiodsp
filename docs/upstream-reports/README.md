@@ -1,5 +1,14 @@
 # Drafts for adafruit/circuitpython
 
+Two later drafts are **not filed yet** and are held with the rest. Both are in
+`audiospeed`, which is new in 10.3.0, and both were measured on a build of that
+tag rather than on this port (see "Provenance of the numbers").
+
+| draft | what | shape of the fix |
+|---|---|---|
+| [speedchanger-rate-rounding.md](speedchanger-rate-rounding.md) | the 16.16 rate truncates, so `1/1.0000000000000004` is 65535/65536 and a `SpeedChanger` pair asked for unity is not one | one character, twice |
+| [speedchanger-phase-carry.md](speedchanger-phase-carry.md) | the phase accumulator is zeroed at every source buffer, so what the node renders depends on the block size above it: 1947 frames of 2048 differ between a 64- and a 256-frame source | a few lines |
+
 Six bugs this port found in CircuitPython, written up as issue bodies.
 **Filed 2026-08-28** (all re-verified by inspection of `10.3.0-rc.0` first):
 
