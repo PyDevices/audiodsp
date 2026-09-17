@@ -1,5 +1,14 @@
 ## Unreleased
 
+- `audioroute.Splitter` lost the head of any block bigger than its
+  8192-frame ring. `audiocore.get_buffer` takes no length, so a source hands
+  back what it has — a `RawSample` over a table returns the whole table — and
+  writing 9600 frames lapped every cursor including the one about to read:
+  1408 frames gone, and a seam at 8192. It writes in ring-sized pieces now
+  and keeps the remainder. Lapping a *laggard* tap is unchanged and still
+  deliberate. `audioroute.RING_FRAMES` is exposed for callers who need the
+  number (audioif#87).
+
 - `audiomixer`: a mixer voice looping a sample too short to fill one packed
   32-bit word — a one-frame mono `RawSample` is two bytes — never returned
   from `get_buffer` on the native builds. `play(loop=True)` now raises

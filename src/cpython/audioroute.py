@@ -35,6 +35,10 @@ __revision__ = _audioif.__revision__
 
 MAX_TAPS = 4
 CHUNK_FRAMES = _audioif.SPLITTER_CHUNK_FRAMES
+#: How many frames the shared ring holds. A source may hand back more
+#: than this in one go; the Splitter writes it in ring-sized pieces
+#: rather than lapping its own readers. audioif#87.
+RING_FRAMES = _audioif.SPLITTER_RING_FRAMES
 
 _SILENCE = bytes(CHUNK_FRAMES * 4)
 
@@ -98,6 +102,9 @@ class Splitter:
                                        self.channel_count)
                            for index in range(taps))
         self._deinited = False
+        #: What one pull from the source did not fit in the ring, offered
+        #: before the source is asked again. audioif#87.
+        self._pending = b""
 
     def tap(self, index):
         if self._deinited:
@@ -126,6 +133,7 @@ class Splitter:
         self._taps = ()
         self._source = None
         self._ring = None
+        self._pending = b""
 
     def __enter__(self):
         return self
@@ -136,10 +144,22 @@ class Splitter:
     def _pull(self):
         if self._deinited or self._source is None:
             return
-        result, data = get_buffer(self._source, False, 0)
-        if result == GET_BUFFER_ERROR:
-            return
-        self._ring.write(bytes(data))
+        # WHAT THE LAST PULL COULD NOT FIT COMES FIRST. A source hands back
+        # what it has -- a RawSample over a 9600-frame table returns all 9600
+        # in one call -- and the ring holds 8192. Writing the lot laps every
+        # cursor including the one about to read, so the head is destroyed
+        # unseen and the stream has a seam at 8192. `write` takes one ring's
+        # worth and says how much; this holds the rest, and the source is not
+        # asked again until it is gone. audioif#87.
+        if not self._pending:
+            result, data = get_buffer(self._source, False, 0)
+            if result == GET_BUFFER_ERROR:
+                return
+            self._pending = bytes(data)
+            if not self._pending:
+                return
+        taken = self._ring.write(self._pending)
+        self._pending = self._pending[taken * 2 * self.channel_count:]
 
 
 MIDSIDE_FRAMES = _audioif.MIDSIDE_FRAMES

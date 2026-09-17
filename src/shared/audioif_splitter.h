@@ -35,7 +35,20 @@ void audioif_splitter_set_channel_count(audioif_splitter_state_t *state,
     uint32_t channel_count);
 
 // Append interleaved stereo frames, dragging any cursor the write laps.
-void audioif_splitter_write(audioif_splitter_state_t *state,
+//
+// Returns HOW MANY FRAMES IT TOOK, which is `count` capped at one ring. The
+// caller keeps the rest and offers it on the next call rather than letting it
+// be written over unread: a source is entitled to hand back more than the ring
+// holds in one go -- a `RawSample` over a table returns the whole table -- and
+// writing 9600 frames into an 8192-frame ring laps every cursor, including the
+// cursor of the tap that is about to read. The head of the block is destroyed
+// before anyone sees it and the stream has a seam at 8192. audioif#87.
+//
+// The cap is not the same thing as the lapping above it. Dragging a LAGGARD
+// forward is deliberate: a tap nobody reads must not wedge the ring, and what
+// it loses it was never going to collect. Lapping the tap that is pulling is
+// not deliberate; that is data loss on the live branch.
+uint32_t audioif_splitter_write(audioif_splitter_state_t *state,
     const int16_t *frames, uint32_t count);
 
 // True when `tap` has read everything written -- the caller's cue to pull the

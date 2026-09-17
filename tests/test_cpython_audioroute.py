@@ -25,10 +25,20 @@ its own output.
 | R9 | The width clamps to its rails | exact |
 | R10 | `set()` moves the width mid-stream | exact |
 | R11 | A mono source passes through | exact |
+| R12 | A block bigger than the ring survives whole | exact, frame for frame |
 
 R7 is this module's form of the identity trait
 (`docs/correctness-standard.md`): an exact answer through the DSP rather than a
 bypass, which is where an arithmetic overflow shows and a range check does not.
+
+R12 is audioif#87, and it is a trait rather than a render case because no
+render would have caught it: the ring is 8192 frames and every probe here feeds
+blocks smaller than that. `get_buffer` takes no length, so a source hands back
+what it has -- a `RawSample` over a 9600-frame table returns all 9600 -- and
+writing the lot lapped every cursor including the one about to read. The first
+1408 frames were destroyed before any tap saw them and the stream had a seam at
+8192. The material is a per-frame ramp for that reason: a dropped or repeated
+frame reads as an index rather than as a click.
 """
 
 import unittest
@@ -118,6 +128,56 @@ class SplitterTest(unittest.TestCase):
             result, data = audiocore.get_buffer(first)
             self.assertEqual(result, audiocore.GET_BUFFER_MORE_DATA)
             self.assertEqual(bytes(data), bytes(audioroute.CHUNK_FRAMES * 4))
+
+    def test_a_block_bigger_than_the_ring_survives_whole(self):
+        """R12, audioif#87. 9600 frames into an 8192-frame ring.
+
+        Each frame carries its own index, so what this asserts is not "some
+        audio came out" but that frame N out is frame N in, for all 9600.
+        Before the fix the tap's first frame was source frame 1408.
+        """
+        frames = 9600
+        self.assertGreater(frames, audioroute.RING_FRAMES)
+        table = array("h")
+        for frame in range(frames):
+            value = frame - 15000
+            table.extend((value, value))
+        splitter = audioroute.Splitter(
+            audiocore.RawSample(table, sample_rate=SAMPLE_RATE,
+                                channel_count=2), 2)
+        tap = splitter.tap(0)
+        out = array("h")
+        # Bounded by construction. A tap hands back at least one frame per
+        # call, so this is many times what is needed, and a regression that
+        # stopped producing fails here rather than running for ever.
+        for _ in range(frames):
+            if len(out) >= frames * 2:
+                break
+            out.extend(array("h", bytes(audiocore.get_buffer(tap)[1])))
+        self.assertGreaterEqual(len(out), frames * 2, "the tap stopped early")
+        got = out[:frames * 2:2]
+        # Found and reported by hand rather than with assertEqual on two
+        # 9600-element lists: unittest formats that failure with difflib, which
+        # takes minutes on sequences this long and reads like a hang.
+        for index in range(frames):
+            if got[index] != index - 15000:
+                self.fail(
+                    "frame %d is source frame %d, not %d -- %d frames of the "
+                    "block were lost (audioif#87)"
+                    % (index, got[index] + 15000, index,
+                       got[index] + 15000 - index))
+
+    def test_a_block_that_fits_the_ring_is_unchanged(self):
+        """The control: the remainder path must not disturb the normal case.
+
+        Anything up to one ring is written in a single pass and leaves no
+        remainder, so the source is pulled exactly when it was before.
+        """
+        splitter = audioroute.Splitter(source(frames=800), 2)
+        tap = splitter.tap(0)
+        first = bytes(audiocore.get_buffer(tap)[1])
+        self.assertEqual(len(first), audioroute.CHUNK_FRAMES * 4)
+        self.assertNotEqual(first, bytes(len(first)))
 
     def test_a_tap_can_feed_a_dynamics(self):
         splitter = audioroute.Splitter(source(), 2)

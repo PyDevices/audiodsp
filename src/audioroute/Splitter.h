@@ -23,6 +23,12 @@ typedef struct {
     mp_obj_t taps[AUDIOIF_SPLITTER_MAX_TAPS];
     audioif_splitter_state_t state;
     int16_t silence[AUDIOIF_SPLITTER_CHUNK_FRAMES * 2];
+    // What one pull from the source did not fit in the ring, offered before
+    // the source is asked again. Points into the source's own buffer, which
+    // stays alive because `source` holds it, the same way MixerVoice keeps
+    // `remaining_buffer`. audioif#87.
+    uint8_t *pending;
+    uint32_t pending_frames;
     // This type carries no `audiosample_base_t` -- it is not a sample, it
     // hands out taps -- so it cannot use audiocore's channel-count-zero
     // convention for "released" and keeps its own flag.

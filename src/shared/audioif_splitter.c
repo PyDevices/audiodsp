@@ -21,8 +21,13 @@ void audioif_splitter_set_channel_count(audioif_splitter_state_t *state,
     state->channel_count = channel_count == 1u ? 1u : 2u;
 }
 
-void audioif_splitter_write(audioif_splitter_state_t *state,
+uint32_t audioif_splitter_write(audioif_splitter_state_t *state,
     const int16_t *frames, uint32_t count) {
+    // One ring at most. See the header for why the caller keeps the rest.
+    if (count > AUDIOIF_SPLITTER_RING_FRAMES) {
+        count = AUDIOIF_SPLITTER_RING_FRAMES;
+    }
+    const uint32_t taken = count;
     while (count-- != 0) {
         const uint32_t at =
             (state->write_pos % AUDIOIF_SPLITTER_RING_FRAMES) * 2u;
@@ -38,6 +43,7 @@ void audioif_splitter_write(audioif_splitter_state_t *state,
             }
         }
     }
+    return taken;
 }
 
 uint32_t audioif_splitter_take(audioif_splitter_state_t *state, uint32_t tap,

@@ -54,6 +54,8 @@ static mp_obj_t audioroute_splitter_make_new(const mp_obj_type_t *type,
         mp_obj_malloc(audioroute_splitter_obj_t, type);
     self->deinited = false;
     self->source = source;
+    self->pending = NULL;
+    self->pending_frames = 0;
     audioif_splitter_init(&self->state, (uint32_t)taps);
     if (sample->channel_count < 1 || sample->channel_count > 2) {
         mp_raise_ValueError(MP_ERROR_TEXT(
@@ -122,6 +124,9 @@ static mp_obj_t audioroute_splitter_deinit(mp_obj_t self_in) {
         }
     }
     self->source = MP_OBJ_NULL;
+    // The remainder points into the released source's buffer.
+    self->pending = NULL;
+    self->pending_frames = 0;
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioroute_splitter_deinit_obj,

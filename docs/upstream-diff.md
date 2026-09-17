@@ -3102,3 +3102,56 @@ an unbounded run that hangs says nothing where a killed one says everything.
 probe in a subprocess with a 20-second bound, so a regression is a named failure
 rather than an untimed job hang. Removing the `play()` guard turns case 1 red;
 removing both twin exits makes case 6 hit the timeout with no output at all.
+
+## `audioroute.Splitter`: a block bigger than the ring is written in pieces (audioif#87)
+
+Not a deviation from CircuitPython — `audioroute` is audioif's own, from
+micropython-vst3's `vstaudio` engine — but it belongs beside the other
+kernel corrections, because the shape is one a reader here will meet again.
+
+`audiocore.get_buffer` takes no length argument. A source hands back what it
+has, and a `RawSample` over a table returns the **whole table**: 9600 frames in
+one call. The `Splitter`'s ring holds 8192. Writing the lot laps every read
+cursor, including the cursor of the tap that is about to read, so the head of
+the block is destroyed before anyone sees it and the stream has a seam at frame
+8192. Measured on the CPython target: a 9600-frame ramp came out starting at
+source frame **1408**, with exactly one discontinuity, at 8192.
+
+Found by the effects board runner on a class that fed a whole table through a
+`Splitter`. Re-blocking the source hid it, which is why no probe here had ever
+seen it — they all feed blocks smaller than the ring.
+
+### Kept: lapping a laggard. Fixed: lapping the reader
+
+The two are easy to confuse. Dragging a **laggard** tap's cursor forward is
+deliberate and stays: a branch nobody reads must not wedge the ring, and what
+that branch loses it was never going to collect. Lapping the tap that is
+*pulling* is not deliberate. That is data loss on a live branch, and there is no
+contract a caller could honour to avoid it — nothing lets a consumer ask a
+source for less than it wants to give.
+
+### The shape of the fix, which is MixerVoice's
+
+`audioif_splitter_write` takes one ring's worth at most and **returns how many
+frames it took**. The caller keeps the rest and offers it before asking the
+source again, exactly as `MixerVoice` keeps `remaining_buffer`. For a block that
+fits the ring — every case before this — nothing changes: the write consumes it
+whole, the remainder is empty, and the source is pulled on the same call it
+always was.
+
+`_audioif.SplitterRing.write` returns the frame count to the CPython twin, and
+`_audioif.SPLITTER_RING_FRAMES` is exposed beside `SPLITTER_CHUNK_FRAMES` as
+`audioroute.RING_FRAMES`, because a caller reasoning about a block bigger than
+the ring needs the number rather than a comment about it.
+
+### How it is verified
+
+Trait **R12** in `tests/test_cpython_audioroute.py`, and
+`tests/parity/splitter_overflow_probe.py`, which runs unchanged on all three
+runtimes. Both use a per-frame ramp, so a lost frame reports as an index rather
+than as a click, and both are bounded by construction.
+
+The two halves were planted separately. With the caller's remainder removed but
+the kernel cap left in, R12 reports `frame 8192 is source frame 0` — the tail is
+dropped instead of the head and the block repeats. With both removed it reports
+`frame 0 is source frame 1408`, which is the defect as it was found.

@@ -913,10 +913,13 @@ static PyObject *splitter_ring_write(audioif_splitter_object_t *self,
             "input must be whole frames for the configured channel count");
         return NULL;
     }
-    audioif_splitter_write(&self->state, (const int16_t *)input.buf,
-        (uint32_t)(input.len / width));
+    const uint32_t taken = audioif_splitter_write(&self->state,
+        (const int16_t *)input.buf, (uint32_t)(input.len / width));
     PyBuffer_Release(&input);
-    Py_RETURN_NONE;
+    // The frame count actually appended, which is one ring at most. The caller
+    // keeps the rest and offers it next time rather than letting it be written
+    // over unread. audioif#87.
+    return PyLong_FromUnsignedLong((unsigned long)taken);
 }
 
 static PyObject *splitter_ring_starved(audioif_splitter_object_t *self,
@@ -2961,6 +2964,10 @@ static int audioif_exec(PyObject *module) {
         state->splitter_ring_type) < 0) return -1;
     if (PyModule_AddIntConstant(module, "SPLITTER_CHUNK_FRAMES",
         AUDIOIF_SPLITTER_CHUNK_FRAMES) < 0) return -1;
+    // The ring's depth. A caller reasoning about a block bigger than this
+    // needs the number rather than a comment about it. audioif#87.
+    if (PyModule_AddIntConstant(module, "SPLITTER_RING_FRAMES",
+        AUDIOIF_SPLITTER_RING_FRAMES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "DYNAMICS_FRAMES",
         AUDIOIF_DYNAMICS_FRAMES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "MULTIPLY_FRAMES",
