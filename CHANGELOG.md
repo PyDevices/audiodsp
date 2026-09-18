@@ -1,5 +1,46 @@
 ## Unreleased
 
+- **The soundtrack render gate runs again.**
+  `tests/parity/capture_render_reference.py` had not been able to start since
+  micropython-vst3 became mpvst. It looked for `<checkout>/soundtrack` and ran
+  `tools/render_preview.py`; mpvst `ef0bed5` moved both composers beside their
+  songs, so the soundtrack is `examples/soundtrack/` and the renderer is
+  `examples/soundtrack/composer/preview.py` with `harness.py`. The script
+  drives that, invoked as mpvst documents it, with the checkout defaulting to
+  `../mpvst` (`--mpvst`; `--vst3` still answers). What it measures is
+  unchanged: the old renderer and the new one are both thin shims over this
+  repository's own `audiorender`, so the report is the same report and
+  `normalize()`, `TRACK_LINE`, `SECTION_LINE` and `MASTER_LINE` read it as
+  they did. One parser did need loosening — the renderer prints an elapsed
+  time it gets by subtracting two wall-clock readings, and under WSL the clock
+  resyncs backwards often enough that the figure comes out negative, which the
+  normalizer's pattern did not match and which would have left an
+  irreproducible number in a report that is diffed.
+
+  `preview.py` loads an instrument the way the sidecar does, through the
+  bundle's `mpvst_instrument_adapter`, so it wants MPVST installed. Rather
+  than require a build, the gate points `MPVST_BUNDLE` at mpvst's own `lib/`,
+  which is the directory an install is staged from and holds the adapters and
+  nothing else. That is not a convenience: a staged bundle also carries
+  *copies* of `audioinstruments` and `audioeffects`, and `harness.py` puts the
+  bundle ahead of `PYTHONPATH`, so pointing at a real install would have made
+  `--components-lib` inert and quietly graded a stale library instead of the
+  one asked for. `MPVST_COMPONENTS_LIB` is set from the same directory, so the
+  patches the composer reads and the packages the render imports cannot come
+  from two different trees.
+
+  A piece that cannot be rendered at all is now reported and the run carries
+  on, rather than ending the gate. That is not hypothetical: two pieces build
+  a `Chorus` the way `audioeffects` used to take one and fail immediately
+  ([mpvst#8](https://github.com/PyDevices/mpvst/issues/8)), and stopping at
+  the first of them left the other six unmeasured — which is the shape of
+  failure this gate exists to avoid.
+
+  The golden was **not** re-captured. It holds seven pieces from 2026-09-03
+  and the soundtrack has grown since; whether that baseline is still the
+  reference or should be re-taken against today's pieces and today's DSP is
+  Brad's call, not an agent's (audioif#88).
+
 - **`audioshaper.Waveshaper`'s own headroom is documented, and pinned by a
   trait test.** A curve that reaches the rails and a `post_gain` above about
   0.74 saturates the node's *own* output: the half-band decimator rings
