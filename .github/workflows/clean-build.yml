@@ -41,14 +41,15 @@ jobs:
             known-divergent: ""
           - name: float
             cflags: -DMICROPY_FLOAT_IMPL=MICROPY_FLOAT_IMPL_FLOAT
-            # See #80. The double cell has no exceptions and must not gain any.
+            # Two left of the six #80 found, and both are below the probes:
+            # #101 (synthio.Biquad derives W0 in mp_float_t where the CPython
+            # extension uses the shared double helper) and #102 (a filtered
+            # Echo's per-sample arithmetic is mp_float_t in C and double in the
+            # twin). Each moves board digests, so each is its own change.
+            # The double cell has no exceptions and must not gain any.
             known-divergent: >-
               --known-divergent biquad_component_probe.py
-              --known-divergent dynamics_extras_probe.py
-              --known-divergent dynamics_options_probe.py
-              --known-divergent dynamics_probe.py
               --known-divergent echo_filter_probe.py
-              --known-divergent granular_pitch_shift_probe.py
     name: unix-usermod (${{ matrix.float-impl.name }}-precision)
     steps:
       - uses: actions/checkout@v7
@@ -97,12 +98,13 @@ jobs:
       #
       # CircuitPython is not built in CI, so this is the two-way; the three-way
       # including the patched CircuitPython build is a local run.
-      # The float cell diverges on six probes because mp_float_t is 32-bit
-      # there and CPython's is not -- that is #80, deliberately deferred.
-      # --known-divergent narrows the gate to exactly those six rather than
-      # switching it off: a fourth probe diverging still fails, and so does any
-      # of these three starting to agree, which is what stops the exception
-      # outliving its reason. Delete the flag when #80 closes; the gate will
+      # The float cell diverges on two probes because mp_float_t is 32-bit
+      # there and CPython's is not -- #101 and #102, both named above. It was
+      # six until #80 fixed the four whose cause was in the probes themselves.
+      # --known-divergent narrows the gate to exactly those two rather than
+      # switching it off: a third probe diverging still fails, and so does
+      # either of these starting to agree, which is what stops the exception
+      # outliving its reason. Delete the flag when both close; the gate will
       # tell you if you forget.
       - name: Every target renders the DSP nodes identically
         run: |

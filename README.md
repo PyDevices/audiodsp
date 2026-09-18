@@ -91,8 +91,16 @@ repository for how to install them.
 
 ## What's here
 
-One pure-Python tier sits on top of the CircuitPython-compatible core:
+Two pure-Python modules sit beside the CircuitPython-compatible core:
 
+- **`lib/audioif_util/`** — `float32(value)` and `float32_bits(value)`,
+  `struct` and nothing else. A Python float is the interpreter's own width:
+  a double here, a **single** on every board. So a setting written in Python
+  — `node.mix = 0.35` — is two different numbers, and the node renders
+  different bytes on a board than on a desktop before its kernel is reached.
+  Put a derived setting through `float32` and both targets hold the number
+  the board would have held. See
+  [docs/correctness-standard.md](docs/correctness-standard.md).
 - **`lib/audiorender/`** — renders a whole composition offline: tracks,
   tempo map, notes and automation in, a mixed stereo master and a level
   report out. This is the one part of the repository written for a desktop

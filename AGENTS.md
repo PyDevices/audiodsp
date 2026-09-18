@@ -25,8 +25,11 @@ for source compatibility; only this repo's own name differs.
   which of the three runtimes is underneath. Nothing puts this directory on
   `sys.path`: audioif is a dependency, imported from wherever it is installed.
 - `lib/` — the pure-Python tier: `lib/audiorender/` (whole-composition
-  offline rendering — numpy, desktop-only, never frozen), which ships inside
-  the `pydevices-audioif` wheel. The instrument and effect libraries that
+  offline rendering — numpy, desktop-only, never frozen) and
+  `lib/audioif_util/` (`float32`, the round trip that makes a setting derived
+  in Python the same number on a board as on a desktop — see
+  [docs/correctness-standard.md](docs/correctness-standard.md)). Both ship
+  inside the `pydevices-audioif` wheel. The instrument and effect libraries that
   used to sit beside it — `audioinstruments` (53 `synthio` instruments) and
   `audioeffects` (46 effect classes, racks included) — live in
   [audiocomponents](https://github.com/PyDevices/audiocomponents) now, as

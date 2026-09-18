@@ -39,12 +39,18 @@ Issues = "https://github.com/PyDevices/audioif/issues"
 py-modules = ["audiocore", "synthio", "audiomixer", "audiofilters", "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics", "audioroute", "audiomath", "audioecho", "audioconvolve", "audiobiquad", "audioshaper", "audioladder", "audioverb", "audiomodal"]
 # Keep py-modules explicit: src/cpython is the root package directory now, and
 # an automatic scan there would also pick up anything else that lands in it.
-packages = ["audiorender"]
-# audiorender is the only pure-Python package this wheel carries. The
-# instrument and effect libraries (audioinstruments, audioeffects) are not
-# in this repository any more: they are developed and published from
-# https://github.com/PyDevices/audiocomponents as their own distributions,
-# each depending on pydevices-audioif.
+packages = ["audiorender", "audioif_util"]
+# audiorender and audioif_util are the pure-Python packages this wheel
+# carries. The instrument and effect libraries (audioinstruments,
+# audioeffects) are not in this repository any more: they are developed and
+# published from https://github.com/PyDevices/audiocomponents as their own
+# distributions, each depending on pydevices-audioif.
+#
+# audioif_util is `struct` and two functions, and it is here rather than
+# beside the wrappers because it is the one pure-Python thing in this
+# repository that has to run on a *board*: a class deriving a setting in
+# Python rounds it differently there, and audioif_util.float32 is how it
+# stops (docs/correctness-standard.md, audioif#80, audiocomponents#75).
 
 # The CPython target is one directory: src/cpython holds the extension source,
 # the extension built in place, and the thirteen modules that wrap it. They are
@@ -59,6 +65,7 @@ packages = ["audiorender"]
 [tool.setuptools.package-dir]
 "" = "src/cpython"
 audiorender = "lib/audiorender"
+audioif_util = "lib/audioif_util"
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
