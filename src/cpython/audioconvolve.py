@@ -217,9 +217,9 @@ class Convolver(_AudioSample):
         # reason -- a node in the middle of a live graph never reports itself
         # finished.
         if produced == 0:
-            return GET_BUFFER_MORE_DATA, memoryview(
+            return GET_BUFFER_MORE_DATA, self._publish(
                 bytes(FRAMES * 2 * self.channel_count))
-        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+        return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
 __all__ = ("Convolver",)

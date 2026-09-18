@@ -175,9 +175,9 @@ class Multiply(_AudioSample):
         # A starved chain gets silence rather than a short block: this node
         # sits in the middle of a live graph and never reports itself finished.
         if produced == 0:
-            return GET_BUFFER_MORE_DATA, memoryview(
+            return GET_BUFFER_MORE_DATA, self._publish(
                 bytes(FRAMES * 2 * self.channel_count))
-        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+        return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
 class SubOctave(_AudioSample):
@@ -274,9 +274,9 @@ class SubOctave(_AudioSample):
         # sits in the middle of a live graph and never reports itself
         # finished.
         if produced == 0:
-            return GET_BUFFER_MORE_DATA, memoryview(
+            return GET_BUFFER_MORE_DATA, self._publish(
                 bytes(SUBOCTAVE_FRAMES * 2 * self.channel_count))
-        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+        return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
 __all__ = ("Multiply", "SubOctave")

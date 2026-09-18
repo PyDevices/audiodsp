@@ -2,7 +2,9 @@
 
 from struct import pack as _pack, unpack as _unpack
 
-from audiocore import GET_BUFFER_MORE_DATA, _AudioSample, get_buffer, reset_buffer
+from audiocore import (
+    GET_BUFFER_MORE_DATA, _AudioSample, _borrow, reset_buffer,
+)
 import _audioif
 
 
@@ -43,11 +45,23 @@ def _mod_mul(level):
 
 
 def _source_chunk(sample):
-    result, data = get_buffer(sample)
-    raw = bytes(data)
-    # CircuitPython's mixer consumes packed 32-bit words. Any trailing bytes
-    # that do not form a word are therefore intentionally ignored.
-    return result, raw[:len(raw) // 4 * 4]
+    """The block a voice will mix from -- BORROWED from the source, not copied.
+
+    `voice->remaining_buffer` in `src/audiomixer/Mixer.c` is a pointer into
+    the source node's own buffer, taken at `play()`/`reset()` and read again
+    at mix time (`uint32_t *src = voice->remaining_buffer`). A source pulled
+    by anything else in between is therefore heard as it stands THEN, not as
+    it stood when the voice fetched it -- which is how a class that settles a
+    filter behind a voice it has already attached gets the settled block out
+    of its first render rather than the bang. This side copied, so the bang
+    survived and only CPython rendered it (audioif#89). See
+    `audiocore._AudioSample._publish` for the other half.
+
+    CircuitPython's mixer consumes packed 32-bit words. Any trailing bytes
+    that do not form a word are therefore intentionally ignored.
+    """
+    result, data = _borrow(sample)
+    return result, data[:len(data) // 4 * 4]
 
 
 class MixerVoice:
@@ -173,7 +187,7 @@ class Mixer(_AudioSample):
             else:
                 neutral = 128 if not self.samples_signed else 0
                 silence = bytes([neutral]) * self._render_size
-            return GET_BUFFER_MORE_DATA, memoryview(silence)
+            return GET_BUFFER_MORE_DATA, self._publish(silence, 2)
         for voice in active:
             output = bytearray()
             # A source may claim GET_BUFFER_MORE_DATA and hand back nothing.
@@ -275,7 +289,9 @@ class Mixer(_AudioSample):
         else:
             neutral = 128 if not self.samples_signed else 0
             mixed = bytes(max(0, min(255, sum(chunk[i] - neutral for chunk in chunks) + neutral)) for i in range(size))
-        return GET_BUFFER_MORE_DATA, memoryview(mixed)
+        # Two, as `audiomixer/Mixer.h`'s `first_buffer` / `second_buffer`
+        # are, alternated by `use_first_buffer` on every render.
+        return GET_BUFFER_MORE_DATA, self._publish(mixed, 2)
 
 
 __all__ = ("Mixer",)

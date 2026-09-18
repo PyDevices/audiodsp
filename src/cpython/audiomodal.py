@@ -201,7 +201,7 @@ class Bank(_AudioSample):
         if produced < FRAMES:
             output += self._state.process(
                 bytes((FRAMES - produced) * width))
-        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+        return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
 __all__ = ("Bank",)

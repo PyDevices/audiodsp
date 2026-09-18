@@ -78,7 +78,7 @@ class SpeedChanger(_AudioSample):
             output += self._source_data[start:start + frame_size]
             self._phase = (self._phase + self._rate_fp) & 0xffffffff
         result = GET_BUFFER_DONE if self._source_exhausted else GET_BUFFER_MORE_DATA
-        return result, memoryview(bytes(output))
+        return result, self._publish(output)
 
 
 class Resampler(SpeedChanger):

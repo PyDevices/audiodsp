@@ -268,9 +268,9 @@ class Dynamics(_AudioSample):
         # A starved chain gets silence rather than a short block: this node
         # sits in the middle of a live graph and never reports itself finished.
         if produced == 0:
-            return GET_BUFFER_MORE_DATA, memoryview(
+            return GET_BUFFER_MORE_DATA, self._publish(
                 bytes(FRAMES * 2 * self.channel_count))
-        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+        return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
 __all__ = ("Dynamics", "DYN_COMPRESS", "DYN_LIMIT", "DYN_EXPAND", "DYN_GATE",

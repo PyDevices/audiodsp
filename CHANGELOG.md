@@ -1,5 +1,27 @@
 ## Unreleased
 
+- **A mixer voice mixes its source's buffer as it stands at mix time, on the
+  CPython twin too.** `common_hal_audiomixer_mixervoice_play` keeps what
+  `audiosample_get_buffer` handed back, and what it hands back is a pointer
+  into the source node's own buffer — one buffer per node, not a queue. So
+  anything that pulls the source between the fetch and the mix overwrites it,
+  and the voice mixes the later block. The twin copied instead, and a class
+  that settles a filter behind a voice it has already attached therefore
+  rendered its first block differently on CPython than on desktop
+  MicroPython, desktop CircuitPython and both boards: `Saturation`'s two
+  `Bias`-off-centre patches came out `3b0e6b65f9c782d0` where every native
+  leg said `1f9bcf50dc14a4ee`.
+
+  `audiocore._AudioSample._publish` is the rule now — a node hands back its
+  own buffer, refilled, with as many slots as the native rotates through (one
+  for the nodes audioif wrote, two for the ported CircuitPython effects, for
+  `Mixer` and for the synthesizer) — and `audiocore._borrow` is the in-graph
+  pull that does not copy. `audiocore.get_buffer` still copies, on both
+  targets, because it is the script-facing one.
+  `tests/parity/mixer_borrowed_block_probe.py` is the gate, and
+  [docs/correctness-standard.md](docs/correctness-standard.md) carries this as
+  the third way one twin and three natives part company. audioif#89.
+
 - **The soundtrack render gate runs again.**
   `tests/parity/capture_render_reference.py` had not been able to start since
   micropython-vst3 became mpvst. It looked for `<checkout>/soundtrack` and ran

@@ -135,6 +135,13 @@ PROBES = (
     # 100/127 -- invisible to every stored digest in the repository, because
     # none of their material lands on one. audioif#84.
     ("mixer_level_precision_probe.py", "audiomixer", {}, None),
+    # A voice mixes from its source's buffer as that buffer stands at mix
+    # time, because what it holds is a pointer into it. The twin copied the
+    # block at play() instead, so a class that settles a filter behind a voice
+    # it has already attached -- Saturation's coupling pole -- rendered its
+    # first block differently on CPython than on every native build.
+    # audioif#89.
+    ("mixer_borrowed_block_probe.py", "audiomixer", {}, None),
     ("tank_probe.py", "audioverb", {}, None),
     ("flanger_probe.py", "audiodelays",
      {"circuitpython": "upstream's own Flanger overflows int32 in its wet "

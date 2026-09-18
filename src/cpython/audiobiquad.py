@@ -193,8 +193,8 @@ class _Node(_AudioSample):
             self._pending = self._pending[run * width:]
             produced += run
         if produced == 0:
-            return GET_BUFFER_MORE_DATA, memoryview(bytes(FRAMES * width))
-        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+            return GET_BUFFER_MORE_DATA, self._publish(bytes(FRAMES * width))
+        return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
 class Biquad(_Node):

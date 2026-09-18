@@ -149,9 +149,9 @@ class Ladder(_AudioSample):
         # reason audioecho's repeats do -- the loop is only advanced by
         # frames that arrive.
         if produced == 0:
-            return GET_BUFFER_MORE_DATA, memoryview(
+            return GET_BUFFER_MORE_DATA, self._publish(
                 bytes(FRAMES * 2 * self.channel_count))
-        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+        return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
 __all__ = ("Ladder",)

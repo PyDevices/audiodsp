@@ -77,9 +77,15 @@ class SplitterTap(_AudioSample):
         data = owner._ring.take(self._index)
         if not data:
             # Still nothing: the source is dry, or another tap has already
-            # read past what one pull could supply.
-            return GET_BUFFER_MORE_DATA, memoryview(
+            # read past what one pull could supply. A buffer of this tap's
+            # own, where the native hands out the Splitter's shared
+            # `silence` -- one zeroed block either way, so a borrower reads
+            # the same bytes; see `audiocore._AudioSample._publish`.
+            return GET_BUFFER_MORE_DATA, self._publish(
                 bytes(CHUNK_FRAMES * 2 * self.channel_count))
+        # Not published: the ring IS this tap's storage, exactly as the
+        # native hands back `&state.ring[start * 2]`, and a second take
+        # lands on the next region rather than rewriting this one.
         return GET_BUFFER_MORE_DATA, memoryview(data)
 
 
@@ -248,9 +254,9 @@ class MidSide(_AudioSample):
         # sits in the middle of a live graph and never reports itself
         # finished.
         if produced == 0:
-            return GET_BUFFER_MORE_DATA, memoryview(
+            return GET_BUFFER_MORE_DATA, self._publish(
                 bytes(MIDSIDE_FRAMES * 2 * self.channel_count))
-        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+        return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
 __all__ = ("MidSide", "Splitter", "SplitterTap")

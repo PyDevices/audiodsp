@@ -111,7 +111,9 @@ class _Effect(_AudioSample):
         else:
             processed = (self._process(bytes(output[:valid_length]))
                          + bytes(self.buffer_size - valid_length))
-        return GET_BUFFER_MORE_DATA, memoryview(processed)
+        # Two, as `audiofilters/Filter.h`'s `int8_t *buffer[2]` is -- the
+        # shape every ported CircuitPython effect shares.
+        return GET_BUFFER_MORE_DATA, self._publish(processed, 2)
 
     def _process(self, data):
         return data

@@ -633,7 +633,8 @@ class Synthesizer(_AudioSample):
             note._envelope_state.step(sample_count)
 
         output = _audioif.mixdown_i32(mixed, self.max_polyphony)
-        return memoryview(output)
+        # Two, as `synthio/__init__.h`'s `int16_t *buffers[2]` is.
+        return self._publish(output, 2)
 
     def _get_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()

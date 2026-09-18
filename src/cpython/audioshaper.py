@@ -224,9 +224,9 @@ class Waveshaper(_AudioSample):
         # reverberation -- so silence in really is silence out, once the
         # half-bands have rung down.
         if produced == 0:
-            return GET_BUFFER_MORE_DATA, memoryview(
+            return GET_BUFFER_MORE_DATA, self._publish(
                 bytes(FRAMES * 2 * self.channel_count))
-        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+        return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
 class SampleHold(_AudioSample):
@@ -395,8 +395,8 @@ class SampleHold(_AudioSample):
         # that manufactured silence here would move where a chain ends, and
         # the pair of `SpeedChanger`s this replaces did not.
         if produced == 0 or self._exhausted:
-            return GET_BUFFER_DONE, memoryview(bytes(output))
-        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+            return GET_BUFFER_DONE, self._publish(output)
+        return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
 __all__ = ("SampleHold", "Waveshaper")

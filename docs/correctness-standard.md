@@ -237,6 +237,41 @@ proofs of 2026-09-17 name it as one of the three causes of a drive class's
 digests differing. The derivation ends in `float32` there too, or the board and
 the desktop are not running the same filter.
 
+## The third way: the twin keeping what the native borrows
+
+Contraction is the compiler choosing, a derived setting is the interpreter
+choosing. This one is neither: it is the CPython twin owning memory the native
+builds only point at.
+
+`audiosample_get_buffer` hands its caller a **pointer into the producer's own
+buffer** — `int16_t buffer[AUDIOIF_..._FRAMES * 2]` on the node, one buffer, not
+a queue. A consumer that holds that pointer across calls therefore reads what
+the producer rendered *last*, not what it had rendered when the pointer was
+taken. `audiomixer.MixerVoice` is exactly such a consumer: `play()` fetches one
+block and the mix-down reads it later.
+
+The twin has no pointers, so it answered each pull with a fresh `bytes` and a
+borrowed block could not be overtaken. Any class that pulls a node one of its
+own mixer voices is already holding then rendered one block differently on
+CPython than on every native build — which is what
+[`audioeffects.rebuilt.Saturation`](https://github.com/PyDevices/audiocomponents)
+does to settle its coupling pole before its first block, and why its two
+`Bias`-off-centre patches split CPython from desktop MicroPython, desktop
+CircuitPython and both boards (audioif#89).
+
+`audiocore._AudioSample._publish` is the rule now: a node hands back its own
+buffer, refilled — one slot for the nodes audioif wrote, two for the ported
+CircuitPython effects, for `Mixer` and for the synthesizer, because those
+alternate. `audiocore._borrow` is the in-graph pull that does not copy;
+`audiocore.get_buffer` still copies, on both targets, because it is the
+script-facing one. `tests/parity/mixer_borrowed_block_probe.py` is the gate.
+
+**What this does not yet cover:** a node's *leftover* source block — `pending`
+in `src/audiobiquad/Biquad.c` and its siblings, kept when one source buffer
+outlasts one render — is a borrowed pointer in the C and still a copy in the
+twin. Nothing has been measured to depend on it; it is named here so the next
+divergence of this shape is recognised rather than re-derived.
+
 ## The one thing this page does not cover
 
 Nothing establishes that a node of ours *sounds right*, or that its algorithm is
