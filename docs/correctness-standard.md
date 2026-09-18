@@ -127,7 +127,12 @@ is the checklist, not a report.
   for the ceiling override, which must be `-U` then `-D` because `-Werror` makes
   a conflicting redefinition an error. `tests/test_voice_ceiling_consistency.py`
   still compares the binary's bytes against a pin — that check is about noticing
-  an *undeclared* rebuild and is not retired.
+  an *undeclared* rebuild and is not retired. The oracle moved to
+  `cmods/bin/circuitpython-oracle-10.3.0` on 2026-09-17 (audioif#89): the old
+  path is what `build_interpreters.sh`'s `cp-unix` target installs, so a
+  routine interpreter refresh replaced the oracle with a 14-voice build twice.
+  The opt-in `cp-oracle` target builds and installs the oracle now, and
+  nothing else writes that path.
 
   The rebuild earned itself immediately: it found two behaviour changes
   CircuitPython 10.3.0 made to `synthio` and `audiomixer` that this port had not

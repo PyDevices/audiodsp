@@ -74,7 +74,7 @@ Both are expected as siblings in the parent workspace (`cmods/` in
   `.venv/bin/python tests/parity/verify_dsp.py --micropython ../cmods/micropython/ports/unix/build-standard/micropython`
   is the first. There is **no stored digest** — the gate is the comparison, and
   it **refuses a run with fewer than two interpreters** rather than passing one
-  that cannot fail. Add `--circuitpython ../cmods/bin/circuitpython-effects-10.3.0`
+  that cannot fail. Add `--circuitpython ../cmods/bin/circuitpython-oracle-10.3.0`
   for the three-way. The arithmetic is all in `src/shared/`, so two
   interpreters disagreeing is never a difference of intent: it is a width, an
   undefined shift, a compiler's choice or an architecture.
@@ -173,6 +173,14 @@ Both are expected as siblings in the parent workspace (`cmods/` in
 **oracle** every parity golden is measured against. The rule, for any agent
 working here:
 
+- **The oracle binary is `cmods/bin/circuitpython-oracle-<version>`**, built
+  only by `cmods/build_interpreters.sh --only cp-oracle` (CircuitPython's unix
+  coverage variant at `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64`) and re-pinned in
+  `tests/test_voice_ceiling_consistency.py` in the same change that builds it.
+  **`cmods/bin/circuitpython` is not the oracle** — it is what that script's
+  `cp-unix` target installs, at the coverage variant's own 14-voice ceiling,
+  and it changes under you whenever anyone refreshes the interpreters
+  (audioif#89, twice in eight days).
 - **Never edit files in `cmods/circuitpython` directly.** A modified oracle
   silently redefines what "parity" means and invalidates every golden without
   failing anything. Its *pin* is a different matter: it moves when this port

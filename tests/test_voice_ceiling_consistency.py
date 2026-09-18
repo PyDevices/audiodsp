@@ -55,6 +55,35 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: gitignored binary in place. Every existing check would pass on a silently
 #: different oracle. Comparing the bytes is the only thing that notices.
 #:
+#: Re-pinned and MOVED 2026-09-17 for audioif#89. Two things changed. The
+#: **path**: `cmods/bin/circuitpython` is what `cmods/build_interpreters.sh`'s
+#: `cp-unix` target installs, so anyone refreshing the workspace interpreters
+#: silently replaced the oracle with a coverage build at the variant's own
+#: 14-voice ceiling. That happened twice in eight days, and it is the whole of
+#: #89. The oracle now lives where no build script writes it by accident: the
+#: opt-in `cp-oracle` target, added to `build_interpreters.sh` in the same
+#: change, builds at 64 and installs only to `bin/circuitpython-oracle-<ver>`.
+#: `bin/circuitpython` belongs to the installer and may change under you.
+#: The **bytes**: PR #86 gave `src/shared/` an fp-contract header, and
+#: `src/shared/` is relinked into this binary by `apply_cp_patches.sh`, so our
+#: own kernels moved under CircuitPython's untouched sources again. (PR #93's
+#: `audiospeed` fix is ours alone -- the CP tree keeps upstream's SpeedChanger,
+#: which is why `speedchanger_hold_probe.py` skips CircuitPython.) Built from
+#: CircuitPython 10.3.0 at `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64` with audioif at
+#: 977ef26. Verified: it answers 64 voices; CircuitPython's own modules are
+#: byte-identical across the rebuild (`synthtools_acceptance` and
+#: `mixdown_knee`'s stored `circuitpython_stdout` both reproduce exactly); and
+#: `verify_dsp` agrees three ways across 45 comparisons, with no skip beyond
+#: the three already written down. Previous: 447e3ee88a143e1d, still on disk
+#: as `cmods/bin/circuitpython-effects-10.3.0`.
+#:
+#: A coverage build is not byte-reproducible, which is the other reason this
+#: pins a file and not a recipe. Two builds of the same tree with the same
+#: flags differ in 1476 of 27,831,104 bytes: the 20-byte GNU build-id, and one
+#: 4-byte gcov stamp per translation unit in `.data`. `.text` and every other
+#: section are identical. So rebuilding and comparing hashes cannot verify this
+#: pin -- reproducing the stored captures on the binary is what does.
+#:
 #: Re-pinned again 2026-09-09, later the same day, for audioif#64: the
 #: `audiobiquad` float biquad moved to transposed direct form II, and
 #: `audiobiquad` is one of the nine modules `apply_cp_patches.sh` adds to the CP
@@ -81,9 +110,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: this note as the provenance the relink never recorded. A future mismatch
 #: means what it meant then: find what rebuilt it, ask it the ceiling, and
 #: re-pin with the reason written down.
-ORACLE = ROOT.parent / "cmods" / "bin" / "circuitpython"
+ORACLE = ROOT.parent / "cmods" / "bin" / "circuitpython-oracle-10.3.0"
 ORACLE_SHA256 = (
-    "447e3ee88a143e1db1605590a395e7b8f7335cf5d7f5fa3e768e10ecf44c047e")
+    "d6635dec6bf6c210b5934c779dd812974f5ac2083f3a46d4ba1f93435ff4fa92")
 
 
 def _search(relative, pattern):
@@ -178,6 +207,11 @@ class VoiceCeilingConsistency(unittest.TestCase):
             "CIRCUITPY_SYNTHIO_MAX_CHANNELS, say -- changes what 'parity' "
             "means while leaving every tracked file untouched and every git "
             "tree clean. That is why this compares bytes and not a commit."
+            "\n"
+            "\n    Nothing but `build_interpreters.sh --only cp-oracle` "
+            "should ever write this path, and that target exists so no "
+            "routine interpreter refresh can. `cmods/bin/circuitpython` is "
+            "the installer's coverage build at 14 voices and is NOT this."
             "\n"
             "\n    If you rebuilt it deliberately, that is a decision for "
             "Brad and it needs its own commit saying why, with this hash "
