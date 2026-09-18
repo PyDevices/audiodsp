@@ -1,0 +1,30 @@
+From 67313a0ce78be29b2f9ab259ce2bb2d652a5b84c Mon Sep 17 00:00:00 2001
+From: Brad Barnett <127794626+bdbarnett@users.noreply.github.com>
+Date: Fri, 18 Sep 2026 01:13:46 -0500
+Subject: [PATCH] audiodelays: widen the Flanger's wet interpolation
+
+(s1 - s0) reaches 65535 and delay_frac reaches 65535, so the int32 product
+overflows on full-scale material that alternates sign: interpolating
+between two taps at opposite rails returns -32770 where it should return
+32766. The delay_span_q16 * tri product eighteen lines above is already
+widened the same way.
+---
+ shared-module/audiodelays/Flanger.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/shared-module/audiodelays/Flanger.c b/shared-module/audiodelays/Flanger.c
+index f0d1bb1..7d65b60 100644
+--- a/shared-module/audiodelays/Flanger.c
++++ b/shared-module/audiodelays/Flanger.c
+@@ -362,7 +362,7 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
+                 // Linear interpolation between them
+                 int32_t s0 = line[r0];
+                 int32_t s1 = line[r1];
+-                int32_t wet = s0 + (((s1 - s0) * (int32_t)delay_frac) >> 16);
++                int32_t wet = s0 + (int32_t)(((int64_t)(s1 - s0) * delay_frac) >> 16);
+ 
+                 // Write the input plus the regenerated signal back into the line
+                 line[w] = synthio_sat16(sample_word + synthio_sat16(wet * feedback, 15), 0);
+-- 
+2.43.0
+

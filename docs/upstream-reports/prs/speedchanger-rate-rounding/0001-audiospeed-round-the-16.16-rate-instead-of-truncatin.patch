@@ -1,0 +1,46 @@
+From 15e1feff511c096cc5ac450209ab4eb56bffe051 Mon Sep 17 00:00:00 2001
+From: Brad Barnett <127794626+bdbarnett@users.noreply.github.com>
+Date: Fri, 18 Sep 2026 01:13:22 -0500
+Subject: [PATCH] audiospeed: round the 16.16 rate instead of truncating
+
+A cast truncates, so a rate landing a hair under a 16.16 step loses a whole
+LSB rather than arriving at it: 1/1.0000000000000004 stores 65535/65536
+instead of unity, and a Resampler binding 48000 into 44100 stores 71331
+where 71331.9 should round to 71332. Rounding halves the worst-case error
+of the conversion.
+---
+ shared-module/audiospeed/Resampler.c | 2 +-
+ shared-module/audiospeed/__init__.c  | 4 +++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/shared-module/audiospeed/Resampler.c b/shared-module/audiospeed/Resampler.c
+index cd1ac68..1e9093b 100644
+--- a/shared-module/audiospeed/Resampler.c
++++ b/shared-module/audiospeed/Resampler.c
+@@ -8,7 +8,7 @@
+ 
+ static void calculate_rate(audiospeed_base_t *self, uint32_t sample_rate) {
+     if (self->source != NULL && sample_rate) {
+-        self->speed.rate_fp = (uint32_t)((mp_float_t)self->base.sample_rate / sample_rate * (1 << SPEED_SHIFT));
++        self->speed.rate_fp = (uint32_t)((mp_float_t)self->base.sample_rate / sample_rate * (1 << SPEED_SHIFT) + (mp_float_t)0.5);
+     } else {
+         audiospeed_set_rate(&self->speed, mp_const_none);
+     }
+diff --git a/shared-module/audiospeed/__init__.c b/shared-module/audiospeed/__init__.c
+index 19c4c9b..3807d7b 100644
+--- a/shared-module/audiospeed/__init__.c
++++ b/shared-module/audiospeed/__init__.c
+@@ -17,7 +17,9 @@
+ // Convert a Python float to 16.16 fixed-point rate
+ uint32_t audiospeed_rate_to_fp(mp_obj_t rate_obj) {
+     mp_float_t rate = mp_arg_validate_obj_float_range(rate_obj, 0.001, 1000.0, MP_QSTR_rate);
+-    return (uint32_t)(rate * (1 << SPEED_SHIFT));
++    // Round to the nearest 16.16 step: a cast alone truncates, so a rate a hair
++    // under a step loses a whole LSB instead of arriving at it.
++    return (uint32_t)(rate * (1 << SPEED_SHIFT) + (mp_float_t)0.5);
+ }
+ 
+ // Convert 16.16 fixed-point rate to Python float
+-- 
+2.43.0
+

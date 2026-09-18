@@ -1,0 +1,131 @@
+From ce29edf0ec9aae6434d250a186089a9096753447 Mon Sep 17 00:00:00 2001
+From: Brad Barnett <127794626+bdbarnett@users.noreply.github.com>
+Date: Fri, 18 Sep 2026 01:13:37 -0500
+Subject: [PATCH] audiospeed: carry the phase across source buffers
+
+The phase accumulator counts source frames since the stream began, so the
+remainder it holds when a source buffer runs out belongs to the next one.
+Resetting it at every fetch resumes from frame 0, which is only the right
+frame when the rate divides the buffer length exactly -- so what a
+SpeedChanger renders depends on how the node above it chunks its output.
+At rate 1.5 over a ramp, a 4-frame source gets 507 of 512 frames wrong and
+a 100-frame source 411, where both should be the same hold.
+
+Subtract the frames the replaced buffer held instead of zeroing, and fetch
+until the frame the phase names lies inside a buffer: above rate 1.0 the
+carry can exceed a whole buffer. A buffer holding less than one frame is
+now the end of the source, since it can never advance the phase.
+---
+ shared-module/audiospeed/__init__.c | 53 ++++++++++++++++-------------
+ shared-module/audiospeed/__init__.h |  7 ++++
+ 2 files changed, 36 insertions(+), 24 deletions(-)
+
+diff --git a/shared-module/audiospeed/__init__.c b/shared-module/audiospeed/__init__.c
+index 3807d7b..a445256 100644
+--- a/shared-module/audiospeed/__init__.c
++++ b/shared-module/audiospeed/__init__.c
+@@ -76,17 +76,36 @@ bool audiospeed_fetch_source_buffer(audiospeed_base_t *self) {
+         self->source_exhausted = true;
+         return false;
+     }
+-    if (len == 0) {
++    uint8_t bytes_per_frame = (self->base.bits_per_sample / 8) * self->base.channel_count;
++    if (len < bytes_per_frame) {
++        // A buffer holding less than one whole frame can never advance the
++        // phase, so treat it as the end of the source.
+         self->source_exhausted = true;
+         return false;
+     }
++    // The frames the phase has already stepped over belong to the buffer being
++    // replaced; the remainder belongs to this one. Zeroing it here would
++    // restart the interpolation at every source buffer.
++    audiospeed_consume_frames(&self->speed, self->src_sample_count);
+     self->src_buffer = buf;
+     self->src_buffer_length = len;
+-    uint8_t bytes_per_frame = (self->base.bits_per_sample / 8) * self->base.channel_count;
+     self->src_sample_count = len / bytes_per_frame;
+     self->source_done = (result == GET_BUFFER_DONE);
+-    // Reset phase to index within this new buffer
+-    audiospeed_reset_phase(&self->speed);
++    return true;
++}
++
++// Fetch source buffers until the frame the phase names lies inside one.
++// Returns false if the source cannot supply it.
++static bool audiospeed_advance_to_phase(audiospeed_base_t *self) {
++    while (audiospeed_get_index(&self->speed) >= self->src_sample_count) {
++        if (self->source_done) {
++            self->source_exhausted = true;
++            return false;
++        }
++        if (!audiospeed_fetch_source_buffer(self)) {
++            return false;
++        }
++    }
+     return true;
+ }
+ 
+@@ -125,18 +144,11 @@ audioio_get_buffer_result_t audiospeed_get_buffer(audiospeed_base_t *self, bool
+         // 8-bit samples
+         uint8_t *out = self->output_buffer;
+         while (out_frames < max_out_frames) {
+-            uint32_t src_index = audiospeed_get_index(&self->speed);
+             // Advance to next source buffer if needed
+-            if (src_index >= self->src_sample_count) {
+-                if (self->source_done) {
+-                    self->source_exhausted = true;
+-                    break;
+-                }
+-                if (!audiospeed_fetch_source_buffer(self)) {
+-                    break;
+-                }
+-                src_index = 0; // phase was reset by fetch
++            if (!audiospeed_advance_to_phase(self)) {
++                break;
+             }
++            uint32_t src_index = audiospeed_get_index(&self->speed);
+             uint8_t *src = self->src_buffer + src_index * bytes_per_frame;
+             for (uint8_t c = 0; c < channels; c++) {
+                 *out++ = src[c];
+@@ -148,17 +160,10 @@ audioio_get_buffer_result_t audiospeed_get_buffer(audiospeed_base_t *self, bool
+         // 16-bit samples
+         int16_t *out = (int16_t *)self->output_buffer;
+         while (out_frames < max_out_frames) {
+-            uint32_t src_index = audiospeed_get_index(&self->speed);
+-            if (src_index >= self->src_sample_count) {
+-                if (self->source_done) {
+-                    self->source_exhausted = true;
+-                    break;
+-                }
+-                if (!audiospeed_fetch_source_buffer(self)) {
+-                    break;
+-                }
+-                src_index = 0;
++            if (!audiospeed_advance_to_phase(self)) {
++                break;
+             }
++            uint32_t src_index = audiospeed_get_index(&self->speed);
+             int16_t *src = (int16_t *)(self->src_buffer + src_index * bytes_per_frame);
+             for (uint8_t c = 0; c < channels; c++) {
+                 *out++ = src[c];
+diff --git a/shared-module/audiospeed/__init__.h b/shared-module/audiospeed/__init__.h
+index 4a36a8b..e6583c6 100644
+--- a/shared-module/audiospeed/__init__.h
++++ b/shared-module/audiospeed/__init__.h
+@@ -40,6 +40,13 @@ static inline void audiospeed_reset_phase(audiospeed_speed_t *self) {
+     self->phase = 0;
+ }
+ 
++// Drop the frames a finished source buffer held, keeping the fraction of a
++// frame (or the whole frames, above rate 1.0) carried into the next one.
++static inline void audiospeed_consume_frames(audiospeed_speed_t *self, uint32_t frames) {
++    uint32_t consumed = frames << SPEED_SHIFT;
++    self->phase = self->phase >= consumed ? self->phase - consumed : 0;
++}
++
+ static inline void audiospeed_increment_phase(audiospeed_speed_t *self) {
+     self->phase += self->rate_fp;
+ }
+-- 
+2.43.0
+

@@ -48,6 +48,8 @@ renders CircuitPython's bytes here to the byte, because the port was faithful.
 
 Found by the effects program's `Bitcrusher` (audiocomponents#71) and reported
 in [upstream-reports/speedchanger-rate-rounding.md](upstream-reports/speedchanger-rate-rounding.md).
+The PR is prepared and unfiled:
+[upstream-reports/prs/speedchanger-rate-rounding/](upstream-reports/prs/speedchanger-rate-rounding/PR.md).
 
 ## `audiospeed`: the phase accumulator crosses a source buffer, upstream's restarts (audioif#91)
 
@@ -95,6 +97,8 @@ neither widens nor narrows it.
 
 Found by the effects program's `Bitcrusher` (audiocomponents#71) and reported
 in [upstream-reports/speedchanger-phase-carry.md](upstream-reports/speedchanger-phase-carry.md).
+The PR is prepared and unfiled:
+[upstream-reports/prs/speedchanger-phase-carry/](upstream-reports/prs/speedchanger-phase-carry/PR.md).
 
 ## `audiodelays.Flanger`: we do not reproduce upstream's int32 overflow (audioif#76)
 
@@ -120,8 +124,11 @@ the signature of an overflow that only bites at the extremes.
 
 `verify_dsp` carries a stated skip for `flanger_probe.py` on circuitpython
 naming that issue, so the three-way is not red on a defect that is not ours.
-An upstream report is drafted and held, per the rule that none goes out until
-our own house is clean.
+The PR is prepared and unfiled:
+[upstream-reports/prs/flanger-int32-overflow/](upstream-reports/prs/flanger-int32-overflow/PR.md),
+where the overflow is re-measured on a stock build of the 10.3.0 tag — 1717 of
+2048 samples of a rails render move when the multiply is widened, and none of
+an ordinary one.
 
 **Our CPython twin was never wrong**, and that is worth knowing rather than
 comforting: it is written in Python, which has no int32 to overflow. A twin in

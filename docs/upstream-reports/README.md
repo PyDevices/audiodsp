@@ -1,13 +1,31 @@
 # Drafts for adafruit/circuitpython
 
-Two later drafts are **not filed yet** and are held with the rest. Both are in
-`audiospeed`, which is new in 10.3.0, and both were measured on a build of that
-tag rather than on this port (see "Provenance of the numbers").
+Three contributions are **prepared and unfiled**, waiting on Brad. Each has a
+directory under [prs/](prs/) holding a patch that applies to the `10.3.0` tag
+and to the `main` tip (`268a168d`, 2026-09-17 — the files involved are
+byte-identical between the two), a paste-ready title and body, the repro
+scripts, and the publish commands.
 
-| draft | what | shape of the fix |
+| prepared | what | shape of the fix |
 |---|---|---|
-| [speedchanger-rate-rounding.md](speedchanger-rate-rounding.md) | the 16.16 rate truncates, so `1/1.0000000000000004` is 65535/65536 and a `SpeedChanger` pair asked for unity is not one | one character, twice |
-| [speedchanger-phase-carry.md](speedchanger-phase-carry.md) | the phase accumulator is zeroed at every source buffer, so what the node renders depends on the block size above it: 1947 frames of 2048 differ between a 64- and a 256-frame source | a few lines |
+| [prs/speedchanger-rate-rounding/](prs/speedchanger-rate-rounding/PR.md) | the 16.16 rate truncates, so `1/1.0000000000000004` is 65535/65536 and a `SpeedChanger` pair asked for unity is not one | one line, twice |
+| [prs/speedchanger-phase-carry/](prs/speedchanger-phase-carry/PR.md) | the phase accumulator is zeroed at every source buffer, so what the node renders depends on the block size above it | a few lines |
+| [prs/flanger-int32-overflow/](prs/flanger-int32-overflow/PR.md) | the Flanger's wet tap interpolates in int32 and overflows at the rails, where the neighbouring product is already widened | one cast |
+
+The two `audiospeed` ones go as **separate PRs**: different lines of the same
+file, each patch applies on its own and in either order, and the rate one is a
+read-and-merge where the phase one wants five minutes of thought. Their drafts
+([speedchanger-rate-rounding.md](speedchanger-rate-rounding.md),
+[speedchanger-phase-carry.md](speedchanger-phase-carry.md)) are the long-form
+versions and are **not** what gets posted.
+
+One thing a maintainer may ask, answered in the rate-rounding PR.md:
+`audiospeed` is built by no test configuration (`CIRCUITPY_AUDIOSPEED ?= 0`,
+only `ports/raspberrypi` turns it on) and does not compile under the unix
+coverage variant's warnings, because `mp_arg_validate_obj_float_range` takes
+`mp_int_t` bounds and the module passes it `0.001`. That is why neither PR
+carries a `tests/circuitpython` regression test, and it is a third small
+finding of its own.
 
 Six bugs this port found in CircuitPython, written up as issue bodies.
 **Filed 2026-08-28** (all re-verified by inspection of `10.3.0-rc.0` first):
@@ -62,11 +80,14 @@ then already differed from upstream in ways that move the numbers. Do not
 paste this repo's figures into an upstream issue; the ones here are
 upstream's own.
 
-The repro scripts use this repo's `audiocore.get_buffer` /
-`audiocore.reset_buffer` helpers, which are not upstream (see
-`apply_cp_patches.sh`) — that is just how the output was captured here. On a
-board, play into an `AudioOut` and capture instead; every effect is far above
-the noise floor.
+`audiocore.get_buffer` **is upstream's**, not ours — corrected 2026-09-18 by
+reading the file rather than the note. It is gated on
+`CIRCUITPY_AUDIOCORE_DEBUG`, which the unix coverage variant defines, and
+upstream's own `tests/testlib/audiofilterhelper.py` imports it to render the
+`audiofilter_*` tests. What this port changes is only the memoryview it hands
+back: a byte view, where upstream's is typed to the sample width. So a repro
+that reads `get_buffer(node)[1]` runs upstream unaltered as long as it does
+not assume the item size. `audiocore.reset_buffer` is ours.
 
 ## Before posting
 
