@@ -31,6 +31,8 @@ src/shared/audioif_feedback_delay.h	shared/audioif_feedback_delay.h
 src/shared/audioif_feedback_delay.c	shared/audioif_feedback_delay.c
 src/shared/audioif_shaper.h	shared/audioif_shaper.h
 src/shared/audioif_shaper.c	shared/audioif_shaper.c
+src/shared/audioif_samplehold.h	shared/audioif_samplehold.h
+src/shared/audioif_samplehold.c	shared/audioif_samplehold.c
 src/shared/audioif_ladder.h	shared/audioif_ladder.h
 src/shared/audioif_ladder.c	shared/audioif_ladder.c
 src/shared/audioif_trig.h	shared/audioif_trig.h
@@ -90,6 +92,10 @@ src/circuitpython_spike/shared-bindings/audioshaper/Waveshaper.h	shared-bindings
 src/circuitpython_spike/shared-bindings/audioshaper/Waveshaper.c	shared-bindings/audioshaper/Waveshaper.c
 src/circuitpython_spike/shared-module/audioshaper/Waveshaper.h	shared-module/audioshaper/Waveshaper.h
 src/circuitpython_spike/shared-module/audioshaper/Waveshaper.c	shared-module/audioshaper/Waveshaper.c
+src/circuitpython_spike/shared-bindings/audioshaper/SampleHold.h	shared-bindings/audioshaper/SampleHold.h
+src/circuitpython_spike/shared-bindings/audioshaper/SampleHold.c	shared-bindings/audioshaper/SampleHold.c
+src/circuitpython_spike/shared-module/audioshaper/SampleHold.h	shared-module/audioshaper/SampleHold.h
+src/circuitpython_spike/shared-module/audioshaper/SampleHold.c	shared-module/audioshaper/SampleHold.c
 src/circuitpython_spike/shared-bindings/audioladder/__init__.h	shared-bindings/audioladder/__init__.h
 src/circuitpython_spike/shared-bindings/audioladder/__init__.c	shared-bindings/audioladder/__init__.c
 src/circuitpython_spike/shared-bindings/audioladder/Ladder.h	shared-bindings/audioladder/Ladder.h

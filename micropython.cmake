@@ -46,6 +46,7 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/shared/audioif_feedback_delay.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_filter_f32.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_shaper.c
+    ${MPAUDIO_SRC_DIR}/shared/audioif_samplehold.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_ladder.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_trig.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_fft.c
@@ -96,6 +97,7 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/audioecho/FeedbackDelay.c
     ${MPAUDIO_SRC_DIR}/audioecho/module.c
     ${MPAUDIO_SRC_DIR}/audioshaper/Waveshaper.c
+    ${MPAUDIO_SRC_DIR}/audioshaper/SampleHold.c
     ${MPAUDIO_SRC_DIR}/audioshaper/module.c
     ${MPAUDIO_SRC_DIR}/audioladder/Ladder.c
     ${MPAUDIO_SRC_DIR}/audioladder/module.c

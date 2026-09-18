@@ -57,6 +57,7 @@ setup(
                 "src/shared/audioif_feedback_delay.c",
                 "src/shared/audioif_filter_f32.c",
                 "src/shared/audioif_shaper.c",
+                "src/shared/audioif_samplehold.c",
                 "src/shared/audioif_ladder.c",
                 "src/shared/audioif_trig.c",
                 "src/shared/audioif_fft.c",

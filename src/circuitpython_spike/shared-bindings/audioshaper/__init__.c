@@ -8,6 +8,7 @@
 #include "py/runtime.h"
 
 #include "shared-bindings/audioshaper/__init__.h"
+#include "shared-bindings/audioshaper/SampleHold.h"
 #include "shared-bindings/audioshaper/Waveshaper.h"
 
 //| """A waveshaper whose curve is data, shaped above the sample rate
@@ -23,12 +24,19 @@
 //| pair are each a different shape -- and a nonlinearity at the base rate
 //| folds the harmonics it makes above Nyquist straight back onto the signal.
 //|
+//| `SampleHold` is the module's other node, and lo-fi's other half: the
+//| waveshaper quantises the value, the hold quantises the time. It holds at
+//| an exact rational ratio, which is what a pair of `audiospeed.SpeedChanger`
+//| nodes at 16.16 rates cannot do.
+//|
 //| """
 
 static const mp_rom_map_elem_t audioshaper_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audioshaper) },
     { MP_ROM_QSTR(MP_QSTR_Waveshaper),
       MP_ROM_PTR(&audioshaper_waveshaper_type) },
+    { MP_ROM_QSTR(MP_QSTR_SampleHold),
+      MP_ROM_PTR(&audioshaper_samplehold_type) },
 };
 
 static MP_DEFINE_CONST_DICT(audioshaper_module_globals,

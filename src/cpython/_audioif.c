@@ -26,6 +26,7 @@
 #include "shared/audioif_convolve.h"
 #include "shared/audioif_feedback_delay.h"
 #include "shared/audioif_shaper.h"
+#include "shared/audioif_samplehold.h"
 #include "shared/audioif_ladder.h"
 #include "shared/audioif_tank.h"
 #include "shared/audioif_modal.h"
@@ -50,6 +51,7 @@ typedef struct {
     PyObject *splitter_ring_type;
     PyObject *feedback_delay_state_type;
     PyObject *waveshaper_state_type;
+    PyObject *samplehold_state_type;
     PyObject *ladder_state_type;
     PyObject *biquad_f32_state_type;
     PyObject *allpass_f32_state_type;
@@ -1546,6 +1548,123 @@ static PyType_Spec waveshaper_state_spec = {
     .slots = waveshaper_state_slots,
 };
 
+// audioshaper.SampleHold's ratio and held frame. A type rather than a plain
+// function because the accumulator is what makes the node exact: it has to
+// survive from one block to the next, and the Python side must not be able to
+// lose it. The whole of it is two integers and four bytes.
+
+typedef struct {
+    PyObject_HEAD
+    audioif_samplehold_config_t config;
+    audioif_samplehold_state_t state;
+} audioif_samplehold_object_t;
+
+static int samplehold_check_ratio(unsigned int num, unsigned int den) {
+    if (!audioif_samplehold_ratio_ok(num, den)) {
+        PyErr_SetString(PyExc_ValueError,
+            "num and den must be whole, den <= num (a hold cannot invent "
+            "frames)");
+        return -1;
+    }
+    return 0;
+}
+
+static int samplehold_state_init(audioif_samplehold_object_t *self,
+    PyObject *args, PyObject *kwargs) {
+    unsigned int num = 1;
+    unsigned int den = 1;
+    static char *keywords[] = {"num", "den", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|II:SampleHoldState",
+        keywords, &num, &den)) return -1;
+    if (samplehold_check_ratio(num, den) < 0) return -1;
+    audioif_samplehold_config_init(&self->config, num, den);
+    audioif_samplehold_state_init(&self->state, &self->config);
+    return 0;
+}
+
+static void samplehold_state_dealloc(audioif_samplehold_object_t *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
+static PyObject *samplehold_state_configure(audioif_samplehold_object_t *self,
+    PyObject *args) {
+    unsigned int num;
+    unsigned int den;
+    if (!PyArg_ParseTuple(args, "II:configure", &num, &den)) return NULL;
+    if (samplehold_check_ratio(num, den) < 0) return NULL;
+    if (audioif_samplehold_config_set(&self->config, num, den)) {
+        audioif_samplehold_reset(&self->state, &self->config);
+    }
+    Py_RETURN_NONE;
+}
+
+// The reduced pair, read back from the kernel rather than reduced again in
+// Python: the gcd is part of the arithmetic all three targets share, so the
+// number a class discloses has to come from the same place on each of them.
+static PyObject *samplehold_state_ratio(audioif_samplehold_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    return Py_BuildValue("(kk)", (unsigned long)self->config.num,
+        (unsigned long)self->config.den);
+}
+
+static PyObject *samplehold_state_reset(audioif_samplehold_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    audioif_samplehold_reset(&self->state, &self->config);
+    Py_RETURN_NONE;
+}
+
+static PyObject *samplehold_state_process(audioif_samplehold_object_t *self,
+    PyObject *args) {
+    Py_buffer input = {0};
+    unsigned int frame_bytes = 0;
+    if (!PyArg_ParseTuple(args, "y*I:process", &input, &frame_bytes)) {
+        return NULL;
+    }
+    if (frame_bytes < 1 ||
+        frame_bytes > AUDIOIF_SAMPLEHOLD_MAX_FRAME_BYTES ||
+        input.len % (Py_ssize_t)frame_bytes) {
+        PyBuffer_Release(&input);
+        PyErr_SetString(PyExc_ValueError,
+            "input must be whole frames of 1 to 4 bytes");
+        return NULL;
+    }
+    PyObject *result = PyBytes_FromStringAndSize(NULL, input.len);
+    if (result != NULL) {
+        audioif_samplehold_process(&self->config, &self->state,
+            (uint8_t *)PyBytes_AS_STRING(result), (const uint8_t *)input.buf,
+            (uint32_t)(input.len / (Py_ssize_t)frame_bytes), frame_bytes);
+    }
+    PyBuffer_Release(&input);
+    return result;
+}
+
+static PyMethodDef samplehold_state_methods[] = {
+    {"configure", (PyCFunction)samplehold_state_configure, METH_VARARGS, NULL},
+    {"ratio", (PyCFunction)samplehold_state_ratio, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)samplehold_state_reset, METH_NOARGS, NULL},
+    {"process", (PyCFunction)samplehold_state_process, METH_VARARGS, NULL},
+    {NULL, NULL, 0, NULL},
+};
+
+static PyType_Slot samplehold_state_slots[] = {
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, samplehold_state_init},
+    {Py_tp_dealloc, samplehold_state_dealloc},
+    {Py_tp_methods, samplehold_state_methods},
+    {0, NULL},
+};
+
+static PyType_Spec samplehold_state_spec = {
+    .name = "_audioif.SampleHoldState",
+    .basicsize = sizeof(audioif_samplehold_object_t),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = samplehold_state_slots,
+};
+
 // audioladder.Ladder's integrators and solver history. Small enough to sit in
 // the object -- unlike FeedbackDelayState above there is no line to allocate,
 // four floats a stage and three more a channel is the whole of it -- but a
@@ -2990,6 +3109,15 @@ static int audioif_exec(PyObject *module) {
         AUDIOIF_SHAPER_FRAMES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "SHAPER_MAX_OVERSAMPLE",
         AUDIOIF_SHAPER_MAX_OVERSAMPLE) < 0) return -1;
+    state->samplehold_state_type = PyType_FromModuleAndSpec(module,
+        &samplehold_state_spec, NULL);
+    if (state->samplehold_state_type == NULL) return -1;
+    if (PyModule_AddObjectRef(module, "SampleHoldState",
+        state->samplehold_state_type) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "SAMPLEHOLD_FRAMES",
+        AUDIOIF_SAMPLEHOLD_FRAMES) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "SAMPLEHOLD_MAX_RATIO",
+        AUDIOIF_SAMPLEHOLD_MAX_RATIO) < 0) return -1;
     state->ladder_state_type = PyType_FromModuleAndSpec(module,
         &ladder_state_spec, NULL);
     if (state->ladder_state_type == NULL) return -1;
@@ -3069,6 +3197,7 @@ static int audioif_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->splitter_ring_type);
     Py_VISIT(state->feedback_delay_state_type);
     Py_VISIT(state->waveshaper_state_type);
+    Py_VISIT(state->samplehold_state_type);
     Py_VISIT(state->ladder_state_type);
     Py_VISIT(state->biquad_f32_state_type);
     Py_VISIT(state->allpass_f32_state_type);
@@ -3090,6 +3219,7 @@ static int audioif_clear(PyObject *module) {
     Py_CLEAR(state->splitter_ring_type);
     Py_CLEAR(state->feedback_delay_state_type);
     Py_CLEAR(state->waveshaper_state_type);
+    Py_CLEAR(state->samplehold_state_type);
     Py_CLEAR(state->ladder_state_type);
     Py_CLEAR(state->biquad_f32_state_type);
     Py_CLEAR(state->allpass_f32_state_type);

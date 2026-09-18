@@ -49,10 +49,16 @@ A new module rather than arguments on `Distortion`, deliberately: an argument
 added to audioif's copy of a CircuitPython module would not exist on a stock
 board, so an effect written against it would silently be a different effect
 there. This either installs whole or is absent and says so on import.
+
+`SampleHold` is the module's other node and the same argument again, one
+layer down: the waveshaper quantises the value, the hold quantises the time,
+and neither belongs bolted onto a module CircuitPython ships. See its
+docstring.
 """
 
 from audiocore import (
-    GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
+    GET_BUFFER_DONE, GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample,
+    get_buffer, reset_buffer,
 )
 import _audioif
 
@@ -64,6 +70,10 @@ __revision__ = _audioif.__revision__
 
 FRAMES = _audioif.SHAPER_FRAMES
 MAX_OVERSAMPLE = _audioif.SHAPER_MAX_OVERSAMPLE
+
+#: `SampleHold`'s own block size and the largest `num` a ratio may name.
+HOLD_FRAMES = _audioif.SAMPLEHOLD_FRAMES
+MAX_HOLD_RATIO = _audioif.SAMPLEHOLD_MAX_RATIO
 
 #: Option name -> the native configure() slot. Kept in the order
 #: shared/audioif_shaper.h declares, which is the order the MicroPython
@@ -196,4 +206,174 @@ class Waveshaper(_AudioSample):
         return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
 
 
-__all__ = ("Waveshaper",)
+class SampleHold(_AudioSample):
+    """A zero-order hold at an exact rational ratio: `num` frames carry
+    `den` new values.
+
+        hold = audioshaper.SampleHold(source, num=48000, den=26040)
+
+    One source frame in, one frame out, at the source's own sample rate,
+    channel count and bit depth -- so this is a rate *reducer*, not a
+    resampler, and the block after it is the length the block before it was.
+    The value changes only when the accumulator wraps, and the accumulator is
+    the exact remainder of `n * den` modulo `num`, so 26040 Hz at 48 kHz
+    (reduced, 217/400) refreshes 217 times in every 400 frames forever.
+
+    **Why it exists.** The palette's sample-and-hold was a pair of
+    `audiospeed.SpeedChanger` nodes, down by the hold ratio and up by its
+    reciprocal, and the pair cannot be made reciprocal: that rate is 16.16
+    fixed point, so it inverts exactly only at powers of two. Measured on the
+    shipped 26 040 Hz hold, the product of the two rates was
+    0.9999947184696794 at 48 kHz -- one sample late per 189 339 frames -- and
+    1.0000107865780592 at 44.1 kHz, one sample early per 92 708. At Mix 0.5 a
+    steady 12 kHz tone swung 10.74 dB over a twelve-second render: a slow
+    flange on a setting nobody was touching (audioif#97). Counting cannot
+    drift, so this counts.
+
+    **`num`/`den` rather than a rate in hertz**, because the rounding has to
+    be the caller's. A class with a `rate_hz` knob decides how to land it on a
+    pair -- `num=sample_rate, den=round(rate_hz)` is exact and is what the
+    node then reports back, reduced -- and it is the class that should say
+    which hold rate it actually got.
+
+    **Latency is 0.** A refresh latches the frame it is looking at and emits
+    it in the same frame, so `num == den` is a wire byte for byte. What a hold
+    displaces is an event landing on a frame it drops: that arrives on the
+    next kept frame, up to `ceil(num/den) - 1` frames later, which is the
+    effect rather than a delay of this node.
+
+    `set(num, den)` moves the ratio mid-stream, re-arming the accumulator when
+    the reduced pair actually changes and doing nothing at all when it does
+    not. `play(sample)` re-sources, in the format fixed at construction.
+    `clear()` arms the accumulator and forgets the held frame, which is the
+    whole of this node's state.
+    """
+
+    def __init__(self, source, num=1, den=1):
+        if source is None:
+            raise ValueError("source is required")
+        num = int(num)
+        den = int(den)
+        if num < 1 or den < 1 or den > num or num > MAX_HOLD_RATIO:
+            raise ValueError("num and den must be whole, den <= num (a hold "
+                             "cannot invent frames)")
+        self.sample_rate = int(source.sample_rate)
+        self.bits_per_sample = int(source.bits_per_sample)
+        self.channel_count = int(source.channel_count)
+        self.samples_signed = bool(source.samples_signed)
+        self.single_buffer = False
+        frame_bytes = self.bits_per_sample // 8 * self.channel_count
+        if frame_bytes < 1 or frame_bytes > 4:
+            raise ValueError("source frames must be 1 or 2 channels of 8- or "
+                             "16-bit audio")
+        self._frame_bytes = frame_bytes
+        self.max_buffer_length = HOLD_FRAMES * frame_bytes
+        self._deinited = False
+        self._source = source
+        self._pending = b""
+        self._source_done = False
+        self._exhausted = False
+        self._state = _audioif.SampleHoldState(num=num, den=den)
+        self._num, self._den = self._state.ratio()
+
+    @property
+    def num(self):
+        self._check()
+        return self._num
+
+    @property
+    def den(self):
+        self._check()
+        return self._den
+
+    @property
+    def latency(self):
+        """0, at every ratio. See the class docstring for what a hold
+        displaces instead, and whose job it is to report that."""
+        self._check()
+        return 0
+
+    @property
+    def playing(self):
+        return self._source is not None
+
+    def set(self, num, den):
+        """Change the ratio mid-stream. The pair moves together or not at
+        all: half a new ratio is exactly the transient state the exact
+        accumulator exists to rule out."""
+        self._check()
+        num = int(num)
+        den = int(den)
+        if num < 1 or den < 1 or den > num or num > MAX_HOLD_RATIO:
+            raise ValueError("num and den must be whole, den <= num (a hold "
+                             "cannot invent frames)")
+        self._state.configure(num, den)
+        self._num, self._den = self._state.ratio()
+
+    def clear(self):
+        """Arm the accumulator and forget the held frame. That is the whole
+        of this node's state: it has no delay line and no filter."""
+        self._check()
+        self._state.reset()
+
+    def play(self, sample, *, loop=False):
+        self._check()
+        if (int(sample.bits_per_sample) != self.bits_per_sample or
+                int(sample.channel_count) != self.channel_count):
+            raise ValueError("source format does not match the one this node "
+                             "was built with")
+        self._source = sample
+        self._pending = b""
+        self._source_done = False
+        self._exhausted = False
+        self._state.reset()
+
+    def stop(self):
+        self._source = None
+        self._pending = b""
+        self._exhausted = True
+
+    def _release(self):
+        self.stop()
+        self._state.reset()
+
+    def _reset_buffer(self, single_channel_output=False, audio_channel=0):
+        self._check()
+        if self._source is not None:
+            reset_buffer(self._source, False, 0)
+        self._pending = b""
+        self._source_done = False
+        self._exhausted = False
+        self._state.reset()
+
+    def _get_buffer(self, single_channel_output=False, audio_channel=0):
+        self._check()
+        width = self._frame_bytes
+        output = bytearray()
+        produced = 0
+        while produced < HOLD_FRAMES:
+            if not self._pending:
+                if (self._source is None or self._exhausted or
+                        self._source_done):
+                    self._exhausted = True
+                    break
+                result, data = get_buffer(self._source, False, 0)
+                data = bytes(data)
+                if result == GET_BUFFER_ERROR or len(data) < width:
+                    self._exhausted = True
+                    break
+                self._pending = data[:len(data) // width * width]
+                self._source_done = result == GET_BUFFER_DONE
+            run = min(HOLD_FRAMES - produced, len(self._pending) // width)
+            output += self._state.process(self._pending[:run * width], width)
+            self._pending = self._pending[run * width:]
+            produced += run
+        # One frame in, one frame out, and the source's own ending. A node
+        # that manufactured silence here would move where a chain ends, and
+        # the pair of `SpeedChanger`s this replaces did not.
+        if produced == 0 or self._exhausted:
+            return GET_BUFFER_DONE, memoryview(bytes(output))
+        return GET_BUFFER_MORE_DATA, memoryview(bytes(output))
+
+
+__all__ = ("SampleHold", "Waveshaper")

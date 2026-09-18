@@ -10,6 +10,7 @@
 //
 // SPDX-License-Identifier: MIT
 
+#include "audioshaper/SampleHold.h"
 #include "audioshaper/Waveshaper.h"
 
 #include "cp_compat/audioif_build.h"
@@ -21,6 +22,11 @@ static const mp_rom_map_elem_t audioshaper_module_globals_table[] = {
     AUDIOIF_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_Waveshaper),
       MP_ROM_PTR(&audioshaper_waveshaper_type) },
+    // The other half of lo-fi: the waveshaper quantises the value, the hold
+    // quantises the time. It is here rather than on `audiospeed.SpeedChanger`
+    // because that module is a CircuitPython port -- see SampleHold.h.
+    { MP_ROM_QSTR(MP_QSTR_SampleHold),
+      MP_ROM_PTR(&audioshaper_samplehold_type) },
 };
 static MP_DEFINE_CONST_DICT(audioshaper_module_globals,
     audioshaper_module_globals_table);
