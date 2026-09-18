@@ -110,9 +110,15 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: this note as the provenance the relink never recorded. A future mismatch
 #: means what it meant then: find what rebuilt it, ask it the ceiling, and
 #: re-pin with the reason written down.
+#:
+#: Re-pinned 2026-09-18 01:45: rebuilt with `build_interpreters.sh --only
+#: cp-oracle` from main at 7b4beab (DSP identical to e3b95e7) because the
+#: previous oracle predated audioshaper.SampleHold (PR #98) and verify_dsp's
+#: three-way run aborted on its samplehold probe. Still 64 voices; the
+#: build script refused to install anything that answered otherwise.
 ORACLE = ROOT.parent / "cmods" / "bin" / "circuitpython-oracle-10.3.0"
 ORACLE_SHA256 = (
-    "d6635dec6bf6c210b5934c779dd812974f5ac2083f3a46d4ba1f93435ff4fa92")
+    "9ac258304347341875208813b510145a0dbf45ffd910b39457749fa165dd7920")
 
 
 def _search(relative, pattern):
