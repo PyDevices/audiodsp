@@ -16,6 +16,7 @@ import sys
 from array import array
 
 import audiocore
+from audioif_util import float32_bits
 
 MODULE = sys.argv[1] if len(sys.argv) > 1 else "audiodynamics"
 # A built-in module under MicroPython, which does not record those in
@@ -62,8 +63,13 @@ def between_samples(frames=2400):
 def emit(tag, node, blocks):
     for index in range(blocks):
         data = bytes(audiocore.get_buffer(node)[1])
+        # The gain reduction prints as its float32 bit pattern, not as
+        # `"%.6f"`: the three targets hold the identical float32 and the
+        # PCM beside it is byte-for-byte the same, but MicroPython's
+        # single-precision formatter is not correctly rounded to seven
+        # significant digits. audioif#80.
         print("dynx", tag, index, len(data), sum(data), checksum(data),
-              "%.6f" % node.gain_reduction_db())
+              float32_bits(node.gain_reduction_db()))
 
 
 BASE = {"threshold_db": -12.0, "attack_ms": 0.05, "release_ms": 60.0,

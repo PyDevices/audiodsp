@@ -197,6 +197,46 @@ being inferred and starts being measured
 ([docs/building-wheels.md](building-wheels.md)). Proving the board half still
 needs board digests. See audioif#79 and audioif#55.
 
+## The other way: a number derived in Python
+
+Contraction is the compiler choosing. This one is the *interpreter* choosing,
+and it happens before the kernel is reached at all.
+
+**A setting derived in Python passes through `audioif_util.float32` before it
+reaches a node.** That is the rule; the rest of this section is why.
+
+Python's float is the interpreter's `mp_float_t`. On CPython and on the desktop
+MicroPython that is a double; on an ESP32-P4, an ESP32-S3, an RP2040 and any
+build carrying `-DMICROPY_FLOAT_IMPL=MICROPY_FLOAT_IMPL_FLOAT` it is a single.
+So `node.mix = 0.35` is not one setting -- it is two numbers a ULP apart -- and
+a node whose blend runs from it renders different bytes on a board than on a
+desktop without anything in the kernel being wrong. `audioif_util.float32(x)` is
+a pure-Python round trip through `struct`: the identity on a single-precision
+target, a rounding on a double one, and the same number afterwards on both.
+
+`audioif_util.float32_bits(x)` is the same rule for output. `"%.6f" % value` is
+seven significant digits, and MicroPython's single-precision formatter is not
+correctly rounded that far, so a probe printing a float at that width compares
+formatters rather than DSP. The bit pattern is exact everywhere.
+
+This is where audioif#80 landed: six probes disagreed with CPython on a
+single-precision build, and four of the six were the probes' own arithmetic --
+three printing a gain reduction whose *bits were identical on all three
+targets*, one passing `mix=0.35`, and one deriving its square-wave material from
+a Python float phase, so the two builds were being compared on two different
+input signals. The two that remain are below the probes and each has its own
+issue: audioif#101 (`synthio.Biquad` derives W0 at `mp_float_t` width where the
+CPython extension calls the shared `double` helper) and audioif#102 (a filtered
+`Echo` does its per-sample arithmetic at `mp_float_t` width in C and in double
+in the twin).
+
+**The same rule belongs to the classes.** audiocomponents#75 is this shape one
+tier up -- a class computing `360 * 4 ** (macro / 127)` for a filter frequency
+lands its board and its desktop a ULP apart, and the effects programme's board
+proofs of 2026-09-17 name it as one of the three causes of a drive class's
+digests differing. The derivation ends in `float32` there too, or the board and
+the desktop are not running the same filter.
+
 ## The one thing this page does not cover
 
 Nothing establishes that a node of ours *sounds right*, or that its algorithm is

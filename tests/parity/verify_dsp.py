@@ -174,8 +174,18 @@ def run_probe(argv_prefix, probe, module):
     environment = os.environ.copy()
     # CPython imports audioif from the installed package. MicroPython and
     # CircuitPython take these modules from their own firmware, so MICROPYPATH
-    # is only here for anything a probe loads out of the tree.
-    environment["MICROPYPATH"] = str(ROOT)
+    # is only here for anything a probe loads out of the tree -- `lib/` is on
+    # it because `audioif_util` lives there, and a probe that derives a setting
+    # in Python has to round it the way a board would before handing it over
+    # (docs/correctness-standard.md, audioif#80).
+    environment["MICROPYPATH"] = "%s:%s" % (ROOT, ROOT / "lib")
+    # The same directory for the CPython leg, ahead of whatever is installed.
+    # It is pure Python with no DSP in it, and putting it here is what lets
+    # this gate run from a checkout whose installed wheel predates the module
+    # -- which is every checkout, the first time.
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [str(ROOT / "lib")] + ([environment["PYTHONPATH"]]
+                               if environment.get("PYTHONPATH") else []))
     result = subprocess.run(
         argv_prefix + [str(HERE / probe), module],
         cwd=str(ROOT), env=environment, capture_output=True, check=False)

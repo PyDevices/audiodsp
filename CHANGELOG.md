@@ -40,6 +40,39 @@
   and the soundtrack has grown since; whether that baseline is still the
   reference or should be re-taken against today's pieces and today's DSP is
   Brad's call, not an agent's (audioif#88).
+- **`audioif_util.float32`, and the rule that a setting derived in Python
+  goes through it.** A Python float is the interpreter's `mp_float_t` — a
+  double here and on the desktop MicroPython, a **single** on every board and
+  on a `MICROPY_FLOAT_IMPL_FLOAT` build — so `node.mix = 0.35` is two
+  different numbers and the node renders different bytes on a board before
+  its kernel is reached. `lib/audioif_util/` is `struct` and two functions:
+  `float32(value)`, the round trip that is the identity on a single-precision
+  target and a rounding on a double one, and `float32_bits(value)`, the exact
+  way to print a float that two interpreters have to agree on.
+  `docs/correctness-standard.md` carries the rule; it is also what
+  audiocomponents#75 needs on the class side.
+
+  What found it: `clean-build.yml`'s `unix-usermod (float-precision)` cell,
+  where `verify_dsp` had six probes disagreeing with CPython. Four were the
+  probes' own arithmetic and are fixed here. Three printed a gain reduction
+  as `"%.6f"` whose **float32 bits were identical on all three targets** —
+  MicroPython's single-precision formatter is not correctly rounded to seven
+  significant digits, so that column compared formatters, not DSP; they print
+  the bit pattern now. `granular_pitch_shift_probe` passed `mix=0.35`.
+  `biquad_component_probe` derived its square wave from a Python float phase,
+  so on a single-precision build it was filtering a *different waveform* (8
+  frames flipped in mono, 96 in stereo); its material is integer arithmetic
+  now, which is not byte-identical to the old float form on a double build
+  either, so `golden/biquad_component.json` was re-captured. The CI cell's
+  `--known-divergent` list drops from six probes to two.
+
+  The two that are left are below the probes and each has its own issue:
+  audioif#101, `synthio.Biquad` deriving W0 at `mp_float_t` width where the
+  CPython extension calls the shared `double` `audioif_biquad_cp_w0()`; and
+  audioif#102, a filtered `audiodelays.Echo` doing `echo * decay + sample` at
+  `mp_float_t` width in C and in double in the twin. Both were proved by
+  landing the CPython twin on the float build's bytes exactly, and both move
+  board digests, so neither is folded in here (audioif#80).
 
 - **`audioshaper.Waveshaper`'s own headroom is documented, and pinned by a
   trait test.** A curve that reaches the rails and a `post_gain` above about

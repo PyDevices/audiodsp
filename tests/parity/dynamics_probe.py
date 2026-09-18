@@ -20,6 +20,7 @@ import sys
 from array import array
 
 import audiocore
+from audioif_util import float32_bits
 
 MODULE = sys.argv[1] if len(sys.argv) > 1 else "audiodynamics"
 # Both spellings are built-in modules under MicroPython, which does not record
@@ -56,8 +57,15 @@ def source(frames=1200, quiet=700, loud=12000):
 def emit(tag, node, blocks):
     for index in range(blocks):
         data = bytes(audiocore.get_buffer(node)[1])
+        # The gain reduction prints as its float32 bit pattern, not as
+        # `"%.6f"`. The three targets hold the identical float32 here -- the
+        # PCM beside it is byte-for-byte the same on all of them -- but six
+        # decimals is seven significant digits, and MicroPython's
+        # single-precision formatter is not correctly rounded that far, so
+        # that column used to disagree on a float build while the audio did
+        # not. audioif#80; audioif_util.float32_bits says why.
         print("dyn", tag, index, len(data), sum(data), checksum(data),
-              "%.6f" % node.gain_reduction_db())
+              float32_bits(node.gain_reduction_db()))
 
 
 # Every mode, at settings that actually engage it.
@@ -110,7 +118,7 @@ node = dynamics.Dynamics(0, sample_rate=SAMPLE_RATE, threshold_db=-35.0,
 node.play(source())
 emit("reset-before", node, 3)
 audiocore.reset_buffer(node)
-print("dyn reset-gr %.6f" % node.gain_reduction_db())
+print("dyn reset-gr", float32_bits(node.gain_reduction_db()))
 node.play(source())
 emit("reset-after", node, 3)
 

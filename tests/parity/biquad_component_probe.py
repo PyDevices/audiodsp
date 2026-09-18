@@ -10,6 +10,26 @@ low") are each pinned by something that fails when they regress.
 
 Running this against `bin/circuitpython` is expected to differ. That is the
 point of it; see docs/upstream-diff.md for the direction of each difference.
+
+**The material is integer arithmetic, deliberately.** The square wave used to
+be `(2*pi*hz*frame/RATE) % 2*pi < pi`, and a Python float is the interpreter's
+`mp_float_t` -- so on a single-precision build the *input waveform* was a
+different waveform (96000 against 120000 summed, 8 frames flipped in mono and
+96 in stereo), and this fixture was comparing two DSP kernels on two different
+signals. `(2 * hz * frame) % (2 * RATE) < RATE` is the same square wave stated
+exactly, identical on every target. It is not byte-identical to what the float
+expression produced on a double build -- the float form classified a handful of
+exact-zero and exact-half crossings the other way -- so `golden/
+biquad_component.json` was re-captured with it (audioif#80).
+
+Q and A go through `audioif_util.float32` for the same reason one layer up:
+0.4, 0.7079 and 1.4125 are not one number on a single-precision target.
+
+**What is left, and why it is not fixed here.** Four lines -- `biquad_qa
+high_pass` at Q 0.4 -- still diverge on a single-precision MicroPython, because
+`src/synthio/Biquad.c:79` derives W0 in `mp_float_t` where the CPython
+extension calls the shared `audioif_biquad_cp_w0()` in double. audioif#101 has
+the measurement and the fix; it moves board digests, so it is its own change.
 """
 
 from array import array
@@ -17,11 +37,12 @@ from array import array
 import audiocore
 import audiofilters
 import synthio
+from audioif_util import float32
 
 
 #: A and Q the shelf/peaking modes need. A is RBJ's amplitude parameter,
 #: 10**(gain_db/40) - so 1.4125 is a +6 dB bell rather than a +1.4 dB one.
-GAIN_A = 1.4125
+GAIN_A = float32(1.4125)
 Q = 1.0
 CENTER = 1200
 RATE = 8000
@@ -30,8 +51,8 @@ RATE = 8000
 #: arguments to audioif_biquad_configure could be hardcoded to the probe's own
 #: value without moving the hash - two of them silently untested. Frequency was
 #: the one scalar that varied. These sweep them.
-Q_VALUES = (0.4, 1.0, 4.0)
-A_VALUES = (0.7079, 1.4125)
+Q_VALUES = (float32(0.4), 1.0, 4.0)
+A_VALUES = (float32(0.7079), float32(1.4125))
 
 
 def checksum(data):
@@ -71,10 +92,11 @@ def source(channel_count):
     for frame in range(768):
         for channel in range(channel_count):
             hz = 300 if channel == 0 else 2400
-            phase = 2.0 * 3.141592653589793 * hz * frame / RATE
             # A cheap square-ish shape: deterministic, and rich enough above
-            # and below CENTER that every mode has something to act on.
-            values.append(12000 if (phase % 6.283185307179586) < 3.141592653589793
+            # and below CENTER that every mode has something to act on. In
+            # integers, so it is the same shape on every interpreter -- see
+            # the module docstring.
+            values.append(12000 if (2 * hz * frame) % (2 * RATE) < RATE
                           else -12000)
     return audiocore.RawSample(values, sample_rate=RATE,
                                channel_count=channel_count)
@@ -168,7 +190,7 @@ for stages in (1, 2, 3, 4):
         for i in range(stages)
     )
     try:
-        note = synthio.Note(220.0, amplitude=0.6,
+        note = synthio.Note(220.0, amplitude=float32(0.6),
                             filter=stack[0] if stages == 1 else stack)
     except TypeError:
         print("note_filter_cascade unsupported", stages)
