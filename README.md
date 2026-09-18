@@ -235,7 +235,11 @@ with `hysteresis_width` its half-width as a fraction of full scale *at the
 input* and `hysteresis_bias` splitting that between the rising and falling
 branches. `audioshaper.GROUP_DELAY_SAMPLES` carries the measured group delay
 per factor — 0, 2.2, 3.3 and 3.9 base samples — for a component that has to
-report its latency. Why each of those is the shape it is, and what the
+report its latency. A curve that reaches the rails has a ceiling of its
+own: the decimator can ring past them on a hard edge, so keep
+`post_gain * max(abs(curve))` at or below `audioshaper.CLIP_HEADROOM`
+(0.74) and put the rest of the wanted level on a mixer voice after this
+node. Why each of those is the shape it is, and what the
 oversampling measures:
 [docs/upstream-diff.md](docs/upstream-diff.md), "`audioshaper`: audioif's own,
 and the two things a fixed curve cannot be".

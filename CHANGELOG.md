@@ -1,5 +1,24 @@
 ## Unreleased
 
+- **`audioshaper.Waveshaper`'s own headroom is documented, and pinned by a
+  trait test.** A curve that reaches the rails and a `post_gain` above about
+  0.74 saturates the node's *own* output: the half-band decimator rings
+  about a third past the rails on a hard edge, at the base rate, after the
+  oversampling is already done, where no factor of it reaches. Measured on
+  a hard-clipping table driven hard (x4, 1010 Hz, 48 kHz, bare node): the
+  alias floor is flat through `post_gain` 0.80 and 13 dB worse by 0.90.
+  `audioshaper.CLIP_HEADROOM = 0.74` names the ceiling — keep
+  `post_gain * max(abs(curve))` at or below it for a curve that reaches the
+  rails, and put the rest of the wanted level on a mixer voice after this
+  node. No DSP changed: the docstring, `docs/upstream-diff.md` and a new
+  `HeadroomTest` in `tests/test_cpython_audioshaper.py` say what a drive
+  class (Distortion's second fix round) had already found and was carrying
+  its own 0.74 ceiling for, uncredited. The constant lives on the CPython
+  twin only — neither the MicroPython usermod's module globals nor the
+  CircuitPython spike's export anything past `__version__`/`__revision__`
+  and the two types, the same as `GROUP_DELAY_SAMPLES` beside it
+  (audioif#99).
+
 - **`audioshaper.SampleHold`**, a new node: a zero-order hold in which `num`
   source frames carry `den` new values, at a ratio that is exact. One frame
   in, one frame out, at the source's own rate, channels and bit depth; the

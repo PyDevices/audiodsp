@@ -6,8 +6,9 @@ whether the bytes are the right ones. These are the measurements the module
 was asked for -- does oversampling actually lower the alias floor, does the
 hysteresis option actually enclose an area and does that area grow with
 drive, is the hold's ratio exact over a distance where a fixed-point one has
-visibly walked -- each with the control that would go red if the mechanism
-were absent.
+visibly walked, does a hard-clipping curve's own headroom knee sit where
+`CLIP_HEADROOM` says it does -- each with the control that would go red if
+the mechanism were absent.
 """
 
 import math
@@ -40,9 +41,23 @@ def cubic_curve():
 CUBIC = cubic_curve()
 
 
-def render(values, **options):
+def hard_clip_curve(threshold=0.10, points=2048):
+    """A straight hard clip: linear to the rails over +-`threshold` of the
+    input span, flat beyond it -- unlike CUBIC, which never has a flat top
+    at all. Driven hard, this is the shape audioif#99 is about."""
+    last = points - 1
+    return array("h", [
+        clamp15(int(round(max(-1.0, min(1.0, (
+            -1.0 + 2.0 * index / last) / threshold)) * 32767)))
+        for index in range(points)])
+
+
+HARD_CLIP = hard_clip_curve()
+
+
+def render(values, curve=CUBIC, **options):
     """Push one array of interleaved frames through a node and take it back."""
-    node = audioshaper.Waveshaper(sample_rate=SAMPLE_RATE, curve=CUBIC,
+    node = audioshaper.Waveshaper(sample_rate=SAMPLE_RATE, curve=curve,
                                  **options)
     node.play(audiocore.RawSample(
         values, sample_rate=SAMPLE_RATE,
@@ -208,6 +223,83 @@ class AliasFloorTest(unittest.TestCase):
         # neither of which another doubling touches. It must not get worse.
         self.assertLess(floors[3], floors[2] + 0.5,
                         "x8 was worse than x4: %r" % (floors,))
+
+
+class HeadroomTest(unittest.TestCase):
+    """audioif#99: a hard-clipping curve driven hard rings past the rails
+    once decimated, and `post_gain` re-clips that overshoot at the base
+    rate -- after the oversampling is done, where no factor of it reaches.
+
+    Where this happens in the kernel (`src/shared/audioif_shaper.c`):
+    `shape_sample` runs the curve at the oversampled rate and its own clamp
+    (`curve_lookup`, clampf to +-1) bounds each of those samples, but the
+    *decimated* one is not clamped there -- `halfband_down` is a low-pass,
+    not a clip, so a hard edge through it can overshoot +-1. `post_gain`
+    scales that decimated value (`audioif_shaper_process_s16`,
+    `oversampled[0] * config->post_gain * 32768.0f`), and the only place
+    this node ever clips to int16 is `to_s16`, two lines later, on
+    `dry_gain * source + wet_gain * wet`. Everything from the curve to
+    `post_gain` is `float` -- nothing here is int16 until that last line.
+
+    HARD_CLIP ramps to the rails over the inner 10% of its span and is flat
+    beyond it; driven at 32000 (98% of full scale) it is pinned flat for
+    most of every half-cycle, the edge the issue is about. Bare node,
+    1010 Hz, 48 kHz, oversample x4; the window is 4800 samples -- exactly
+    101 cycles of 1010 Hz, so the fundamental and every harmonic fall on
+    their own bin with no window and no rounding.
+
+    Measured (`docs/upstream-diff.md`'s `audioshaper` section carries the
+    full table): flat at -54.34 dB through `post_gain` 0.80, -41.24 at
+    0.90, -36.44 at 1.00 -- a 13.1 dB fall by 0.90 that the bars below ask
+    10 of, for margin. The control is oversample x1: no half-band, no
+    ringing, and the floor reads -34.92 dB at every `post_gain` from 0.66
+    to 1.00 -- the same curve and the same drive, showing no knee at all,
+    which is what proves the x4 knee is the decimator's and not the
+    curve's.
+    """
+
+    HZ = 1010
+    FRAMES = 4800  # 48000 / 1010 * 101 == 4800 exactly: bin 101, no rounding
+    CYCLES = HZ * FRAMES // SAMPLE_RATE
+    LEVEL = 32000
+
+    def _floor(self, post_gain, oversample=4):
+        return alias_floor_db(oversample, cycles=self.CYCLES,
+                              frames=self.FRAMES, level=self.LEVEL,
+                              curve=HARD_CLIP, post_gain=post_gain)
+
+    def test_the_floor_is_flat_below_the_knee(self):
+        """0.66 and 0.74 read the same node to within 1 dB: on this table,
+        the knee has not been reached yet at either."""
+        low = self._floor(0.66)
+        at = self._floor(0.74)
+        self.assertLess(abs(at - low), 1.0,
+                        "0.66 and 0.74 already differ: %.3f vs %.3f dB"
+                        % (low, at))
+
+    def test_the_floor_falls_past_the_knee(self):
+        """0.90 is well past it. `CLIP_HEADROOM`'s ~0.74 ceiling has to be
+        buying real room, not a fraction of a dB, or the constant is
+        theatre -- measured here it is 13.1 dB; the bar asks 10, leaving
+        margin rather than pinning the exact figure."""
+        at = self._floor(0.74)
+        past = self._floor(0.90)
+        self.assertLess(at, past - 10.0,
+                        "0.90 was not at least 10 dB worse than 0.74: "
+                        "%.3f vs %.3f dB" % (at, past))
+
+    def test_the_knee_is_the_decimators_not_the_curves(self):
+        """Its control. At oversample x1 there is no half-band to ring, so
+        the same curve and the same drive must show no knee at all -- if
+        this one went red, the "knee" above would be the curve clipping on
+        its own, not the decimator, and `CLIP_HEADROOM` would be the wrong
+        fix."""
+        floors = [self._floor(post, oversample=1)
+                  for post in (0.66, 0.70, 0.74, 0.78, 0.80, 0.90, 1.00)]
+        self.assertLess(max(floors) - min(floors), 0.5,
+                        "the un-oversampled curve already shows a knee, so "
+                        "x4's knee is not the decimator's doing: %r"
+                        % (floors,))
 
 
 class HysteresisTest(unittest.TestCase):

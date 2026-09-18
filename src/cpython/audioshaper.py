@@ -41,6 +41,17 @@ whole reason this module exists: a nonlinearity makes harmonics above
 Nyquist and they fold back onto the signal, and nothing else in audioif
 resamples at all.
 
+A curve that reaches the rails has a cost on the way back down, though: the
+band-limited version of a full-scale clipped edge does not fit in int16.
+The decimator rings about a third past the rails on an edge like that --
+at the base rate, after the oversampling is already done, where no factor
+of it reaches -- and `post_gain` is what decides whether that overshoot
+then clips. Keep `post_gain * max(abs(curve))` at or below `CLIP_HEADROOM`
+(about 0.74 of full scale) for a curve that reaches the rails, and put the
+rest of the wanted level on a mixer voice after this node rather than on
+this knob. Measured table: `docs/upstream-diff.md`, "`audioshaper`"
+(audioif#99).
+
 `hysteresis` is off by default and is the one thing a table cannot do: give
 the curve a memory, so a slow triangle in and out traces two different paths
 and encloses an area. At zero the node is a static table, sample for sample.
@@ -97,6 +108,18 @@ _OPTIONS = {
 #: 0.001 dB. A component reporting `latency_samples` should report the entry
 #: for the factor it built with -- it is small, but it is not zero.
 GROUP_DELAY_SAMPLES = {1: 0.0, 2: 2.2, 4: 3.3, 8: 3.9}
+
+#: Above roughly this fraction of full scale, `post_gain` on a curve that
+#: reaches the rails re-clips the decimator's own overshoot at the base
+#: rate rather than anything the oversampling can still fix -- see the
+#: docstring above and docs/upstream-diff.md's `audioshaper` section for
+#: the measured table (audioif#99). Documentation only, the same as
+#: `GROUP_DELAY_SAMPLES` above it: neither the MicroPython usermod's module
+#: globals (`src/audioshaper/module.c`) nor the CircuitPython spike's
+#: (`shared-bindings/audioshaper/__init__.c`) export anything past
+#: `__version__`/`__revision__` and the two types, so there is no second
+#: target yet for this figure to agree with.
+CLIP_HEADROOM = 0.74
 
 
 class Waveshaper(_AudioSample):

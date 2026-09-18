@@ -2769,11 +2769,15 @@ measuring three libms rather than this node.
 
 `tests/test_cpython_audioshaper.py` carries what the golden cannot: that
 oversampling actually lowers the alias floor, that the hysteresis knob is
-monotone and clears its control by 6 dB, and that a static table and a
-zero-width operator both enclose exactly 0.0. Each check was shown to fail
-before it was believed -- discarding the play operator's result reddens both
-hysteresis tests, and replacing the half-bands with a zero-order hold and a
-decimating drop reddens the alias-floor test.
+monotone and clears its control by 6 dB, that a static table and a
+zero-width operator both enclose exactly 0.0, and that a hard-clipping
+curve's own alias floor holds flat through `post_gain` 0.74 and falls at
+least 10 dB worse by 0.90 (audioif#99, "The clipper's own headroom" below).
+Each check was shown to fail before it was believed -- discarding the play
+operator's result reddens both hysteresis tests, replacing the half-bands
+with a zero-order hold and a decimating drop reddens the alias-floor test,
+and the headroom test reddens at oversample x1, where there is no
+half-band left to ring.
 
 `SampleHold` has `tests/parity/samplehold_probe.py` of its own rather than
 cases appended to the waveshaper's, because one comparison covers a probe's
@@ -2791,6 +2795,57 @@ node's own loop re-typed) is run against the two-`SpeedChanger` composition
 `source[(((n*up)>>16)*down)>>16]` over 400 000 frames, and it must fail. It
 does, and by the end of that distance the pair is holding a frame the
 arithmetic does not name.
+
+### The clipper's own headroom, after the decimator (audioif#99, 2026-09-17)
+
+Oversampling buys back the base rate's aliasing, but it has a ceiling of its
+own that the sections above do not mention. `shape_sample` runs at the
+oversampled rate and `curve_lookup`'s own clamp
+(`src/shared/audioif_shaper.c:213`) holds every one of those samples to
++-1 -- but the *decimated* one is not clamped there. `halfband_down`
+(`:201-207`) is a low-pass, not a clip, so a hard edge through it can
+overshoot the rails on the way back down to the base rate, the way any
+band-limited reconstruction of a discontinuity does. `post_gain` is applied
+to that decimated value (`audioif_shaper_process_s16`, `:288`,
+`oversampled[0] * config->post_gain * 32768.0f`) -- after the half-band,
+where no oversampling factor reaches it any more -- and the *only* place
+this node clips to int16 at all is `to_s16`, two lines later (`:289-290`),
+on `dry_gain * source + wet_gain * wet`. Every value in between, including
+the overshoot, is `float`.
+
+Measured on the CPython twin: a straight hard clip (int16 Q15, 2048 points,
+flat beyond +-10% of input, so it reaches the rails), a 1010 Hz sine at
+48 kHz driven to 98% of full scale, oversample x4, bare node. The alias
+floor is inharmonic energy against the fundamental over an exactly periodic
+4800-sample window -- bin 101 of a rectangular-window transform, so nothing
+is rounded to its nearest bin:
+
+| `post_gain` | 0.66 | 0.70 | 0.74 | 0.78 | 0.80 | 0.90 | 1.00 |
+|---|---|---|---|---|---|---|---|
+| floor (dBc) | -54.34 | -54.34 | -54.35 | -54.34 | -54.34 | -41.24 | -36.44 |
+
+Flat to the hundredth of a dB through 0.80, then 13.1 dB worse by 0.90 and
+17.9 by 1.00. (x8 shows the same shape a little deeper: flat at -55.77
+through 0.80, -41.21 at 0.90.) The control is oversample x1 on the same
+curve and the same drive: with no half-band left to ring, the floor reads
+-34.92 dBc at every one of those seven settings, so the knee measured above
+is the decimator's doing and not the curve's.
+
+That is physics, not a defect -- the headroom has to come from somewhere,
+and a full-scale clipped edge asks the reconstruction filter for more than
+int16 has to give back. `audioshaper.CLIP_HEADROOM = 0.74` names the
+ceiling: keep `post_gain * max(abs(curve))` at or below it for a curve that
+reaches the rails, and put the rest of the wanted level on a mixer voice
+after this node rather than on this knob. The constant lives on the
+CPython twin only, the same as `GROUP_DELAY_SAMPLES` above it -- neither
+the MicroPython usermod's module globals (`src/audioshaper/module.c`) nor
+the CircuitPython spike's (`shared-bindings/audioshaper/__init__.c`) export
+anything past `__version__`/`__revision__` and the two types, so there is
+no second target yet for this figure to agree with.
+
+A class that drives this node with a hard-clipping curve and wants more
+than ~0.74 of full scale out of it has been carrying its own 0.74 ceiling
+without a name for it (audioif#99); this is that name.
 
 ## `audioladder`: the loop CircuitPython's filters cannot close (effects Phase 1)
 
