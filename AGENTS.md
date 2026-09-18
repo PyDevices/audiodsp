@@ -99,13 +99,24 @@ Both are expected as siblings in the parent workspace (`cmods/` in
   name there records a sound changed **on purpose**, and adding one is
   Brad's call, never an agent's) is documented in that repository's
   AGENTS.md. It is not run from here.
-- What covers the micropython-vst3 cutover is `python3 tests/parity/capture_render_reference.py
-  --verify`: it renders the plug-in's six soundtrack pieces and compares
-  them with what they sounded like beforehand. The interpreter it renders
-  with needs `audioinstruments` and `audioeffects` installed from
-  audiocomponents (or `--components-lib <checkout>/lib`); they are no
-  longer in this tree. Slow (~15 min) and not part of the default gate, but
-  **re-capture it after any DSP change here** or it stops meaning anything.
+- What covers the mpvst cutover is `python3 tests/parity/capture_render_reference.py
+  --verify`: it renders every piece of [mpvst](https://github.com/PyDevices/mpvst)'s
+  soundtrack and compares each with what it sounded like beforehand. It drives
+  `examples/soundtrack/composer/preview.py` in an mpvst checkout — `--mpvst`
+  points at one, default `../mpvst`. The interpreter it renders with needs
+  `audioinstruments` and `audioeffects` installed from audiocomponents (or
+  `--components-lib <checkout>/lib`); they are no longer in this tree. Slow
+  (~30 min) and not part of the default gate, but **re-capture it after any
+  DSP change here** or it stops meaning anything. The stored golden holds
+  seven pieces against the state of the workspace on 2026-09-03; the
+  soundtrack has grown since, and a piece the golden has never seen is
+  reported as new rather than compared. A piece that cannot be rendered at all
+  is reported and the run carries on — as of 2026-09-18 two of them cannot,
+  because their effect racks predate audiocomponents' effects rebuild
+  ([mpvst#8](https://github.com/PyDevices/mpvst/issues/8)). Repointed in
+  audioif#88 — the renderer it used to drive,
+  `micropython-vst3/tools/render_preview.py`, was deleted when both composers
+  moved beside their songs.
 - `python3 -m flake8` is the lint gate (`.flake8`, defect checks only —
   layout is deliberately not gated). It runs in CI on every push.
 - Full regression after any change: rebuild interpreters
