@@ -1,5 +1,27 @@
 ## Unreleased
 
+- **`audioshaper.SampleHold`**, a new node: a zero-order hold in which `num`
+  source frames carry `den` new values, at a ratio that is exact. One frame
+  in, one frame out, at the source's own rate, channels and bit depth; the
+  accumulator is the remainder of `n·den` modulo `num`, so 26 040 Hz at
+  48 kHz is 400/217 and stays 400/217 however long the render runs.
+  `num == den` is a wire byte for byte, `latency` is 0, and `set(num, den)`
+  moves the ratio mid-stream.
+
+  It exists because the palette's sample-and-hold was a pair of
+  `audiospeed.SpeedChanger` nodes, down by the hold ratio and up by its
+  reciprocal, and that pair cannot be made reciprocal: the rate is 16.16
+  fixed point and inverts exactly only at powers of two. Measured on the
+  effects programme's shipped hold, the two rates multiplied to 0.9999947 at
+  48 kHz — one sample late per 189 339 frames — and 1.0000108 at 44.1 kHz,
+  one sample early per 92 708. A click read delay 1 at frame 256 and 2 at
+  frame 196 608; at Mix 0.5 a steady 12 kHz tone swung 10.74 dB over a
+  twelve-second render, which is a slow flange on a setting nobody was
+  touching. The rate form was **not** added to `SpeedChanger`: that module is
+  a CircuitPython port, an argument added to audioif's copy would not exist
+  on a stock board, and `audiospeed` is byte-identical to what it was
+  (audioif#97).
+
 - `audiospeed.SpeedChanger` **carries its phase across a source buffer**.
   Upstream zeroes the accumulator every time it takes a new buffer, so what the
   node renders depends on how the node above it chunks its output: the same

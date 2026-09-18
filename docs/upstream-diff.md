@@ -2680,6 +2680,84 @@ Phase 0 sketch carried would have been a byte of state nothing reads.
   option that duplicates a palette node is what the "compose the existing
   palette first" rule refuses.
 
+### `audioshaper.SampleHold`: lo-fi's other half, and why it is not a rate on `SpeedChanger` (2026-09-17)
+
+The waveshaper quantises the value. The second node in this module quantises
+the time, and it is here for the same reason the first one is.
+
+**What was wrong.** The effects programme's `Bitcrusher` built its
+sample-rate reduction out of two `audiospeed.SpeedChanger` nodes -- down by
+the hold ratio, up by its reciprocal -- and **the pair cannot be made
+reciprocal**. `SpeedChanger.rate` is a 16.16 fixed-point quantity
+(`rate_to_fp`, `SPEED_SHIFT`), so a down leg's Q16 value inverts exactly only
+when it divides 2^32, which is to say at powers of two. At the class's
+shipped hold of 26 040 Hz the 48 kHz pair is 120804/35553, and no choice of
+the second value on that grid does better. The second-pass refuter measured
+the product of the two rates at **0.9999947184696794** -- one sample late per
+189 339 frames -- and at 44.1 kHz **1.0000107865780592**, one sample early
+per 92 708. A four-sample click read delay 1 at frame 256 and 2 at frame
+196 608; at 44.1 kHz the delay walked to -1 and the wet arrived before the
+dry. At `mix` 0.5 a steady 12 kHz tone swung 10.74 dB over a twelve-second
+render: a slow flange on a setting nobody was touching (audioif#97).
+
+**Why a node of ours rather than an exact rational rate on `SpeedChanger`.**
+The rate form was the other candidate and it is the one this port must not
+take. `audiospeed` is CircuitPython's module: a `(num, den)` rate added to
+audioif's copy would not exist on a stock board, so a `Bitcrusher` written
+against it would silently be a different effect there -- the same argument
+that keeps this module out of `audiofilters.Distortion`, and the one
+`apply_cp_patches.sh` is built around. It would also keep the two-node chain
+and its cost when one node does the whole job. **`audiospeed` is
+byte-identical to what it was before this landed**, and the two departures
+already recorded for it (audioif#91, #92) are the whole of that module's
+divergence.
+
+**The arithmetic, which is the entire node.** The ratio arrives as two
+integers, reduced at construction: `num` frames carry `den` new values, so
+26040/48000 is stored and reported as 217/400 over 400/217. Per output frame:
+
+    phase += den;                   // phase is always below num
+    if (phase >= num) { phase -= num; latch the frame we are looking at; }
+    emit the latched frame
+
+`phase` is the exact remainder of `n * den` modulo `num` -- armed at
+`num - den`, so the first frame of a stream latches rather than emitting a
+value it was never given. Nothing is rounded and nothing accumulates, so the
+accumulator is back where it started after exactly `num` frames however long
+the render runs. The refresh count over N frames is
+`1 + floor((N-1)*den/num)`, which is `N*den/num` exactly over any whole
+number of periods. `den > num` is refused rather than clamped: a hold
+consumes one frame per frame and cannot invent one, and a silently clamped
+ratio is a class shipping a hold rate it did not ask for.
+
+`num == den` is a **wire**, byte for byte, including at the rails -- which is
+also the proof that **latency is 0**: a refresh latches the frame it is
+looking at and emits it in the same frame, so nothing is buffered between
+input and output. What a hold *displaces* is an event landing on a frame it
+drops; that arrives on the next kept frame, up to `ceil(num/den) - 1` frames
+later. That is the effect rather than a delay of this node, and it is the
+class with the rate knob that reports the bound.
+
+**It holds frames as bytes and never looks inside a sample**, so it carries
+its source's own sample rate, channel count and bit depth -- 8- or 16-bit,
+mono or stereo, signed or not. Two consequences worth having on purpose: both
+channels of a stereo frame always refresh on the same frame, and silence in
+is that silence out to the byte whatever its DC is (unsigned 8-bit silence is
+0x80, not 0). It is **not a resampler and does not interpolate**: a
+zero-order hold's images standing at their own level is the sound being
+asked for.
+
+**One frame in, one frame out, and the source's own ending.** Unlike the
+`Waveshaper` beside it, a starved `SampleHold` does not manufacture silence:
+it reports what its source reported. A hold is 1:1, the pair of
+`SpeedChanger`s it replaces ended where the source ended, and a node that ran
+on into silence would move where a chain finishes.
+
+`set(num, den)` moves the ratio mid-stream and takes both halves together; a
+ratio that actually changed re-arms the accumulator, and one set to what it
+already was does nothing at all, because a class writes its settings on every
+block and re-latching 187 times a second would be a defect nobody asked for.
+
 ### How it is gated
 
 `tests/parity/waveshaper_probe.py`, oracle `None` -- there is no ancestor to
@@ -2689,13 +2767,30 @@ table computed with `math.exp` would be a *different table* under
 CircuitPython, whose floats are single-precision, and the probe would then be
 measuring three libms rather than this node.
 
-`tests/test_cpython_waveshaper.py` carries what the golden cannot: that
+`tests/test_cpython_audioshaper.py` carries what the golden cannot: that
 oversampling actually lowers the alias floor, that the hysteresis knob is
 monotone and clears its control by 6 dB, and that a static table and a
 zero-width operator both enclose exactly 0.0. Each check was shown to fail
 before it was believed -- discarding the play operator's result reddens both
 hysteresis tests, and replacing the half-bands with a zero-order hold and a
 decimating drop reddens the alias-floor test.
+
+`SampleHold` has `tests/parity/samplehold_probe.py` of its own rather than
+cases appended to the waveshaper's, because one comparison covers a probe's
+whole output and an added case would move the very numbers that say the
+Waveshaper's bytes did not change. Its last lines are counts rather than PCM
+-- refreshes over a whole number of periods, and frames in against frames out
+-- for the reason `audiobiquad`'s probe prints invariants: the claim this node
+exists for is exactness over time, and PCM says nothing about whether that
+still holds.
+
+The traits are in `tests/test_cpython_audioshaper.py`, and the control is the
+mechanism this replaces: the same closed-form comparison
+(`m(n) = ceil(floor(n*den/num) * num/den)`, two rationals rather than the
+node's own loop re-typed) is run against the two-`SpeedChanger` composition
+`source[(((n*up)>>16)*down)>>16]` over 400 000 frames, and it must fail. It
+does, and by the end of that distance the pair is holding a frame the
+arithmetic does not name.
 
 ## `audioladder`: the loop CircuitPython's filters cannot close (effects Phase 1)
 

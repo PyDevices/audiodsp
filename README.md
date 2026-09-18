@@ -120,7 +120,8 @@ engine, which had them and CircuitPython does not. `audiomath` (multiply one
 stream by another — ring and amplitude modulation; and divide one down in
 frequency — the analog octave divider), `audioecho` (a delay with a filter,
 a soft-clip and a cross-feed inside its feedback loop), `audioshaper` (a
-waveshaper whose curve is data, applied above the sample rate),
+waveshaper whose curve is data, applied above the sample rate, and a
+sample-and-hold at an exact rational ratio),
 `audioladder` (a transistor ladder filter — four one-pole stages round a
 feedback loop with an odd saturator inside it), `audioconvolve` (apply a
 measured or synthesized impulse response, by partitioned FFT), `audioverb`
@@ -238,6 +239,23 @@ report its latency. Why each of those is the shape it is, and what the
 oversampling measures:
 [docs/upstream-diff.md](docs/upstream-diff.md), "`audioshaper`: audioif's own,
 and the two things a fixed curve cannot be".
+
+`audioshaper.SampleHold(source, num=…, den=…)` is the same module's other
+node: a zero-order hold in which `num` source frames carry `den` new values,
+so 26 040 Hz at 48 kHz is 400/217 and is **exact** — one frame in, one frame
+out, at the source's own rate, channels and bit depth, with an integer
+accumulator that cannot drift however long the render runs. `num == den` is a
+wire byte for byte, `latency` is 0 (what a hold displaces is an event landing
+on a frame it drops, up to `ceil(num/den) − 1` frames, which is the effect
+and the caller's to report), and `set(num, den)` moves the ratio mid-stream.
+It exists because the palette's sample-and-hold was a pair of
+`audiospeed.SpeedChanger` nodes whose 16.16 rates cannot be made reciprocal:
+measured on that hold, the pair ran 0.9999947 of the rate it asked for and
+flanged a static setting by 10.74 dB over twelve seconds. The rate form was
+not added to `SpeedChanger` because that module is CircuitPython's and an
+argument added here would not exist on a board —
+[docs/upstream-diff.md](docs/upstream-diff.md), "`audioshaper.SampleHold`:
+lo-fi's other half".
 
 `audioladder` is the newest, and the one whose reason for existing is least
 obvious next to a module CircuitPython already has. `audiofilters.Filter`
