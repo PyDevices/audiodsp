@@ -1,4 +1,7 @@
 # The CircuitPython oracle pin. Every parity golden is measured against
-# this exact commit (tag 10.2.1). Moving it is a re-port, not a bump; see
-# AGENTS.md "The CircuitPython oracle" and docs/upstream-diff.md.
-10.2.1 bcfcb511352652d7cb62d3b415e4a624380f1830
+# this exact commit (tag 10.3.0; the pin moved from 10.2.1 on 2026-09-09).
+# Moving it is a re-port, not a bump; see AGENTS.md "The CircuitPython
+# oracle" and docs/upstream-diff.md. The 64-voice oracle binary built from
+# it lives at cmods/bin/circuitpython-oracle-10.3.0 (build_interpreters.sh
+# cp-oracle); tests/test_voice_ceiling_consistency.py pins its sha256.
+10.3.0 d897c15f24b2a6de6529f138aed4705327020dab

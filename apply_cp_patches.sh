@@ -78,7 +78,7 @@ if [[ -f "$ORACLE_FILE" ]]; then
     ACTUAL_SHA=$(git -C "$CP_DIR" rev-parse HEAD 2>/dev/null || echo unknown)
     if [[ "$ACTUAL_SHA" != "$ORACLE_SHA" ]]; then
         echo "WARNING: CircuitPython tree at $CP_DIR is $ACTUAL_SHA," >&2
-        echo "         but CIRCUITPYTHON_ORACLE declares $ORACLE_SHA (10.2.1)." >&2
+        echo "         but CIRCUITPYTHON_ORACLE declares $ORACLE_SHA." >&2
         echo "         Parity goldens are only meaningful against the pin." >&2
     fi
 fi
