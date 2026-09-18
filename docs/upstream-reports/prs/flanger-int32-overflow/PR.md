@@ -9,9 +9,9 @@ document). From audioif#76 and the `audiodelays.Flanger` section of
 **A PR, not an issue.** The judgement upstream would have to make — pay for a
 64-bit multiply in the per-sample loop, or give up a bit of `delay_frac` — is
 one they already made eighteen lines above, where `delay_span_q16 * tri` is
-widened with exactly this cast. If a maintainer raises the Cortex-M0+ cost
+widened the same way. If a maintainer raises the Cortex-M0+ cost
 (`__aeabi_lmul` per sample), the cheaper answer is
-`s0 + ((s1 - s0) * (int32_t)(delay_frac >> 1) >> 15)`: 65535 × 32767 fits
+`s0 + (((s1 - s0) * (int32_t)(delay_frac >> 1)) >> 15)`: 65535 × 32767 fits
 int32 with 98 302 to spare, at the price of the bottom bit of the fractional
 delay. Do not offer that unprompted; it costs a round trip to explain.
 
@@ -30,7 +30,7 @@ full-scale material that alternates sign: interpolating between two taps at
 opposite rails returns -32770 where it should return 32766. On a rails render
 1717 of 2048 samples differ from the widened arithmetic, worst case 32087
 codes, while ordinary material is identical. The `delay_span_q16 * tri`
-product just above already uses the same cast.
+product just above is already widened the same way.
 ```
 
 ## Verification transcript (2026-09-18) — not for posting
