@@ -91,14 +91,20 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
     def test_the_tables_are_found_at_all(self):
         """A control, because the failure mode of this file is a regex that
         matches nothing and then agrees with itself. Both sides must yield the
-        fourteen types."""
+        fifteen types.
+
+        The count is deliberately a literal rather than a comparison of the two
+        sides against each other: a node added to one binding and not the other
+        would make both sides agree on thirteen and this test is what says how
+        many there are meant to be. It went from fourteen to fifteen when
+        `audioshaper.SampleHold` landed (audioif#97)."""
         micropython = {}
         circuitpython = {}
         for module in MODULES:
             micropython.update(micropython_surfaces(module))
             circuitpython.update(circuitpython_surfaces(module))
-        self.assertEqual(len(micropython), 14, sorted(micropython))
-        self.assertEqual(len(circuitpython), 14, sorted(circuitpython))
+        self.assertEqual(len(micropython), 15, sorted(micropython))
+        self.assertEqual(len(circuitpython), 15, sorted(circuitpython))
 
     def test_every_type_exists_on_both_sides(self):
         for module in MODULES:

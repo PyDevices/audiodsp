@@ -1,11 +1,13 @@
-"""audioshaper.Waveshaper: the claims the parity golden cannot carry.
+"""audioshaper: the claims the parity goldens cannot carry.
 
-tests/parity/waveshaper_probe.py pins what this node *renders*, byte for
-byte, on every interpreter. What it cannot say is whether the bytes are the
-right ones. These are the measurements the node was asked for -- does
-oversampling actually lower the alias floor, does the hysteresis option
-actually enclose an area and does that area grow with drive -- each with the
-control that would go red if the mechanism were absent.
+tests/parity/waveshaper_probe.py and samplehold_probe.py pin what these two
+nodes *render*, byte for byte, on every interpreter. What they cannot say is
+whether the bytes are the right ones. These are the measurements the module
+was asked for -- does oversampling actually lower the alias floor, does the
+hysteresis option actually enclose an area and does that area grow with
+drive, is the hold's ratio exact over a distance where a fixed-point one has
+visibly walked -- each with the control that would go red if the mechanism
+were absent.
 """
 
 import math
@@ -413,3 +415,321 @@ class UniversalTraitTest(unittest.TestCase):
                        for _block in range(6))
         self.assertTrue(differed, "an uncleared node already matches a fresh "
                         "one, so the clear trait cannot fail")
+
+
+class SampleHoldTest(unittest.TestCase):
+    """audioshaper.SampleHold: exact is the whole claim, so measure exactness.
+
+    The node replaces a pair of `audiospeed.SpeedChanger`s whose rates are
+    16.16 fixed point and cannot be made reciprocal except at powers of two.
+    Measured on the effects programme's shipped hold, that pair's two rates
+    multiplied to 0.9999947184696794 at 48 kHz -- one sample late per 189 339
+    frames -- and to 1.0000107865780592 at 44.1 kHz, one sample early per
+    92 708 (audioif#97). So every check here is an equality against integer
+    arithmetic rather than a tolerance, and the control below is the pair
+    itself: the same comparison run against what the class used to build must
+    fail, or these tests are measuring nothing.
+    """
+
+    RATE = 48000
+
+    def _ramp(self, frames, channels=2):
+        """A source whose every frame is distinct, and whose value *names* its
+        own frame number: `in[m] = (m % 65536) - 32768`. That is what lets a
+        rendered frame be traced back to the source frame it was held from,
+        which is the measurement the whole file turns on."""
+        values = array("h")
+        for frame in range(frames):
+            for channel in range(channels):
+                offset = 0 if channel == 0 else 30011
+                values.append(((frame + offset) % 65536) - 32768)
+        return audiocore.RawSample(values, sample_rate=self.RATE,
+                                   channel_count=channels)
+
+    def _rails(self, frames=2048):
+        """Full scale, alternating, and the two channels in opposition: both
+        rails on every frame, which is where an arithmetic width error shows
+        and a range check does not."""
+        values = array("h")
+        for frame in range(frames):
+            values.append(32767 if frame % 2 else -32768)
+            values.append(-32768 if frame % 2 else 32767)
+        return values
+
+    def _hold(self, source, num, den):
+        return audioshaper.SampleHold(source, num=num, den=den)
+
+    def _render(self, node):
+        """Every frame the node renders, until it says it is done."""
+        out = array("h")
+        while True:
+            result, data = audiocore.get_buffer(node)
+            out.frombytes(bytes(data))
+            if result == audiocore.GET_BUFFER_DONE:
+                return out
+
+    def _left(self, rendered, channels=2):
+        return rendered[0::channels]
+
+    def _held_frame(self, index, num, den):
+        """Which source frame frame `index` must be holding, in closed form.
+
+        Independent arithmetic rather than the node's own loop re-typed: the
+        refresh count at or before `index` is `1 + floor(index*den/num)`, and
+        the r-th refresh lands on frame `ceil(r*num/den)`. Two rationals, no
+        accumulator, so a fault in the accumulator has nowhere to hide.
+        """
+        refresh = (index * den) // num
+        return -((-refresh * num) // den)
+
+    def _refreshes(self, left):
+        """Frames on which the held value changed, plus the first frame, which
+        always latches. Every source frame is distinct, so a refresh always
+        moves the output and this count is the accumulator's wrap count."""
+        count = 1
+        for index in range(1, len(left)):
+            if left[index] != left[index - 1]:
+                count += 1
+        return count
+
+    def _pair_indices(self, sample_rate, rate_hz, frames):
+        """What the two-`SpeedChanger` chain holds, frame by frame.
+
+        `down_q` and `up_q` are the class's own mapping onto audiospeed's Q16
+        grid, and the composition is the one the fix for audioif#91 made
+        exact: `source[(((n*up)>>16)*down)>>16]`.
+        """
+        down_q = int(65536 * sample_rate / rate_hz + 0.5)
+        up_q = int(65536 * 65536 / down_q + 0.5)
+        return [(((index * up_q) >> 16) * down_q) >> 16
+                for index in range(frames)]
+
+    def test_the_ratio_is_reduced_and_reported(self):
+        """A class hands in the two numbers it has; the node hands back the
+        pair it is actually running, so the rate it got can be disclosed."""
+        node = self._hold(self._ramp(64), 48000, 26040)
+        self.assertEqual((node.num, node.den), (400, 217))
+        node = self._hold(self._ramp(64), 44100, 26040)
+        self.assertEqual((node.num, node.den), (105, 62))
+        node = self._hold(self._ramp(64), 22050, 22050)
+        self.assertEqual((node.num, node.den), (1, 1))
+
+    def test_the_hold_ratio_is_exact(self):
+        """The refresh count over a whole number of periods is `N*den/num`
+        exactly -- at three sample rates, and at the hold rate the effects
+        programme ships (26 040 Hz, which is 400/217 at 48 kHz, 105/62 at
+        44.1 kHz and a clamp to the wire at 22.05 kHz).
+        """
+        for num, den, periods in ((400, 217, 30),      # 26040 Hz at 48000
+                                  (105, 62, 120),      # 26040 Hz at 44100
+                                  (2, 1, 6000),        # 11025 Hz at 22050
+                                  (1, 1, 12000)):      # the clamped case
+            frames = num * periods
+            left = self._left(self._render(
+                self._hold(self._ramp(frames), num, den)))
+            self.assertEqual(len(left), frames)
+            self.assertEqual(self._refreshes(left), frames * den // num,
+                             "%d/%d refreshed the wrong number of times"
+                             % (num, den))
+
+    def test_the_count_over_a_partial_period_is_the_documented_rounding(self):
+        """Off a period boundary the count is `1 + floor((N-1)*den/num)`: the
+        first frame always latches, and every wrap after it is one more. Said
+        here rather than left implicit, because it is the one place the count
+        is not simply `floor(N*den/num)` -- at 44.1 kHz over 4000 frames those
+        two differ (2362 against 2361) and the first is the right answer."""
+        for num, den, frames in ((400, 217, 4000), (105, 62, 4000),
+                                 (1024, 3, 3000), (3, 1, 3001)):
+            left = self._left(self._render(
+                self._hold(self._ramp(frames), num, den)))
+            self.assertEqual(self._refreshes(left),
+                             1 + ((frames - 1) * den) // num,
+                             "%d/%d over %d frames" % (num, den, frames))
+
+    def test_it_holds_the_frame_the_arithmetic_names(self):
+        """Every frame, not just the count: the rendered value is the source
+        frame the closed form names, for 20 000 frames at four ratios."""
+        for num, den in ((400, 217), (105, 62), (2, 1), (1024, 3), (1, 1)):
+            frames = 20000
+            left = self._left(self._render(
+                self._hold(self._ramp(frames), num, den)))
+            expected = [(self._held_frame(index, num, den) % 65536) - 32768
+                        for index in range(frames)]
+            self.assertEqual(list(left), expected,
+                             "%d/%d does not hold what the arithmetic names"
+                             % (num, den))
+
+    def test_it_has_not_moved_by_the_distance_the_pair_flanged_over(self):
+        """400 000 frames -- twice the distance at which the pair was a whole
+        sample late -- and the count is still exact and the held frame is
+        still the one the closed form names at the very end."""
+        frames = 400000
+        left = self._left(self._render(
+            self._hold(self._ramp(frames), 400, 217)))
+        self.assertEqual(len(left), frames)
+        self.assertEqual(self._refreshes(left), frames * 217 // 400)
+        for index in (196608, 250000, frames - 1):
+            self.assertEqual(
+                left[index],
+                (self._held_frame(index, 400, 217) % 65536) - 32768,
+                "the hold has walked by frame %d" % (index,))
+
+    def test_the_exactness_check_discriminates(self):
+        """The control, and it is the mechanism this node replaces.
+
+        The two-`SpeedChanger` composition is run through the same comparison
+        over the same distance. It must fail -- and where it first fails is
+        the measurement from the issue: the pair is holding a frame the
+        arithmetic does not name long before 400 000 frames, and by the end
+        it is a whole sample adrift. A check both mechanisms passed would be
+        measuring the source, not the accumulator.
+        """
+        frames = 400000
+        indices = self._pair_indices(48000, 26040.0, frames)
+        exact = [self._held_frame(index, 400, 217) for index in range(frames)]
+        self.assertNotEqual(indices, exact,
+                            "the fixed-point pair passed the exactness "
+                            "check, so the check cannot fail")
+        first = next(index for index in range(frames)
+                     if indices[index] != exact[index])
+        walk = exact[frames - 1] - indices[frames - 1]
+        self.assertLess(first, frames)
+        self.assertGreaterEqual(walk, 1,
+                                "the pair did not fall behind at all: %d"
+                                % (walk,))
+
+    def test_one_over_one_is_a_wire(self):
+        """At the rails, where an arithmetic width error shows and a range
+        check does not. 1/1 refreshes on every frame, so the output is the
+        input byte for byte."""
+        source = audiocore.RawSample(self._rails(), sample_rate=self.RATE,
+                                     channel_count=2)
+        rendered = self._render(audioshaper.SampleHold(source, num=1, den=1))
+        self.assertEqual(list(rendered), list(self._rails()))
+
+    def test_the_wire_check_discriminates(self):
+        """Its control: the same node at 2/1 must not satisfy it."""
+        source = audiocore.RawSample(self._rails(), sample_rate=self.RATE,
+                                     channel_count=2)
+        rendered = self._render(audioshaper.SampleHold(source, num=2, den=1))
+        self.assertNotEqual(list(rendered), list(self._rails()))
+
+    def test_the_latency_is_zero_and_says_so(self):
+        """The node reports 0 at every ratio, and the report is a
+        measurement: the first frame out is the first frame in, because a
+        refresh latches the frame it is looking at rather than the one before
+        it. What a hold displaces -- an event landing on a frame it drops --
+        is up to `ceil(num/den) - 1` frames and belongs to the class that
+        turns this into a rate knob, not to this node."""
+        for num, den in ((1, 1), (2, 1), (400, 217), (105, 62), (1024, 3)):
+            source = self._ramp(512)
+            node = self._hold(source, num, den)
+            self.assertEqual(node.latency, 0)
+            left = self._left(self._render(node))
+            self.assertEqual(left[0], -32768, "%d/%d began late"
+                             % (num, den))
+
+    def test_silence_in_is_exact_zero_out(self):
+        """No filter, no tail, no dither: a held zero is a zero. Exact, from
+        the first frame, at a ratio that is not a whole number."""
+        frames = 4096
+        source = audiocore.RawSample(array("h", bytes(frames * 4)),
+                                     sample_rate=self.RATE, channel_count=2)
+        rendered = self._render(self._hold(source, 400, 217))
+        self.assertEqual(len(rendered), frames * 2)
+        self.assertEqual(set(rendered), {0})
+
+    def test_both_channels_hold_together(self):
+        """One accumulator for the frame, not one per channel: the two
+        channels refresh on exactly the same frames, so a stereo pair cannot
+        be smeared apart by the hold."""
+        frames = 8192
+        rendered = self._render(self._hold(self._ramp(frames), 400, 217))
+        left = rendered[0::2]
+        right = rendered[1::2]
+        moved_left = [index for index in range(1, frames)
+                      if left[index] != left[index - 1]]
+        moved_right = [index for index in range(1, frames)
+                       if right[index] != right[index - 1]]
+        self.assertEqual(moved_left, moved_right)
+        # And the right channel holds its own value, not the left's: the two
+        # differ by a fixed offset in this source, so a channel that followed
+        # the wrong one would read as an equal pair.
+        self.assertNotEqual(list(left[:64]), list(right[:64]))
+
+    def test_a_frame_in_is_a_frame_out(self):
+        """It is a rate reducer, not a resampler: the block after it is the
+        length of the block before it, and the stream ends where the source
+        ends rather than running on into silence."""
+        for frames in (4096, 4000, 257, 256, 255):
+            for num, den in ((400, 217), (1, 1), (3, 1)):
+                rendered = self._render(
+                    self._hold(self._ramp(frames), num, den))
+                self.assertEqual(len(rendered), frames * 2,
+                                 "%d frames at %d/%d came back as %d"
+                                 % (frames, num, den, len(rendered) // 2))
+
+    def test_an_eight_bit_mono_source_is_carried_as_it_is(self):
+        """The node holds frames as bytes, so it carries whatever its source
+        is. Unsigned 8-bit silence is 0x80 rather than 0, and a hold that
+        looked inside a sample would get that wrong."""
+        source = audiocore.RawSample(array("B", [128] * 64),
+                                     sample_rate=self.RATE, channel_count=1)
+        node = audioshaper.SampleHold(source, num=3, den=1)
+        self.assertEqual(node.bits_per_sample, 8)
+        self.assertEqual(bytes(audiocore.get_buffer(node)[1]), bytes([128]) * 64)
+
+    def test_a_ratio_that_would_invent_frames_is_refused(self):
+        """`den > num` is a rate *increase*, which a hold cannot do -- it
+        consumes one frame per frame. Refused rather than clamped: a silently
+        clamped ratio is a class shipping a hold rate it did not ask for."""
+        for num, den in ((1, 2), (400, 401), (0, 1), (1, 0), (-1, 1)):
+            with self.assertRaises(ValueError):
+                self._hold(self._ramp(64), num, den)
+
+    def test_the_ratio_moves_as_a_pair(self):
+        """`set()` takes both halves, and a ratio that actually changed
+        re-arms the accumulator while one set to what it already was leaves
+        the staircase running. A class writes its settings on every block;
+        re-latching 187 times a second would be a defect nobody asked for."""
+        source = self._ramp(4096)
+        node = self._hold(source, 400, 217)
+        first = bytes(audiocore.get_buffer(node)[1])
+        node.set(400, 217)
+        unchanged = bytes(audiocore.get_buffer(node)[1])
+        self.assertNotEqual(first, unchanged)      # the stream moved on
+
+        fresh = self._hold(self._ramp(4096), 400, 217)
+        audiocore.get_buffer(fresh)
+        self.assertEqual(unchanged, bytes(audiocore.get_buffer(fresh)[1]),
+                         "setting the ratio it already had restarted the "
+                         "staircase")
+
+        node.set(2, 1)
+        self.assertEqual((node.num, node.den), (2, 1))
+        with self.assertRaises(ValueError):
+            node.set(1, 2)
+
+    def test_a_replayed_node_is_a_fresh_one(self):
+        """`play()` re-sources and starts the staircase over, so a node that
+        has run and a node that never has render the same bytes."""
+        used = self._hold(self._ramp(4096), 400, 217)
+        for _block in range(3):
+            audiocore.get_buffer(used)
+        used.play(self._ramp(4096))
+        fresh = self._hold(self._ramp(4096), 400, 217)
+        for _block in range(4):
+            self.assertEqual(bytes(audiocore.get_buffer(used)[1]),
+                             bytes(audiocore.get_buffer(fresh)[1]))
+
+    def test_the_replay_check_discriminates(self):
+        """Its control: without the replay the two must differ."""
+        used = self._hold(self._ramp(4096), 400, 217)
+        for _block in range(3):
+            audiocore.get_buffer(used)
+        fresh = self._hold(self._ramp(4096), 400, 217)
+        differed = any(bytes(audiocore.get_buffer(used)[1])
+                       != bytes(audiocore.get_buffer(fresh)[1])
+                       for _block in range(4))
+        self.assertTrue(differed, "a node that has already run matches a "
+                        "fresh one, so the replay trait cannot fail")

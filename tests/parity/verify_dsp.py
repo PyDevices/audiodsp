@@ -18,7 +18,8 @@ at ...)` and carry on; both are gone.
 All three targets compile the same C - `shared/audioif_dynamics.c`,
 `audioif_splitter.c`, `audioif_midside.c`, `audioif_multiply.c`,
 `audioif_suboctave.c`, `audioif_feedback_delay.c`, `audioif_shaper.c`,
-`audioif_ladder.c`, `audioif_convolve.c`, `audioif_tank.c`,
+`audioif_samplehold.c`, `audioif_ladder.c`, `audioif_convolve.c`,
+`audioif_tank.c`,
 `audioif_flanger.c`, `audioif_granular_pitch_shift.c`, with `audioif_fft.c` and
 `audioif_trig.c` under the convolver. The CPython extension links it, the
 MicroPython usermod compiles it, and the patched CircuitPython build compiles it
@@ -101,6 +102,14 @@ PROBES = (
     ("dynamics_extras_probe.py", "audiodynamics", {}, None),
     ("dynamics_options_probe.py", "audiodynamics", {}, None),
     ("waveshaper_probe.py", "audioshaper", {}, None),
+    # A probe of its own rather than cases appended above: one comparison
+    # covers a probe's whole output, so a `SampleHold` case added to
+    # `waveshaper_probe.py` would move the very numbers that say the
+    # Waveshaper's bytes did not change. Its last lines are counts rather than
+    # PCM -- refreshes over a whole number of periods -- because the claim the
+    # node exists for is exactness over time, and PCM does not say whether that
+    # still holds (audioif#97).
+    ("samplehold_probe.py", "audioshaper", {}, None),
     ("convolve_probe.py", "audioconvolve", {}, None),
     ("filter_f32_probe.py", "audiobiquad", {}, None),
     ("modal_probe.py", "audiomodal", {}, None),

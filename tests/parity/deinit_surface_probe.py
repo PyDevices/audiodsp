@@ -99,6 +99,8 @@ NODES = (
     ("audioroute.MidSide", lambda: audioroute.MidSide(**PCM)),
     ("audioroute.SplitterTap", lambda: audioroute.Splitter(
         source(), taps=2).tap(0)),
+    ("audioshaper.SampleHold", lambda: audioshaper.SampleHold(
+        source(), num=400, den=217)),
     ("audioshaper.Waveshaper", lambda: audioshaper.Waveshaper(
         curve=_CURVE, **PCM)),
     ("audiospeed.Resampler", lambda: audiospeed.Resampler(source())),
