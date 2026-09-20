@@ -302,7 +302,6 @@ static void audiodynamics_dynamics_reset_buffer(mp_obj_t self_in,
     self->pending_frames = 0;
     self->key_pending = NULL;
     self->key_pending_frames = 0;
-    audioif_pump_lock_acquire();
     audioif_dynamics_reset(&self->state);
     audioif_pump_lock_release();
 }

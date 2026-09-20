@@ -218,6 +218,14 @@ void audioif_pump_lock_release_pump(void) {
     audioif_pump_lock_give();
 }
 
+void audioif_pump_lock_acquire_nested(void) {
+    audioif_pump_lock_take();
+}
+
+void audioif_pump_lock_release_nested(void) {
+    audioif_pump_lock_give();
+}
+
 // --- the rest -------------------------------------------------------------
 
 void audioif_pump_set_active(bool active) {

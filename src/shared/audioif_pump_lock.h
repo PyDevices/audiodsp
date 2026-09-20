@@ -91,6 +91,24 @@ void audioif_pump_lock_release(void);
 void audioif_pump_lock_acquire_pump(void);
 void audioif_pump_lock_release_pump(void);
 
+// Taken by the PULL FUNNEL itself, on whichever thread is pulling.
+//
+// A pull is a critical section, and the caller does not get to decide that.
+// audiomixer's play() primes its new voice by pulling it -- and if the pump
+// is pulling the same node at that moment, two pulls share one node's
+// {pending, pending_frames} and the second one hands the DSP a length as a
+// pointer. That is the 0x400 crash again, arriving from the control side
+// rather than from a setter, and no amount of locking the SETTERS would have
+// caught it. So the funnel locks, and every caller of a pull -- the pump, a
+// node pulling the node behind it, a play() priming its source, and anything
+// nobody has written yet -- is safe without knowing it.
+//
+// Unmeasured, because it is almost always a recursive re-take inside a lock
+// the pump already holds, and counting those would drown the two numbers
+// that matter.
+void audioif_pump_lock_acquire_nested(void);
+void audioif_pump_lock_release_nested(void);
+
 // One statement between a lock and an unlock, for the common case where the
 // swap really is one store. Deliberately NOT a block form: if what you are
 // writing does not fit on one line, look again at whether all of it has to

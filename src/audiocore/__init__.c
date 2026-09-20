@@ -123,7 +123,9 @@ void audiosample_reset_buffer(mp_obj_t sample_obj, bool single_channel_output, u
         audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_DEINITED);
         return;
     }
+    audioif_pump_lock_acquire_nested();
     (void)audioif_sample_reset(&source, single_channel_output, audio_channel);
+    audioif_pump_lock_release_nested();
 }
 
 audioio_get_buffer_result_t audiosample_get_buffer(mp_obj_t sample_obj,
@@ -146,8 +148,10 @@ audioio_get_buffer_result_t audiosample_get_buffer(mp_obj_t sample_obj,
     }
     const uint8_t *shared_buffer = NULL;
     audioif_buffer_result_t result = AUDIOIF_BUFFER_ERROR;
+    audioif_pump_lock_acquire_nested();
     audioif_status_t status = audioif_sample_get(&source, single_channel_output,
         channel, &shared_buffer, buffer_length, &result);
+    audioif_pump_lock_release_nested();
     if (status != AUDIOIF_STATUS_OK) {
         *buffer = NULL;
         *buffer_length = 0;

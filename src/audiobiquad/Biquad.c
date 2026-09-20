@@ -272,7 +272,6 @@ static void audiobiquad_biquad_reset_buffer(mp_obj_t self_in,
     self->pending_frames = 0;
     // Everything goes. A filter's memory is audible: a chain restarted with
     // the previous take still in it plays that take's tail over the new one.
-    audioif_pump_lock_acquire();
     audioif_biquad_f32_reset(&self->state);
     audioif_pump_lock_release();
 }
