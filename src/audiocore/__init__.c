@@ -77,7 +77,12 @@ static bool micropython_sample_source(mp_obj_t sample_obj,
     const audiosample_p_t *protocol = mp_proto_get(
         MP_QSTR_protocol_audiosample, sample_obj);
     if (protocol == NULL) {
-        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_NO_PROTOCOL);
+        // Pump thread only: the fault register is what the pump stops on, and
+        // a control-path pull must not stop the audio. See the deinit guards
+        // below.
+        if (audioif_pump_on_pump_thread()) {
+            audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_NO_PROTOCOL);
+        }
         return false;
     }
     adapter->object = sample_obj;
@@ -120,7 +125,19 @@ void audiosample_reset_buffer(mp_obj_t sample_obj, bool single_channel_output, u
         return;
     }
     if (audiosample_deinited(MP_OBJ_TO_PTR(sample_obj))) {
-        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_DEINITED);
+        // ONLY from the pump's own thread. The fault register is the pump's
+        // "why did I stop", and the pump stops on it -- so a control-thread
+        // pull of a released node would take the audio down with it, and the
+        // control path does pull released nodes legitimately: a Rack's
+        // deinit() stops each child in turn, and a stop() resets its source's
+        // buffer. On the board that killed the audio on the first patch
+        // change in rack_gui, err=5 fault=deinited, with nothing at all wrong
+        // with the graph the pump was playing. The caller still gets its
+        // GET_BUFFER_ERROR here, and audiocore.get_buffer() still raises,
+        // because module.c does its own check.
+        if (audioif_pump_on_pump_thread()) {
+            audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_DEINITED);
+        }
         return;
     }
     audioif_pump_lock_acquire_nested();
@@ -143,7 +160,12 @@ audioio_get_buffer_result_t audiosample_get_buffer(mp_obj_t sample_obj,
         // This is audioif#59's case: a released Mixer whose voice buffers are
         // freed, read by audiomixer_mixer_get_buffer. The guard still stops
         // the read; what changes is that it now stops it without allocating.
-        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_DEINITED);
+        // Published to the pump's fault register only from the pump's own
+        // thread -- see reset_buffer above for what a control-thread deinit
+        // did to the audio before that distinction existed.
+        if (audioif_pump_on_pump_thread()) {
+            audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_DEINITED);
+        }
         return GET_BUFFER_ERROR;
     }
     const uint8_t *shared_buffer = NULL;
