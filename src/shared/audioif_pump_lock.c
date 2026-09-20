@@ -76,15 +76,43 @@ static uint64_t audioif_pump_lock_now_us(void) {
 
 #if AUDIOIF_PUMP_LOCK_BACKEND_FREERTOS
 
-// xSemaphoreCreateRecursiveMutex, not a binary semaphore: this one both
-// nests and carries priority inheritance, and the pump runs above the
-// interpreter, so an interpreter holding a swap has to be lifted to finish
-// it or the pump waits on a thread nothing is scheduling.
+// A recursive mutex, not a binary semaphore: this one both nests and carries
+// priority inheritance, and the pump runs above the interpreter, so an
+// interpreter holding a swap has to be lifted to finish it or the pump waits
+// on a thread nothing is scheduling.
+//
+// STATIC, and built under a one-shot compare-exchange. Two reasons, both
+// learned rather than guessed:
+//
+//   The lazy `if (m == NULL) m = create()` this started as is a race between
+//   two cores the moment a pump exists. In practice the interpreter builds a
+//   graph -- and takes this lock -- long before spawn() creates the task, so
+//   it would probably never have fired; "probably never" is not what a lock
+//   is for.
+//
+//   xSemaphoreCreateRecursiveMutex() calls malloc. The first taker of this
+//   lock may be the pump thread, mid-block, and an allocation there is the
+//   one thing the contract in the header forbids. The static form allocates
+//   nothing, so first-take costs the same as every other take.
 static SemaphoreHandle_t audioif_pump_mutex;
+static StaticSemaphore_t audioif_pump_mutex_storage;
+static volatile uint32_t audioif_pump_mutex_state;  // 0 none, 1 building, 2 ready
 
 static void audioif_pump_lock_ensure(void) {
-    if (audioif_pump_mutex == NULL) {
-        audioif_pump_mutex = xSemaphoreCreateRecursiveMutex();
+    if (__atomic_load_n(&audioif_pump_mutex_state, __ATOMIC_ACQUIRE) == 2) {
+        return;
+    }
+    uint32_t expected = 0;
+    if (__atomic_compare_exchange_n(&audioif_pump_mutex_state, &expected, 1,
+        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        audioif_pump_mutex =
+            xSemaphoreCreateRecursiveMutexStatic(&audioif_pump_mutex_storage);
+        __atomic_store_n(&audioif_pump_mutex_state, 2, __ATOMIC_RELEASE);
+        return;
+    }
+    // Somebody else is building it. Microseconds at most, once per boot.
+    while (__atomic_load_n(&audioif_pump_mutex_state, __ATOMIC_ACQUIRE) != 2) {
+        portYIELD();
     }
 }
 
