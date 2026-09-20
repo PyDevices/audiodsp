@@ -8,6 +8,7 @@
 #include "cp_compat/objproperty.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 static void biquad_set_mode(audiobiquad_biquad_obj_t *self, mp_int_t mode) {
     if (mode < AUDIOIF_BIQUAD_F32_LOW_PASS ||
@@ -106,9 +107,11 @@ static void biquad_apply_blocks(audiobiquad_biquad_obj_t *self,
 static mp_obj_t audiobiquad_biquad_play(mp_obj_t self_in, mp_obj_t sample) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiobiquad_biquad_play_obj,
@@ -116,9 +119,11 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiobiquad_biquad_play_obj,
 
 static mp_obj_t audiobiquad_biquad_stop(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_stop_obj,
@@ -126,7 +131,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_stop_obj,
 
 static mp_obj_t audiobiquad_biquad_clear(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audioif_biquad_f32_reset(&self->state);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_clear_obj,
@@ -265,7 +272,9 @@ static void audiobiquad_biquad_reset_buffer(mp_obj_t self_in,
     self->pending_frames = 0;
     // Everything goes. A filter's memory is audible: a chain restarted with
     // the previous take still in it plays that take's tail over the new one.
+    audioif_pump_lock_acquire();
     audioif_biquad_f32_reset(&self->state);
+    audioif_pump_lock_release();
 }
 
 // `deinit()` releases what this binding holds and marks the node
@@ -284,9 +293,11 @@ static void audiobiquad_biquad_reset_buffer(mp_obj_t self_in,
 static mp_obj_t audiobiquad_biquad_deinit(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_mark_deinit(&self->base);
+    audioif_pump_lock_acquire();
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_deinit_obj, audiobiquad_biquad_deinit);

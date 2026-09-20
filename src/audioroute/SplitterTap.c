@@ -7,6 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 static audioio_get_buffer_result_t audioroute_splitter_tap_get_buffer(
     mp_obj_t self_in, bool single_channel_output, uint8_t channel,
@@ -70,8 +71,14 @@ static void audioroute_splitter_tap_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioroute_splitter_tap_deinit(mp_obj_t self_in) {
     audioroute_splitter_tap_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    // Two stores, and the window between them is a wild dereference: the
+    // funnel's deinit guard has already let the pull in, and get_buffer then
+    // does MP_OBJ_TO_PTR(tap->owner) on a value that is about to become
+    // mp_const_none. Marking deinited and dropping the owner is one act.
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->owner = mp_const_none;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioroute_splitter_tap_deinit_obj, audioroute_splitter_tap_deinit);

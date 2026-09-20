@@ -20,6 +20,7 @@
 
 #include "py/objtuple.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 // --- shared-module (DSP engine) -------------------------------------------
 
@@ -103,14 +104,26 @@ bool common_hal_audiofilters_filter_get_playing(audiofilters_filter_obj_t *self)
 void common_hal_audiofilters_filter_play(audiofilters_filter_obj_t *self, mp_obj_t sample, bool loop) {
     audiosample_must_match(&self->base, sample, false);
 
+    // Prime the new source into locals FIRST, outside the lock. This pull can
+    // read a file through the VFS, and holding the pump's lock across a disk
+    // is the one thing the contract forbids -- the audio would stand still
+    // for it. Then one locked store publishes all five words together, which
+    // is what get_buffer reads, so a pull sees the whole new source or the
+    // whole old one and never three words of each.
+    uint8_t *primed = NULL;
+    uint32_t primed_length = 0;
+    audiosample_reset_buffer(sample, false, 0);
+    audioio_get_buffer_result_t result = audiosample_get_buffer(sample, false,
+        0, &primed, &primed_length);
+    primed_length /= (self->base.bits_per_sample / 8);
+
+    audioif_pump_lock_acquire();
     self->sample = sample;
     self->loop = loop;
-
-    audiosample_reset_buffer(self->sample, false, 0);
-    audioio_get_buffer_result_t result = audiosample_get_buffer(self->sample, false, 0, (uint8_t **)&self->sample_remaining_buffer, &self->sample_buffer_length);
-
-    self->sample_buffer_length /= (self->base.bits_per_sample / 8);
+    self->sample_remaining_buffer = (void *)primed;
+    self->sample_buffer_length = primed_length;
     self->more_data = result == GET_BUFFER_MORE_DATA;
+    audioif_pump_lock_release();
 }
 
 void common_hal_audiofilters_filter_stop(audiofilters_filter_obj_t *self) {

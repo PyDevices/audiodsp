@@ -8,6 +8,7 @@
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/objproperty.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 // The ratio is one setting, not two, so both halves arrive together
 // everywhere -- the constructor and `set()` share this. A node left holding
@@ -80,11 +81,13 @@ static mp_obj_t audioshaper_samplehold_play(mp_obj_t self_in,
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source format does not match the one this node was built with"));
     }
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
     self->source_done = false;
     self->source_exhausted = false;
+    audioif_pump_lock_release();
     audioif_samplehold_reset(&self->state, &self->config);
     return mp_const_none;
 }
@@ -110,7 +113,9 @@ static mp_obj_t audioshaper_samplehold_set(size_t n_args,
         // A ratio set to what it already was does nothing at all: a class
         // writes its settings on every block, and re-latching 187 times a
         // second would be a defect nobody asked for.
+    audioif_pump_lock_acquire();
         audioif_samplehold_reset(&self->state, &self->config);
+    audioif_pump_lock_release();
     }
     return mp_const_none;
 }
@@ -119,7 +124,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioshaper_samplehold_set_obj, 1,
 
 static mp_obj_t audioshaper_samplehold_clear(mp_obj_t self_in) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audioif_samplehold_reset(&self->state, &self->config);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_samplehold_clear_obj,
@@ -234,10 +241,12 @@ static void audioshaper_samplehold_reset_buffer(mp_obj_t self_in,
 static mp_obj_t audioshaper_samplehold_deinit(mp_obj_t self_in) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_mark_deinit(&self->base);
+    audioif_pump_lock_acquire();
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
     self->source_exhausted = true;
+    audioif_pump_lock_release();
     audioif_samplehold_reset(&self->state, &self->config);
     return mp_const_none;
 }

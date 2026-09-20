@@ -7,6 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 // The options `Dynamics(...)` and `set(...)` accept, paired with the shared
 // DSP's enum. `sample_rate` is deliberately absent: the millisecond
@@ -177,9 +178,11 @@ static mp_obj_t audiodynamics_dynamics_make_new(const mp_obj_type_t *type,
 static mp_obj_t audiodynamics_dynamics_play(mp_obj_t self_in, mp_obj_t sample) {
     audiodynamics_dynamics_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiodynamics_dynamics_play_obj,
@@ -195,8 +198,10 @@ static mp_obj_t audiodynamics_dynamics_key(mp_obj_t self_in, mp_obj_t sample) {
         (void)audiosample_check(sample);
         self->key_source = sample;
     }
+    audioif_pump_lock_acquire();
     self->key_pending = NULL;
     self->key_pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiodynamics_dynamics_key_obj,
@@ -297,7 +302,9 @@ static void audiodynamics_dynamics_reset_buffer(mp_obj_t self_in,
     self->pending_frames = 0;
     self->key_pending = NULL;
     self->key_pending_frames = 0;
+    audioif_pump_lock_acquire();
     audioif_dynamics_reset(&self->state);
+    audioif_pump_lock_release();
 }
 
 // `deinit()` releases what this binding holds and marks the node
@@ -316,12 +323,14 @@ static void audiodynamics_dynamics_reset_buffer(mp_obj_t self_in,
 static mp_obj_t audiodynamics_dynamics_deinit(mp_obj_t self_in) {
     audiodynamics_dynamics_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_mark_deinit(&self->base);
+    audioif_pump_lock_acquire();
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
     self->key_source = mp_const_none;
     self->key_pending = NULL;
     self->key_pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiodynamics_dynamics_deinit_obj, audiodynamics_dynamics_deinit);

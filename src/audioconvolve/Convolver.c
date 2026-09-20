@@ -8,6 +8,7 @@
 #include "py/objarray.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 // Reads a bytes-like of int16 frames and reports how many whole frames of
 // `channels` it holds. Rejects an odd byte count outright: silently dropping
@@ -124,9 +125,11 @@ static mp_obj_t audioconvolve_convolver_play(mp_obj_t self_in,
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source channel_count does not match Convolver"));
     }
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioconvolve_convolver_play_obj,
@@ -223,7 +226,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_synthesize_obj, 1,
 
 static mp_obj_t audioconvolve_convolver_clear(mp_obj_t self_in) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audioif_convolve_reset(&self->state, &self->config);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_clear_obj,
@@ -330,9 +335,11 @@ static void audioconvolve_convolver_reset_buffer(mp_obj_t self_in,
 static mp_obj_t audioconvolve_convolver_deinit(mp_obj_t self_in) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_mark_deinit(&self->base);
+    audioif_pump_lock_acquire();
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     self->storage = NULL;
     return mp_const_none;
 }

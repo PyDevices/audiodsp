@@ -8,6 +8,7 @@
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/util.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 void audioroute_splitter_pull(audioroute_splitter_obj_t *self) {
     if (self->deinited || self->source == MP_OBJ_NULL) {
@@ -134,6 +135,11 @@ static mp_obj_t audioroute_splitter_deinit(mp_obj_t self_in) {
     if (self->deinited) {
         return mp_const_none;
     }
+    // Up to sixteen words, and every one of them is read by a pull: the
+    // splitter's own, and each tap's. One lock over the lot -- it is a dozen
+    // stores of constants, which is a shorter stop than the arithmetic of a
+    // single block.
+    audioif_pump_lock_acquire();
     self->deinited = true;
     for (uint32_t index = 0; index < AUDIOIF_SPLITTER_MAX_TAPS; ++index) {
         if (self->taps[index] != MP_OBJ_NULL) {
@@ -144,10 +150,11 @@ static mp_obj_t audioroute_splitter_deinit(mp_obj_t self_in) {
             self->taps[index] = MP_OBJ_NULL;
         }
     }
-    self->source = MP_OBJ_NULL;
     // The remainder points into the released source's buffer.
+    self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioroute_splitter_deinit_obj,

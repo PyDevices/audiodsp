@@ -21,6 +21,7 @@
 #include "cp_compat/objproperty.h"
 
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 static mp_obj_t audiomixer_mixervoice_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     mp_arg_check_num(n_args, n_kw, 0, 0, false);
@@ -69,8 +70,10 @@ void common_hal_audiomixer_mixervoice_play(audiomixer_mixervoice_obj_t *self, mp
     audiosample_must_match(&self->parent->base, sample_in, true);
     // cast is safe, checked by must_match
     audiosample_base_t *sample = MP_OBJ_TO_PTR(sample_in);
+    audioif_pump_lock_acquire();
     self->sample = sample;
     self->loop = loop;
+    audioif_pump_lock_release();
 
     common_hal_audiomixer_mixervoice_reset(self);
 
@@ -104,8 +107,10 @@ void common_hal_audiomixer_mixervoice_play(audiomixer_mixervoice_obj_t *self, mp
     // spinning -- which is what the CPython twin has done since audioif#24.
     if (loop && self->buffer_length == 0 && !self->more_data) {
         // A refused play() leaves the voice stopped, not half-started.
+    audioif_pump_lock_acquire();
         self->sample = NULL;
         self->loop = false;
+    audioif_pump_lock_release();
         mp_raise_ValueError(MP_ERROR_TEXT("A looped sample must fill at least one 32-bit word"));
     }
 }
