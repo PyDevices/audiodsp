@@ -52,6 +52,7 @@
 #include "cp_compat/background_callback.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/objproperty.h"
+#include "shared/audioif_pump_lock.h"
 
 #include "coder.h"
 #include "mp3common.h"
@@ -450,9 +451,20 @@ void common_hal_audiomp3_mp3file_deinit(audiomp3_mp3file_obj_t *self) {
     self->samples_decoded = 0;
 }
 
+// audiomp3 is the one module in the palette that cannot be made pump-safe,
+// and should not be. It reads its stream from inside get_buffer, raises
+// OSError there (mp3file_update_inbuf_always), and calls a Python method on
+// the stream object to set its timeout (stream_set_blocking -> mp_call_method
+// _n_kw). Re-entering the interpreter from the pump thread is not a thing that
+// can be guarded; it is a thing that must not be reached. An MP3 source
+// belongs behind a buffer the interpreter fills.
 void audiomp3_mp3file_reset_buffer(audiomp3_mp3file_obj_t *self,
     bool single_channel_output,
     uint8_t channel) {
+    if (audioif_pump_on_pump_thread()) {
+        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_UNPUMPABLE);
+        return;
+    }
     if (single_channel_output && channel == 1) {
         return;
     }
@@ -475,6 +487,12 @@ audioio_get_buffer_result_t audiomp3_mp3file_get_buffer(audiomp3_mp3file_obj_t *
     uint8_t channel,
     uint8_t **bufptr,
     uint32_t *buffer_length) {
+    if (audioif_pump_on_pump_thread()) {
+        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_UNPUMPABLE);
+        *bufptr = NULL;
+        *buffer_length = 0;
+        return GET_BUFFER_ERROR;
+    }
     if (!self->inbuf.buf) {
         *buffer_length = 0;
         if (DO_DEBUG) {

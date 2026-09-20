@@ -44,6 +44,7 @@ SRC_USERMOD_C += \
 # --- runtime-neutral sample protocol/state shared with the CPython wheel
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/shared/audioif_sample.c \
+    $(MPAUDIO_SRC_DIR)/shared/audioif_pump_lock.c \
     $(MPAUDIO_SRC_DIR)/shared/audioif_rawsample.c \
     $(MPAUDIO_SRC_DIR)/shared/audioif_synth_dsp.c \
     $(MPAUDIO_SRC_DIR)/shared/audioif_envelope.c \

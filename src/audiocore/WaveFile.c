@@ -20,6 +20,7 @@
 #include "cp_compat/argcheck.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/objproperty.h"
+#include "shared/audioif_pump_lock.h"
 
 #include "py/builtin.h"
 #include "py/mperrno.h"
@@ -153,9 +154,23 @@ void common_hal_audioio_wavefile_deinit(audioio_wavefile_obj_t *self) {
     audiosample_mark_deinit(&self->base);
 }
 
+// A file-backed source cannot be pulled by a pump and never will be: it
+// reads through the VFS from inside the pull, which re-enters the interpreter,
+// and it raises OSError on a seek that fails (wav_seek above, the only raise
+// the exception audit found at a node boundary). Both are fatal on a thread
+// with no interpreter state to raise or allocate from.
+//
+// So it refuses, rather than being trusted not to be wired up. The design
+// that replaces this is a prefetcher: the interpreter fills a ring and the
+// pump drains it. See docs/spikes/live-audio-path-done.md, "prefetching
+// sources".
 void audioio_wavefile_reset_buffer(audioio_wavefile_obj_t *self,
     bool single_channel_output,
     uint8_t channel) {
+    if (audioif_pump_on_pump_thread()) {
+        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_UNPUMPABLE);
+        return;
+    }
     if (single_channel_output && channel == 1) {
         return;
     }
@@ -173,6 +188,12 @@ audioio_get_buffer_result_t audioio_wavefile_get_buffer(audioio_wavefile_obj_t *
     uint8_t channel,
     uint8_t **buffer,
     uint32_t *buffer_length) {
+    if (audioif_pump_on_pump_thread()) {
+        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_UNPUMPABLE);
+        *buffer = NULL;
+        *buffer_length = 0;
+        return GET_BUFFER_ERROR;
+    }
     if (!single_channel_output) {
         channel = 0;
     }

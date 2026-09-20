@@ -37,6 +37,7 @@ setup(
             sources=[
                 "src/cpython/_audioif.c",
                 "src/shared/audioif_sample.c",
+                "src/shared/audioif_pump_lock.c",
                 "src/shared/audioif_rawsample.c",
                 "src/shared/audioif_synth_dsp.c",
                 "src/shared/audioif_envelope.c",
