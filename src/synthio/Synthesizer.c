@@ -25,6 +25,7 @@
 #include "synthio/__init__.h"
 
 #include "py/runtime.h"
+#include "py/objlist.h"
 
 // --- from shared-module/synthio/Synthesizer.c -----------------------------
 
@@ -56,16 +57,35 @@ audioio_get_buffer_result_t synthio_synthesizer_get_buffer(synthio_synthesizer_o
 
     synthio_synth_synthesize(&self->synth, buffer, buffer_length, single_channel_output ? channel : 0);
 
-    // free-running LFOs
-    mp_obj_iter_buf_t iter_buf;
-    mp_obj_t iterable = mp_getiter(self->blocks, &iter_buf);
-    mp_obj_t item;
-    while ((item = mp_iternext(iterable)) != MP_OBJ_STOP_ITERATION) {
-        if (!synthio_obj_is_block(item)) {
-            continue;
+    // Free-running LFOs. Walked as a LIST, not with mp_getiter/mp_iternext.
+    //
+    // This is a pull, and mp_iternext re-enters the interpreter: it calls
+    // mp_cstack_check(), which reads this thread's registered stack limits --
+    // and a C pump thread has none, so it reads garbage and segfaults before
+    // anything else can go wrong. Found by the storm on Tremolo, whose LFO
+    // is a Synthesizer behind a Multiply:
+    //
+    //     mp_cstack_usage            py/cstack.c:46    <-- SIGSEGV
+    //     mp_iternext                py/runtime.c:1392
+    //     synthio_synthesizer_get_buffer
+    //
+    // `blocks` is created as a list here (make_new above) and exposed
+    // read-only, so it is always a list and the walk below is exactly the
+    // same traversal with no runtime in it. The type check is the honest
+    // guard rather than an assumption: anything else is skipped rather than
+    // iterated, because a custom iterable's __next__ is Python code and
+    // Python code cannot run on this thread at all.
+    if (mp_obj_is_type(self->blocks, &mp_type_list)) {
+        size_t len = 0;
+        mp_obj_t *items = NULL;
+        mp_obj_list_get(self->blocks, &len, &items);
+        for (size_t i = 0; i < len; i++) {
+            if (!synthio_obj_is_block(items[i])) {
+                continue;
+            }
+            synthio_block_slot_t slot = { items[i] };
+            (void)synthio_block_slot_get(&slot);
         }
-        synthio_block_slot_t slot = { item };
-        (void)synthio_block_slot_get(&slot);
     }
     return GET_BUFFER_MORE_DATA;
 }
