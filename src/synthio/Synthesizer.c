@@ -26,6 +26,7 @@
 
 #include "py/runtime.h"
 #include "py/objlist.h"
+#include "shared/audioif_pump_lock.h"
 
 // --- from shared-module/synthio/Synthesizer.c -----------------------------
 
@@ -38,7 +39,13 @@ void common_hal_synthio_synthesizer_construct(synthio_synthesizer_obj_t *self,
 }
 
 void common_hal_synthio_synthesizer_deinit(synthio_synthesizer_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     synthio_synth_deinit(&self->synth);
+    audioif_pump_lock_release();
 }
 
 void synthio_synthesizer_reset_buffer(synthio_synthesizer_obj_t *self,
@@ -222,7 +229,13 @@ static mp_obj_t synthio_synthesizer_make_new(const mp_obj_type_t *type, size_t n
 }
 
 static void check_for_deinit(synthio_synthesizer_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_check_for_deinit(&self->synth.base);
+    audioif_pump_lock_release();
 }
 
 static mp_obj_t synthio_synthesizer_press(mp_obj_t self_in, mp_obj_t press) {

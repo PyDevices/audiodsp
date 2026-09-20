@@ -95,6 +95,11 @@ void common_hal_audiodelays_multi_tap_delay_construct(audiodelays_multi_tap_dela
 }
 
 void common_hal_audiodelays_multi_tap_delay_deinit(audiodelays_multi_tap_delay_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->delay_buffer = NULL;
     self->buffer[0] = NULL;
@@ -103,6 +108,7 @@ void common_hal_audiodelays_multi_tap_delay_deinit(audiodelays_multi_tap_delay_o
     self->tap_positions = NULL;
     self->tap_levels = NULL;
     self->tap_offsets = NULL;
+    audioif_pump_lock_release();
 }
 
 mp_float_t common_hal_audiodelays_multi_tap_delay_get_delay_ms(audiodelays_multi_tap_delay_obj_t *self) {
@@ -522,7 +528,13 @@ static mp_obj_t audiodelays_multi_tap_delay_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiodelays_multi_tap_delay_deinit_obj, audiodelays_multi_tap_delay_deinit);
 
 static void check_for_deinit(audiodelays_multi_tap_delay_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_check_for_deinit(&self->base);
+    audioif_pump_lock_release();
 }
 
 static mp_obj_t audiodelays_multi_tap_delay_obj_get_delay_ms(mp_obj_t self_in) {

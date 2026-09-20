@@ -67,11 +67,17 @@ void common_hal_audiofilters_phaser_construct(audiofilters_phaser_obj_t *self,
 }
 
 void common_hal_audiofilters_phaser_deinit(audiofilters_phaser_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
     self->word_buffer = NULL;
     self->allpass_buffer = NULL;
+    audioif_pump_lock_release();
 }
 
 mp_obj_t common_hal_audiofilters_phaser_get_frequency(audiofilters_phaser_obj_t *self) {
@@ -357,7 +363,13 @@ static mp_obj_t audiofilters_phaser_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiofilters_phaser_deinit_obj, audiofilters_phaser_deinit);
 
 static void check_for_deinit(audiofilters_phaser_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_check_for_deinit(&self->base);
+    audioif_pump_lock_release();
 }
 
 static mp_obj_t audiofilters_phaser_obj_get_frequency(mp_obj_t self_in) {

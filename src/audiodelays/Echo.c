@@ -92,11 +92,17 @@ void common_hal_audiodelays_echo_construct(audiodelays_echo_obj_t *self, uint32_
 }
 
 void common_hal_audiodelays_echo_deinit(audiodelays_echo_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     audiofilters_deinit_filter_chain(&self->filter);
     self->echo_buffer = NULL;
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
+    audioif_pump_lock_release();
 }
 
 mp_obj_t common_hal_audiodelays_echo_get_delay_ms(audiodelays_echo_obj_t *self) {
@@ -522,7 +528,13 @@ static mp_obj_t audiodelays_echo_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiodelays_echo_deinit_obj, audiodelays_echo_deinit);
 
 static void check_for_deinit(audiodelays_echo_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_check_for_deinit(&self->base);
+    audioif_pump_lock_release();
 }
 
 static mp_obj_t audiodelays_echo_obj_get_delay_ms(mp_obj_t self_in) {

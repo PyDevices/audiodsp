@@ -18,6 +18,7 @@
 #include "cp_compat/objproperty.h"
 
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 #define OUTPUT_BUFFER_FRAMES 128
 
@@ -67,9 +68,15 @@ void common_hal_audiospeed_speedchanger_construct(audiospeed_speedchanger_obj_t 
 }
 
 void common_hal_audiospeed_speedchanger_deinit(audiospeed_speedchanger_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     self->output_buffer = NULL;
     self->source = MP_OBJ_NULL;
     audiosample_mark_deinit(&self->base);
+    audioif_pump_lock_release();
 }
 
 void common_hal_audiospeed_speedchanger_set_rate(audiospeed_speedchanger_obj_t *self, uint32_t rate_fp) {

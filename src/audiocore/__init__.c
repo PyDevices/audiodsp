@@ -370,6 +370,10 @@ void audiosample_check_for_deinit(const audiosample_base_t *self) {
     }
 }
 
+// One aligned word, so it cannot tear and it takes no lock. The damage in a
+// deinit() is never this line -- it is the pointer nulling that follows it,
+// after the funnel's guard has already let a pull in. Each deinit() body
+// holds the lock over the lot.
 void audiosample_mark_deinit(audiosample_base_t *self) {
     self->channel_count = 0;
 }

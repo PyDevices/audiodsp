@@ -149,9 +149,15 @@ void common_hal_audioio_wavefile_construct(audioio_wavefile_obj_t *self,
 }
 
 void common_hal_audioio_wavefile_deinit(audioio_wavefile_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     self->buffer = NULL;
     self->second_buffer = NULL;
     audiosample_mark_deinit(&self->base);
+    audioif_pump_lock_release();
 }
 
 // A file-backed source cannot be pulled by a pump and never will be: it

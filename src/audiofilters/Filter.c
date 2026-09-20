@@ -61,11 +61,17 @@ void common_hal_audiofilters_filter_construct(audiofilters_filter_obj_t *self,
 }
 
 void common_hal_audiofilters_filter_deinit(audiofilters_filter_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
     audiofilters_deinit_filter_chain(&self->filter);
     self->filter_buffer = NULL;
+    audioif_pump_lock_release();
 }
 
 void common_hal_audiofilters_filter_set_filter(audiofilters_filter_obj_t *self, mp_obj_t filter_in) {
@@ -321,7 +327,13 @@ static mp_obj_t audiofilters_filter_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiofilters_filter_deinit_obj, audiofilters_filter_deinit);
 
 static void check_for_deinit(audiofilters_filter_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_check_for_deinit(&self->base);
+    audioif_pump_lock_release();
 }
 
 static mp_obj_t audiofilters_filter_obj_get_filter(mp_obj_t self_in) {
