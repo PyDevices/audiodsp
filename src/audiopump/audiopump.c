@@ -228,6 +228,14 @@ typedef struct {
     // it; a caller who wants to stop a loop calls stop().
     bool loop;
     volatile bool retarget_req; // re-read `sample` at the next block boundary
+    // What `loop` becomes WITH that swap: -1 leave it, 0 off, 1 on. It has to
+    // travel with the retarget rather than be stored straight into `loop`,
+    // because the swap only happens at the next block boundary and the OLD
+    // tail is pulled until then. A single-buffer RawSample says DONE on EVERY
+    // pull, so lowering the flag early ends the loop on the old tail -- the
+    // pump stops with "the source ran out" one block before the graph it was
+    // being pointed at ever ran.
+    volatile int retarget_loop;
     // --- what the loop accumulates -------------------------------------
     //
     // These were locals in audiopump_run(). They live here so the SAME loop
@@ -612,6 +620,10 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         // one word of state and one lock rather than a park.
         if (ctx->retarget_req) {
             ctx->retarget_req = false;
+            if (ctx->retarget_loop >= 0) {
+                ctx->loop = ctx->retarget_loop != 0;
+                ctx->retarget_loop = -1;
+            }
             ctx->sample_type = (const void *)
                 ((mp_obj_base_t *)MP_OBJ_TO_PTR(ctx->sample))->type;
             // And what the NEW tail can hand back in one pull, because that is
@@ -1239,6 +1251,7 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
     audioif_pump_set_active(true);
 
     audiopump_ctx.loop = args[ARG_loop].u_bool;
+    audiopump_ctx.retarget_loop = -1;
     audiopump_open_sink(args[ARG_sink].u_obj);
     if (args[ARG_pace].u_bool) {
         audiopump_ctx.paced = true;
@@ -1340,6 +1353,7 @@ int audiopump_c_spawn(mp_obj_t sample, mp_obj_t status, uint64_t blocks,
     audioif_pump_lock_stats_reset();
     audioif_pump_set_active(true);
     audiopump_ctx.loop = loop;
+    audiopump_ctx.retarget_loop = -1;
     audiopump_open_sink(sink);
     if (pace) {
         audiopump_ctx.paced = true;
@@ -1576,7 +1590,7 @@ static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_driver_obj, audiopump_driver);
 // the deinit check happen here, on the interpreter thread, exactly as they do
 // in spawn() -- both of them raise, and the pump thread has nothing to raise
 // from.
-static mp_obj_t audiopump_retarget(mp_obj_t sample) {
+void audiopump_c_retarget(mp_obj_t sample, int loop) {
     // No park. Everything that can raise or allocate happens first, on this
     // thread: the protocol lookup, the deinit check, the refusal. Then the
     // lock, then three stores, then the unlock -- and the pump either sees
@@ -1595,13 +1609,41 @@ static mp_obj_t audiopump_retarget(mp_obj_t sample) {
     audioif_pump_lock_acquire();
     audiopump_ctx.protocol = protocol;
     audiopump_ctx.sample = sample;
+    // The loop flag belongs to the tail, not to the pump's whole lifetime.
+    // It is set at spawn and it used to STAY set, which is wrong the moment
+    // the tail is swapped: a root Mixer replaced by the one client still
+    // sounding is a tail whose loop is that client's, and a looping client
+    // left alone on a live pump was stopping at the end of its first lap
+    // because the flag was still the one the FIRST tail was spawned with.
+    // -1 leaves it alone, for a caller that is only swapping the graph.
+    audiopump_ctx.retarget_loop = loop;
     // The type word is re-read by the loop, inside the same lock, so the
     // soft-reset guard cannot see a half-updated pair.
     audiopump_ctx.retarget_req = true;
     audioif_pump_lock_release();
+}
+
+static mp_obj_t audiopump_retarget(size_t n_args, const mp_obj_t *pos_args,
+    mp_map_t *kw_args) {
+    enum { ARG_sample, ARG_loop };
+    static const mp_arg_t allowed[] = {
+        { MP_QSTR_sample, MP_ARG_REQUIRED | MP_ARG_OBJ,
+          { .u_obj = MP_OBJ_NULL } },
+        // None -- the default -- leaves the flag as spawn() set it, which is
+        // what every caller before this argument existed wanted.
+        { MP_QSTR_loop,   MP_ARG_OBJ | MP_ARG_KW_ONLY,
+          { .u_obj = mp_const_none } },
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed),
+        allowed, args);
+    const int loop = args[ARG_loop].u_obj == mp_const_none
+        ? -1 : (mp_obj_is_true(args[ARG_loop].u_obj) ? 1 : 0);
+    audiopump_c_retarget(args[ARG_sample].u_obj, loop);
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(audiopump_retarget_obj, audiopump_retarget);
+static MP_DEFINE_CONST_FUN_OBJ_KW(audiopump_retarget_obj, 1,
+    audiopump_retarget);
 
 void audiopump_c_unpark(void) {
     audiopump_ctx.park_req = false;

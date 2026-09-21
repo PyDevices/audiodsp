@@ -68,6 +68,12 @@ typedef struct _audiopump_convert_t {
 int audiopump_c_spawn(mp_obj_t sample, mp_obj_t status, uint64_t blocks,
     mp_obj_t sink, bool loop, bool pace, int core, uint32_t timeout_ms,
     const audiopump_convert_t *convert);
+// Point a live pump at a different tail, without a gap and without giving
+// the peripheral back. `loop` is the OUTPUT's flag -- 1 on, 0 off, -1 to
+// leave it as spawn() set it -- because a swapped tail is a different thing
+// to loop, and leaving it behind is how a looping client left alone on a
+// live pump stopped at the end of its first lap.
+void audiopump_c_retarget(mp_obj_t sample, int loop);
 void audiopump_c_stop(void);
 bool audiopump_c_join(uint32_t timeout_ms);
 bool audiopump_c_park(uint32_t timeout_us);
