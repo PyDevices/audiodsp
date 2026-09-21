@@ -63,7 +63,6 @@ static mp_obj_t audiospeed_resampler_deinit(mp_obj_t self_in) {
     self->destination_rate = 0;
     audioif_pump_lock_release();
     return mp_const_none;
-    audioif_pump_lock_release();
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiospeed_resampler_deinit_obj,
     audiospeed_resampler_deinit);
