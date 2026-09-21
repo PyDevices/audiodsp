@@ -71,6 +71,13 @@ enum {
 // One of the status words the loop publishes; 0 for an index past the end.
 uint64_t audiopump_c_status(unsigned index);
 
+// True on a port where spawn() could not make a thread -- WebAssembly, and
+// any build whose driver did not bind. There the loop advances only when
+// somebody calls this, so a binding that polls `playing` has to drive it or
+// the poll never ends.
+bool audiopump_c_service_mode(void);
+void audiopump_c_service(uint64_t budget);
+
 #ifdef __cplusplus
 }
 #endif

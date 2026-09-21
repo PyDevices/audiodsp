@@ -1224,6 +1224,21 @@ bool audiopump_c_parked(void) {
     return audiopump_ctx.parked;
 }
 
+bool audiopump_c_service_mode(void) {
+    return audiopump_ctx.service_mode;
+}
+
+void audiopump_c_service(uint64_t budget) {
+    if (!audiopump_ctx.service_mode || !audiopump_live
+        || audiopump_ctx.finished) {
+        return;
+    }
+    if (audiopump_run_blocks(&audiopump_ctx, budget ? budget : UINT64_MAX)
+        == AUDIOPUMP_SERVICE_DONE) {
+        audiopump_run_end(&audiopump_ctx);
+    }
+}
+
 // --- the park protocol ----------------------------------------------------
 //
 // park() returns True when the pump is sitting at a block boundary and will
