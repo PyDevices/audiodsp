@@ -1,5 +1,7 @@
 # Shared minimum (PyDevices package / cmod repos)
 .venv/
+# A worktree gets its own venv so it cannot install over another agent's.
+.venv-*/
 __pycache__/
 *.py[cod]
 *.egg-info/

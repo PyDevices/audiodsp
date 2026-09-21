@@ -67,6 +67,10 @@ src/circuitpython_spike/shared-bindings/audioroute/MidSide.h	shared-bindings/aud
 src/circuitpython_spike/shared-bindings/audioroute/MidSide.c	shared-bindings/audioroute/MidSide.c
 src/circuitpython_spike/shared-module/audioroute/MidSide.h	shared-module/audioroute/MidSide.h
 src/circuitpython_spike/shared-module/audioroute/MidSide.c	shared-module/audioroute/MidSide.c
+src/circuitpython_spike/shared-bindings/audioroute/Port.h	shared-bindings/audioroute/Port.h
+src/circuitpython_spike/shared-bindings/audioroute/Port.c	shared-bindings/audioroute/Port.c
+src/circuitpython_spike/shared-module/audioroute/Port.h	shared-module/audioroute/Port.h
+src/circuitpython_spike/shared-module/audioroute/Port.c	shared-module/audioroute/Port.c
 
 src/circuitpython_spike/shared-bindings/audiomath/__init__.h	shared-bindings/audiomath/__init__.h
 src/circuitpython_spike/shared-bindings/audiomath/__init__.c	shared-bindings/audiomath/__init__.c
