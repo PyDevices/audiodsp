@@ -1,4 +1,4 @@
-# What audioif is held to
+# What audiodsp is held to
 
 Decided with Brad on 2026-09-09, replacing every earlier arrangement. One page,
 because the previous answer was spread across a golden file, an oracle binary,
@@ -27,7 +27,7 @@ all of them observed in this repository rather than imagined:
 
 * **A stored digest can be re-blessed.** `--capture` moves both sides of the
   comparison at once, the gate goes green, and nothing was checked. That is
-  audioif#27, and `verify_mixdown_knee.py`'s anti-launder tripwire exists
+  audiodsp#27, and `verify_mixdown_knee.py`'s anti-launder tripwire exists
   because of it.
 * **A stored digest can be green while the code is wrong.** On 2026-09-09 the
   MicroPython flanger overflowed `int32_t` in its wet interpolation on
@@ -38,7 +38,7 @@ all of them observed in this repository rather than imagined:
   pinned `audiodynamics` and `audioroute` to micropython-vst3's
   `vstaudio_dsp.c` at revision `ac87f13`. That file was deleted from
   micropython-vst3 in `6ea60d3` — "Drop the effects library and the DSP that
-  moved to audioif" — and the plug-in links audioif now. The relationship
+  moved to audiodsp" — and the plug-in links audiodsp now. The relationship
   reversed: vstaudio is a consumer of this package, not a grader of it.
 
 ## Which nodes are which
@@ -128,7 +128,7 @@ is the checklist, not a report.
   a conflicting redefinition an error. `tests/test_voice_ceiling_consistency.py`
   still compares the binary's bytes against a pin — that check is about noticing
   an *undeclared* rebuild and is not retired. The oracle moved to
-  `cmods/bin/circuitpython-oracle-10.3.0` on 2026-09-17 (audioif#89): the old
+  `cmods/bin/circuitpython-oracle-10.3.0` on 2026-09-17 (audiodsp#89): the old
   path is what `build_interpreters.sh`'s `cp-unix` target installs, so a
   routine interpreter refresh replaced the oracle with a 14-voice build twice.
   The opt-in `cp-oracle` target builds and installs the oracle now, and
@@ -178,8 +178,8 @@ bug. There is one such thing and it is dealt with: **fused multiply-add**.
 `a * b + c` may round twice or once, both are legal, and which one you get
 depends on the target -- the two ESP toolchains do not even fuse at the same
 number of sites in the same file. That was the whole of the P4-vs-S3 split on
-`audiodynamics` (audioif#66), and since audioif#79 every `src/shared/` file that
-computes in float includes `shared/audioif_fp_contract.h` and forbids it.
+`audiodynamics` (audiodsp#66), and since audiodsp#79 every `src/shared/` file that
+computes in float includes `shared/audiodsp_fp_contract.h` and forbids it.
 
 The header is where the reasoning lives: the two spellings that silently do
 nothing, why it is not a build flag, and what it costs. **Add the include to any
@@ -195,14 +195,14 @@ baseline, and CI's ARM lane had carried an accepted baseline of its own since
 Adding the pragma closed exactly those six, which is where the mechanism stops
 being inferred and starts being measured
 ([docs/building-wheels.md](building-wheels.md)). Proving the board half still
-needs board digests. See audioif#79 and audioif#55.
+needs board digests. See audiodsp#79 and audiodsp#55.
 
 ## The other way: a number derived in Python
 
 Contraction is the compiler choosing. This one is the *interpreter* choosing,
 and it happens before the kernel is reached at all.
 
-**A setting derived in Python passes through `audioif_util.float32` before it
+**A setting derived in Python passes through `audiodsp_util.float32` before it
 reaches a node.** That is the rule; the rest of this section is why.
 
 Python's float is the interpreter's `mp_float_t`. On CPython and on the desktop
@@ -210,23 +210,23 @@ MicroPython that is a double; on an ESP32-P4, an ESP32-S3, an RP2040 and any
 build carrying `-DMICROPY_FLOAT_IMPL=MICROPY_FLOAT_IMPL_FLOAT` it is a single.
 So `node.mix = 0.35` is not one setting -- it is two numbers a ULP apart -- and
 a node whose blend runs from it renders different bytes on a board than on a
-desktop without anything in the kernel being wrong. `audioif_util.float32(x)` is
+desktop without anything in the kernel being wrong. `audiodsp_util.float32(x)` is
 a pure-Python round trip through `struct`: the identity on a single-precision
 target, a rounding on a double one, and the same number afterwards on both.
 
-`audioif_util.float32_bits(x)` is the same rule for output. `"%.6f" % value` is
+`audiodsp_util.float32_bits(x)` is the same rule for output. `"%.6f" % value` is
 seven significant digits, and MicroPython's single-precision formatter is not
 correctly rounded that far, so a probe printing a float at that width compares
 formatters rather than DSP. The bit pattern is exact everywhere.
 
-This is where audioif#80 landed: six probes disagreed with CPython on a
+This is where audiodsp#80 landed: six probes disagreed with CPython on a
 single-precision build, and four of the six were the probes' own arithmetic --
 three printing a gain reduction whose *bits were identical on all three
 targets*, one passing `mix=0.35`, and one deriving its square-wave material from
 a Python float phase, so the two builds were being compared on two different
 input signals. The two that remain are below the probes and each has its own
-issue: audioif#101 (`synthio.Biquad` derives W0 at `mp_float_t` width where the
-CPython extension calls the shared `double` helper) and audioif#102 (a filtered
+issue: audiodsp#101 (`synthio.Biquad` derives W0 at `mp_float_t` width where the
+CPython extension calls the shared `double` helper) and audiodsp#102 (a filtered
 `Echo` does its per-sample arithmetic at `mp_float_t` width in C and in double
 in the twin).
 
@@ -244,7 +244,7 @@ choosing. This one is neither: it is the CPython twin owning memory the native
 builds only point at.
 
 `audiosample_get_buffer` hands its caller a **pointer into the producer's own
-buffer** — `int16_t buffer[AUDIOIF_..._FRAMES * 2]` on the node, one buffer, not
+buffer** — `int16_t buffer[AUDIODSP_..._FRAMES * 2]` on the node, one buffer, not
 a queue. A consumer that holds that pointer across calls therefore reads what
 the producer rendered *last*, not what it had rendered when the pointer was
 taken. `audiomixer.MixerVoice` is exactly such a consumer: `play()` fetches one
@@ -257,10 +257,10 @@ CPython than on every native build — which is what
 [`audioeffects.rebuilt.Saturation`](https://github.com/PyDevices/audiocomponents)
 does to settle its coupling pole before its first block, and why its two
 `Bias`-off-centre patches split CPython from desktop MicroPython, desktop
-CircuitPython and both boards (audioif#89).
+CircuitPython and both boards (audiodsp#89).
 
 `audiocore._AudioSample._publish` is the rule now: a node hands back its own
-buffer, refilled — one slot for the nodes audioif wrote, two for the ported
+buffer, refilled — one slot for the nodes audiodsp wrote, two for the ported
 CircuitPython effects, for `Mixer` and for the synthesizer, because those
 alternate. `audiocore._borrow` is the in-graph pull that does not copy;
 `audiocore.get_buffer` still copies, on both targets, because it is the

@@ -66,8 +66,8 @@ static mp_obj_t audioroute_midside_make_new(const mp_obj_type_t *type,
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_midside_config_init(&self->config);
-    audioif_midside_set_channel_count(&self->config,
+    audiodsp_midside_config_init(&self->config);
+    audiodsp_midside_set_channel_count(&self->config,
         (uint32_t)self->base.channel_count);
 
     if (args[ARG_source].u_obj != mp_const_none) {
@@ -79,7 +79,7 @@ static mp_obj_t audioroute_midside_make_new(const mp_obj_type_t *type,
         self->source = args[ARG_source].u_obj;
     }
     if (args[ARG_width].u_obj != mp_const_none) {
-        audioif_midside_set_width(&self->config,
+        audiodsp_midside_set_width(&self->config,
             (float)mp_obj_get_float(args[ARG_width].u_obj));
     }
     return MP_OBJ_FROM_PTR(self);
@@ -122,7 +122,7 @@ static mp_obj_t audioroute_midside_set(size_t n_args, const mp_obj_t *args,
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown MidSide option '%q'"), name);
         }
-        audioif_midside_set_width(&self->config,
+        audiodsp_midside_set_width(&self->config,
             (float)mp_obj_get_float(kw_args->table[i].value));
     }
     return mp_const_none;
@@ -132,8 +132,8 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioroute_midside_set_obj, 1,
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. The MicroPython
-// binding of this same type gained it on 2026-09-09 (audioif#58, #60, #63) and
-// this copy did not, which is audioif#75: the two bindings are hand-written and
+// binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
+// this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
 static mp_obj_t audioroute_midside_deinit(mp_obj_t self_in) {
     audioroute_midside_obj_t *self = MP_OBJ_TO_PTR(self_in);

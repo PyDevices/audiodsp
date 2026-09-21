@@ -1,5 +1,5 @@
 // audiomath.SubOctave for CircuitPython: the buffer plumbing around
-// shared/audioif_suboctave.c. See SubOctave.h.
+// shared/audiodsp_suboctave.c. See SubOctave.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -16,7 +16,7 @@ void audiomath_suboctave_reset_buffer(audiomath_suboctave_obj_t *self,
     // The divider holds no audio, so unlike a delay this drops nothing
     // anybody can hear; what it stops is a restarted chain beginning on the
     // inverted half of the count.
-    audioif_suboctave_reset(&self->state);
+    audiodsp_suboctave_reset(&self->state);
 }
 
 audioio_get_buffer_result_t audiomath_suboctave_get_buffer(
@@ -26,7 +26,7 @@ audioio_get_buffer_result_t audiomath_suboctave_get_buffer(
     (void)channel;
     const uint32_t width = 2u * self->base.channel_count;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_SUBOCTAVE_FRAMES) {
+    while (produced < AUDIODSP_SUBOCTAVE_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -41,11 +41,11 @@ audioio_get_buffer_result_t audiomath_suboctave_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_SUBOCTAVE_FRAMES - produced;
+        uint32_t run = AUDIODSP_SUBOCTAVE_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_suboctave_process_s16(&self->config, &self->state,
+        audiodsp_suboctave_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -56,7 +56,7 @@ audioio_get_buffer_result_t audiomath_suboctave_get_buffer(
     // in the middle of a live graph and never reports itself finished.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_SUBOCTAVE_FRAMES;
+        produced = AUDIODSP_SUBOCTAVE_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * width;

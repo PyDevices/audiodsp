@@ -1,4 +1,4 @@
-# audioif
+# audiodsp
 
 CircuitPython's audio system for MicroPython and CPython — `audiocore`,
 `audiomixer`, `synthio` (including `MidiTrack`), the effects modules
@@ -6,6 +6,11 @@ CircuitPython's audio system for MicroPython and CPython — `audiocore`,
 and CircuitPython `play()`/`stop()`/`pause()`/`resume()` output semantics.
 Import names stay `audiocore`/`synthio`/etc., matching CircuitPython for
 source compatibility.
+
+`audiodsp` was named `audioif` until 2026-09-21; that name now belongs to the
+audio hardware layer. The modules you import did not change. The helper
+package is `audiodsp_util` now, and the distribution on PyPI is
+`pydevices-audiodsp`.
 
 ## Installation
 
@@ -20,9 +25,9 @@ For a CMake port (esp32, rp2), point `USER_C_MODULES` straight at this
 checkout:
 
 ```sh
-git clone https://github.com/PyDevices/audioif ~/build/audioif
-cd ~/build/audioif && ./scripts/fetch_deps.sh
-idf.py build -DUSER_C_MODULES=~/build/audioif
+git clone https://github.com/PyDevices/audiodsp ~/build/audiodsp
+cd ~/build/audiodsp && ./scripts/fetch_deps.sh
+idf.py build -DUSER_C_MODULES=~/build/audiodsp
 ```
 
 For a Make port (unix, windows, webassembly), MicroPython's own build glob
@@ -30,8 +35,8 @@ looks one level down, so point `USER_C_MODULES` at this checkout's
 *parent* directory instead:
 
 ```sh
-git clone https://github.com/PyDevices/audioif ~/build/audioif
-cd ~/build/audioif && ./scripts/fetch_deps.sh
+git clone https://github.com/PyDevices/audiodsp ~/build/audiodsp
+cd ~/build/audiodsp && ./scripts/fetch_deps.sh
 git clone https://github.com/micropython/micropython ~/build/micropython
 cd ~/build/micropython/mpy-cross && make
 cd ~/build/micropython/ports/unix && make submodules
@@ -41,14 +46,14 @@ make USER_C_MODULES=~/build
 The two dependencies are `ulab` (so `synthtools`'s `import ulab.numpy`
 works) and `mp3` (the `audiomp3` tier's decoder), pinned by
 [DEPENDENCIES.lock](DEPENDENCIES.lock). To build without them, skip the
-fetch and set `AUDIOIF_OPTIONAL_DEPS=1` on the **build** step instead — the
+fetch and set `AUDIODSP_OPTIONAL_DEPS=1` on the **build** step instead — the
 variable is read by `micropython.mk`/`micropython.cmake`, not by
 `fetch_deps.sh`, and on CMake ports it is read as an *environment*
 variable, not as a `-D` cache entry:
 
 ```sh
-make USER_C_MODULES=~/build AUDIOIF_OPTIONAL_DEPS=1              # Make ports
-AUDIOIF_OPTIONAL_DEPS=1 idf.py build -DUSER_C_MODULES=~/build/audioif   # CMake
+make USER_C_MODULES=~/build AUDIODSP_OPTIONAL_DEPS=1              # Make ports
+AUDIODSP_OPTIONAL_DEPS=1 idf.py build -DUSER_C_MODULES=~/build/audiodsp   # CMake
 ```
 
 That builds every module except `audiomp3` with no clone beyond this
@@ -59,7 +64,7 @@ for the architecture, module tiers, phased plan, and testing strategy.
 **CPython 3.10+** installs from TestPyPI:
 
 ```sh
-python -m pip install --index-url https://test.pypi.org/simple/ pydevices-audioif
+python -m pip install --index-url https://test.pypi.org/simple/ pydevices-audiodsp
 ```
 
 This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
@@ -68,8 +73,8 @@ This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiobiquad`, `audioverb`, `audiomodal`, and the
 `audiorender` package.
 `audiomp3` remains firmware-only. The distribution declares no *required*
-runtime dependencies and does not itself publish an `audioif` import; its
-version is the `VERSION` file, which is also what `_audioif.__version__`
+runtime dependencies and does not itself publish an `audiodsp` import; its
+version is the `VERSION` file, which is also what `_audiodsp.__version__`
 reports.
 
 `audiorender` is the exception, and it is opt-in: it is numpy throughout,
@@ -79,21 +84,21 @@ numpy, so the extra needs PyPI as a second index:
 
 ```sh
 python -m pip install --index-url https://test.pypi.org/simple/ \
-    --extra-index-url https://pypi.org/simple/ "pydevices-audioif[render]"
+    --extra-index-url https://pypi.org/simple/ "pydevices-audiodsp[render]"
 ```
 
 The instrument and effect libraries — `audioinstruments` (53 synthesizers,
 keyboards and drum machines) and `audioeffects` (46 effect classes, racks
 included) — are not part of this distribution. They live in the
 [audiocomponents](https://github.com/PyDevices/audiocomponents) repository
-as their own packages, each depending on `pydevices-audioif`; see that
+as their own packages, each depending on `pydevices-audiodsp`; see that
 repository for how to install them.
 
 ## What's here
 
 Two pure-Python modules sit beside the CircuitPython-compatible core:
 
-- **`lib/audioif_util/`** — `float32(value)` and `float32_bits(value)`,
+- **`lib/audiodsp_util/`** — `float32(value)` and `float32_bits(value)`,
   `struct` and nothing else. A Python float is the interpreter's own width:
   a double here, a **single** on every board. So a setting written in Python
   — `node.mix = 0.35` — is two different numbers, and the node renders
@@ -136,7 +141,7 @@ measured or synthesized impulse response, by partitioned FFT), `audioverb`
 (a reverberation tank whose line lengths and output taps come from Python),
 `audiomodal` (a bank of resonators, which is what a struck object is),
 `audioroute.MidSide` (scale the difference between a stereo pair's channels)
-and `audiobiquad` (below) have no ancestor anywhere and are audioif's own.
+and `audiobiquad` (below) have no ancestor anywhere and are audiodsp's own.
 `apply_cp_patches.sh` adds every one of them to a CircuitPython tree too.
 
 ### `audiobiquad` — filters whose tails reach exact zero
@@ -249,7 +254,7 @@ own: the decimator can ring past them on a hard edge, so keep
 (0.74) and put the rest of the wanted level on a mixer voice after this
 node. Why each of those is the shape it is, and what the
 oversampling measures:
-[docs/upstream-diff.md](docs/upstream-diff.md), "`audioshaper`: audioif's own,
+[docs/upstream-diff.md](docs/upstream-diff.md), "`audioshaper`: audiodsp's own,
 and the two things a fixed curve cannot be".
 
 `audioshaper.SampleHold(source, num=…, den=…)` is the same module's other
@@ -551,17 +556,17 @@ exact sound of a release, pin that release rather than tracking the
 latest; the code of every release stays available for exactly this
 reason.
 
-Beneath the components sits a harder guarantee: the audioif core — the
+Beneath the components sits a harder guarantee: the audiodsp core — the
 CircuitPython-compatible `synthio`/`audiocore`/effects-module layer — is
 held bit-exact to CircuitPython itself, verified by parity gates, and
 that never changes release to release. Where we find CircuitPython and
-audioif disagree, we treat it as a bug and report it upstream. The
+audiodsp disagree, we treat it as a bug and report it upstream. The
 components are where the sound evolves; the floor they stand on does
 not.
 
 ## License
 
-audioif is MIT licensed — see [LICENSE](LICENSE).
+audiodsp is MIT licensed — see [LICENSE](LICENSE).
 
 The attribution that goes with it lives in [NOTICE](NOTICE): substantial
 portions of this code are ported from CircuitPython under its own MIT

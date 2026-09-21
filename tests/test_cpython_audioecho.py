@@ -26,7 +26,7 @@ its own output.
 the DSP, at full scale, because that is where an arithmetic width error shows
 and a range check does not.
 
-**E5 is audioif#54, turned into a property.** The MicroPython binding advanced
+**E5 is audiodsp#54, turned into a property.** The MicroPython binding advanced
 its destination by `produced * 2` while the DSP writes `channel_count` samples
 per frame, so a mono node whose source handed out fewer than 256 frames per
 pull interleaved its output with the gap it left. Both conditions had to hold,
@@ -47,8 +47,8 @@ import audioecho
 SAMPLE_RATE = 8000
 CHANNELS = 2
 
-#: Shorter than AUDIOIF_FEEDBACK_DELAY_FRAMES (256), which is the condition
-#: audioif#54 needed: the inner loop then runs more than once.
+#: Shorter than AUDIODSP_FEEDBACK_DELAY_FRAMES (256), which is the condition
+#: audiodsp#54 needed: the inner loop then runs more than once.
 SHORT_FRAMES = 100
 
 
@@ -123,7 +123,7 @@ class IdentityTest(unittest.TestCase):
 
 
 class MonoStrideTest(unittest.TestCase):
-    """E5 - audioif#54 as a property rather than a digest."""
+    """E5 - audiodsp#54 as a property rather than a digest."""
 
     def test_a_mono_short_source_renders_without_gaps(self):
         """E5."""

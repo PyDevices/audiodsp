@@ -3,7 +3,7 @@
     ladder_probe.py audioladder
 
 Like multiply_probe.py and feedback_delay_probe.py, this has no oracle:
-`audioladder` is audioif's own module, with no ancestor in CircuitPython or
+`audioladder` is audiodsp's own module, with no ancestor in CircuitPython or
 in micropython-vst3's engine. What the golden pins is that every interpreter
 renders it identically.
 

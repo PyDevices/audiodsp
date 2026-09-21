@@ -99,7 +99,7 @@ def sinc_db(hz, hold_hz):
 
 
 class TheRateRoundsToTheNearestStep(unittest.TestCase):
-    """audioif#92. Upstream's `rate_to_fp` is `(uint32_t)(rate * (1 << 16))`,
+    """audiodsp#92. Upstream's `rate_to_fp` is `(uint32_t)(rate * (1 << 16))`,
     a truncation, so a float landing a hair under its Q16 neighbour loses a
     whole LSB rather than arriving at it. Every number below was measured on
     this twin before the fix and is in `docs/upstream-diff.md`."""
@@ -157,7 +157,7 @@ class TheRateRoundsToTheNearestStep(unittest.TestCase):
 
 
 class ThePhaseCrossesASourceBuffer(unittest.TestCase):
-    """audioif#91. Upstream zeroes the accumulator every time it takes a new
+    """audiodsp#91. Upstream zeroes the accumulator every time it takes a new
     buffer from the source, so a hold restarts its staircase 187 times a
     second at 48 kHz and drifts. Every "before" number here was measured on
     this twin and is in `docs/upstream-diff.md`."""

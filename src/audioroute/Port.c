@@ -5,7 +5,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // Copy the format the port advertises off whatever it is about to play.
 //
@@ -59,13 +59,13 @@ static mp_obj_t audioroute_port_make_new(const mp_obj_type_t *type,
 // Everything that can raise happens FIRST, on the interpreter thread where
 // raising is free -- the protocol lookup, the deinit check and the format
 // match. Then the lock, then the stores, then the unlock. That is the pump
-// lock's contract verbatim (shared/audioif_pump_lock.h), and the reason a
+// lock's contract verbatim (shared/audiodsp_pump_lock.h), and the reason a
 // re-point does not need a park: a pull in flight sees the whole old source
 // or the whole new one.
 //
 // `play` rather than `retarget` or `source =` because that is the verb the
 // whole palette already uses for "this is what you play now" -- every node
-// audioif ports and every node it wrote has one.
+// audiodsp ports and every node it wrote has one.
 static mp_obj_t audioroute_port_play(mp_obj_t self_in, mp_obj_t sample_in) {
     audioroute_port_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_check_for_deinit(&self->base);
@@ -82,11 +82,11 @@ static mp_obj_t audioroute_port_play(mp_obj_t self_in, mp_obj_t sample_in) {
     const uint32_t max_buffer_length = sample->max_buffer_length;
     const bool single_buffer = sample->single_buffer;
 
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample_in;
     self->base.max_buffer_length = max_buffer_length;
     self->base.single_buffer = single_buffer;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioroute_port_play_obj,
@@ -125,7 +125,7 @@ static audioio_get_buffer_result_t audioroute_port_get_buffer(
     // node (a Rack's deinit stops each child in turn), and it never
     // legitimately closes a loop.
     if (self->in_pull) {
-        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_LOOP);
+        audiodsp_pump_fault_set(AUDIODSP_PUMP_FAULT_LOOP);
         *buffer = NULL;
         *buffer_length = 0;
         return GET_BUFFER_ERROR;
@@ -169,7 +169,7 @@ static void audioroute_port_reset_buffer(mp_obj_t self_in,
     // desktop a stack overflow, on a board the pump thread never returning.
     // Guarding only the pull leaves that one in place.
     if (self->in_pull) {
-        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_LOOP);
+        audiodsp_pump_fault_set(AUDIODSP_PUMP_FAULT_LOOP);
         return;
     }
     self->in_pull = true;
@@ -197,10 +197,10 @@ MP_PROPERTY_GETTER(audioroute_port_source_obj,
 // between the two stores is a pull that has already passed the guard.
 static mp_obj_t audioroute_port_deinit(mp_obj_t self_in) {
     audioroute_port_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioroute_port_deinit_obj,

@@ -9,13 +9,13 @@
 
 #include "audiomodal/Bank.h"
 
-#include "cp_compat/audioif_build.h"
+#include "cp_compat/audiodsp_build.h"
 
 #include "py/obj.h"
 
 static const mp_rom_map_elem_t audiomodal_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audiomodal) },
-    AUDIOIF_BUILD_GLOBALS,
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_Bank), MP_ROM_PTR(&audiomodal_bank_type) },
     // The block size, the ceiling and the decay bounds, so Python-side code
     // can size a bank and clamp a mode table without hard-coding any of
@@ -26,8 +26,8 @@ static const mp_rom_map_elem_t audiomodal_module_globals_table[] = {
     // deliberate: a float in a module table needs a `mp_obj_float_t` in ROM,
     // and both bounds are exact integers of milliseconds, so the conversion
     // has no rounding to get wrong and the constant costs nothing.
-    { MP_ROM_QSTR(MP_QSTR_FRAMES), MP_ROM_INT(AUDIOIF_MODAL_FRAMES) },
-    { MP_ROM_QSTR(MP_QSTR_MAX_MODES), MP_ROM_INT(AUDIOIF_MODAL_MAX_MODES) },
+    { MP_ROM_QSTR(MP_QSTR_FRAMES), MP_ROM_INT(AUDIODSP_MODAL_FRAMES) },
+    { MP_ROM_QSTR(MP_QSTR_MAX_MODES), MP_ROM_INT(AUDIODSP_MODAL_MAX_MODES) },
     { MP_ROM_QSTR(MP_QSTR_MIN_DECAY_MS), MP_ROM_INT(1) },
     { MP_ROM_QSTR(MP_QSTR_MAX_DECAY_MS), MP_ROM_INT(30000) },
 };

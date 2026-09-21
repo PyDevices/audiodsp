@@ -21,7 +21,7 @@ def checksum(data):
     +256-LSB sample error (about -42 dBFS, plainly audible) paid for by a
     single -1-LSB error was invisible here. 138 of this probe's 139 lines
     carried only that statistic, so the gate checked 16 of 32,002 samples at
-    PCM level - 0.05%. See issue #20 and audioif#15.
+    PCM level - 0.05%. See issue #20 and audiodsp#15.
 
     This is order- and magnitude-sensitive. audiocomponents' instrument probes
     (`tests/parity/instruments_probe_new.py` there) use the same function for

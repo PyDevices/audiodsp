@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The one gate that can see a synthio voice-ceiling change (audioif#27).
+"""The one gate that can see a synthio voice-ceiling change (audiodsp#27).
 
 WHAT THIS COVERS THAT THE OTHER FOUR CANNOT
 ===========================================
@@ -14,7 +14,7 @@ sample, so its output moves when the ceiling moves.
 
 Scope, stated narrowly on purpose: the CPython target reads exactly ONE
 of the ceiling's five sites, `src/cpython/synthio.py`'s
-`Synthesizer.max_polyphony`, which it hands to `_audioif.mixdown_i32` as
+`Synthesizer.max_polyphony`, which it hands to `_audiodsp.mixdown_i32` as
 the limiter divisor. That is the only site this gate observes. The
 header, `micropython.mk` and `micropython.cmake` copies are read by no CI
 gate at all, so `tests/test_voice_ceiling_consistency.py` is still the
@@ -177,7 +177,7 @@ if actual != expected:
         "",
         "  This gate exists to notice a change to the synthio voice "
         "ceiling -- src/cpython/synthio.py's max_polyphony, the divisor "
-        "handed to _audioif.mixdown_i32. If you changed it, that is what "
+        "handed to _audiodsp.mixdown_i32. If you changed it, that is what "
         "you are looking at. If you did not, something moved the "
         "above-knee limiter arithmetic.",
         "",

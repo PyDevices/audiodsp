@@ -1,4 +1,4 @@
-// Compat shim for audioif: CircuitPython's named-protocol system
+// Compat shim for audiodsp: CircuitPython's named-protocol system
 // (`MP_PROTOCOL_HEAD`, `MP_PROTO_IMPLEMENT`, `mp_proto_get[_or_throw]`),
 // adapted from CircuitPython's py/proto.h (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT).

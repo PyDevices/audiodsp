@@ -1,5 +1,5 @@
 // audiobiquad.AllPass for CircuitPython: the buffer plumbing around
-// shared/audioif_filter_f32.c. See AllPass.h.
+// shared/audiodsp_filter_f32.c. See AllPass.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -8,15 +8,15 @@
 #include <string.h>
 
 void audiobiquad_allpass_refresh(audiobiquad_allpass_obj_t *self) {
-    audioif_allpass_f32_configure(&self->config,
-        AUDIOIF_ALLPASS_F32_OPT_FREQUENCY,
+    audiodsp_allpass_f32_configure(&self->config,
+        AUDIODSP_ALLPASS_F32_OPT_FREQUENCY,
         (float)synthio_block_slot_get(&self->frequency));
-    audioif_allpass_f32_configure(&self->config,
-        AUDIOIF_ALLPASS_F32_OPT_FEEDBACK,
+    audiodsp_allpass_f32_configure(&self->config,
+        AUDIODSP_ALLPASS_F32_OPT_FEEDBACK,
         (float)synthio_block_slot_get(&self->feedback));
-    audioif_allpass_f32_configure(&self->config, AUDIOIF_ALLPASS_F32_OPT_MIX,
+    audiodsp_allpass_f32_configure(&self->config, AUDIODSP_ALLPASS_F32_OPT_MIX,
         (float)synthio_block_slot_get(&self->mix));
-    audioif_allpass_f32_config_finish(&self->config);
+    audiodsp_allpass_f32_config_finish(&self->config);
 }
 
 // One chunk of the block layer, then the values it produced.
@@ -33,7 +33,7 @@ void audiobiquad_allpass_reset_buffer(audiobiquad_allpass_obj_t *self,
     (void)channel;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_allpass_f32_reset(&self->state);
+    audiodsp_allpass_f32_reset(&self->state);
 }
 
 audioio_get_buffer_result_t audiobiquad_allpass_get_buffer(
@@ -42,7 +42,7 @@ audioio_get_buffer_result_t audiobiquad_allpass_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_FILTER_F32_FRAMES) {
+    while (produced < AUDIODSP_FILTER_F32_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -59,12 +59,12 @@ audioio_get_buffer_result_t audiobiquad_allpass_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_FILTER_F32_FRAMES - produced;
+        uint32_t run = AUDIODSP_FILTER_F32_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
         audiobiquad_allpass_apply_blocks(self, run);
-        audioif_allpass_f32_process_s16(&self->config, &self->state,
+        audiodsp_allpass_f32_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -73,7 +73,7 @@ audioio_get_buffer_result_t audiobiquad_allpass_get_buffer(
     }
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_FILTER_F32_FRAMES;
+        produced = AUDIODSP_FILTER_F32_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

@@ -2,7 +2,7 @@
 
 import wave
 
-import _audioif  # noqa: F401 - verifies that the native runtime is present
+import _audiodsp  # noqa: F401 - verifies that the native runtime is present
 
 GET_BUFFER_DONE = 0
 GET_BUFFER_MORE_DATA = 1
@@ -12,13 +12,13 @@ GET_BUFFER_ERROR = 2
 #: What a released node raises, on **every** target: CircuitPython's own
 #: `ValueError`, with CircuitPython's own message. It comes from
 #: `shared-bindings/util.c`, which `src/cp_compat/util.c` ports verbatim for the
-#: native builds; `_audioif`'s guard (`rawsample_raise_status`) and this shim
+#: native builds; `_audiodsp`'s guard (`rawsample_raise_status`) and this shim
 #: now match it rather than raising `RuntimeError`.
 #:
 #: The exception type is the one thing about a released node that portable user
 #: code can actually catch, and the parity gates cannot see it because they
 #: compare rendered bytes. A `try/except ValueError` around a teardown path has
-#: to work the same on a board and on this target. audioif#73.
+#: to work the same on a board and on this target. audiodsp#73.
 DEINITED_MESSAGE = ("Object has been deinitialized and can no longer be used. "
                     "Create a new object.")
 
@@ -52,7 +52,7 @@ class _AudioSample:
         """Hand back the node's OWN output buffer, refilled.
 
         A native node renders into a buffer that belongs to it -- `int16_t
-        buffer[AUDIOIF_..._FRAMES * 2]` in `src/<module>/<Node>.h` -- and
+        buffer[AUDIODSP_..._FRAMES * 2]` in `src/<module>/<Node>.h` -- and
         `audiosample_get_buffer` hands back a pointer to it. A consumer that
         keeps that pointer across calls therefore reads what the node
         rendered LAST, not what it had rendered when the pointer was taken.
@@ -64,10 +64,10 @@ class _AudioSample:
         that pulls a node one of its own mixer voices is already holding --
         `audioeffects.rebuilt.Saturation._charge_coupling` settling a
         coupling pole before the first block -- therefore rendered its first
-        block differently here than on any native build (audioif#89).
+        block differently here than on any native build (audiodsp#89).
 
         `slots` is how many buffers the native node rotates through: one for
-        the nodes audioif wrote itself, two for the ported CircuitPython
+        the nodes audiodsp wrote itself, two for the ported CircuitPython
         effects (`int8_t *buffer[2]`), for `Mixer` (`first_buffer` /
         `second_buffer`) and for the synthesizer.
         """
@@ -95,7 +95,7 @@ class _AudioSample:
         self.deinit()
 
 
-RawSample = _audioif.RawSample
+RawSample = _audiodsp.RawSample
 
 
 class WaveFile(_AudioSample):

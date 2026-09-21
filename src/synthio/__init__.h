@@ -47,15 +47,15 @@
 // FIVE copies of this number exist and nothing makes them agree except
 // tests/test_voice_ceiling_consistency.py. The other four:
 // micropython.mk, micropython.cmake, src/cpython/synthio.py, and the
-// default argument in src/cpython/_audioif.c. The CPython target does not
-// read this header -- setup.py builds _audioif from src/cpython/ and
+// default argument in src/cpython/_audiodsp.c. The CPython target does not
+// read this header -- setup.py builds _audiodsp from src/cpython/ and
 // src/shared/ only -- so THIS value is watched by no parity gate at all.
 // Since 2026-09-06 tests/parity/verify_mixdown_knee.py does cross the
-// mix-down knee and so notices a ceiling change (audioif#27), but only in
+// mix-down knee and so notices a ceiling change (audiodsp#27), but only in
 // src/cpython/synthio.py, the one copy the CPython target reads. A change
 // that moves this line and not that one is still invisible to CI.
 //
-// NOT a sixth copy: _audioif.c's `0x0fffffff / (32768 * 2 - 28000)` is
+// NOT a sixth copy: _audiodsp.c's `0x0fffffff / (32768 * 2 - 28000)` is
 // SYNTHIO_MIX_DOWN_SCALE(2) mirroring upstream CircuitPython's own
 // two-channel default. A literal 2 that stays 2.
 //
@@ -83,15 +83,15 @@
 
 #include "cp_compat/enum.h"
 #include "cp_compat/namedtuple.h"
-#include "shared/audioif_envelope.h"
+#include "shared/audiodsp_envelope.h"
 
 #define SYNTHIO_WAVEFORM_SIZE 16384
 
-typedef audioif_envelope_kind_t envelope_state_e;
-#define SYNTHIO_ENVELOPE_STATE_ATTACK AUDIOIF_ENVELOPE_ATTACK
-#define SYNTHIO_ENVELOPE_STATE_DECAY AUDIOIF_ENVELOPE_DECAY
-#define SYNTHIO_ENVELOPE_STATE_SUSTAIN AUDIOIF_ENVELOPE_SUSTAIN
-#define SYNTHIO_ENVELOPE_STATE_RELEASE AUDIOIF_ENVELOPE_RELEASE
+typedef audiodsp_envelope_kind_t envelope_state_e;
+#define SYNTHIO_ENVELOPE_STATE_ATTACK AUDIODSP_ENVELOPE_ATTACK
+#define SYNTHIO_ENVELOPE_STATE_DECAY AUDIODSP_ENVELOPE_DECAY
+#define SYNTHIO_ENVELOPE_STATE_SUSTAIN AUDIODSP_ENVELOPE_SUSTAIN
+#define SYNTHIO_ENVELOPE_STATE_RELEASE AUDIODSP_ENVELOPE_RELEASE
 
 typedef enum synthio_bend_mode_e {
     SYNTHIO_BEND_MODE_STATIC, SYNTHIO_BEND_MODE_VIBRATO, SYNTHIO_BEND_MODE_SWEEP, SYNTHIO_BEND_MODE_SWEEP_IN
@@ -147,8 +147,8 @@ typedef struct {
     mp_obj_t note_obj[CIRCUITPY_SYNTHIO_MAX_CHANNELS];
 } synthio_midi_span_t;
 
-typedef audioif_envelope_definition_t synthio_envelope_definition_t;
-typedef audioif_envelope_state_t synthio_envelope_state_t;
+typedef audiodsp_envelope_definition_t synthio_envelope_definition_t;
+typedef audiodsp_envelope_state_t synthio_envelope_state_t;
 
 struct synthio_synth {
     audiosample_base_t base;

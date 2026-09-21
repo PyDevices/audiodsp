@@ -8,7 +8,7 @@
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/objproperty.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // The ratio is one setting, not two, so both halves arrive together
 // everywhere -- the constructor and `set()` share this. A node left holding
@@ -16,7 +16,7 @@
 // accumulator exists to rule out.
 static void samplehold_check_ratio(mp_int_t num, mp_int_t den) {
     if (num < 1 || den < 1 || den > num ||
-        num > (mp_int_t)AUDIOIF_SAMPLEHOLD_MAX_RATIO) {
+        num > (mp_int_t)AUDIODSP_SAMPLEHOLD_MAX_RATIO) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "num and den must be whole, den <= num (a hold cannot invent "
             "frames)"));
@@ -41,7 +41,7 @@ static mp_obj_t audioshaper_samplehold_make_new(const mp_obj_type_t *type,
     uint32_t frame_bytes =
         (uint32_t)(src->bits_per_sample / 8u) * src->channel_count;
     if (frame_bytes < 1u ||
-        frame_bytes > AUDIOIF_SAMPLEHOLD_MAX_FRAME_BYTES) {
+        frame_bytes > AUDIODSP_SAMPLEHOLD_MAX_FRAME_BYTES) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source frames must be 1 or 2 channels of 8- or 16-bit audio"));
     }
@@ -55,7 +55,7 @@ static mp_obj_t audioshaper_samplehold_make_new(const mp_obj_type_t *type,
     self->base.bits_per_sample = src->bits_per_sample;
     self->base.samples_signed = src->samples_signed;
     self->base.single_buffer = false;
-    self->base.max_buffer_length = AUDIOIF_SAMPLEHOLD_FRAMES * frame_bytes;
+    self->base.max_buffer_length = AUDIODSP_SAMPLEHOLD_FRAMES * frame_bytes;
     self->source = source;
     self->frame_bytes = (uint8_t)frame_bytes;
     self->pending = NULL;
@@ -63,9 +63,9 @@ static mp_obj_t audioshaper_samplehold_make_new(const mp_obj_type_t *type,
     self->source_done = false;
     self->source_exhausted = false;
 
-    audioif_samplehold_config_init(&self->config,
+    audiodsp_samplehold_config_init(&self->config,
         (uint32_t)args[ARG_num].u_int, (uint32_t)args[ARG_den].u_int);
-    audioif_samplehold_state_init(&self->state, &self->config);
+    audiodsp_samplehold_state_init(&self->state, &self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -81,14 +81,14 @@ static mp_obj_t audioshaper_samplehold_play(mp_obj_t self_in,
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source format does not match the one this node was built with"));
     }
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
     self->source_done = false;
     self->source_exhausted = false;
-    audioif_pump_lock_release();
-    audioif_samplehold_reset(&self->state, &self->config);
+    audiodsp_pump_lock_release();
+    audiodsp_samplehold_reset(&self->state, &self->config);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioshaper_samplehold_play_obj,
@@ -106,16 +106,16 @@ static mp_obj_t audioshaper_samplehold_set(size_t n_args,
         allowed, parsed);
     samplehold_check_ratio(parsed[ARG_num].u_int, parsed[ARG_den].u_int);
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    if (audioif_samplehold_config_set(&self->config,
+    if (audiodsp_samplehold_config_set(&self->config,
         (uint32_t)parsed[ARG_num].u_int, (uint32_t)parsed[ARG_den].u_int)) {
         // A ratio that actually moved re-arms the accumulator, so the next
         // frame latches and the new staircase starts where the knob turned.
         // A ratio set to what it already was does nothing at all: a class
         // writes its settings on every block, and re-latching 187 times a
         // second would be a defect nobody asked for.
-    audioif_pump_lock_acquire();
-        audioif_samplehold_reset(&self->state, &self->config);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+        audiodsp_samplehold_reset(&self->state, &self->config);
+    audiodsp_pump_lock_release();
     }
     return mp_const_none;
 }
@@ -124,9 +124,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioshaper_samplehold_set_obj, 1,
 
 static mp_obj_t audioshaper_samplehold_clear(mp_obj_t self_in) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
-    audioif_samplehold_reset(&self->state, &self->config);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+    audiodsp_samplehold_reset(&self->state, &self->config);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_samplehold_clear_obj,
@@ -158,7 +158,7 @@ static mp_obj_t audioshaper_samplehold_get_latency(mp_obj_t self_in) {
     // frame, so 1/1 is the input byte for byte. What a hold displaces is an
     // event landing on a frame it drops, by up to ceil(num/den) - 1 frames --
     // the effect, not a delay of this node, and the class that turns this into
-    // a rate knob is what reports that bound (audioif#97).
+    // a rate knob is what reports that bound (audiodsp#97).
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_check_for_deinit(&self->base);
     return MP_OBJ_NEW_SMALL_INT(0);
@@ -176,7 +176,7 @@ static audioio_get_buffer_result_t audioshaper_samplehold_get_buffer(
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
     const uint32_t width = self->frame_bytes;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_SAMPLEHOLD_FRAMES) {
+    while (produced < AUDIODSP_SAMPLEHOLD_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL || self->source_exhausted ||
                 self->source_done) {
@@ -196,11 +196,11 @@ static audioio_get_buffer_result_t audioshaper_samplehold_get_buffer(
             self->pending_frames = raw_bytes / width;
             self->source_done = (result == GET_BUFFER_DONE);
         }
-        uint32_t run = AUDIOIF_SAMPLEHOLD_FRAMES - produced;
+        uint32_t run = AUDIODSP_SAMPLEHOLD_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_samplehold_process(&self->config, &self->state,
+        audiodsp_samplehold_process(&self->config, &self->state,
             &self->buffer[produced * width], self->pending, run, width);
         self->pending += run * width;
         self->pending_frames -= run;
@@ -229,7 +229,7 @@ static void audioshaper_samplehold_reset_buffer(mp_obj_t self_in,
     self->pending_frames = 0;
     self->source_done = false;
     self->source_exhausted = false;
-    audioif_samplehold_reset(&self->state, &self->config);
+    audiodsp_samplehold_reset(&self->state, &self->config);
 }
 
 // `deinit()` releases what this binding holds and marks the node
@@ -240,14 +240,14 @@ static void audioshaper_samplehold_reset_buffer(mp_obj_t self_in,
 // and the borrowed pointer into the source's buffer, so nothing dangles.
 static mp_obj_t audioshaper_samplehold_deinit(mp_obj_t self_in) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
     self->source_exhausted = true;
-    audioif_pump_lock_release();
-    audioif_samplehold_reset(&self->state, &self->config);
+    audiodsp_pump_lock_release();
+    audiodsp_samplehold_reset(&self->state, &self->config);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_samplehold_deinit_obj,

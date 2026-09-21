@@ -1,9 +1,9 @@
 // audioverb.Tank -- MicroPython bindings over the runtime-neutral
-// reverberation tank in shared/audioif_tank.c.
+// reverberation tank in shared/audiodsp_tank.c.
 //
 // A separate module rather than arguments on `audiofreeverb.Freeverb`,
 // deliberately, and for the same reason `audioecho` is not `audiodelays`:
-// `Freeverb` is CircuitPython's, and an argument added to audioif's copy of it
+// `Freeverb` is CircuitPython's, and an argument added to audiodsp's copy of it
 // would not exist on a stock board -- so a `Plate` written against it would
 // silently be a different effect there. A new module either installs whole,
 // via apply_cp_patches.sh, or is absent and says so on import.
@@ -16,14 +16,14 @@
 
 #include "audiocore/__init__.h"
 #include "py/obj.h"
-#include "shared/audioif_tank.h"
+#include "shared/audiodsp_tank.h"
 
 typedef struct {
     audiosample_base_t base;
     mp_obj_t source;
-    audioif_tank_config_t config;
-    audioif_tank_state_t state;
-    int16_t buffer[AUDIOIF_TANK_FRAMES * 2];
+    audiodsp_tank_config_t config;
+    audiodsp_tank_state_t state;
+    int16_t buffer[AUDIODSP_TANK_FRAMES * 2];
     // Source frames fetched but not yet consumed, carried across output
     // blocks.
     const int16_t *pending;

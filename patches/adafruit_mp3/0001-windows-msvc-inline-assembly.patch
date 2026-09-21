@@ -1,4 +1,4 @@
-From: PyDevices audioif
+From: PyDevices audiodsp
 Date: Mon, 25 Aug 2026 00:00:00 +0000
 Subject: [PATCH] src/assembly.h: keep mingw-w64 GCC off the MSVC-only branch
 
@@ -10,18 +10,18 @@ bottom of the file, the same one the unix build already uses. Upstream
 never hits this: CircuitPython has no Windows port, so the branch was
 only ever reached by real MSVC.
 
-Provenance: written for the audioif Windows MicroPython port (originally
+Provenance: written for the audiodsp Windows MicroPython port (originally
 carried in the parent workspace's own patches/adafruit_mp3; ownership
 moved here in Phase 2 of the modernization program). Full rationale:
 docs/upstream-diff.md in
-the audioif repository, "Tier 5 audiomp3: three Windows-only local
+the audiodsp repository, "Tier 5 audiomp3: three Windows-only local
 fixes, no unix impact".
 Upstream-version: authored against Adafruit_MP3
 aac02afd9f24d2ee930f650156654ab9211a306a, the exact commit
 CircuitPython 10.2.1 vendors (see DEPENDENCIES.lock).
 Order: first and only patch in the series. Applied by
 scripts/fetch_deps.sh on top of the pinned commit.
-Test: build the Windows MicroPython port (mingw-w64) with the audioif
+Test: build the Windows MicroPython port (mingw-w64) with the audiodsp
 usermod; the unix build is unaffected because it never entered this
 branch.
 
@@ -34,7 +34,7 @@ index 7c714cd..f5ca2e2 100644
  #endif
  
 -#if (defined _WIN32 && !defined _WIN32_WCE) || (defined __WINS__ && defined _SYMBIAN) || defined(_OPENWAVE_SIMULATOR) || defined(WINCE_EMULATOR)    /* Symbian emulator for Ix86 */
-+/* PyDevices local patch (see docs/upstream-diff.md in the audioif repo,
++/* PyDevices local patch (see docs/upstream-diff.md in the audiodsp repo,
 + * "Tier 5 audiomp3"): added `&& !defined(__GNUC__)` to this branch's
 + * condition. It guards MSVC-only `__asm { ... }` intrinsic syntax and an
 + * MSVC-only `#pragma warning`, neither of which mingw-w64 GCC accepts, but

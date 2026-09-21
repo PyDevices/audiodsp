@@ -16,7 +16,7 @@
 //| The `audioshaper` module reads a nonlinearity out of a table you supply
 //| and applies it at two, four or eight times the sample rate, between a
 //| matched pair of polyphase all-pass half-band filters. It is not part of
-//| CircuitPython upstream; it comes from PyDevices' audioif.
+//| CircuitPython upstream; it comes from PyDevices' audiodsp.
 //|
 //| `audiofilters.Distortion` is the plain version of the same idea: one of
 //| four fixed curves, at the base rate. The curve is where a drive circuit

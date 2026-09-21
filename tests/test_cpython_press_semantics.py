@@ -88,7 +88,7 @@ class PressSemantics(unittest.TestCase):
 
 
 class FilterCascade(unittest.TestCase):
-    """Note.filter as a tuple of Biquads - the audioif extension (#11)."""
+    """Note.filter as a tuple of Biquads - the audiodsp extension (#11)."""
 
     def _noise_render(self, filt, blocks=40):
         noise = array.array("h", [((i * 12347) % 30001) - 15000

@@ -25,8 +25,8 @@
 #include "cp_compat/argcheck.h"
 #include "cp_compat/objproperty.h"
 #include "cp_compat/util.h"
-#include "shared/audioif_pump_lock.h"
-#include "shared/audioif_sample.h"
+#include "shared/audiodsp_pump_lock.h"
+#include "shared/audiodsp_sample.h"
 
 #include "py/obj.h"
 #include "py/runtime.h"
@@ -36,29 +36,29 @@ typedef struct {
     const audiosample_p_t *protocol;
 } micropython_sample_adapter_t;
 
-static audioif_status_t micropython_sample_reset(void *context,
+static audiodsp_status_t micropython_sample_reset(void *context,
     bool single_channel_output, uint8_t audio_channel) {
     micropython_sample_adapter_t *adapter = context;
     adapter->protocol->reset_buffer(MP_OBJ_TO_PTR(adapter->object),
         single_channel_output, audio_channel);
-    return AUDIOIF_STATUS_OK;
+    return AUDIODSP_STATUS_OK;
 }
 
-static audioif_status_t micropython_sample_get(void *context,
+static audiodsp_status_t micropython_sample_get(void *context,
     bool single_channel_output, uint8_t audio_channel,
     const uint8_t **buffer, uint32_t *buffer_length,
-    audioif_buffer_result_t *result) {
+    audiodsp_buffer_result_t *result) {
     micropython_sample_adapter_t *adapter = context;
     uint8_t *runtime_buffer = NULL;
     audioio_get_buffer_result_t runtime_result = adapter->protocol->get_buffer(
         MP_OBJ_TO_PTR(adapter->object), single_channel_output, audio_channel,
         &runtime_buffer, buffer_length);
     *buffer = runtime_buffer;
-    *result = (audioif_buffer_result_t)runtime_result;
-    return AUDIOIF_STATUS_OK;
+    *result = (audiodsp_buffer_result_t)runtime_result;
+    return AUDIODSP_STATUS_OK;
 }
 
-static const audioif_sample_ops_t micropython_sample_ops = {
+static const audiodsp_sample_ops_t micropython_sample_ops = {
     .reset_buffer = micropython_sample_reset,
     .get_buffer = micropython_sample_get,
 };
@@ -73,15 +73,15 @@ static const audioif_sample_ops_t micropython_sample_ops = {
 // reports it, and the Python-facing entry points below raise from the fault
 // exactly as they always did.
 static bool micropython_sample_source(mp_obj_t sample_obj,
-    micropython_sample_adapter_t *adapter, audioif_sample_source_t *source) {
+    micropython_sample_adapter_t *adapter, audiodsp_sample_source_t *source) {
     const audiosample_p_t *protocol = mp_proto_get(
         MP_QSTR_protocol_audiosample, sample_obj);
     if (protocol == NULL) {
         // Pump thread only: the fault register is what the pump stops on, and
         // a control-path pull must not stop the audio. See the deinit guards
         // below.
-        if (audioif_pump_on_pump_thread()) {
-            audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_NO_PROTOCOL);
+        if (audiodsp_pump_on_pump_thread()) {
+            audiodsp_pump_fault_set(AUDIODSP_PUMP_FAULT_NO_PROTOCOL);
         }
         return false;
     }
@@ -100,7 +100,7 @@ static bool micropython_sample_source(mp_obj_t sample_obj,
 // fetching from the node behind it. Guarding the Python methods alone left
 // the C protocol entry point open, which is why a released `audiomixer.Mixer`
 // segfaulted on a board while raising cleanly on the CPython shim
-// (audioif#59): `Mixer.deinit()` frees its voice buffers and
+// (audiodsp#59): `Mixer.deinit()` frees its voice buffers and
 // `audiomixer_mixer_get_buffer` read them.
 //
 // `micropython_sample_source` has already thrown unless the object
@@ -120,7 +120,7 @@ static bool micropython_sample_source(mp_obj_t sample_obj,
 // and `audiocore.reset_buffer()` in module.c raise from the fault register.
 void audiosample_reset_buffer(mp_obj_t sample_obj, bool single_channel_output, uint8_t audio_channel) {
     micropython_sample_adapter_t adapter;
-    audioif_sample_source_t source;
+    audiodsp_sample_source_t source;
     if (!micropython_sample_source(sample_obj, &adapter, &source)) {
         return;
     }
@@ -135,14 +135,14 @@ void audiosample_reset_buffer(mp_obj_t sample_obj, bool single_channel_output, u
         // with the graph the pump was playing. The caller still gets its
         // GET_BUFFER_ERROR here, and audiocore.get_buffer() still raises,
         // because module.c does its own check.
-        if (audioif_pump_on_pump_thread()) {
-            audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_DEINITED);
+        if (audiodsp_pump_on_pump_thread()) {
+            audiodsp_pump_fault_set(AUDIODSP_PUMP_FAULT_DEINITED);
         }
         return;
     }
-    audioif_pump_lock_acquire_nested();
-    (void)audioif_sample_reset(&source, single_channel_output, audio_channel);
-    audioif_pump_lock_release_nested();
+    audiodsp_pump_lock_acquire_nested();
+    (void)audiodsp_sample_reset(&source, single_channel_output, audio_channel);
+    audiodsp_pump_lock_release_nested();
 }
 
 audioio_get_buffer_result_t audiosample_get_buffer(mp_obj_t sample_obj,
@@ -150,31 +150,31 @@ audioio_get_buffer_result_t audiosample_get_buffer(mp_obj_t sample_obj,
     uint8_t channel,
     uint8_t **buffer, uint32_t *buffer_length) {
     micropython_sample_adapter_t adapter;
-    audioif_sample_source_t source;
+    audiodsp_sample_source_t source;
     *buffer = NULL;
     *buffer_length = 0;
     if (!micropython_sample_source(sample_obj, &adapter, &source)) {
         return GET_BUFFER_ERROR;
     }
     if (audiosample_deinited(MP_OBJ_TO_PTR(sample_obj))) {
-        // This is audioif#59's case: a released Mixer whose voice buffers are
+        // This is audiodsp#59's case: a released Mixer whose voice buffers are
         // freed, read by audiomixer_mixer_get_buffer. The guard still stops
         // the read; what changes is that it now stops it without allocating.
         // Published to the pump's fault register only from the pump's own
         // thread -- see reset_buffer above for what a control-thread deinit
         // did to the audio before that distinction existed.
-        if (audioif_pump_on_pump_thread()) {
-            audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_DEINITED);
+        if (audiodsp_pump_on_pump_thread()) {
+            audiodsp_pump_fault_set(AUDIODSP_PUMP_FAULT_DEINITED);
         }
         return GET_BUFFER_ERROR;
     }
     const uint8_t *shared_buffer = NULL;
-    audioif_buffer_result_t result = AUDIOIF_BUFFER_ERROR;
-    audioif_pump_lock_acquire_nested();
-    audioif_status_t status = audioif_sample_get(&source, single_channel_output,
+    audiodsp_buffer_result_t result = AUDIODSP_BUFFER_ERROR;
+    audiodsp_pump_lock_acquire_nested();
+    audiodsp_status_t status = audiodsp_sample_get(&source, single_channel_output,
         channel, &shared_buffer, buffer_length, &result);
-    audioif_pump_lock_release_nested();
-    if (status != AUDIOIF_STATUS_OK) {
+    audiodsp_pump_lock_release_nested();
+    if (status != AUDIODSP_STATUS_OK) {
         *buffer = NULL;
         *buffer_length = 0;
         return GET_BUFFER_ERROR;
@@ -356,7 +356,7 @@ void audiosample_must_match(audiosample_base_t *self, mp_obj_t other_in, bool al
     // A Resampler is exempt from the rate check, because a rate it does not
     // match is the entire reason to use one: it is handed the destination's
     // rate at the bottom of this function and resamples to it. Upstream does
-    // exactly this, gated on CIRCUITPY_AUDIOSPEED; audioif always builds
+    // exactly this, gated on CIRCUITPY_AUDIOSPEED; audiodsp always builds
     // audiospeed, so there is nothing to gate on.
     if (other->sample_rate != self->sample_rate &&
         !mp_obj_is_type(other_in, &audiospeed_resampler_type)) {

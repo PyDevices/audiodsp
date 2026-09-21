@@ -1,7 +1,7 @@
 """A biquad and a first-order all-pass cascade that reach exact zero.
 
 Not a CircuitPython module, and not from micropython-vst3's engine either --
-audioif adds it. `audiofilters.Filter` (over `synthio.Biquad`) and
+audiodsp adds it. `audiofilters.Filter` (over `synthio.Biquad`) and
 `audiofilters.Phaser` already do these two jobs, and both are ported
 CircuitPython whose arithmetic is integer:
 
@@ -10,14 +10,14 @@ CircuitPython whose arithmetic is integer:
   state that reproduces itself. Fed silence after a burst, a `LowPass` at
   100 Hz holds +1 LSB, a `LowPass` at 40 Hz q=8 holds -4 LSB and the
   `Phaser` defaults hold -4 LSB -- measured to 3000 blocks, 32 seconds of
-  audio, and they never decay (audioif#23).
+  audio, and they never decay (audiodsp#23).
 - `audiofilters.Phaser` has the same defect in its own kernel: its all-pass
   memory is `int16_t` in plain sample units, so it settles on a non-zero
   word and holds it. It also clamps `feedback` to 0.1..0.9, so the
   feedback-free topology every script phaser uses is not reachable and the
   notches stop about 17 dB short of a null.
 
-Neither is modified -- audioif's rule for ported code is extend, never
+Neither is modified -- audiodsp's rule for ported code is extend, never
 modify, because an argument on this port's copy of a CircuitPython module
 would not exist on a stock board. This module is the extension:
 
@@ -51,16 +51,16 @@ break high enough to matter, so its class has to pre-warp in Python.
 from audiocore import (
     GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
 )
-import _audioif
+import _audiodsp
 
 
-#: The audioif this was built from, the same pair the native builds put
-#: on this module (src/cp_compat/audioif_build.h). audioif#55.
-__version__ = _audioif.__version__
-__revision__ = _audioif.__revision__
+#: The audiodsp this was built from, the same pair the native builds put
+#: on this module (src/cp_compat/audiodsp_build.h). audiodsp#55.
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
-FRAMES = _audioif.FILTER_F32_FRAMES
-MAX_STAGES = _audioif.FILTER_F32_MAX_STAGES
+FRAMES = _audiodsp.FILTER_F32_FRAMES
+MAX_STAGES = _audiodsp.FILTER_F32_MAX_STAGES
 
 #: Filter shapes, numbered exactly as `synthio.FilterMode` numbers them, so
 #: `mode=synthio.FilterMode.NOTCH.value` and `mode=audiobiquad.NOTCH` are the
@@ -77,7 +77,7 @@ MODES = (LOW_PASS, HIGH_PASS, BAND_PASS, NOTCH, PEAKING_EQ, LOW_SHELF,
          HIGH_SHELF)
 
 #: Option name -> the native configure() slot, in the order
-#: shared/audioif_filter_f32.h declares them, which is the order the
+#: shared/audiodsp_filter_f32.h declares them, which is the order the
 #: MicroPython bindings list them in too.
 _BIQUAD_OPTIONS = ("mode", "frequency", "Q", "gain_db", "mix")
 _ALLPASS_OPTIONS = ("frequency", "feedback", "mix")
@@ -210,7 +210,7 @@ class Biquad(_Node):
         self.Q = Q
         self.gain_db = gain_db
         self.mix = mix
-        self._state = _audioif.BiquadF32State(
+        self._state = _audiodsp.BiquadF32State(
             sample_rate=self.sample_rate, channel_count=self.channel_count)
 
     @property
@@ -259,7 +259,7 @@ class AllPass(_Node):
         self.frequency = frequency
         self.feedback = feedback
         self.mix = mix
-        self._state = _audioif.AllPassF32State(
+        self._state = _audiodsp.AllPassF32State(
             sample_rate=self.sample_rate, channel_count=self.channel_count,
             stages=stages)
 

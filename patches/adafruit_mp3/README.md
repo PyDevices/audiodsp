@@ -1,6 +1,6 @@
 # Adafruit_MP3 patch queue
 
-Owned by audioif (Phase 2 of the modernization program moved ownership
+Owned by audiodsp (Phase 2 of the modernization program moved ownership
 here from the parent workspace's own patches/adafruit_mp3). Applied by
 `scripts/fetch_deps.sh` on top of the pinned Adafruit_MP3 commit
 declared in `DEPENDENCIES.lock`.

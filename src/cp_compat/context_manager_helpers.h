@@ -1,4 +1,4 @@
-// Compat shim for audioif, ported verbatim from CircuitPython's
+// Compat shim for audiodsp, ported verbatim from CircuitPython's
 // shared/runtime/context_manager_helpers.h (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT).
 //

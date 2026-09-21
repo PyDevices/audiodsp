@@ -7,7 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 static audioio_get_buffer_result_t audioroute_splitter_tap_get_buffer(
     mp_obj_t self_in, bool single_channel_output, uint8_t channel,
@@ -16,11 +16,11 @@ static audioio_get_buffer_result_t audioroute_splitter_tap_get_buffer(
     (void)channel;
     audioroute_splitter_tap_obj_t *tap = MP_OBJ_TO_PTR(self_in);
     audioroute_splitter_obj_t *self = MP_OBJ_TO_PTR(tap->owner);
-    if (audioif_splitter_starved(&self->state, tap->index)) {
+    if (audiodsp_splitter_starved(&self->state, tap->index)) {
         audioroute_splitter_pull(self);
     }
     uint32_t start = 0;
-    const uint32_t run = audioif_splitter_take(&self->state, tap->index,
+    const uint32_t run = audiodsp_splitter_take(&self->state, tap->index,
         &start);
     if (run == 0) {
         // Still nothing: the source is dry, or another tap has already read
@@ -28,7 +28,7 @@ static audioio_get_buffer_result_t audioroute_splitter_tap_get_buffer(
         // branch stay in step rather than stalling the graph.
         memset(self->silence, 0, sizeof(self->silence));
         *buffer = (uint8_t *)self->silence;
-        *buffer_length = AUDIOIF_SPLITTER_CHUNK_FRAMES * 2u *
+        *buffer_length = AUDIODSP_SPLITTER_CHUNK_FRAMES * 2u *
             tap->base.channel_count;
         return GET_BUFFER_MORE_DATA;
     }
@@ -39,7 +39,7 @@ static audioio_get_buffer_result_t audioroute_splitter_tap_get_buffer(
     }
     for (uint32_t frame = 0; frame < run; ++frame) {
         tap->mono[frame] = self->state.ring[
-            ((start + frame) % AUDIOIF_SPLITTER_RING_FRAMES) * 2u];
+            ((start + frame) % AUDIODSP_SPLITTER_RING_FRAMES) * 2u];
     }
     *buffer = (uint8_t *)tap->mono;
     *buffer_length = run * 2u;
@@ -60,10 +60,10 @@ static void audioroute_splitter_tap_reset_buffer(mp_obj_t self_in,
 // deinitialised, which is what makes every guarded entry point raise
 // afterwards -- `audiosample_get_buffer` and `audiosample_reset_buffer` in
 // audiocore for the audio path, and the three shared properties. The node
-// types audioif ported from CircuitPython have had this since they were
-// ported; the ones audioif wrote itself did not, so no class built on them
+// types audiodsp ported from CircuitPython have had this since they were
+// ported; the ones audiodsp wrote itself did not, so no class built on them
 // could release one and Tier 1's "deinit() releases every node the class
-// built" was unmeasurable on a board (audioif#58, #60, #63).
+// built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the
 // object holds a *reference* to: the upstream source, so releasing the tail
@@ -75,10 +75,10 @@ static mp_obj_t audioroute_splitter_tap_deinit(mp_obj_t self_in) {
     // funnel's deinit guard has already let the pull in, and get_buffer then
     // does MP_OBJ_TO_PTR(tap->owner) on a value that is about to become
     // mp_const_none. Marking deinited and dropping the owner is one act.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->owner = mp_const_none;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioroute_splitter_tap_deinit_obj, audioroute_splitter_tap_deinit);

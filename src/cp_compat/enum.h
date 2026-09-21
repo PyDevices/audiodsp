@@ -1,4 +1,4 @@
-// Compat shim for audioif: CircuitPython's enum-object machinery
+// Compat shim for audiodsp: CircuitPython's enum-object machinery
 // (`cp_enum_obj_t`, `MAKE_ENUM_*` macros), ported verbatim from
 // CircuitPython's py/enum.h (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT). Used by ported files

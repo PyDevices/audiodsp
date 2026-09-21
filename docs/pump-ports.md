@@ -5,9 +5,9 @@ already in your build. What it cannot know is what a thread is on your
 platform, what a mutex is, where the clock comes from and where the audio
 goes. You supply those four, and nothing else.
 
-Write one C file. Define `audioif_port_driver()` from
-[`../src/shared/audioif_port.h`](../src/shared/audioif_port.h), return an
-`audioif_port_ops_t` filled in with whatever your platform has, and put the
+Write one C file. Define `audiodsp_port_driver()` from
+[`../src/shared/audiodsp_port.h`](../src/shared/audiodsp_port.h), return an
+`audiodsp_port_ops_t` filled in with whatever your platform has, and put the
 table in the **same translation unit** as your MicroPython module
 registration — that last part is not style, and [How it binds](#how-it-binds-and-the-trap-it-dodges)
 says why. Then ask the firmware you built what it got:
@@ -46,7 +46,7 @@ the interpreter on a board, so an interpreter holding a swap has to be lifted
 to finish it.
 
 The contract these two serve is in
-[`../src/shared/audioif_pump_lock.h`](../src/shared/audioif_pump_lock.h) and it
+[`../src/shared/audiodsp_pump_lock.h`](../src/shared/audiodsp_pump_lock.h) and it
 is small: the pump holds the lock for one block pull, the control path holds
 it around its final swap only, and nothing is ever held across an allocation
 or across anything that can raise. Recursive because a node's pull
@@ -134,7 +134,7 @@ All four are one file, so reading it beside this page is the fastest way in.
 
 ## How it binds, and the trap it dodges
 
-Weak symbols. The engine defines `audioif_port_driver()` weakly and your
+Weak symbols. The engine defines `audiodsp_port_driver()` weakly and your
 driver defines it strongly, so the linker keeps yours.
 
 The trap is real and it is why the rule about the translation unit exists: in
@@ -164,7 +164,7 @@ control call waited 2171 µs with the pump running and 0 µs without.
 
 **No image of the current line has been flashed, on either chip.** Both
 compile and link, and there the check is the link map: the weak
-`.text.audioif_port_driver` from `audioif_port.c.obj` is in the **discarded**
+`.text.audiodsp_port_driver` from `audiodsp_port.c.obj` is in the **discarded**
 sections and the symbol resolves to the driver's object on both.
 
 One more thing worth knowing before you key your driver off a macro. A user C

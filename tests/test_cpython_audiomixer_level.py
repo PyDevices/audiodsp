@@ -7,7 +7,7 @@
     int32_t intermediate = (int32_t)(ai * mod_mul);
 
 Single-precision quotient, single-precision product, truncation toward zero.
-The CPython twin formed the same product in `float64` until audioif#84, and the
+The CPython twin formed the same product in `float64` until audiodsp#84, and the
 two precisions truncate to different integers exactly where the true product
 sits within a float32 rounding of one -- a whole LSB apart, not a rounding.
 
@@ -62,7 +62,7 @@ RIGHT_FLIPS = (
 
 
 def _float64_scaled(value, scale):
-    """What the twin did before audioif#84."""
+    """What the twin did before audiodsp#84."""
     return max(-32768, min(32767, int(value * (scale / 32767.0))))
 
 

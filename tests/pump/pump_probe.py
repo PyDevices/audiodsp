@@ -376,7 +376,7 @@ def main():
         del args[index:index + 2]
     wanted = args or [name for name, _run in CASES]
 
-    print("audioif: the pump's own gates    fault: %s" % fault)
+    print("audiodsp: the pump's own gates    fault: %s" % fault)
     ok = True
     for name, run in CASES:
         if name not in wanted:

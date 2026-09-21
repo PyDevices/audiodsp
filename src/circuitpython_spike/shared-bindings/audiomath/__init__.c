@@ -16,7 +16,7 @@
 //| The `audiomath` module multiplies one audio stream by another, which is
 //| ring modulation and, with a modulator that does not cross zero, amplitude
 //| modulation. It is not part of CircuitPython upstream; it comes from
-//| PyDevices' audioif.
+//| PyDevices' audiodsp.
 //|
 //| `synthio` can ring a note against an oscillator, but that reaches only
 //| synthesized notes - not a microphone, a sample, or the output of another

@@ -16,7 +16,7 @@
 #include "cp_compat/objproperty.h"
 #include "cp_compat/util.h"
 #include "synthio/Note.h"
-#include "shared/audioif_synth_dsp.h"
+#include "shared/audiodsp_synth_dsp.h"
 #include "synthio/__init__.h"
 
 #include "py/runtime.h"
@@ -38,7 +38,7 @@ mp_obj_t common_hal_synthio_note_get_filter_obj(synthio_note_obj_t *self) {
 }
 
 void common_hal_synthio_note_set_filter(synthio_note_obj_t *self, mp_obj_t filter_in) {
-    // audioif extension (#11): also accept a tuple/list of Biquads - a
+    // audiodsp extension (#11): also accept a tuple/list of Biquads - a
     // serial cascade of up to SYNTHIO_NOTE_MAX_FILTER_STAGES stages.
     if (filter_in != mp_const_none && !mp_obj_is_type(filter_in, &synthio_biquad_type_obj)) {
         if (mp_obj_is_type(filter_in, &mp_type_tuple) || mp_obj_is_type(filter_in, &mp_type_list)) {
@@ -210,7 +210,7 @@ void synthio_note_start(synthio_note_obj_t *self, int32_t sample_rate) {
 #define BEND_OFFSET (BEND_SCALE)
 
 static uint32_t pitch_bend(uint32_t frequency_scaled, int32_t bend_value) {
-    return audioif_pitch_bend(frequency_scaled, bend_value);
+    return audiodsp_pitch_bend(frequency_scaled, bend_value);
 }
 
 #define ZERO MICROPY_FLOAT_CONST(0.)

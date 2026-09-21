@@ -56,7 +56,7 @@ jobs:
           TESTPYPI_API_TOKEN: ${{ secrets.TESTPYPI_API_TOKEN }}
         run: |
           if [[ -z "$TESTPYPI_API_TOKEN" ]]; then
-            echo "TESTPYPI_API_TOKEN is unavailable; ensure the organization secret is visible to PyDevices/audioif." >&2
+            echo "TESTPYPI_API_TOKEN is unavailable; ensure the organization secret is visible to PyDevices/audiodsp." >&2
             exit 1
           fi
 
@@ -67,7 +67,7 @@ jobs:
     uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-v8
     with:
       build-kind: native-and-wasm
-      distribution-name: pydevices-audioif
+      distribution-name: pydevices-audiodsp
       # No mip-profile: nothing here is MIP-published any more. The native
       # modules are firmware -- MicroPython and CircuitPython build them from
       # src/ as a usermod, so there is nothing for MIP to carry -- and
@@ -79,6 +79,6 @@ jobs:
       # cp310–cp314 macosx_arm64 (proven by the non-publishing
       # macos-wheels CI job). 16 linux/windows + 5 macOS.
       expected-wheel-count: 21
-      wheel-filename-prefix: pydevices_audioif
+      wheel-filename-prefix: pydevices_audiodsp
       release-ref: ${{ inputs.release-ref }}
     secrets: inherit

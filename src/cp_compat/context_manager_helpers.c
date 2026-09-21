@@ -1,4 +1,4 @@
-// Compat shim for audioif. See context_manager_helpers.h.
+// Compat shim for audiodsp. See context_manager_helpers.h.
 //
 // Ported verbatim from CircuitPython's
 // shared/runtime/context_manager_helpers.c (upstream repo:

@@ -3,7 +3,7 @@
     convolve_probe.py audioconvolve
 
 No oracle, like multiply_probe.py and feedback_delay_probe.py: `audioconvolve`
-is audioif's own module, with no ancestor in CircuitPython or in
+is audiodsp's own module, with no ancestor in CircuitPython or in
 micropython-vst3's engine. What the golden pins is that every interpreter
 renders it identically.
 
@@ -12,7 +12,7 @@ a sum of hundreds of float products routed through two transforms, and the
 transforms' twiddle factors come from a series rather than libm precisely so
 that three interpreters can agree on them. If any of that were left to the
 platform, this is where it would show first -- the whole point of the
-arrangement in shared/audioif_trig.h is that it does not.
+arrangement in shared/audiodsp_trig.h is that it does not.
 
 The synthesized impulse is here as well as the loaded one, because its noise
 and its exponentials are generated in C for the same reason: a room that is

@@ -1,4 +1,4 @@
-"""Render a whole composition offline, through audioif's own DSP.
+"""Render a whole composition offline, through audiodsp's own DSP.
 
 This is the tier above :mod:`audioinstruments` and :mod:`audioeffects`: it
 knows what a *piece* is - tracks, a tempo map, notes, automation, sections

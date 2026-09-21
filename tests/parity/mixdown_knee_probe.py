@@ -1,6 +1,6 @@
 """Drive the synthio mix-down limiter across its knee and print digests.
 
-WHY THIS PROBE EXISTS (audioif#27)
+WHY THIS PROBE EXISTS (audiodsp#27)
 ==================================
 
 Every other parity probe in this repository renders material that stays
@@ -14,7 +14,7 @@ to matter, so its output moves when the ceiling moves.
 
 The ceiling site the CPython target actually reads is
 ``src/cpython/synthio.py``'s ``Synthesizer.max_polyphony``, handed to
-``_audioif.mixdown_i32`` as the limiter's divisor. That is the one site
+``_audiodsp.mixdown_i32`` as the limiter's divisor. That is the one site
 this probe can observe. The header, ``micropython.mk`` and
 ``micropython.cmake`` copies are read by no CI gate; ``tests/
 test_voice_ceiling_consistency.py`` remains the only guard for those.

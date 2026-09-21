@@ -1,4 +1,4 @@
-# AGENTS.md — audioif
+# AGENTS.md — audiodsp
 
 CircuitPython's audio system (`audiocore`, `synthio`, `audiomixer`, effects,
 `audiomp3`), ported to MicroPython as `USER_C_MODULES` usermods. Import
@@ -18,29 +18,29 @@ for source compatibility; only this repo's own name differs.
   individually verified against mainline MicroPython before use — not assumed
   missing) and `src/shared/` (runtime-neutral DSP the MicroPython usermod and
   the CPython extension both compile)
-- `src/cpython/` — the whole CPython target: `_audioif.c`, the extension built
+- `src/cpython/` — the whole CPython target: `_audiodsp.c`, the extension built
   in place, and the thirteen modules that wrap it (`audiocore.py`,
   `synthio.py`,
   …). They install as top-level modules, so it is `import audiocore` no matter
   which of the three runtimes is underneath. Nothing puts this directory on
-  `sys.path`: audioif is a dependency, imported from wherever it is installed.
+  `sys.path`: audiodsp is a dependency, imported from wherever it is installed.
 - `lib/` — the pure-Python tier: `lib/audiorender/` (whole-composition
   offline rendering — numpy, desktop-only, never frozen) and
-  `lib/audioif_util/` (`float32`, the round trip that makes a setting derived
+  `lib/audiodsp_util/` (`float32`, the round trip that makes a setting derived
   in Python the same number on a board as on a desktop — see
   [docs/correctness-standard.md](docs/correctness-standard.md)). Both ship
-  inside the `pydevices-audioif` wheel. The instrument and effect libraries that
+  inside the `pydevices-audiodsp` wheel. The instrument and effect libraries that
   used to sit beside it — `audioinstruments` (53 `synthio` instruments) and
   `audioeffects` (46 effect classes, racks included) — live in
   [audiocomponents](https://github.com/PyDevices/audiocomponents) now, as
-  their own distributions depending on `pydevices-audioif`; nothing in this
+  their own distributions depending on `pydevices-audiodsp`; nothing in this
   repository builds, tests, publishes or freezes them.
 - `apply_cp_patches.sh` + `src/circuitpython_spike/` — add `audiodynamics`,
   `audioroute`, `audiomath`, `audioecho`, `audioshaper`, `audioladder`,
   `audioconvolve`, `audiobiquad`, `audioverb` and `audiomodal` to a
   CircuitPython tree. None of the ten is a CircuitPython port: the first
   two come from micropython-vst3's `vstaudio` engine and the last eight are
-  audioif's own, so CircuitPython gains them here rather than the other
+  audiodsp's own, so CircuitPython gains them here rather than the other
   way round.
 - `docs/porting-plan.md` — the full phased porting history, architecture,
   and target layout
@@ -92,7 +92,7 @@ Both are expected as siblings in the parent workspace (`cmods/` in
 - **The vstaudio oracle is retired.** `audiodynamics` and `audioroute` came
   from micropython-vst3's engine and used to be held to `vstaudio_dsp.c`
   compiled unmodified. That file was deleted from micropython-vst3 in `6ea60d3`
-  and the plug-in links audioif now: the relationship reversed, so the engine is
+  and the plug-in links audiodsp now: the relationship reversed, so the engine is
   a consumer of this package rather than a grader of it. The build script, the
   usermod and `golden/dsp_nodes.json` are gone.
 - The instruments parity gate — `run_instruments_parity.py`, its two probes,
@@ -117,7 +117,7 @@ Both are expected as siblings in the parent workspace (`cmods/` in
   is reported and the run carries on — as of 2026-09-18 two of them cannot,
   because their effect racks predate audiocomponents' effects rebuild
   ([mpvst#8](https://github.com/PyDevices/mpvst/issues/8)). Repointed in
-  audioif#88 — the renderer it used to drive,
+  audiodsp#88 — the renderer it used to drive,
   `micropython-vst3/tools/render_preview.py`, was deleted when both composers
   moved beside their songs.
 - `python3 -m flake8` is the lint gate (`.flake8`, defect checks only —
@@ -145,7 +145,7 @@ Both are expected as siblings in the parent workspace (`cmods/` in
   `tests/test_cpython_*.py` and the five in-repo parity gates
   (`verify_acceptance`, `verify_effects`, `verify_streaming`,
   `verify_biquad`, `verify_mixdown_knee`), whose goldens are committed
-  here. The fifth (2026-09-06, audioif#27) is the only one whose material
+  here. The fifth (2026-09-06, audiodsp#27) is the only one whose material
   crosses the mix-down limiter's +/-28000 knee, so it is the only one that
   can see a synthio voice-ceiling change at all — the other four are
   byte-identical at every ceiling value. It sees exactly one of the
@@ -164,20 +164,20 @@ Both are expected as siblings in the parent workspace (`cmods/` in
   original script, within one interpreter*: `run_instruments_parity.py`
   there renders the originals from micropython-vst3 at `DEFAULT_OLD_REV` and
   never consults the CircuitPython oracle. So a change to `src/cpython/`
-  *here* that is *right* still stales those cpython digests (audioif#25:
+  *here* that is *right* still stales those cpython digests (audiodsp#25:
   `b420dac` did exactly this). Rule: a CPython-target fix may re-capture the
   affected cpython digests **only if it carries independent evidence against
   the built oracle** — a test in `tests/test_cpython_*.py` run against
   `bin/circuitpython` and cited in the message. The digests living in the
   other repository changes only the mechanics: the audiocomponents
-  re-capture names the audioif commit that carries that evidence. A fix that
+  re-capture names the audiodsp commit that carries that evidence. A fix that
   merely *asserts* oracle intent does not qualify; that would let it rewrite
   its own reference. The accuracy program's *listening* goldens
   (audiocomponents) are a different authority — Brad's ear — and move only
   at his phrase. The stored digest is also the only thing in that gate that
   notices the engine moving under both original and port — which is why it
   stays: a live original-vs-port comparison was measured, approved and then
-  reversed the same day (audioif#26), because it would have stayed green
+  reversed the same day (audiodsp#26), because it would have stayed green
   through `b420dac`. Each alarm costs one adjudication; that is the price of
   the signal.
 
@@ -194,7 +194,7 @@ working here:
   **`cmods/bin/circuitpython` is not the oracle** — it is what that script's
   `cp-unix` target installs, at the coverage variant's own 14-voice ceiling,
   and it changes under you whenever anyone refreshes the interpreters
-  (audioif#89, twice in eight days).
+  (audiodsp#89, twice in eight days).
 - **Never edit files in `cmods/circuitpython` directly.** A modified oracle
   silently redefines what "parity" means and invalidates every golden without
   failing anything. Its *pin* is a different matter: it moves when this port

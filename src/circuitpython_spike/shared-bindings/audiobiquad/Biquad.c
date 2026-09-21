@@ -45,13 +45,13 @@
 //|         ...
 
 static void biquad_set_mode(audiobiquad_biquad_obj_t *self, mp_int_t mode) {
-    if (mode < AUDIOIF_BIQUAD_F32_LOW_PASS ||
-        mode > AUDIOIF_BIQUAD_F32_HIGH_SHELF) {
+    if (mode < AUDIODSP_BIQUAD_F32_LOW_PASS ||
+        mode > AUDIODSP_BIQUAD_F32_HIGH_SHELF) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "mode must be one of audiobiquad's LOW_PASS..HIGH_SHELF"));
     }
-    audioif_biquad_f32_configure(&self->config,
-        AUDIOIF_BIQUAD_F32_OPT_MODE, (float)mode);
+    audiodsp_biquad_f32_configure(&self->config,
+        AUDIODSP_BIQUAD_F32_OPT_MODE, (float)mode);
 }
 
 static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
@@ -90,9 +90,9 @@ static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
     self->pending = NULL;
     self->pending_frames = 0;
 
-    audioif_biquad_f32_config_init(&self->config, self->base.sample_rate,
+    audiodsp_biquad_f32_config_init(&self->config, self->base.sample_rate,
         (uint32_t)channel_count);
-    audioif_biquad_f32_state_init(&self->state);
+    audiodsp_biquad_f32_state_init(&self->state);
     biquad_set_mode(self, args[ARG_mode].u_int);
 
     mp_obj_t q = args[ARG_Q].u_obj;
@@ -105,7 +105,7 @@ static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
     synthio_block_assign_slot(args[ARG_gain_db].u_obj, &self->gain_db,
         MP_QSTR_gain_db);
     synthio_block_assign_slot(args[ARG_mix].u_obj, &self->mix, MP_QSTR_mix);
-    audioif_biquad_f32_config_finish(&self->config);
+    audiodsp_biquad_f32_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -141,7 +141,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_stop_obj,
 //|         ...
 static mp_obj_t audiobiquad_biquad_clear(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_biquad_f32_reset(&self->state);
+    audiodsp_biquad_f32_reset(&self->state);
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_clear_obj,
@@ -242,8 +242,8 @@ MP_PROPERTY_GETTER(audiobiquad_biquad_coefficients_obj,
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. The MicroPython
-// binding of this same type gained it on 2026-09-09 (audioif#58, #60, #63) and
-// this copy did not, which is audioif#75: the two bindings are hand-written and
+// binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
+// this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
 static mp_obj_t audiobiquad_biquad_deinit(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);

@@ -3,7 +3,7 @@
     filter_f32_probe.py audiobiquad
 
 Like multiply_probe.py and feedback_delay_probe.py, this has no oracle:
-`audiobiquad` is audioif's own module, with no ancestor in CircuitPython or in
+`audiobiquad` is audiodsp's own module, with no ancestor in CircuitPython or in
 micropython-vst3's engine. What the golden pins is that every interpreter
 renders it identically, and that nothing moves it by accident later.
 
@@ -18,10 +18,10 @@ Two of the sections are invariants rather than PCM, because they are the
 whole ask:
 
 - **tail** prints the first output block that is all zero after the source
-  goes silent. The ported kernels cannot answer this: `audioif_biquad.c`'s
-  Q12 recursion has fixed points it can park on (measured, audioif#23:
+  goes silent. The ported kernels cannot answer this: `audiodsp_biquad.c`'s
+  Q12 recursion has fixed points it can park on (measured, audiodsp#23:
   100 Hz at +/-1 LSB, 40 Hz at +/-4 LSB, held for 3000 blocks of silence),
-  and `audioif_phaser.c`'s int16 all-pass memory has its own. A negative
+  and `audiodsp_phaser.c`'s int16 all-pass memory has its own. A negative
   number here means the tail never reached zero, and that is a failure.
 - **null** prints the settled peak of a tone at a frequency the four-stage
   cascade inverts. At `feedback=0.0` it is a true cancellation; the ported

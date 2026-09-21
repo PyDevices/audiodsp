@@ -7,7 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // The options `Ladder(...)` and `set(...)` accept, paired with the shared
 // DSP's enum. `sample_rate` and `channel_count` are deliberately absent: they
@@ -15,17 +15,17 @@
 // this table rather than from it, and keyword order stays irrelevant.
 typedef struct {
     qstr name;
-    audioif_ladder_option_t option;
+    audiodsp_ladder_option_t option;
 } ladder_option_name_t;
 
 static const ladder_option_name_t ladder_option_names[] = {
-    { MP_QSTR_cutoff_hz, AUDIOIF_LADDER_OPT_CUTOFF_HZ },
-    { MP_QSTR_resonance, AUDIOIF_LADDER_OPT_RESONANCE },
-    { MP_QSTR_drive, AUDIOIF_LADDER_OPT_DRIVE },
-    { MP_QSTR_poles, AUDIOIF_LADDER_OPT_POLES },
-    { MP_QSTR_passband_comp, AUDIOIF_LADDER_OPT_PASSBAND_COMP },
-    { MP_QSTR_oversample, AUDIOIF_LADDER_OPT_OVERSAMPLE },
-    { MP_QSTR_mix, AUDIOIF_LADDER_OPT_MIX },
+    { MP_QSTR_cutoff_hz, AUDIODSP_LADDER_OPT_CUTOFF_HZ },
+    { MP_QSTR_resonance, AUDIODSP_LADDER_OPT_RESONANCE },
+    { MP_QSTR_drive, AUDIODSP_LADDER_OPT_DRIVE },
+    { MP_QSTR_poles, AUDIODSP_LADDER_OPT_POLES },
+    { MP_QSTR_passband_comp, AUDIODSP_LADDER_OPT_PASSBAND_COMP },
+    { MP_QSTR_oversample, AUDIODSP_LADDER_OPT_OVERSAMPLE },
+    { MP_QSTR_mix, AUDIODSP_LADDER_OPT_MIX },
 };
 
 static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
@@ -43,7 +43,7 @@ static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(ladder_option_names); ++option) {
             if (ladder_option_names[option].name == name) {
-                audioif_ladder_configure(&self->config,
+                audiodsp_ladder_configure(&self->config,
                     ladder_option_names[option].option, value);
                 known = true;
                 break;
@@ -94,23 +94,23 @@ static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
     self->pending = NULL;
     self->pending_frames = 0;
 
-    audioif_ladder_config_init(&self->config, sample_rate);
-    audioif_ladder_set_channel_count(&self->config, channel_count);
-    audioif_ladder_state_init(&self->state);
+    audiodsp_ladder_config_init(&self->config, sample_rate);
+    audiodsp_ladder_set_channel_count(&self->config, channel_count);
+    audiodsp_ladder_state_init(&self->state);
 
     ladder_apply_kwargs(self, &kw_map);
-    audioif_ladder_config_finish(&self->config);
+    audiodsp_ladder_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
 static mp_obj_t audioladder_ladder_play(mp_obj_t self_in, mp_obj_t sample) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioladder_ladder_play_obj,
@@ -128,9 +128,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioladder_ladder_set_obj, 1,
 
 static mp_obj_t audioladder_ladder_clear(mp_obj_t self_in) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
-    audioif_ladder_reset(&self->state);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+    audiodsp_ladder_reset(&self->state);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioladder_ladder_clear_obj,
@@ -143,7 +143,7 @@ static audioio_get_buffer_result_t audioladder_ladder_get_buffer(
     (void)channel;
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t produced = 0;
-    while (produced < AUDIOIF_LADDER_FRAMES) {
+    while (produced < AUDIODSP_LADDER_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -159,11 +159,11 @@ static audioio_get_buffer_result_t audioladder_ladder_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_LADDER_FRAMES - produced;
+        uint32_t run = AUDIODSP_LADDER_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_ladder_process_s16(&self->config, &self->state,
+        audiodsp_ladder_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -176,7 +176,7 @@ static audioio_get_buffer_result_t audioladder_ladder_get_buffer(
     // repeats do -- the loop is only advanced by frames that arrive.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_LADDER_FRAMES;
+        produced = AUDIODSP_LADDER_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;
@@ -193,17 +193,17 @@ static void audioladder_ladder_reset_buffer(mp_obj_t self_in,
     // Like audioecho and unlike audiodynamics, everything goes: a
     // self-oscillating filter restarted with its integrators still charged
     // carries the previous take's tone into the new one.
-    audioif_ladder_reset(&self->state);
+    audiodsp_ladder_reset(&self->state);
 }
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, which is what makes every guarded entry point raise
 // afterwards -- `audiosample_get_buffer` and `audiosample_reset_buffer` in
 // audiocore for the audio path, and the three shared properties. The node
-// types audioif ported from CircuitPython have had this since they were
-// ported; the ones audioif wrote itself did not, so no class built on them
+// types audiodsp ported from CircuitPython have had this since they were
+// ported; the ones audiodsp wrote itself did not, so no class built on them
 // could release one and Tier 1's "deinit() releases every node the class
-// built" was unmeasurable on a board (audioif#58, #60, #63).
+// built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the
 // object holds a *reference* to: the upstream source, so releasing the tail
@@ -211,12 +211,12 @@ static void audioladder_ladder_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioladder_ladder_deinit(mp_obj_t self_in) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioladder_ladder_deinit_obj, audioladder_ladder_deinit);

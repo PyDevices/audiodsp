@@ -2,7 +2,7 @@
 down in frequency.
 
 Unlike most of this package, `audiomath` is not a CircuitPython module and did
-not come from micropython-vst3's engine either - audioif adds it. Nothing else
+not come from micropython-vst3's engine either - audiodsp adds it. Nothing else
 in the palette multiplies two *streams*: `synthio` rings a note against an
 oscillator, which cannot reach a microphone, a sampler, or the output of
 another effect, and an LFO-driven parameter updates once per block (about
@@ -40,16 +40,16 @@ scratch. `audiomixer.Mixer` cannot do this — its sources must already match
 from audiocore import (
     GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
 )
-import _audioif
+import _audiodsp
 
 
-#: The audioif this was built from, the same pair the native builds put
-#: on this module (src/cp_compat/audioif_build.h). audioif#55.
-__version__ = _audioif.__version__
-__revision__ = _audioif.__revision__
+#: The audiodsp this was built from, the same pair the native builds put
+#: on this module (src/cp_compat/audiodsp_build.h). audiodsp#55.
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
-FRAMES = _audioif.MULTIPLY_FRAMES
-SUBOCTAVE_FRAMES = _audioif.SUBOCTAVE_FRAMES
+FRAMES = _audiodsp.MULTIPLY_FRAMES
+SUBOCTAVE_FRAMES = _audiodsp.SUBOCTAVE_FRAMES
 
 
 def remix_s16(source, src_channels, dst_channels, dest=None):
@@ -59,11 +59,11 @@ def remix_s16(source, src_channels, dst_channels, dest=None):
     counts copy. Pass a writable ``dest`` to fill in place; otherwise a new
     ``bytes`` is returned.
     """
-    return _audioif.remix_s16(source, int(src_channels), int(dst_channels),
+    return _audiodsp.remix_s16(source, int(src_channels), int(dst_channels),
                               dest)
 
 #: Option name -> the native configure() slot, in the order
-#: shared/audioif_suboctave.h declares them, which is the order the
+#: shared/audiodsp_suboctave.h declares them, which is the order the
 #: MicroPython bindings list them in too.
 _SUBOCTAVE_OPTIONS = {
     "order": 0,
@@ -163,7 +163,7 @@ class Multiply(_AudioSample):
             run = min(FRAMES - produced, len(self._pending_source) // width)
             if self._pending_modulator:
                 run = min(run, len(self._pending_modulator) // width)
-                output += _audioif.multiply_s16(
+                output += _audiodsp.multiply_s16(
                     self._pending_source[:run * width],
                     self._pending_modulator[:run * width], self._mix,
                     self.channel_count)
@@ -183,7 +183,7 @@ class Multiply(_AudioSample):
 class SubOctave(_AudioSample):
     # The four options default to None rather than to their values, and an
     # option that is None is simply not configured. The defaults live in one
-    # place -- shared/audioif_suboctave.c's config_init -- for all four
+    # place -- shared/audiodsp_suboctave.c's config_init -- for all four
     # targets, so they cannot drift apart between the runtimes the way a
     # number repeated in each binding would. They are order 1, mix 1.0,
     # threshold 0.01 and hold_ms 1.0.
@@ -201,7 +201,7 @@ class SubOctave(_AudioSample):
         self._deinited = False
         self._source = source
         self._pending = b""
-        self._state = _audioif.SubOctaveState(
+        self._state = _audiodsp.SubOctaveState(
             sample_rate=self.sample_rate, channel_count=channel_count)
         asked = {"order": order, "mix": mix, "threshold": threshold,
                  "hold_ms": hold_ms}

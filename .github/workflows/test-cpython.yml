@@ -106,7 +106,7 @@ jobs:
         uses: pypa/cibuildwheel@v4.2.0
       - run: ls -l wheelhouse/
 
-  # The `[render]` extra, which no other job installs (audioif#35). The test
+  # The `[render]` extra, which no other job installs (audiodsp#35). The test
   # job above installs numpy by hand *before* the wheel, so a typo in the
   # extra's name - or a future edit that drops it - would go unnoticed while
   # every test stayed green.

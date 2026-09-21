@@ -1,7 +1,7 @@
 """Convolution: an impulse response applied properly, rather than imitated.
 
 Not a CircuitPython module, and not from micropython-vst3's engine either --
-audioif adds it. It is the one effect on the catalogue the others cannot
+audiodsp adds it. It is the one effect on the catalogue the others cannot
 approximate. A plate emulation is a network of delays that *sounds like* a
 plate; a convolution of a plate's recorded impulse *is* that plate. The same
 node is a hall, a guitar cabinet, a spring tank or a telephone, depending only
@@ -20,7 +20,7 @@ or, with no file to load::
 
 `impulse` is int16 frames, interleaved if `impulse_channels` is 2. `max_taps`
 sizes the convolver and cannot grow afterwards -- see the module docstring in
-shared/audioif_convolve.h for what a partition costs, because on a
+shared/audiodsp_convolve.h for what a partition costs, because on a
 microcontroller that number decides whether an impulse fits at all.
 
 **The output lags the input by `latency` frames** (one partition, 5.3 ms at
@@ -34,16 +34,16 @@ that has not arrived is a missing setting, not a null room.
 from audiocore import (
     GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
 )
-import _audioif
+import _audiodsp
 
 
-#: The audioif this was built from, the same pair the native builds put
-#: on this module (src/cp_compat/audioif_build.h). audioif#55.
-__version__ = _audioif.__version__
-__revision__ = _audioif.__revision__
+#: The audiodsp this was built from, the same pair the native builds put
+#: on this module (src/cp_compat/audiodsp_build.h). audiodsp#55.
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
-FRAMES = _audioif.CONVOLVE_FRAMES
-MAX_PARTITIONS = _audioif.CONVOLVE_MAX_PARTITIONS
+FRAMES = _audiodsp.CONVOLVE_FRAMES
+MAX_PARTITIONS = _audiodsp.CONVOLVE_MAX_PARTITIONS
 
 _OPTIONS = {"mix": 0}
 
@@ -94,7 +94,7 @@ class Convolver(_AudioSample):
         self._source = None
         self._pending = b""
         self._max_taps = partitions * FRAMES
-        self._state = _audioif.ConvolverState(
+        self._state = _audiodsp.ConvolverState(
             sample_rate=self.sample_rate, partitions=partitions,
             ir_channels=ir_channels, channel_count=channel_count)
         if mix is not None:
@@ -164,7 +164,7 @@ class Convolver(_AudioSample):
         impulse is loaded, and **zero when none is**, because an unloaded
         convolver passes its input through. It used to answer one partition
         either way, which told a class that compensates to compensate for a
-        delay that was not there (audioif#44)."""
+        delay that was not there (audiodsp#44)."""
         return FRAMES if self._state.taps() else 0
 
     @property

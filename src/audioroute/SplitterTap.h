@@ -19,7 +19,7 @@ typedef struct {
     // and the collector has to be able to see that the ring is still in use.
     mp_obj_t owner;
     uint32_t index;
-    int16_t mono[AUDIOIF_SPLITTER_CHUNK_FRAMES];
+    int16_t mono[AUDIODSP_SPLITTER_CHUNK_FRAMES];
 } audioroute_splitter_tap_obj_t;
 
 extern const mp_obj_type_t audioroute_splitter_tap_type;

@@ -25,7 +25,7 @@
 //|     It is here rather than as a rate form on ``audiospeed.SpeedChanger``
 //|     because that module is CircuitPython's: its rate is 16.16 fixed point,
 //|     a down-then-up pair of them cannot be made reciprocal except at powers
-//|     of two, and an exact-rational rate added to audioif's copy would not
+//|     of two, and an exact-rational rate added to audiodsp's copy would not
 //|     exist on a stock board."""
 //|
 //|     def __init__(self, source: circuitpython_typing.AudioSample,
@@ -40,7 +40,7 @@
 // everywhere -- the constructor and `set()` share this.
 static void samplehold_check_ratio(mp_int_t num, mp_int_t den) {
     if (num < 1 || den < 1 || den > num ||
-        num > (mp_int_t)AUDIOIF_SAMPLEHOLD_MAX_RATIO) {
+        num > (mp_int_t)AUDIODSP_SAMPLEHOLD_MAX_RATIO) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "num and den must be whole, den <= num (a hold cannot invent "
             "frames)"));
@@ -65,7 +65,7 @@ static mp_obj_t audioshaper_samplehold_make_new(const mp_obj_type_t *type,
     uint32_t frame_bytes =
         (uint32_t)(src->bits_per_sample / 8u) * src->channel_count;
     if (frame_bytes < 1u ||
-        frame_bytes > AUDIOIF_SAMPLEHOLD_MAX_FRAME_BYTES) {
+        frame_bytes > AUDIODSP_SAMPLEHOLD_MAX_FRAME_BYTES) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source frames must be 1 or 2 channels of 8- or 16-bit audio"));
     }
@@ -79,7 +79,7 @@ static mp_obj_t audioshaper_samplehold_make_new(const mp_obj_type_t *type,
     self->base.bits_per_sample = src->bits_per_sample;
     self->base.samples_signed = src->samples_signed;
     self->base.single_buffer = false;
-    self->base.max_buffer_length = AUDIOIF_SAMPLEHOLD_FRAMES * frame_bytes;
+    self->base.max_buffer_length = AUDIODSP_SAMPLEHOLD_FRAMES * frame_bytes;
     self->source = source;
     self->frame_bytes = (uint8_t)frame_bytes;
     self->pending = NULL;
@@ -87,9 +87,9 @@ static mp_obj_t audioshaper_samplehold_make_new(const mp_obj_type_t *type,
     self->source_done = false;
     self->source_exhausted = false;
 
-    audioif_samplehold_config_init(&self->config,
+    audiodsp_samplehold_config_init(&self->config,
         (uint32_t)args[ARG_num].u_int, (uint32_t)args[ARG_den].u_int);
-    audioif_samplehold_state_init(&self->state, &self->config);
+    audiodsp_samplehold_state_init(&self->state, &self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -111,7 +111,7 @@ static mp_obj_t audioshaper_samplehold_play(mp_obj_t self_in,
     self->pending_frames = 0;
     self->source_done = false;
     self->source_exhausted = false;
-    audioif_samplehold_reset(&self->state, &self->config);
+    audiodsp_samplehold_reset(&self->state, &self->config);
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(audioshaper_samplehold_play_obj,
@@ -135,9 +135,9 @@ static mp_obj_t audioshaper_samplehold_set(size_t n_args,
         allowed, parsed);
     samplehold_check_ratio(parsed[ARG_num].u_int, parsed[ARG_den].u_int);
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    if (audioif_samplehold_config_set(&self->config,
+    if (audiodsp_samplehold_config_set(&self->config,
         (uint32_t)parsed[ARG_num].u_int, (uint32_t)parsed[ARG_den].u_int)) {
-        audioif_samplehold_reset(&self->state, &self->config);
+        audiodsp_samplehold_reset(&self->state, &self->config);
     }
     return mp_const_none;
 }
@@ -150,7 +150,7 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioshaper_samplehold_set_obj, 1,
 //|         ...
 static mp_obj_t audioshaper_samplehold_clear(mp_obj_t self_in) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_samplehold_reset(&self->state, &self->config);
+    audiodsp_samplehold_reset(&self->state, &self->config);
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_samplehold_clear_obj,
@@ -199,7 +199,7 @@ MP_PROPERTY_GETTER(audioshaper_samplehold_latency_obj,
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. Same fields, same
-// order as the MicroPython binding, deliberately (audioif#75).
+// order as the MicroPython binding, deliberately (audiodsp#75).
 static mp_obj_t audioshaper_samplehold_deinit(mp_obj_t self_in) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_mark_deinit(&self->base);
@@ -207,7 +207,7 @@ static mp_obj_t audioshaper_samplehold_deinit(mp_obj_t self_in) {
     self->pending = NULL;
     self->pending_frames = 0;
     self->source_exhausted = true;
-    audioif_samplehold_reset(&self->state, &self->config);
+    audiodsp_samplehold_reset(&self->state, &self->config);
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_samplehold_deinit_obj,

@@ -3,7 +3,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 PyDevices
 //
 // The traffic goes the other way almost everywhere: the engine asks the driver
-// for a thread, a mutex, a clock and a sink through shared/audioif_port.h. These
+// for a thread, a mutex, a clock and a sink through shared/audiodsp_port.h. These
 // two go this way because the state they touch is the engine's.
 
 #pragma once
@@ -96,7 +96,7 @@ enum {
     AUDIOPUMP_STATUS_BLOCKS = 0,      // blocks pulled
     AUDIOPUMP_STATUS_BYTES_SEEN = 1,  // bytes seen
     AUDIOPUMP_STATUS_DIGEST = 2,      // FNV-1a 64 over every byte, in order
-    AUDIOPUMP_STATUS_LAST_RESULT = 3, // last audioif_buffer_result_t
+    AUDIOPUMP_STATUS_LAST_RESULT = 3, // last audiodsp_buffer_result_t
     AUDIOPUMP_STATUS_RUNNING = 4,     // 1 while the loop is running
     AUDIOPUMP_STATUS_ERROR = 5,       // 0 none, 1 buffer, 2 null, 3 done
     AUDIOPUMP_STATUS_SINK_TIMEOUTS = 14,

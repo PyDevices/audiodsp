@@ -1,4 +1,4 @@
-// Compat shim for audioif. See util.h.
+// Compat shim for audiodsp. See util.h.
 //
 // Ported from CircuitPython's shared-bindings/util.c (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT); path_exists() dropped

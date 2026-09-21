@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Fail if this repo's C has learned about a platform.
 
-audioif is the DSP half of the audio stack. The same sources build as a
+audiodsp is the DSP half of the audio stack. The same sources build as a
 MicroPython usermod, as a CPython extension and inside CircuitPython, on
 ESP32-P4, ESP32-S3, unix, Windows and WebAssembly -- and the way that stays
 true is that nothing in here knows what a thread, a mutex, a clock or an I2S
-channel is. Those arrive through ``src/shared/audioif_port.h`` from a driver
+channel is. Those arrive through ``src/shared/audiodsp_port.h`` from a driver
 that lives in another repo.
 
 That is a rule you cannot see: a single ``#include <pthread.h>`` compiles
@@ -270,11 +270,11 @@ def main() -> int:
         print()
         print(f"{problems} platform reference(s) in {len(files)} files.")
         print("The thread, the mutex, the clock, the pacing and the sink come")
-        print("from shared/audioif_port.h. Put it in the driver instead.")
+        print("from shared/audiodsp_port.h. Put it in the driver instead.")
         return 1
     if not args.quiet:
         print(f"{len(files)} files, no platform code. "
-              f"audioif still builds everywhere.")
+              f"audiodsp still builds everywhere.")
     return 0
 
 

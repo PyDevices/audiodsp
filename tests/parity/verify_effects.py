@@ -2,7 +2,7 @@
 """Verify deterministic effect PCM against committed oracle metadata.
 
 The gate is an exact hash, and on the reference architecture it stays one:
-audioif's whole parity apparatus rests on this target reproducing the
+audiodsp's whole parity apparatus rests on this target reproducing the
 CircuitPython oracle byte for byte, and a tolerance there would quietly
 retire the property the accuracy program is built on.
 
@@ -17,8 +17,8 @@ aarch64 was the live example of that and is not one any more. It carried an
 accepted baseline of its own because six blocks of `multitap` and
 `pitchshift` -- the two delay-line interpolators -- came out one byte from
 x86_64. AArch64 fuses by baseline where x86-64 does not without `-mfma`,
-and that was the whole of it: since audioif#79 put
-`shared/audioif_fp_contract.h` in every shared file that computes in float,
+and that was the whole of it: since audiodsp#79 put
+`shared/audiodsp_fp_contract.h` in every shared file that computes in float,
 aarch64 reproduces the x86_64 hash exactly. So the allowance is gone rather
 than moved, and `cpython_stdout_sha256_reproduced_by` records that the
 agreement was measured -- a later aarch64 mismatch is a regression against
@@ -36,7 +36,7 @@ tolerance is not.
 
 A tolerance would also have been measuring the wrong thing. What this gate
 hashes is the probe's stdout, and every line of that stdout carries an
-FNV-1a checksum over the block's bytes as well as `sum(data)` (audioif#15,
+FNV-1a checksum over the block's bytes as well as `sum(data)` (audiodsp#15,
 `e304ae0`). The checksum is what makes the hash a fingerprint of the PCM:
 `sum(data)` sums *unsigned bytes* and is invariant under a permutation of a
 block, or under any set of byte deltas that cancel. Read a deviation report

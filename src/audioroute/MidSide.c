@@ -7,7 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 static mp_obj_t audioroute_midside_make_new(const mp_obj_type_t *type,
     size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
@@ -37,8 +37,8 @@ static mp_obj_t audioroute_midside_make_new(const mp_obj_type_t *type,
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_midside_config_init(&self->config);
-    audioif_midside_set_channel_count(&self->config,
+    audiodsp_midside_config_init(&self->config);
+    audiodsp_midside_set_channel_count(&self->config,
         (uint32_t)self->base.channel_count);
 
     if (args[ARG_source].u_obj != mp_const_none) {
@@ -50,7 +50,7 @@ static mp_obj_t audioroute_midside_make_new(const mp_obj_type_t *type,
         self->source = args[ARG_source].u_obj;
     }
     if (args[ARG_width].u_obj != mp_const_none) {
-        audioif_midside_set_width(&self->config,
+        audiodsp_midside_set_width(&self->config,
             (float)mp_obj_get_float(args[ARG_width].u_obj));
     }
     return MP_OBJ_FROM_PTR(self);
@@ -63,11 +63,11 @@ static mp_obj_t audioroute_midside_play(mp_obj_t self_in, mp_obj_t sample) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source channel_count does not match MidSide"));
     }
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioroute_midside_play_obj,
@@ -89,7 +89,7 @@ static mp_obj_t audioroute_midside_set(size_t n_args, const mp_obj_t *args,
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown MidSide option '%q'"), name);
         }
-        audioif_midside_set_width(&self->config,
+        audiodsp_midside_set_width(&self->config,
             (float)mp_obj_get_float(kw_args->table[i].value));
     }
     return mp_const_none;
@@ -104,7 +104,7 @@ static audioio_get_buffer_result_t audioroute_midside_get_buffer(
     (void)channel;
     audioroute_midside_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t produced = 0;
-    while (produced < AUDIOIF_MIDSIDE_FRAMES) {
+    while (produced < AUDIODSP_MIDSIDE_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -120,11 +120,11 @@ static audioio_get_buffer_result_t audioroute_midside_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_MIDSIDE_FRAMES - produced;
+        uint32_t run = AUDIODSP_MIDSIDE_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_midside_process_s16(&self->config,
+        audiodsp_midside_process_s16(&self->config,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -135,7 +135,7 @@ static audioio_get_buffer_result_t audioroute_midside_get_buffer(
     // in the middle of a live graph and never reports itself finished.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_MIDSIDE_FRAMES;
+        produced = AUDIODSP_MIDSIDE_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;
@@ -158,10 +158,10 @@ static void audioroute_midside_reset_buffer(mp_obj_t self_in,
 // deinitialised, which is what makes every guarded entry point raise
 // afterwards -- `audiosample_get_buffer` and `audiosample_reset_buffer` in
 // audiocore for the audio path, and the three shared properties. The node
-// types audioif ported from CircuitPython have had this since they were
-// ported; the ones audioif wrote itself did not, so no class built on them
+// types audiodsp ported from CircuitPython have had this since they were
+// ported; the ones audiodsp wrote itself did not, so no class built on them
 // could release one and Tier 1's "deinit() releases every node the class
-// built" was unmeasurable on a board (audioif#58, #60, #63).
+// built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the
 // object holds a *reference* to: the upstream source, so releasing the tail
@@ -169,12 +169,12 @@ static void audioroute_midside_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioroute_midside_deinit(mp_obj_t self_in) {
     audioroute_midside_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioroute_midside_deinit_obj, audioroute_midside_deinit);

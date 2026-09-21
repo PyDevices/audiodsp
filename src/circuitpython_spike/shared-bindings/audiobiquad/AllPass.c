@@ -69,7 +69,7 @@ static mp_obj_t audiobiquad_allpass_make_new(const mp_obj_type_t *type,
     mp_arg_validate_int_min(args[ARG_sample_rate].u_int, 1,
         MP_QSTR_sample_rate);
     mp_int_t stages = mp_arg_validate_int_range(args[ARG_stages].u_int, 1,
-        (mp_int_t)AUDIOIF_FILTER_F32_MAX_STAGES, MP_QSTR_stages);
+        (mp_int_t)AUDIODSP_FILTER_F32_MAX_STAGES, MP_QSTR_stages);
 
     audiobiquad_allpass_obj_t *self =
         mp_obj_malloc(audiobiquad_allpass_obj_t, &audiobiquad_allpass_type);
@@ -83,7 +83,7 @@ static mp_obj_t audiobiquad_allpass_make_new(const mp_obj_type_t *type,
     self->pending = NULL;
     self->pending_frames = 0;
 
-    audioif_allpass_f32_config_init(&self->config, self->base.sample_rate,
+    audiodsp_allpass_f32_config_init(&self->config, self->base.sample_rate,
         (uint32_t)channel_count, (uint32_t)stages);
     // `stages` sizes the state, so the binding allocates it and the DSP
     // layer only borrows the pointer -- the same division of labour
@@ -91,14 +91,14 @@ static mp_obj_t audiobiquad_allpass_make_new(const mp_obj_type_t *type,
     const uint32_t count = (uint32_t)(channel_count * stages);
     float *lanes = m_malloc((size_t)count * sizeof(float));
     memset(lanes, 0, (size_t)count * sizeof(float));
-    audioif_allpass_f32_state_init(&self->state, lanes, count);
+    audiodsp_allpass_f32_state_init(&self->state, lanes, count);
 
     synthio_block_assign_slot(args[ARG_frequency].u_obj, &self->frequency,
         MP_QSTR_frequency);
     synthio_block_assign_slot(args[ARG_feedback].u_obj, &self->feedback,
         MP_QSTR_feedback);
     synthio_block_assign_slot(args[ARG_mix].u_obj, &self->mix, MP_QSTR_mix);
-    audioif_allpass_f32_config_finish(&self->config);
+    audiodsp_allpass_f32_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -134,7 +134,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_stop_obj,
 //|         ...
 static mp_obj_t audiobiquad_allpass_clear(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_allpass_f32_reset(&self->state);
+    audiodsp_allpass_f32_reset(&self->state);
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_clear_obj,
@@ -214,8 +214,8 @@ MP_PROPERTY_GETTER(audiobiquad_allpass_coefficient_obj,
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. The MicroPython
-// binding of this same type gained it on 2026-09-09 (audioif#58, #60, #63) and
-// this copy did not, which is audioif#75: the two bindings are hand-written and
+// binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
+// this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
 static mp_obj_t audiobiquad_allpass_deinit(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);

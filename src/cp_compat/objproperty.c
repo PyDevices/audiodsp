@@ -1,4 +1,4 @@
-// Compat shim for audioif: makes MP_PROPERTY_GETTER/GETSET
+// Compat shim for audiodsp: makes MP_PROPERTY_GETTER/GETSET
 // objects (see objproperty.h) actually get invoked on native types.
 //
 // This is the missing half of the shim. CircuitPython's declarative

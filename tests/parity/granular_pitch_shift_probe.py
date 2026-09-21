@@ -10,7 +10,7 @@ import sys
 from array import array
 
 import audiocore
-from audioif_util import float32
+from audiodsp_util import float32
 
 MODULE = sys.argv[1] if len(sys.argv) > 1 else "audiodelays"
 delays = __import__(MODULE)
@@ -52,7 +52,7 @@ CASES = (
     # `mp_float_t`, so a plain literal is one number on a double build and
     # another on a single-precision one, and the blend renders different
     # bytes before the kernel is reached at all. That was one of the six
-    # divergences in audioif#80; `spread` below goes through it for the same
+    # divergences in audiodsp#80; `spread` below goes through it for the same
     # reason even though it happened not to move. 0.0, 0.5 and 1.0 are exact
     # in both widths and need no such call.
     ("blend", {"semitones": 3, "mix": float32(0.35), "grain_size": 64,

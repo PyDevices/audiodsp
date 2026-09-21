@@ -58,7 +58,7 @@ zeroing every other drum's gain, so getting this wrong means every strike
 silences the whole kit. Measured when it was wrong: a whisper-quiet kick cut a
 ringing crash from 7584 peak to 61.
 
-M9 is the trait the module exists for at the top end. `audioif_filter_f32.c`
+M9 is the trait the module exists for at the top end. `audiodsp_filter_f32.c`
 caps Q at 60 and says why; a 2 kHz partial ringing for four seconds is Q =
 3638. The claim is not that a high Q is special-cased, it is that asking in
 seconds never reaches the coefficient corner the cap was protecting against.
@@ -67,7 +67,7 @@ seconds never reaches the coefficient corner the cap was protecting against.
 
 `docs/correctness-standard.md`: "a trait without a planted fault is not a
 check; it is a hope." Each fault below is a one-line change to
-`src/shared/audioif_modal.c` that a reader can make by hand, with what it did
+`src/shared/audiodsp_modal.c` that a reader can make by hand, with what it did
 to the traits when it was made. They are recorded rather than automated
 because the file they break is C: the harness that would plant them is a
 rebuild, and `tests/parity/deinit_surface_probe.py --fault` is the shape to
@@ -85,7 +85,7 @@ copy if that is ever worth mechanising.
 
 The second row is the one worth reading, because it was written the wrong way
 first and M7 is what found it. Flushing `s1` and `s2` independently -- which is
-what `audioif_filter_f32.c` does, safely, one order of Q lower -- gave a stable
+what `audiodsp_filter_f32.c` does, safely, one order of Q lower -- gave a stable
 limit cycle *above* the threshold: at 220 Hz, 0.125 s decay, 8 kHz, the state
 parked at ~2.1e-19 and was still there after two thousand blocks, thirty-eight
 seconds, with the output silent from block 30 onward. M6 passed the whole time,

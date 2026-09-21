@@ -4,7 +4,7 @@
 
 Runs unchanged on CPython, on desktop MicroPython and on a board.
 
-audioif#87. `audiocore.get_buffer` takes no length, so a source hands back what
+audiodsp#87. `audiocore.get_buffer` takes no length, so a source hands back what
 it has: a `RawSample` over a 9600-frame table returns all 9600 in one call. The
 ring holds 8192, and writing the lot lapped every cursor including the cursor
 of the tap about to read -- the first 1408 frames were destroyed before anyone
@@ -29,7 +29,7 @@ import audiocore
 import audioroute
 
 SAMPLE_RATE = 48000
-# shared/audioif_splitter.h. If the ring's depth moves, this moves with it --
+# shared/audiodsp_splitter.h. If the ring's depth moves, this moves with it --
 # what the probe needs is a block bigger than the ring, not the number 8192.
 RING_FRAMES = 8192
 FRAMES = RING_FRAMES + 1408

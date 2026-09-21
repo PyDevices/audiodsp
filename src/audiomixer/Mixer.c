@@ -20,7 +20,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "audiomixer/Mixer.h"
-#include "shared/audioif_synth_dsp.h"
+#include "shared/audiodsp_synth_dsp.h"
 #include "audiomixer/MixerVoice.h"
 #include "cp_compat/argcheck.h"
 #include "cp_compat/context_manager_helpers.h"
@@ -31,7 +31,7 @@
 
 #include "py/binary.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 static mp_obj_t audiomixer_mixer_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum { ARG_voice_count, ARG_buffer_size, ARG_channel_count, ARG_bits_per_sample, ARG_samples_signed, ARG_sample_rate };
@@ -101,11 +101,11 @@ void common_hal_audiomixer_mixer_deinit(audiomixer_mixer_obj_t *self) {
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->first_buffer = NULL;
     self->second_buffer = NULL;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 static mp_obj_t audiomixer_mixer_deinit(mp_obj_t self_in) {
@@ -118,14 +118,14 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_deinit_obj, audiomixer_mixer_d
 static void check_for_deinit(audiomixer_mixer_obj_t *self) {
     // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
     // contract is that nothing which can longjmp runs while it is held
-    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // (shared/audiodsp_pump_lock.h): a raise from in here never reaches the
     // release, so the mutex is left owned by a thread that has gone back to
     // the interpreter, and the pump blocks on it for ever. This is the guard
     // on every Python-facing method of this class, so it is the most reached
     // statement in the file.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     const bool released = audiosample_deinited(&self->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     if (released) {
         audiosample_check_for_deinit(&self->base);
     }
@@ -328,8 +328,8 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
     // Nothing above catches that. The not-more-data branch either rewinds (if
     // looping) or stops, and the fetch that follows is not examined at all, so
     // a source that keeps handing back half a word spins here forever. That is
-    // the hang in audioif#85. The CPython twin has had two exits for this
-    // since audioif#24 -- a stop when a fetch yields nothing and claims no
+    // the hang in audiodsp#85. The CPython twin has had two exits for this
+    // since audiodsp#24 -- a stop when a fetch yields nothing and claims no
     // more, and this counter for a source that yields nothing while claiming
     // MORE_DATA -- and each was measured to be sufficient on its own; removing
     // both is what makes the twin hang. This side had neither.
@@ -419,17 +419,17 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                     if (MP_LIKELY(self->base.channel_count == sample->channel_count)) {
                         for (uint32_t i = 0; i < n; i++) {
                             uint32_t word = src[i];
-                            audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = mult16signed(word, active_lo_level, active_hi_level);
                         }
                     } else {
                         for (uint32_t i = 0; i < n; i += 2) {
                             uint32_t word = src[i >> 1];
                             uint32_t word_lsb = copy16lsb(word);
-                            audioif_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = mult16signed(word_lsb, active_lo_level, active_hi_level);
                             word = copy16msb(word);
-                            audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i + 1] = mult16signed(word, active_lo_level, active_hi_level);
                         }
                     }
@@ -438,7 +438,7 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                         for (uint32_t i = 0; i < n; i++) {
                             uint32_t word = src[i];
                             word = tosigned16(word);
-                            audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = mult16signed(word, active_lo_level, active_hi_level);
                         }
                     } else {
@@ -446,10 +446,10 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                             uint32_t word = src[i >> 1];
                             word = tosigned16(word);
                             uint32_t word_lsb = copy16lsb(word);
-                            audioif_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = mult16signed(word_lsb, active_lo_level, active_hi_level);
                             word = copy16msb(word);
-                            audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i + 1] = mult16signed(word, active_lo_level, active_hi_level);
                         }
                     }
@@ -463,7 +463,7 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                         if (MP_LIKELY(!self->base.samples_signed)) {
                             word = tosigned16(word);
                         }
-                        audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         word = mult16signed(word, active_lo_level, active_hi_level);
                         hword_buffer[i] = pack8(word);
                     }
@@ -474,10 +474,10 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                             word = tosigned16(word);
                         }
                         uint32_t word_lsb = copy16lsb(word);
-                        audioif_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         hword_buffer[i] = pack8(mult16signed(word_lsb, active_lo_level, active_hi_level));
                         word = copy16msb(word);
-                        audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         hword_buffer[i + 1] = pack8(mult16signed(word, active_lo_level, active_hi_level));
                     }
                 }
@@ -488,17 +488,17 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                     if (MP_LIKELY(self->base.channel_count == sample->channel_count)) {
                         for (uint32_t i = 0; i < n; i++) {
                             uint32_t word = src[i];
-                            audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = add16signed(mult16signed(word, active_lo_level, active_hi_level), word_buffer[i]);
                         }
                     } else {
                         for (uint32_t i = 0; i + 1 < n; i += 2) {
                             uint32_t word = src[i >> 1];
                             uint32_t word_lsb = copy16lsb(word);
-                            audioif_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = add16signed(mult16signed(word_lsb, active_lo_level, active_hi_level), word_buffer[i]);
                             word = copy16msb(word);
-                            audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i + 1] = add16signed(mult16signed(word, active_lo_level, active_hi_level), word_buffer[i + 1]);
                         }
                     }
@@ -507,7 +507,7 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                         for (uint32_t i = 0; i < n; i++) {
                             uint32_t word = src[i];
                             word = tosigned16(word);
-                            audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = add16signed(mult16signed(word, active_lo_level, active_hi_level), word_buffer[i]);
                         }
                     } else {
@@ -515,10 +515,10 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                             uint32_t word = src[i >> 1];
                             word = tosigned16(word);
                             uint32_t word_lsb = copy16lsb(word);
-                            audioif_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = add16signed(mult16signed(word_lsb, active_lo_level, active_hi_level), word_buffer[i]);
                             word = copy16msb(word);
-                            audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i + 1] = add16signed(mult16signed(word, active_lo_level, active_hi_level), word_buffer[i + 1]);
                         }
                     }
@@ -532,7 +532,7 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                         if (MP_LIKELY(!self->base.samples_signed)) {
                             word = tosigned16(word);
                         }
-                        audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         word = mult16signed(word, active_lo_level, active_hi_level);
                         word = add16signed(word, unpack8(hword_buffer[i]));
                         hword_buffer[i] = pack8(word);
@@ -544,10 +544,10 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                             word = tosigned16(word);
                         }
                         uint32_t word_lsb = copy16lsb(word);
-                        audioif_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         hword_buffer[i] = pack8(add16signed(mult16signed(word_lsb, active_lo_level, active_hi_level), unpack8(hword_buffer[i])));
                         word = copy16msb(word);
-                        audioif_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         hword_buffer[i + 1] = pack8(add16signed(mult16signed(word, active_lo_level, active_hi_level), unpack8(hword_buffer[i + 1])));
                     }
                 }

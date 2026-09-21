@@ -14,13 +14,13 @@ from setuptools import Extension, setup
 # the same bits the oracle blessed.
 MACOS_COMPILE_ARGS = ["-ffp-contract=off"] if sys.platform == "darwin" else []
 
-# _audioif.__version__ used to be a literal in the C, and drifted from VERSION
+# _audiodsp.__version__ used to be a literal in the C, and drifted from VERSION
 # the first time VERSION moved. There is one version here, and it is this file.
 VERSION = Path(__file__).parent.joinpath("VERSION").read_text().strip()
 
-# The commit this wheel was built from, for `_audioif.__revision__`. The board
+# The commit this wheel was built from, for `_audiodsp.__revision__`. The board
 # builds compute the same thing in micropython.mk / micropython.cmake; see
-# src/cp_compat/audioif_build.h for why it is computed and never stored, and why
+# src/cp_compat/audiodsp_build.h for why it is computed and never stored, and why
 # "unknown" is the honest answer outside a checkout rather than an error.
 try:
     REVISION = subprocess.run(
@@ -33,43 +33,43 @@ except (OSError, subprocess.CalledProcessError):
 setup(
     ext_modules=[
         Extension(
-            "_audioif",
+            "_audiodsp",
             sources=[
-                "src/cpython/_audioif.c",
-                "src/shared/audioif_sample.c",
-                "src/shared/audioif_port.c",
-                "src/shared/audioif_pump_lock.c",
-                "src/shared/audioif_rawsample.c",
-                "src/shared/audioif_synth_dsp.c",
-                "src/shared/audioif_envelope.c",
-                "src/shared/audioif_distortion.c",
-                "src/shared/audioif_biquad.c",
-                "src/shared/audioif_echo.c",
-                "src/shared/audioif_phaser.c",
-                "src/shared/audioif_chorus.c",
-                "src/shared/audioif_multitap.c",
-                "src/shared/audioif_pitchshift.c",
-                "src/shared/audioif_freeverb.c",
-                "src/shared/audioif_dynamics.c",
-                "src/shared/audioif_splitter.c",
-                "src/shared/audioif_midside.c",
-                "src/shared/audioif_remix.c",
-                "src/shared/audioif_multiply.c",
-                "src/shared/audioif_suboctave.c",
-                "src/shared/audioif_feedback_delay.c",
-                "src/shared/audioif_filter_f32.c",
-                "src/shared/audioif_shaper.c",
-                "src/shared/audioif_samplehold.c",
-                "src/shared/audioif_ladder.c",
-                "src/shared/audioif_trig.c",
-                "src/shared/audioif_fft.c",
-                "src/shared/audioif_convolve.c",
-                "src/shared/audioif_tank.c",
-                "src/shared/audioif_modal.c",
+                "src/cpython/_audiodsp.c",
+                "src/shared/audiodsp_sample.c",
+                "src/shared/audiodsp_port.c",
+                "src/shared/audiodsp_pump_lock.c",
+                "src/shared/audiodsp_rawsample.c",
+                "src/shared/audiodsp_synth_dsp.c",
+                "src/shared/audiodsp_envelope.c",
+                "src/shared/audiodsp_distortion.c",
+                "src/shared/audiodsp_biquad.c",
+                "src/shared/audiodsp_echo.c",
+                "src/shared/audiodsp_phaser.c",
+                "src/shared/audiodsp_chorus.c",
+                "src/shared/audiodsp_multitap.c",
+                "src/shared/audiodsp_pitchshift.c",
+                "src/shared/audiodsp_freeverb.c",
+                "src/shared/audiodsp_dynamics.c",
+                "src/shared/audiodsp_splitter.c",
+                "src/shared/audiodsp_midside.c",
+                "src/shared/audiodsp_remix.c",
+                "src/shared/audiodsp_multiply.c",
+                "src/shared/audiodsp_suboctave.c",
+                "src/shared/audiodsp_feedback_delay.c",
+                "src/shared/audiodsp_filter_f32.c",
+                "src/shared/audiodsp_shaper.c",
+                "src/shared/audiodsp_samplehold.c",
+                "src/shared/audiodsp_ladder.c",
+                "src/shared/audiodsp_trig.c",
+                "src/shared/audiodsp_fft.c",
+                "src/shared/audiodsp_convolve.c",
+                "src/shared/audiodsp_tank.c",
+                "src/shared/audiodsp_modal.c",
             ],
             include_dirs=["src"],
-            define_macros=[("AUDIOIF_VERSION", '"%s"' % VERSION),
-                           ("AUDIOIF_REVISION", '"%s"' % REVISION)],
+            define_macros=[("AUDIODSP_VERSION", '"%s"' % VERSION),
+                           ("AUDIODSP_REVISION", '"%s"' % REVISION)],
             extra_compile_args=MACOS_COMPILE_ARGS,
         )
     ]

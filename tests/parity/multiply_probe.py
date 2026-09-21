@@ -3,10 +3,10 @@
     multiply_probe.py audiomath
 
 Unlike dynamics_probe.py and route_probe.py this one has no oracle to be
-compared against: `audiomath` is audioif's own module, with no ancestor in
+compared against: `audiomath` is audiodsp's own module, with no ancestor in
 CircuitPython or in micropython-vst3's engine. What the golden pins is that
 every interpreter renders it identically -- the arithmetic is entirely inside
-shared/audioif_multiply.c, the same C all three link, so a disagreement
+shared/audiodsp_multiply.c, the same C all three link, so a disagreement
 between two of them would itself be the finding.
 """
 

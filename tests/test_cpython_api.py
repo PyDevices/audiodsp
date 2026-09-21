@@ -3,7 +3,7 @@ import gc
 import unittest
 import weakref
 
-import _audioif
+import _audiodsp
 import audiocore
 import audiodelays
 import audiofilters
@@ -14,7 +14,7 @@ import audiospeed
 import synthio
 
 
-class AudioifApiTests(unittest.TestCase):
+class AudiodspApiTests(unittest.TestCase):
     def test_enum_repr_identity_and_envelope_tuple(self):
         values = (
             (synthio.FilterMode.LOW_PASS, "synthio.FilterMode.LOW_PASS"),
@@ -37,7 +37,7 @@ class AudioifApiTests(unittest.TestCase):
         )
 
     def test_rawsample_uses_shared_native_core(self):
-        self.assertIs(audiocore.RawSample, _audioif.RawSample)
+        self.assertIs(audiocore.RawSample, _audiodsp.RawSample)
         sample = audiocore.RawSample(bytearray(range(8)), single_buffer=False)
         self.assertEqual(bytes(audiocore.get_buffer(sample)[1]), bytes(range(4)))
         self.assertEqual(bytes(audiocore.get_buffer(sample)[1]), bytes(range(4, 8)))
@@ -76,7 +76,7 @@ class AudioifApiTests(unittest.TestCase):
         This asserts the type deliberately: it is the one thing about a released
         node that portable user code can catch, and the parity gates compare
         rendered bytes, so nothing else here would see it drift. It was
-        `RuntimeError` on this target until audioif#73.
+        `RuntimeError` on this target until audiodsp#73.
         """
         sample = audiocore.RawSample(bytearray(8))
         with sample as entered:
@@ -96,7 +96,7 @@ class AudioifApiTests(unittest.TestCase):
         keeps its own released flag rather than audiocore's channel-count-zero
         convention. Releasing it must release the taps too: the ring they read
         belongs to the Splitter, so a tap outliving it would be reading a ring
-        nothing refills (audioif#58)."""
+        nothing refills (audiodsp#58)."""
         sample = audiocore.RawSample(
             array("h", [0] * 256), sample_rate=48000, channel_count=2)
         splitter = audioroute.Splitter(sample, taps=2)

@@ -1,7 +1,7 @@
 """A table-driven waveshaper that does its shaping above the sample rate.
 
 Not a CircuitPython module, and not from micropython-vst3's engine either --
-audioif adds it. `audiofilters.Distortion` exists upstream and runs one of
+audiodsp adds it. `audiofilters.Distortion` exists upstream and runs one of
 four fixed curves at the base rate; this one takes the curve as data and
 oversamples:
 
@@ -38,7 +38,7 @@ node -- `audiomixer.Mixer` adds sample by sample -- not an argument here.
 `oversample` (1, 2, 4 or 8) is how far above the sample rate the shaping
 happens, between a matched pair of polyphase all-pass half-bands. It is the
 whole reason this module exists: a nonlinearity makes harmonics above
-Nyquist and they fold back onto the signal, and nothing else in audioif
+Nyquist and they fold back onto the signal, and nothing else in audiodsp
 resamples at all.
 
 A curve that reaches the rails has a cost on the way back down, though: the
@@ -50,14 +50,14 @@ then clips. Keep `post_gain * max(abs(curve))` at or below `CLIP_HEADROOM`
 (about 0.74 of full scale) for a curve that reaches the rails, and put the
 rest of the wanted level on a mixer voice after this node rather than on
 this knob. Measured table: `docs/upstream-diff.md`, "`audioshaper`"
-(audioif#99).
+(audiodsp#99).
 
 `hysteresis` is off by default and is the one thing a table cannot do: give
 the curve a memory, so a slow triangle in and out traces two different paths
 and encloses an area. At zero the node is a static table, sample for sample.
 
 A new module rather than arguments on `Distortion`, deliberately: an argument
-added to audioif's copy of a CircuitPython module would not exist on a stock
+added to audiodsp's copy of a CircuitPython module would not exist on a stock
 board, so an effect written against it would silently be a different effect
 there. This either installs whole or is absent and says so on import.
 
@@ -71,23 +71,23 @@ from audiocore import (
     GET_BUFFER_DONE, GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample,
     get_buffer, reset_buffer,
 )
-import _audioif
+import _audiodsp
 
 
-#: The audioif this was built from, the same pair the native builds put
-#: on this module (src/cp_compat/audioif_build.h). audioif#55.
-__version__ = _audioif.__version__
-__revision__ = _audioif.__revision__
+#: The audiodsp this was built from, the same pair the native builds put
+#: on this module (src/cp_compat/audiodsp_build.h). audiodsp#55.
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
-FRAMES = _audioif.SHAPER_FRAMES
-MAX_OVERSAMPLE = _audioif.SHAPER_MAX_OVERSAMPLE
+FRAMES = _audiodsp.SHAPER_FRAMES
+MAX_OVERSAMPLE = _audiodsp.SHAPER_MAX_OVERSAMPLE
 
 #: `SampleHold`'s own block size and the largest `num` a ratio may name.
-HOLD_FRAMES = _audioif.SAMPLEHOLD_FRAMES
-MAX_HOLD_RATIO = _audioif.SAMPLEHOLD_MAX_RATIO
+HOLD_FRAMES = _audiodsp.SAMPLEHOLD_FRAMES
+MAX_HOLD_RATIO = _audiodsp.SAMPLEHOLD_MAX_RATIO
 
 #: Option name -> the native configure() slot. Kept in the order
-#: shared/audioif_shaper.h declares, which is the order the MicroPython
+#: shared/audiodsp_shaper.h declares, which is the order the MicroPython
 #: bindings list them in too. Append only, never renumber.
 _OPTIONS = {
     "pre_gain": 0,
@@ -113,7 +113,7 @@ GROUP_DELAY_SAMPLES = {1: 0.0, 2: 2.2, 4: 3.3, 8: 3.9}
 #: reaches the rails re-clips the decimator's own overshoot at the base
 #: rate rather than anything the oversampling can still fix -- see the
 #: docstring above and docs/upstream-diff.md's `audioshaper` section for
-#: the measured table (audioif#99). Documentation only, the same as
+#: the measured table (audiodsp#99). Documentation only, the same as
 #: `GROUP_DELAY_SAMPLES` above it: neither the MicroPython usermod's module
 #: globals (`src/audioshaper/module.c`) nor the CircuitPython spike's
 #: (`shared-bindings/audioshaper/__init__.c`) export anything past
@@ -148,7 +148,7 @@ class Waveshaper(_AudioSample):
         self._deinited = False
         self._source = None
         self._pending = b""
-        self._state = _audioif.WaveshaperState(
+        self._state = _audiodsp.WaveshaperState(
             sample_rate=self.sample_rate, oversample=oversample,
             channel_count=channel_count)
         self._state.load_curve(bytes(memoryview(curve).cast("B")))
@@ -250,7 +250,7 @@ class SampleHold(_AudioSample):
     0.9999947184696794 at 48 kHz -- one sample late per 189 339 frames -- and
     1.0000107865780592 at 44.1 kHz, one sample early per 92 708. At Mix 0.5 a
     steady 12 kHz tone swung 10.74 dB over a twelve-second render: a slow
-    flange on a setting nobody was touching (audioif#97). Counting cannot
+    flange on a setting nobody was touching (audiodsp#97). Counting cannot
     drift, so this counts.
 
     **`num`/`den` rather than a rate in hertz**, because the rounding has to
@@ -296,7 +296,7 @@ class SampleHold(_AudioSample):
         self._pending = b""
         self._source_done = False
         self._exhausted = False
-        self._state = _audioif.SampleHoldState(num=num, den=den)
+        self._state = _audiodsp.SampleHoldState(num=num, den=den)
         self._num, self._den = self._state.ratio()
 
     @property

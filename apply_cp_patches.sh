@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Add audioif's audiodynamics, audioroute (Splitter, MidSide),
+# Add audiodsp's audiodynamics, audioroute (Splitter, MidSide),
 # audiomath, audioecho, audioshaper, audioladder, audioconvolve,
 # audiobiquad, audioverb and audiomodal modules to a CircuitPython tree.
 #
@@ -7,7 +7,7 @@
 #   ./apply_cp_patches.sh --apply   [--port PORT] [--variant VARIANT]
 #   ./apply_cp_patches.sh --status  [--port PORT] [--variant VARIANT]
 #
-# CircuitPython already has everything else audioif ports - audiocore, synthio,
+# CircuitPython already has everything else audiodsp ports - audiocore, synthio,
 # audiomixer, the effects - so this script only *adds*: modules that
 # CircuitPython never had, whose DSP is the same src/shared/ C the MicroPython
 # usermod and the CPython extension compile. The one exception is a rewrite of
@@ -24,7 +24,7 @@
 #
 # Environment:
 #   CP_DIR          CircuitPython tree (default: sibling circuitpython/)
-#   WORKSPACE_DIR   Parent of audioif (default: parent of this repo)
+#   WORKSPACE_DIR   Parent of audiodsp (default: parent of this repo)
 #   PORT            Must be unix (default: unix); other ports skip with exit 0
 #   VARIANT         Unix variant (default: coverage)
 #
@@ -35,9 +35,9 @@
 
 set -euo pipefail
 
-AUDIOIF_DIR=$(cd "$(dirname "$0")" && pwd)
-WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "$AUDIOIF_DIR/.." && pwd)}"
-SPIKE_DIR="$AUDIOIF_DIR/src/circuitpython_spike"
+AUDIODSP_DIR=$(cd "$(dirname "$0")" && pwd)
+WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "$AUDIODSP_DIR/.." && pwd)}"
+SPIKE_DIR="$AUDIODSP_DIR/src/circuitpython_spike"
 MANIFEST="$SPIKE_DIR/copy_manifest.txt"
 REPLACEMENTS="$SPIKE_DIR/apply_replacements.py"
 
@@ -57,7 +57,7 @@ done
 MODE="${MODE:---dry-run}"
 
 if [[ "$PORT" != unix ]]; then
-    echo "audioif apply_cp_patches: port=$PORT is not unix; skipping"
+    echo "audiodsp apply_cp_patches: port=$PORT is not unix; skipping"
     exit 0
 fi
 
@@ -72,7 +72,7 @@ fi
 
 # Oracle pin check (finding 10): warn loudly when the tree is not the
 # declared oracle commit -- a moved pin silently invalidates every golden.
-ORACLE_FILE="$AUDIOIF_DIR/CIRCUITPYTHON_ORACLE"
+ORACLE_FILE="$AUDIODSP_DIR/CIRCUITPYTHON_ORACLE"
 if [[ -f "$ORACLE_FILE" ]]; then
     ORACLE_SHA=$(awk '/^[^#]/ {print $2; exit}' "$ORACLE_FILE")
     ACTUAL_SHA=$(git -C "$CP_DIR" rev-parse HEAD 2>/dev/null || echo unknown)
@@ -89,7 +89,7 @@ VARIANT_H="$PORT_DIR/variants/$VARIANT/mpconfigvariant.h"
 DEFNS_MK="$CP_DIR/py/circuitpy_defns.mk"
 MPCONFIG_MK="$CP_DIR/py/circuitpy_mpconfig.mk"
 
-MARKER_TAG="audioif-cp begin (apply_cp_patches.sh)"
+MARKER_TAG="audiodsp-cp begin (apply_cp_patches.sh)"
 
 DRY_RUN=0
 [[ "$MODE" == "--dry-run" ]] && DRY_RUN=1
@@ -98,13 +98,13 @@ DRY_RC=0
 
 markers_for_file() {
     case "$1" in
-        *.h) echo "/* >>> $MARKER_TAG */"; echo "/* >>> audioif-cp end */" ;;
-        *)   echo "# >>> $MARKER_TAG";     echo "# >>> audioif-cp end" ;;
+        *.h) echo "/* >>> $MARKER_TAG */"; echo "/* >>> audiodsp-cp end */" ;;
+        *)   echo "# >>> $MARKER_TAG";     echo "# >>> audiodsp-cp end" ;;
     esac
 }
 
 block_present() {
-    [ -f "$1" ] && grep -qF "${2:-audioif-cp begin}" "$1"
+    [ -f "$1" ] && grep -qF "${2:-audiodsp-cp begin}" "$1"
 }
 
 # Insert a marked block after the first line containing `anchor` -- or, when
@@ -115,7 +115,7 @@ block_present() {
 # used to mean a new module's CIRCUITPY_* flag silently never landed, and the
 # build then failed a long way from the cause.
 insert_block_after() {
-    local file="$1" anchor="$2" block="$3" needle="${4:-audioif-cp begin}"
+    local file="$1" anchor="$2" block="$3" needle="${4:-audiodsp-cp begin}"
     local begin end
     begin=$(markers_for_file "$file" | sed -n '1p')
     end=$(markers_for_file "$file" | sed -n '2p')
@@ -195,7 +195,7 @@ PY
 }
 
 copy_files() {
-    python3 - "$AUDIOIF_DIR" "$CP_DIR" "$MANIFEST" "$DRY_RUN" <<'PY'
+    python3 - "$AUDIODSP_DIR" "$CP_DIR" "$MANIFEST" "$DRY_RUN" <<'PY'
 import filecmp
 import shutil
 import sys
@@ -242,7 +242,7 @@ last_marker_or() {
 }
 
 echo "CircuitPython: $CP_DIR"
-echo "audioif:       $AUDIOIF_DIR"
+echo "audiodsp:       $AUDIODSP_DIR"
 echo "variant:       $VARIANT"
 echo "mode:          $MODE"
 echo
@@ -272,18 +272,18 @@ if [[ "$MODE" == "--status" ]]; then
                 shared-bindings/audiobiquad/__init__.c \
                 shared-bindings/audioverb/__init__.c \
                 shared-bindings/audiomodal/__init__.c \
-                shared/audioif_fp_contract.h \
-                shared/audioif_dynamics.c shared/audioif_splitter.c \
-                shared/audioif_midside.c \
-                shared/audioif_multiply.c shared/audioif_suboctave.c \
-                shared/audioif_feedback_delay.c \
-                shared/audioif_shaper.c \
-                shared/audioif_samplehold.c \
-                shared/audioif_ladder.c \
-                shared/audioif_modal.c \
-                shared/audioif_trig.c shared/audioif_fft.c \
-                shared/audioif_convolve.c shared/audioif_filter_f32.c \
-                shared/audioif_tank.c; do
+                shared/audiodsp_fp_contract.h \
+                shared/audiodsp_dynamics.c shared/audiodsp_splitter.c \
+                shared/audiodsp_midside.c \
+                shared/audiodsp_multiply.c shared/audiodsp_suboctave.c \
+                shared/audiodsp_feedback_delay.c \
+                shared/audiodsp_shaper.c \
+                shared/audiodsp_samplehold.c \
+                shared/audiodsp_ladder.c \
+                shared/audiodsp_modal.c \
+                shared/audiodsp_trig.c shared/audiodsp_fft.c \
+                shared/audiodsp_convolve.c shared/audiodsp_filter_f32.c \
+                shared/audiodsp_tank.c; do
         if [ -e "$CP_DIR/$file" ]; then
             echo "ok       $file"
         else
@@ -402,8 +402,8 @@ CFLAGS += -DCIRCUITPY_AUDIOSPEED=1
 # only port compiling with -Werror -Wfloat-conversion and raspberrypi is the
 # only port enabling audiospeed, so upstream never builds this combination.
 # Their unix port is unsupported, so this is ours to absorb, not a PR. Downgrade
-# the warning for these objects ONLY, never for the build: audioif's own float
-# cell keeps its -Werror (audioif#4).
+# the warning for these objects ONLY, never for the build: audiodsp's own float
+# cell keeps its -Werror (audiodsp#4).
 \$(BUILD)/shared-module/audiospeed/__init__.o: CFLAGS += -Wno-error=float-conversion
 \$(BUILD)/shared-bindings/audiospeed/__init__.o: CFLAGS += -Wno-error=float-conversion"
 echo
@@ -477,21 +477,21 @@ insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audiobiquad/B
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audiobiquad/AllPass.c \\'
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audioverb/Tank.c \\'
 insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared-module/audiomodal/Bank.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_modal.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_dynamics.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_splitter.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_multiply.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_suboctave.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_midside.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_feedback_delay.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_shaper.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_samplehold.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_ladder.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_trig.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_fft.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_convolve.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_filter_f32.c \\'
-insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audioif_tank.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_modal.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_dynamics.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_splitter.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_multiply.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_suboctave.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_midside.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_feedback_delay.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_shaper.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_samplehold.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_ladder.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_trig.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_fft.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_convolve.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_filter_f32.c \\'
+insert_line_after "$VARIANT_MK" "$MODULE_ANCHOR" $'\tshared/audiodsp_tank.c \\'
 echo
 
 echo "==> Unix variant: mpconfigvariant.h guards"

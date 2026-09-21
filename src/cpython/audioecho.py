@@ -2,7 +2,7 @@
 loop.
 
 Not a CircuitPython module, and not from micropython-vst3's engine either --
-audioif adds it. `audiodelays.Echo` exists upstream and its feedback path is
+audiodsp adds it. `audiodelays.Echo` exists upstream and its feedback path is
 `echo * decay` and nothing else, so everything a delay is actually *called*
 falls out of what this module puts in that path:
 
@@ -69,7 +69,7 @@ mid-stream steps the read by that half window, and nothing smooths it. Set
 it when you build the node, or between takes.
 
 A new module rather than arguments on `Echo`, deliberately: an argument added
-to audioif's copy of a CircuitPython module would not exist on a stock board,
+to audiodsp's copy of a CircuitPython module would not exist on a stock board,
 so an effect written against it would silently be a different effect there.
 This either installs whole or is absent and says so on import.
 """
@@ -77,18 +77,18 @@ This either installs whole or is absent and says so on import.
 from audiocore import (
     GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
 )
-import _audioif
+import _audiodsp
 
 
-#: The audioif this was built from, the same pair the native builds put
-#: on this module (src/cp_compat/audioif_build.h). audioif#55.
-__version__ = _audioif.__version__
-__revision__ = _audioif.__revision__
+#: The audiodsp this was built from, the same pair the native builds put
+#: on this module (src/cp_compat/audiodsp_build.h). audiodsp#55.
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
-FRAMES = _audioif.FEEDBACK_DELAY_FRAMES
+FRAMES = _audiodsp.FEEDBACK_DELAY_FRAMES
 
 #: Option name -> the native configure() slot. Kept in the order
-#: shared/audioif_feedback_delay.h declares, which is the order the
+#: shared/audiodsp_feedback_delay.h declares, which is the order the
 #: MicroPython bindings list them in too.
 _OPTIONS = {
     "delay_ms": 0,
@@ -126,7 +126,7 @@ class FeedbackDelay(_AudioSample):
         self._pending = b""
         if max_delay_ms <= 0:
             raise ValueError("max_delay_ms must be positive")
-        self._state = _audioif.FeedbackDelayState(
+        self._state = _audiodsp.FeedbackDelayState(
             sample_rate=self.sample_rate, max_delay_ms=float(max_delay_ms),
             channel_count=channel_count)
         # The default delay is half the line rather than all of it, so a

@@ -1,5 +1,5 @@
 // audioverb.Tank for CircuitPython: the buffer plumbing around
-// shared/audioif_tank.c. See Tank.h.
+// shared/audiodsp_tank.c. See Tank.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -16,7 +16,7 @@ void audioverb_tank_reset_buffer(audioverb_tank_obj_t *self,
     // Unlike audiodynamics, everything goes. A reverberation tail is entirely
     // state: a chain restarted with the old tail still in the lines plays the
     // previous take underneath the new one.
-    audioif_tank_reset(&self->state, &self->config);
+    audiodsp_tank_reset(&self->state, &self->config);
 }
 
 audioio_get_buffer_result_t audioverb_tank_get_buffer(
@@ -25,7 +25,7 @@ audioio_get_buffer_result_t audioverb_tank_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_TANK_FRAMES) {
+    while (produced < AUDIODSP_TANK_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -41,11 +41,11 @@ audioio_get_buffer_result_t audioverb_tank_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_TANK_FRAMES - produced;
+        uint32_t run = AUDIODSP_TANK_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_tank_process_s16(&self->config, &self->state,
+        audiodsp_tank_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count], self->pending,
             run);
         self->pending += run * self->base.channel_count;
@@ -59,7 +59,7 @@ audioio_get_buffer_result_t audioverb_tank_get_buffer(
     // `audiodelays.Echo`'s before it.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_TANK_FRAMES;
+        produced = AUDIODSP_TANK_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

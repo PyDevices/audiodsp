@@ -7,7 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // The options `Tank(...)` and `set(...)` accept, paired with the shared DSP's
 // enum. `sample_rate`, `channel_count`, `max_predelay_ms`, `delays` and `taps`
@@ -16,22 +16,22 @@
 // stays irrelevant.
 typedef struct {
     qstr name;
-    audioif_tank_option_t option;
+    audiodsp_tank_option_t option;
 } tank_option_name_t;
 
 static const tank_option_name_t tank_option_names[] = {
-    { MP_QSTR_decay, AUDIOIF_TANK_OPT_DECAY },
-    { MP_QSTR_diffusion, AUDIOIF_TANK_OPT_DIFFUSION },
-    { MP_QSTR_damping_hz, AUDIOIF_TANK_OPT_DAMPING_HZ },
-    { MP_QSTR_bandwidth_hz, AUDIOIF_TANK_OPT_BANDWIDTH_HZ },
-    { MP_QSTR_low_cut_hz, AUDIOIF_TANK_OPT_LOW_CUT_HZ },
-    { MP_QSTR_predelay_ms, AUDIOIF_TANK_OPT_PREDELAY_MS },
-    { MP_QSTR_mod_depth_ms, AUDIOIF_TANK_OPT_MOD_DEPTH_MS },
-    { MP_QSTR_mod_rate_hz, AUDIOIF_TANK_OPT_MOD_RATE_HZ },
-    { MP_QSTR_drive, AUDIOIF_TANK_OPT_DRIVE },
-    { MP_QSTR_width, AUDIOIF_TANK_OPT_WIDTH },
-    { MP_QSTR_tone_db, AUDIOIF_TANK_OPT_TONE_DB },
-    { MP_QSTR_mix, AUDIOIF_TANK_OPT_MIX },
+    { MP_QSTR_decay, AUDIODSP_TANK_OPT_DECAY },
+    { MP_QSTR_diffusion, AUDIODSP_TANK_OPT_DIFFUSION },
+    { MP_QSTR_damping_hz, AUDIODSP_TANK_OPT_DAMPING_HZ },
+    { MP_QSTR_bandwidth_hz, AUDIODSP_TANK_OPT_BANDWIDTH_HZ },
+    { MP_QSTR_low_cut_hz, AUDIODSP_TANK_OPT_LOW_CUT_HZ },
+    { MP_QSTR_predelay_ms, AUDIODSP_TANK_OPT_PREDELAY_MS },
+    { MP_QSTR_mod_depth_ms, AUDIODSP_TANK_OPT_MOD_DEPTH_MS },
+    { MP_QSTR_mod_rate_hz, AUDIODSP_TANK_OPT_MOD_RATE_HZ },
+    { MP_QSTR_drive, AUDIODSP_TANK_OPT_DRIVE },
+    { MP_QSTR_width, AUDIODSP_TANK_OPT_WIDTH },
+    { MP_QSTR_tone_db, AUDIODSP_TANK_OPT_TONE_DB },
+    { MP_QSTR_mix, AUDIODSP_TANK_OPT_MIX },
 };
 
 // The five keywords that are not options, so both the constructor and the
@@ -42,22 +42,22 @@ static bool tank_is_shape_keyword(qstr name) {
         name == MP_QSTR_taps;
 }
 
-static void tank_raise_status(audioif_tank_status_t status) {
+static void tank_raise_status(audiodsp_tank_status_t status) {
     switch (status) {
-        case AUDIOIF_TANK_OK:
+        case AUDIODSP_TANK_OK:
             return;
-        case AUDIOIF_TANK_ERR_COUNT:
+        case AUDIODSP_TANK_ERR_COUNT:
             mp_raise_ValueError(MP_ERROR_TEXT(
                 "delays needs 12 line lengths; taps needs 4 values per tap"));
-        case AUDIOIF_TANK_ERR_LENGTH:
+        case AUDIODSP_TANK_ERR_LENGTH:
             mp_raise_ValueError(MP_ERROR_TEXT("every line needs 4 frames"));
-        case AUDIOIF_TANK_ERR_TOTAL:
+        case AUDIODSP_TANK_ERR_TOTAL:
             mp_raise_ValueError(MP_ERROR_TEXT("the lines do not fit"));
-        case AUDIOIF_TANK_ERR_CHANNEL:
+        case AUDIODSP_TANK_ERR_CHANNEL:
             mp_raise_ValueError(MP_ERROR_TEXT("a tap channel is not 0 or 1"));
-        case AUDIOIF_TANK_ERR_LINE:
+        case AUDIODSP_TANK_ERR_LINE:
             mp_raise_ValueError(MP_ERROR_TEXT("a tap line is not 0..11"));
-        case AUDIOIF_TANK_ERR_OFFSET:
+        case AUDIODSP_TANK_ERR_OFFSET:
             mp_raise_ValueError(MP_ERROR_TEXT("a tap is past its line"));
     }
 }
@@ -90,7 +90,7 @@ static void tank_apply_kwargs(audioverb_tank_obj_t *self, const mp_map_t *kw) {
         for (size_t option = 0; option < MP_ARRAY_SIZE(tank_option_names);
              ++option) {
             if (tank_option_names[option].name == name) {
-                audioif_tank_configure(&self->config,
+                audiodsp_tank_configure(&self->config,
                     tank_option_names[option].option, value);
                 known = true;
                 break;
@@ -152,46 +152,46 @@ static mp_obj_t audioverb_tank_make_new(const mp_obj_type_t *type,
     self->pending = NULL;
     self->pending_frames = 0;
 
-    audioif_tank_config_init(&self->config, sample_rate,
+    audiodsp_tank_config_init(&self->config, sample_rate,
         (float)max_predelay_ms);
-    audioif_tank_set_channel_count(&self->config, channel_count);
+    audiodsp_tank_set_channel_count(&self->config, channel_count);
     // The topology first: both tables size the allocation, so neither can be
     // changed once the lines exist.
     if (delays != MP_OBJ_NULL) {
-        float values[AUDIOIF_TANK_LINES];
-        uint32_t count = tank_read_floats(delays, values, AUDIOIF_TANK_LINES);
-        uint32_t frames[AUDIOIF_TANK_LINES];
+        float values[AUDIODSP_TANK_LINES];
+        uint32_t count = tank_read_floats(delays, values, AUDIODSP_TANK_LINES);
+        uint32_t frames[AUDIODSP_TANK_LINES];
         for (uint32_t line = 0; line < count; ++line) {
             frames[line] = values[line] < 0.0f ? 0u : (uint32_t)values[line];
         }
         tank_raise_status(
-            audioif_tank_set_delays(&self->config, frames, count));
+            audiodsp_tank_set_delays(&self->config, frames, count));
     }
     if (taps != MP_OBJ_NULL) {
-        float values[AUDIOIF_TANK_MAX_TAPS * 4u];
+        float values[AUDIODSP_TANK_MAX_TAPS * 4u];
         uint32_t count =
-            tank_read_floats(taps, values, AUDIOIF_TANK_MAX_TAPS * 4u);
-        tank_raise_status(audioif_tank_set_taps(&self->config, values, count));
+            tank_read_floats(taps, values, AUDIODSP_TANK_MAX_TAPS * 4u);
+        tank_raise_status(audiodsp_tank_set_taps(&self->config, values, count));
     }
 
-    uint32_t samples = audioif_tank_buffer_samples(&self->config);
+    uint32_t samples = audiodsp_tank_buffer_samples(&self->config);
     int16_t *lines = m_malloc((size_t)samples * sizeof(int16_t));
     memset(lines, 0, (size_t)samples * sizeof(int16_t));
-    audioif_tank_state_init(&self->state, &self->config, lines);
+    audiodsp_tank_state_init(&self->state, &self->config, lines);
 
     tank_apply_kwargs(self, &kw_map);
-    audioif_tank_config_finish(&self->config);
+    audiodsp_tank_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
 static mp_obj_t audioverb_tank_play(mp_obj_t self_in, mp_obj_t sample) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioverb_tank_play_obj, audioverb_tank_play);
@@ -211,9 +211,9 @@ static mp_obj_t audioverb_tank_set(size_t n_args, const mp_obj_t *args,
         }
     }
     tank_apply_kwargs(self, kw_args);
-    audioif_pump_lock_acquire();
-    audioif_tank_config_finish(&self->config);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+    audiodsp_tank_config_finish(&self->config);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioverb_tank_set_obj, 1,
@@ -221,9 +221,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioverb_tank_set_obj, 1,
 
 static mp_obj_t audioverb_tank_clear(mp_obj_t self_in) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
-    audioif_tank_reset(&self->state, &self->config);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+    audiodsp_tank_reset(&self->state, &self->config);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_clear_obj,
@@ -236,7 +236,7 @@ static audioio_get_buffer_result_t audioverb_tank_get_buffer(mp_obj_t self_in,
     (void)channel;
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t produced = 0;
-    while (produced < AUDIOIF_TANK_FRAMES) {
+    while (produced < AUDIODSP_TANK_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -252,11 +252,11 @@ static audioio_get_buffer_result_t audioverb_tank_get_buffer(mp_obj_t self_in,
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_TANK_FRAMES - produced;
+        uint32_t run = AUDIODSP_TANK_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_tank_process_s16(&self->config, &self->state,
+        audiodsp_tank_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count], self->pending,
             run);
         self->pending += run * self->base.channel_count;
@@ -271,7 +271,7 @@ static audioio_get_buffer_result_t audioverb_tank_get_buffer(mp_obj_t self_in,
     // feeds the tank silence for as long as `tail_samples` says.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_TANK_FRAMES;
+        produced = AUDIODSP_TANK_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;
@@ -288,17 +288,17 @@ static void audioverb_tank_reset_buffer(mp_obj_t self_in,
     // Unlike audiodynamics, everything goes. A reverberation tail is entirely
     // state: a chain restarted with the old tail still in the lines plays the
     // previous take underneath the new one.
-    audioif_tank_reset(&self->state, &self->config);
+    audiodsp_tank_reset(&self->state, &self->config);
 }
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, which is what makes every guarded entry point raise
 // afterwards -- `audiosample_get_buffer` and `audiosample_reset_buffer` in
 // audiocore for the audio path, and the three shared properties. The node
-// types audioif ported from CircuitPython have had this since they were
-// ported; the ones audioif wrote itself did not, so no class built on them
+// types audiodsp ported from CircuitPython have had this since they were
+// ported; the ones audiodsp wrote itself did not, so no class built on them
 // could release one and Tier 1's "deinit() releases every node the class
-// built" was unmeasurable on a board (audioif#58, #60, #63).
+// built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the
 // object holds a *reference* to: the upstream source, so releasing the tail
@@ -306,12 +306,12 @@ static void audioverb_tank_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioverb_tank_deinit(mp_obj_t self_in) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_deinit_obj, audioverb_tank_deinit);

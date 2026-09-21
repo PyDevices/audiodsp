@@ -1,4 +1,4 @@
-// Compat shim for audioif: small CircuitPython binding helpers
+// Compat shim for audiodsp: small CircuitPython binding helpers
 // used pervasively across shared-bindings sources (deinit-guard errors,
 // generic __repr__ and make_new construction for the common "settable
 // properties" pattern), ported from CircuitPython's shared-bindings/util.h

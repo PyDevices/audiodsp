@@ -1,4 +1,4 @@
-// Compat shim for audioif: CircuitPython-only argument-validation
+// Compat shim for audiodsp: CircuitPython-only argument-validation
 // helpers (`mp_arg_validate_*`) and per-exception `_varg` raisers, ported
 // from CircuitPython's `py/argcheck.h` / `py/runtime.h` (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT). Mainline MicroPython

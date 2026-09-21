@@ -8,7 +8,7 @@
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/util.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 void audioroute_splitter_pull(audioroute_splitter_obj_t *self) {
     if (self->deinited || self->source == MP_OBJ_NULL) {
@@ -21,7 +21,7 @@ void audioroute_splitter_pull(audioroute_splitter_obj_t *self) {
     // including the one about to read, so the head is destroyed unseen and the
     // stream has a seam at 8192. The ring takes one ring's worth, this holds
     // the rest, and the source is not asked again until it is gone. Same shape
-    // as MixerVoice's remaining_buffer. audioif#87.
+    // as MixerVoice's remaining_buffer. audiodsp#87.
     if (self->pending_frames == 0) {
         uint8_t *raw = NULL;
         uint32_t raw_bytes = 0;
@@ -39,7 +39,7 @@ void audioroute_splitter_pull(audioroute_splitter_obj_t *self) {
             return;
         }
     }
-    const uint32_t taken = audioif_splitter_write(&self->state,
+    const uint32_t taken = audiodsp_splitter_write(&self->state,
         (const int16_t *)self->pending, self->pending_frames);
     self->pending += (size_t)taken * width;
     self->pending_frames -= taken;
@@ -59,7 +59,7 @@ static mp_obj_t audioroute_splitter_make_new(const mp_obj_type_t *type,
     mp_obj_t source = args[ARG_source].u_obj;
     audiosample_base_t *sample = audiosample_check(source);
     const mp_int_t taps = args[ARG_taps].u_int;
-    if (taps < 1 || taps > (mp_int_t)AUDIOIF_SPLITTER_MAX_TAPS) {
+    if (taps < 1 || taps > (mp_int_t)AUDIODSP_SPLITTER_MAX_TAPS) {
         mp_raise_ValueError(MP_ERROR_TEXT("taps must be 1..4"));
     }
 
@@ -69,13 +69,13 @@ static mp_obj_t audioroute_splitter_make_new(const mp_obj_type_t *type,
     self->source = source;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_splitter_init(&self->state, (uint32_t)taps);
+    audiodsp_splitter_init(&self->state, (uint32_t)taps);
     if (sample->channel_count < 1 || sample->channel_count > 2) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source channel_count must be 1 or 2"));
     }
-    audioif_splitter_set_channel_count(&self->state, sample->channel_count);
-    for (uint32_t index = 0; index < AUDIOIF_SPLITTER_MAX_TAPS; ++index) {
+    audiodsp_splitter_set_channel_count(&self->state, sample->channel_count);
+    for (uint32_t index = 0; index < AUDIODSP_SPLITTER_MAX_TAPS; ++index) {
         self->taps[index] = MP_OBJ_NULL;
     }
     // Every tap exists from the start, whether or not anything asks for it:
@@ -86,7 +86,7 @@ static mp_obj_t audioroute_splitter_make_new(const mp_obj_type_t *type,
             mp_obj_malloc(audioroute_splitter_tap_obj_t,
                 &audioroute_splitter_tap_type);
         tap->base.sample_rate = sample->sample_rate;
-        tap->base.max_buffer_length = AUDIOIF_SPLITTER_CHUNK_FRAMES * 2u *
+        tap->base.max_buffer_length = AUDIODSP_SPLITTER_CHUNK_FRAMES * 2u *
             sample->channel_count;
         tap->base.bits_per_sample = 16;
         tap->base.channel_count = sample->channel_count;
@@ -117,10 +117,10 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audioroute_splitter_tap_obj,
 // source out for a wet/dry mix builds one of these, and until now none of
 // them could release it: the type's whole Python surface was `tap()`, so a
 // class had to register the node as one it declines to release and its Tier 1
-// row could not be measured (audioif#58).
+// row could not be measured (audiodsp#58).
 //
 // What it does and does not do, said plainly. The ring is
-// `AUDIOIF_SPLITTER_RING_FRAMES` of int16 *inline in this object* -- the 32 KB
+// `AUDIODSP_SPLITTER_RING_FRAMES` of int16 *inline in this object* -- the 32 KB
 // the Phase 2 cost table attributes to a Splitter is the object, not a
 // separate allocation -- so this cannot hand that memory back; dropping the
 // last reference to the object is what does, and the GC does it. What this
@@ -139,9 +139,9 @@ static mp_obj_t audioroute_splitter_deinit(mp_obj_t self_in) {
     // splitter's own, and each tap's. One lock over the lot -- it is a dozen
     // stores of constants, which is a shorter stop than the arithmetic of a
     // single block.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->deinited = true;
-    for (uint32_t index = 0; index < AUDIOIF_SPLITTER_MAX_TAPS; ++index) {
+    for (uint32_t index = 0; index < AUDIODSP_SPLITTER_MAX_TAPS; ++index) {
         if (self->taps[index] != MP_OBJ_NULL) {
             audioroute_splitter_tap_obj_t *tap =
                 MP_OBJ_TO_PTR(self->taps[index]);
@@ -154,7 +154,7 @@ static mp_obj_t audioroute_splitter_deinit(mp_obj_t self_in) {
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioroute_splitter_deinit_obj,

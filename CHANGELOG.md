@@ -1,5 +1,14 @@
 ## Unreleased
 
+- **This repository is `audiodsp` now.** It was named `audioif` until
+  2026-09-21; that name now belongs to the audio hardware layer (the pump's
+  platform drivers), which lines audio up with `displayif` and `usbif`. What
+  changes for you: the PyPI distribution is `pydevices-audiodsp`, the
+  pure-Python helper package is `audiodsp_util`, the CPython extension is
+  `_audiodsp`, and every C identifier, header and build knob carries the
+  `audiodsp_` / `AUDIODSP_` prefix. The modules you import — `audiocore`,
+  `synthio`, `audiopump` and the rest — are unchanged. Issue numbers carried
+  over with the rename.
 - **`audiopump`: the audio pull, off the interpreter thread.** A new module
   runs the block pull in C on a thread the interpreter is not on — a task
   pinned to the other core on esp32, a native thread on unix and Windows, the
@@ -43,7 +52,7 @@
   recursive mutex.
 
   The platform half is not here. The thread, the mutex, the clock and the
-  sink arrive through sixteen hooks in `src/shared/audioif_port.h`, every one
+  sink arrive through sixteen hooks in `src/shared/audiodsp_port.h`, every one
   of which may be NULL — a table of nothing but NULLs is a complete
   one-thread port. `audiopump.driver()` says at run time which driver bound
   (`esp32`, `pthread`, `win32`, `none`), so a build whose driver silently did
@@ -78,7 +87,7 @@
   returns an error in 17 us rather than recursing until the stack is gone.
 
 - **The pull is a critical section, and nothing in it raises.** One
-  recursive, priority-inheriting mutex (`src/shared/audioif_pump_lock.{c,h}`)
+  recursive, priority-inheriting mutex (`src/shared/audiodsp_pump_lock.{c,h}`)
   is held by the pump for one block pull and by a control path around its
   final swap only — never across an allocation, never across anything that
   can raise. So a knob moves, a patch changes and a note is pressed with no
@@ -126,13 +135,13 @@
 
   `audiocore._AudioSample._publish` is the rule now — a node hands back its
   own buffer, refilled, with as many slots as the native rotates through (one
-  for the nodes audioif wrote, two for the ported CircuitPython effects, for
+  for the nodes audiodsp wrote, two for the ported CircuitPython effects, for
   `Mixer` and for the synthesizer) — and `audiocore._borrow` is the in-graph
   pull that does not copy. `audiocore.get_buffer` still copies, on both
   targets, because it is the script-facing one.
   `tests/parity/mixer_borrowed_block_probe.py` is the gate, and
   [docs/correctness-standard.md](docs/correctness-standard.md) carries this as
-  the third way one twin and three natives part company. audioif#89.
+  the third way one twin and three natives part company. audiodsp#89.
 
 - **The soundtrack render gate runs again.**
   `tests/parity/capture_render_reference.py` had not been able to start since
@@ -173,13 +182,13 @@
   The golden was **not** re-captured. It holds seven pieces from 2026-09-03
   and the soundtrack has grown since; whether that baseline is still the
   reference or should be re-taken against today's pieces and today's DSP is
-  Brad's call, not an agent's (audioif#88).
-- **`audioif_util.float32`, and the rule that a setting derived in Python
+  Brad's call, not an agent's (audiodsp#88).
+- **`audiodsp_util.float32`, and the rule that a setting derived in Python
   goes through it.** A Python float is the interpreter's `mp_float_t` — a
   double here and on the desktop MicroPython, a **single** on every board and
   on a `MICROPY_FLOAT_IMPL_FLOAT` build — so `node.mix = 0.35` is two
   different numbers and the node renders different bytes on a board before
-  its kernel is reached. `lib/audioif_util/` is `struct` and two functions:
+  its kernel is reached. `lib/audiodsp_util/` is `struct` and two functions:
   `float32(value)`, the round trip that is the identity on a single-precision
   target and a rounding on a double one, and `float32_bits(value)`, the exact
   way to print a float that two interpreters have to agree on.
@@ -201,12 +210,12 @@
   `--known-divergent` list drops from six probes to two.
 
   The two that are left are below the probes and each has its own issue:
-  audioif#101, `synthio.Biquad` deriving W0 at `mp_float_t` width where the
-  CPython extension calls the shared `double` `audioif_biquad_cp_w0()`; and
-  audioif#102, a filtered `audiodelays.Echo` doing `echo * decay + sample` at
+  audiodsp#101, `synthio.Biquad` deriving W0 at `mp_float_t` width where the
+  CPython extension calls the shared `double` `audiodsp_biquad_cp_w0()`; and
+  audiodsp#102, a filtered `audiodelays.Echo` doing `echo * decay + sample` at
   `mp_float_t` width in C and in double in the twin. Both were proved by
   landing the CPython twin on the float build's bytes exactly, and both move
-  board digests, so neither is folded in here (audioif#80).
+  board digests, so neither is folded in here (audiodsp#80).
 
 - **`audioshaper.Waveshaper`'s own headroom is documented, and pinned by a
   trait test.** A curve that reaches the rails and a `post_gain` above about
@@ -225,7 +234,7 @@
   twin only — neither the MicroPython usermod's module globals nor the
   CircuitPython spike's export anything past `__version__`/`__revision__`
   and the two types, the same as `GROUP_DELAY_SAMPLES` beside it
-  (audioif#99).
+  (audiodsp#99).
 
 - **`audioshaper.SampleHold`**, a new node: a zero-order hold in which `num`
   source frames carry `den` new values, at a ratio that is exact. One frame
@@ -245,9 +254,9 @@
   frame 196 608; at Mix 0.5 a steady 12 kHz tone swung 10.74 dB over a
   twelve-second render, which is a slow flange on a setting nobody was
   touching. The rate form was **not** added to `SpeedChanger`: that module is
-  a CircuitPython port, an argument added to audioif's copy would not exist
+  a CircuitPython port, an argument added to audiodsp's copy would not exist
   on a stock board, and `audiospeed` is byte-identical to what it was
-  (audioif#97).
+  (audiodsp#97).
 
 - `audiospeed.SpeedChanger` **carries its phase across a source buffer**.
   Upstream zeroes the accumulator every time it takes a new buffer, so what the
@@ -260,7 +269,7 @@
   `source[(((n·up)>>16)·down)>>16]` exactly. A rate that divides the buffer
   length was always right, which is why the parity gate never saw it.
   `reset_buffer` still starts the stream over. Upstream still restarts, so this
-  is a named departure — `docs/upstream-diff.md`, report drafted (audioif#91).
+  is a named departure — `docs/upstream-diff.md`, report drafted (audiodsp#91).
 
 - `audiospeed`: the 16.16 rate **rounds** now instead of truncating. Upstream
   casts, so a float landing a hair below its Q16 neighbour lost a whole LSB —
@@ -269,7 +278,7 @@
   (27666 codes of error on a full-scale tone; 48 and 22.05 kHz happened to land
   on 1.0 and looked fine). `Resampler`'s bound ratio rounds too: 48000/44100 is
   71332, not 71331. Upstream CircuitPython still truncates, so this is a named
-  departure — `docs/upstream-diff.md`, report drafted (audioif#92).
+  departure — `docs/upstream-diff.md`, report drafted (audiodsp#92).
 
 - `audioroute.Splitter` lost the head of any block bigger than its
   8192-frame ring. `audiocore.get_buffer` takes no length, so a source hands
@@ -278,7 +287,7 @@
   1408 frames gone, and a seam at 8192. It writes in ring-sized pieces now
   and keeps the remainder. Lapping a *laggard* tap is unchanged and still
   deliberate. `audioroute.RING_FRAMES` is exposed for callers who need the
-  number (audioif#87).
+  number (audiodsp#87).
 
 - `audiomixer`: a mixer voice looping a sample too short to fill one packed
   32-bit word — a one-frame mono `RawSample` is two bytes — never returned
@@ -287,7 +296,7 @@
   voice rather than spinning on it. Refused rather than padded: padding a
   one-frame loop halves its loop rate, and would have to copy a buffer
   `RawSample` deliberately does not own. Upstream CircuitPython still spins
-  here (audioif#85). `MixerVoice.loop` gains a property on the CPython target,
+  here (audiodsp#85). `MixerVoice.loop` gains a property on the CPython target,
   which had only the `play(loop=)` argument.
 
 - `audiomodal.Bank`: a bank of resonators, which is what a struck object
@@ -298,11 +307,11 @@
   `Biquad` nodes measures a 4113 Hz spectral centroid against 73.8 Hz
   summed in float, and `audioroute.Splitter` stops at four taps anyway.
   Reaches CircuitPython through the additive path. Shared C in
-  `src/shared/audioif_modal.c`.
+  `src/shared/audiodsp_modal.c`.
 
 - `audiomath.remix_s16`: interleaved native-endian s16 1↔2 channel convert
   (stereo frames to (L+R)/2, or a mono sample duplicated). Shared C in
-  `src/shared/audioif_remix.c`, bound on the usermod and the CPython
+  `src/shared/audiodsp_remix.c`, bound on the usermod and the CPython
   extension. Not a graph node — `audiomixer.Mixer` still requires sources
   that already match `channel_count`.
 
@@ -340,7 +349,7 @@ retires the last ceiling deviation. See
 ### Added
 
 - Every module of ours reports `__version__` and `__revision__`, so a firmware
-  can name the audioif it was built from. A published wheel reports `unknown`
+  can name the audiodsp it was built from. A published wheel reports `unknown`
   for the revision -- it is built from an sdist with no `.git`, and its
   `__version__` already names it exactly. (#55)
 - `audiodelays.Flanger`, `audiodelays.GranularPitchShift`, `audiospeed.Resampler`
@@ -383,7 +392,7 @@ retires the last ceiling deviation. See
 
 ### Documentation
 
-- [docs/correctness-standard.md](docs/correctness-standard.md): what audioif is
+- [docs/correctness-standard.md](docs/correctness-standard.md): what audiodsp is
   held to, in one page.
 - [docs/upstream-diff.md](docs/upstream-diff.md) records what CircuitPython's
   Q15 biquad does below 100 Hz, where `b0` rounds to zero, and which filter to
@@ -453,7 +462,7 @@ retires the last ceiling deviation. See
 
 - audiodynamics: twenty-one additive options and an external key input, for the effects program (#38)
 - audioroute: MidSide, a zero-latency mid/side matrix, exact identity at width=1
-- audioshaper: a new audioif-own module -- a table waveshaper, oversampled x2/x4/x8, with an off-by-default hysteresis option
+- audioshaper: a new audiodsp-own module -- a table waveshaper, oversampled x2/x4/x8, with an off-by-default hysteresis option
 - packaging: numpy is the `render` extra, so a bare install says honestly what audiorender needs
 
 ## v0.2.0 (2026-09-03)
@@ -462,7 +471,7 @@ retires the last ceiling deviation. See
 - synthio: one polyphony ceiling, 14, on every build path
 - docs: the instrument and effect libraries live in audiocomponents
 - packaging: nothing here freezes or ships the component packages
-- publish: audioif no longer publishes the component packages or MIP
+- publish: audiodsp no longer publishes the component packages or MIP
 - tests: component tests and the instruments gate go to audiocomponents
 - ci: bump the actions group across 1 directory with 2 updates (#10)
 - README: the standalone claim holds for Make ports; CMake ports still need a sibling ulab
@@ -483,7 +492,7 @@ retires the last ceiling deviation. See
 - readme: document a standalone MicroPython build recipe
 - readme: add Installation section to audiorender
 - readmes: add Installation sections to audioeffects and audioinstruments
-- readme: restructure for scannability, add direct audioif install line
+- readme: restructure for scannability, add direct audiodsp install line
 - docs: note where the component docs will live
 - spec: record why patch values are integers, and that it is settled
 - instruments: log-map time and filter-frequency macros, and re-derive patch 0

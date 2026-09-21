@@ -37,7 +37,7 @@ C3's bar is 1 LSB rather than exact for an arithmetic reason, not a sloppy one:
 the tallest impulse int16 can hold is 32767, so a "unit" impulse has gain
 32767/32768 and the reproduction is short by that much.
 
-C7 is audioif#44's class-side clause. It returned `AUDIOIF_CONVOLVE_FRAMES`
+C7 is audiodsp#44's class-side clause. It returned `AUDIODSP_CONVOLVE_FRAMES`
 unconditionally until 2026-09-09, so an unloaded convolver - which is a
 passthrough and adds no latency at all - reported a whole partition of it.
 """
@@ -199,7 +199,7 @@ class StateTest(unittest.TestCase):
                         "fresh one, so C6 cannot fail")
 
     def test_latency_reports_the_loaded_state(self):
-        """C7, audioif#44."""
+        """C7, audiodsp#44."""
         self.assertEqual(convolver().latency, 0)
         self.assertEqual(convolver(impulse=UNIT_IMPULSE).latency,
                          PARTITION_FRAMES)

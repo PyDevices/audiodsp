@@ -1,5 +1,5 @@
 // audiodynamics.Dynamics for CircuitPython: the buffer plumbing around
-// shared/audioif_dynamics.c. See Dynamics.h.
+// shared/audiodsp_dynamics.c. See Dynamics.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -15,7 +15,7 @@ void audiodynamics_dynamics_reset_buffer(audiodynamics_dynamics_obj_t *self,
     self->pending_frames = 0;
     self->key_pending = NULL;
     self->key_pending_frames = 0;
-    audioif_dynamics_reset(&self->state);
+    audiodsp_dynamics_reset(&self->state);
 }
 
 audioio_get_buffer_result_t audiodynamics_dynamics_get_buffer(
@@ -24,7 +24,7 @@ audioio_get_buffer_result_t audiodynamics_dynamics_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_DYNAMICS_FRAMES) {
+    while (produced < AUDIODSP_DYNAMICS_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -40,7 +40,7 @@ audioio_get_buffer_result_t audiodynamics_dynamics_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_DYNAMICS_FRAMES - produced;
+        uint32_t run = AUDIODSP_DYNAMICS_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
@@ -69,7 +69,7 @@ audioio_get_buffer_result_t audiodynamics_dynamics_get_buffer(
             self->key_pending += run * self->base.channel_count;
             self->key_pending_frames -= run;
         }
-        audioif_dynamics_process_s16_key(&self->config, &self->state,
+        audiodsp_dynamics_process_s16_key(&self->config, &self->state,
             &self->buffer[produced * 2], self->pending, key, run);
         self->pending += run * self->base.channel_count;
         self->pending_frames -= run;
@@ -79,7 +79,7 @@ audioio_get_buffer_result_t audiodynamics_dynamics_get_buffer(
     // in the middle of a live graph and never reports itself finished.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_DYNAMICS_FRAMES;
+        produced = AUDIODSP_DYNAMICS_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

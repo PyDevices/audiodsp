@@ -1,4 +1,4 @@
-// Compat shim for audioif: lets a usermod define a *compile-time
+// Compat shim for audiodsp: lets a usermod define a *compile-time
 // const* namedtuple-shaped native type (used for synthio.Envelope), the way
 // CircuitPython's py/objnamedtuple.h extension does.
 //

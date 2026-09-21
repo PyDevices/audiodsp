@@ -7,7 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // The options `FeedbackDelay(...)` and `set(...)` accept, paired with the
 // shared DSP's enum. `sample_rate` and `max_delay_ms` are deliberately
@@ -15,24 +15,24 @@
 // than from it, and keyword order stays irrelevant.
 typedef struct {
     qstr name;
-    audioif_feedback_delay_option_t option;
+    audiodsp_feedback_delay_option_t option;
 } feedback_delay_option_name_t;
 
 static const feedback_delay_option_name_t feedback_delay_option_names[] = {
-    { MP_QSTR_delay_ms, AUDIOIF_FEEDBACK_DELAY_OPT_DELAY_MS },
-    { MP_QSTR_feedback, AUDIOIF_FEEDBACK_DELAY_OPT_FEEDBACK },
-    { MP_QSTR_mix, AUDIOIF_FEEDBACK_DELAY_OPT_MIX },
-    { MP_QSTR_damping_hz, AUDIOIF_FEEDBACK_DELAY_OPT_DAMPING_HZ },
-    { MP_QSTR_cut_hz, AUDIOIF_FEEDBACK_DELAY_OPT_CUT_HZ },
-    { MP_QSTR_wow_hz, AUDIOIF_FEEDBACK_DELAY_OPT_WOW_HZ },
-    { MP_QSTR_wow_depth_ms, AUDIOIF_FEEDBACK_DELAY_OPT_WOW_DEPTH_MS },
-    { MP_QSTR_cross_feed, AUDIOIF_FEEDBACK_DELAY_OPT_CROSS_FEED },
-    { MP_QSTR_loop_drive, AUDIOIF_FEEDBACK_DELAY_OPT_LOOP_DRIVE },
-    { MP_QSTR_input_pan, AUDIOIF_FEEDBACK_DELAY_OPT_INPUT_PAN },
-    { MP_QSTR_delay_slew, AUDIOIF_FEEDBACK_DELAY_OPT_DELAY_SLEW },
-    { MP_QSTR_wow_am_depth, AUDIOIF_FEEDBACK_DELAY_OPT_WOW_AM_DEPTH },
-    { MP_QSTR_loop_semitones, AUDIOIF_FEEDBACK_DELAY_OPT_LOOP_SEMITONES },
-    { MP_QSTR_loop_window_ms, AUDIOIF_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS },
+    { MP_QSTR_delay_ms, AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_MS },
+    { MP_QSTR_feedback, AUDIODSP_FEEDBACK_DELAY_OPT_FEEDBACK },
+    { MP_QSTR_mix, AUDIODSP_FEEDBACK_DELAY_OPT_MIX },
+    { MP_QSTR_damping_hz, AUDIODSP_FEEDBACK_DELAY_OPT_DAMPING_HZ },
+    { MP_QSTR_cut_hz, AUDIODSP_FEEDBACK_DELAY_OPT_CUT_HZ },
+    { MP_QSTR_wow_hz, AUDIODSP_FEEDBACK_DELAY_OPT_WOW_HZ },
+    { MP_QSTR_wow_depth_ms, AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_MS },
+    { MP_QSTR_cross_feed, AUDIODSP_FEEDBACK_DELAY_OPT_CROSS_FEED },
+    { MP_QSTR_loop_drive, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_DRIVE },
+    { MP_QSTR_input_pan, AUDIODSP_FEEDBACK_DELAY_OPT_INPUT_PAN },
+    { MP_QSTR_delay_slew, AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_SLEW },
+    { MP_QSTR_wow_am_depth, AUDIODSP_FEEDBACK_DELAY_OPT_WOW_AM_DEPTH },
+    { MP_QSTR_loop_semitones, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_SEMITONES },
+    { MP_QSTR_loop_window_ms, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS },
 };
 
 // `wow_shape` is a buffer, not a number, so it is handled beside
@@ -43,14 +43,14 @@ static const feedback_delay_option_name_t feedback_delay_option_names[] = {
 static void feedback_delay_set_shape(audioecho_feedback_delay_obj_t *self,
     mp_obj_t value) {
     if (value == mp_const_none) {
-        audioif_feedback_delay_set_wow_shape(&self->config, NULL, 0);
+        audiodsp_feedback_delay_set_wow_shape(&self->config, NULL, 0);
         self->wow_shape = MP_OBJ_NULL;
         return;
     }
     mp_buffer_info_t info;
     mp_get_buffer_raise(value, &info, MP_BUFFER_READ);
     if (info.len % sizeof(int16_t) != 0 ||
-        !audioif_feedback_delay_set_wow_shape(&self->config,
+        !audiodsp_feedback_delay_set_wow_shape(&self->config,
             (const int16_t *)info.buf,
             (uint32_t)(info.len / sizeof(int16_t)))) {
         mp_raise_ValueError(MP_ERROR_TEXT(
@@ -79,7 +79,7 @@ static void feedback_delay_apply_kwargs(audioecho_feedback_delay_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(feedback_delay_option_names); ++option) {
             if (feedback_delay_option_names[option].name == name) {
-                audioif_feedback_delay_configure(&self->config,
+                audiodsp_feedback_delay_configure(&self->config,
                     feedback_delay_option_names[option].option, value);
                 known = true;
                 break;
@@ -139,19 +139,19 @@ static mp_obj_t audioecho_feedback_delay_make_new(const mp_obj_type_t *type,
     if (line_frames < 2) {
         line_frames = 2;
     }
-    audioif_feedback_delay_config_init(&self->config, sample_rate,
+    audiodsp_feedback_delay_config_init(&self->config, sample_rate,
         line_frames);
-    audioif_feedback_delay_set_channel_count(&self->config, channel_count);
+    audiodsp_feedback_delay_set_channel_count(&self->config, channel_count);
     int16_t *line = m_malloc((size_t)line_frames * 2u * sizeof(int16_t));
     memset(line, 0, (size_t)line_frames * 2u * sizeof(int16_t));
-    audioif_feedback_delay_state_init(&self->state, line);
+    audiodsp_feedback_delay_state_init(&self->state, line);
     // The default delay is half the line rather than all of it, so a caller
     // who sizes the line and says nothing else still hears repeats.
-    audioif_feedback_delay_configure(&self->config,
-        AUDIOIF_FEEDBACK_DELAY_OPT_DELAY_MS, (float)max_delay_ms * 0.5f);
+    audiodsp_feedback_delay_configure(&self->config,
+        AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_MS, (float)max_delay_ms * 0.5f);
 
     feedback_delay_apply_kwargs(self, &kw_map);
-    audioif_feedback_delay_config_finish(&self->config);
+    audiodsp_feedback_delay_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -159,11 +159,11 @@ static mp_obj_t audioecho_feedback_delay_play(mp_obj_t self_in,
     mp_obj_t sample) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioecho_feedback_delay_play_obj,
@@ -181,9 +181,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioecho_feedback_delay_set_obj, 1,
 
 static mp_obj_t audioecho_feedback_delay_clear(mp_obj_t self_in) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
-    audioif_feedback_delay_reset(&self->state, &self->config);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+    audiodsp_feedback_delay_reset(&self->state, &self->config);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioecho_feedback_delay_clear_obj,
@@ -196,7 +196,7 @@ static audioio_get_buffer_result_t audioecho_feedback_delay_get_buffer(
     (void)channel;
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t produced = 0;
-    while (produced < AUDIOIF_FEEDBACK_DELAY_FRAMES) {
+    while (produced < AUDIODSP_FEEDBACK_DELAY_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -212,20 +212,20 @@ static audioio_get_buffer_result_t audioecho_feedback_delay_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_FEEDBACK_DELAY_FRAMES - produced;
+        uint32_t run = AUDIODSP_FEEDBACK_DELAY_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
         // `* channel_count`, not `* 2`: the DSP writes `channel_count`
         // samples per frame, so a mono node advanced this destination by
         // twice what it had written and interleaved its own output with the
-        // gap it left (audioif#54). Harmless on stereo by coincidence, and
+        // gap it left (audiodsp#54). Harmless on stereo by coincidence, and
         // harmless on mono while a source hands out at least
-        // AUDIOIF_FEEDBACK_DELAY_FRAMES per pull, because `produced` is then
+        // AUDIODSP_FEEDBACK_DELAY_FRAMES per pull, because `produced` is then
         // 0 for the only chunk. Both twins already read it this way -
         // `circuitpython_spike/shared-module/audioecho/FeedbackDelay.c` and
         // the CPython `audioecho.py`, which appends contiguously.
-        audioif_feedback_delay_process_s16(&self->config, &self->state,
+        audiodsp_feedback_delay_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -239,7 +239,7 @@ static audioio_get_buffer_result_t audioecho_feedback_delay_get_buffer(
     // matches audiodelays.Echo, whose users expect it.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_FEEDBACK_DELAY_FRAMES;
+        produced = AUDIODSP_FEEDBACK_DELAY_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;
@@ -256,17 +256,17 @@ static void audioecho_feedback_delay_reset_buffer(mp_obj_t self_in,
     // Unlike audiodynamics, everything goes. A delay's whole state is
     // audible: a chain restarted with the old repeats still in the line
     // plays the previous take over the new one.
-    audioif_feedback_delay_reset(&self->state, &self->config);
+    audiodsp_feedback_delay_reset(&self->state, &self->config);
 }
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, which is what makes every guarded entry point raise
 // afterwards -- `audiosample_get_buffer` and `audiosample_reset_buffer` in
 // audiocore for the audio path, and the three shared properties. The node
-// types audioif ported from CircuitPython have had this since they were
-// ported; the ones audioif wrote itself did not, so no class built on them
+// types audiodsp ported from CircuitPython have had this since they were
+// ported; the ones audiodsp wrote itself did not, so no class built on them
 // could release one and Tier 1's "deinit() releases every node the class
-// built" was unmeasurable on a board (audioif#58, #60, #63).
+// built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the
 // object holds a *reference* to: the upstream source, so releasing the tail
@@ -274,13 +274,13 @@ static void audioecho_feedback_delay_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioecho_feedback_delay_deinit(mp_obj_t self_in) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->wow_shape = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioecho_feedback_delay_deinit_obj, audioecho_feedback_delay_deinit);

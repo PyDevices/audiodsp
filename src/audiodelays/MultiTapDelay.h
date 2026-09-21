@@ -26,7 +26,7 @@ typedef struct {
     synthio_block_slot_t mix;
 
     mp_float_t *tap_positions;
-    // Always double, not mp_float_t: this is what audioif_multitap_process_s16
+    // Always double, not mp_float_t: this is what audiodsp_multitap_process_s16
     // (a runtime-neutral shared/ signature) takes, and mp_float_t is float on
     // an MCU build. Converted once here, when taps are set, so the audio
     // callback in *_get_buffer never pays for a per-block marshal.

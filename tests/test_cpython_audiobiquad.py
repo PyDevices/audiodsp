@@ -15,7 +15,7 @@ So the comparisons live here:
 - `feedback=0.0` nulls, and the ported node's 0.1..0.9 clamp cannot get near
   it however its frequency is trimmed;
 - and the frozen `synthio.Biquad` kernel has fixed points it parks on, which
-  is the measurement audioif#23 is about, reproduced here at the kernel so
+  is the measurement audiodsp#23 is about, reproduced here at the kernel so
   the contrast is a fact in the tree rather than a link.
 
 ## The traits, with their bars
@@ -42,7 +42,7 @@ learn what is being promised.
 | B11 | A band-pass peaks at 0 dB at its own centre | 0.05 dB at and above 100 Hz; 0.15 dB at the 20-63 Hz corner |
 | B12 | Presents as a sample; a starved node yields silence, not a short block | exact |
 
-**B11's recorded departure is CLOSED (audioif#64, 2026-09-09).** It had two
+**B11's recorded departure is CLOSED (audiodsp#64, 2026-09-09).** It had two
 causes and only one of them was the filter. The measurement ended before the
 resonator had rung up: the old window reached 2.09 ring-up time constants at
 20 Hz / Q 32 and read −1.1474 dB, where `20*log10(1 - exp(-2.09))` is
@@ -62,14 +62,14 @@ measurement. B9's control is `audiofilters.Filter`, which settles a full-scale
 DC step at 28520 rather than 32767 - not a defect, but upstream's two-voice
 mix-down knee, `(32767 - 28000) * 7151 >> 16 + 28000`, which this module does
 not apply. B4's control is the frozen `synthio.Biquad` kernel, whose fixed
-points are the subject of audioif#23 and are reproduced here.
+points are the subject of audiodsp#23 and are reproduced here.
 """
 
 import math
 import unittest
 from array import array
 
-import _audioif
+import _audiodsp
 import audiobiquad
 import audiocore
 import audiofilters
@@ -215,7 +215,7 @@ class TailTest(unittest.TestCase):
                 "feedback %g never reached zero" % (feedback,))
 
     def test_the_frozen_kernel_has_fixed_points_this_one_does_not(self):
-        """audioif#23, reproduced at the kernel rather than cited.
+        """audiodsp#23, reproduced at the kernel rather than cited.
 
         Not every trajectory lands on one -- which is why the defect went
         unnoticed -- but a plain DC burst into a low-pass does, and the state
@@ -223,8 +223,8 @@ class TailTest(unittest.TestCase):
 
         **The numbers here were 1 and 4 until 2026-09-09, and that was this
         test measuring the wrong kernel.** `BiquadState.process_s16` ran
-        audioif's widened fixed point at the time, which does park but only on
-        a negligible value; audioif#77 pointed it at CircuitPython's actual Q15
+        audiodsp's widened fixed point at the time, which does park but only on
+        a negligible value; audiodsp#77 pointed it at CircuitPython's actual Q15
         arithmetic, which is what the name always claimed. The defect is far
         larger than 1 LSB:
 
@@ -244,7 +244,7 @@ class TailTest(unittest.TestCase):
         """
         parked = []
         for frequency, expected in ((100.0, 2631), (40.0, 16143)):
-            state = _audioif.BiquadState()
+            state = _audiodsp.BiquadState()
             state.process_s16(array("h", [30000] * 256).tobytes(), 0,
                               frequency, 0.7071067811865475, 1.0, 48000, 1.0,
                               1)
@@ -398,7 +398,7 @@ class UniversalTraitTest(unittest.TestCase):
     """The traits every node of ours carries, on this one.
 
     B8, B9 and B10 are the shape `docs/correctness-standard.md` asks of every
-    audioif-own module. They are here first because `audiobiquad` is what ten
+    audiodsp-own module. They are here first because `audiobiquad` is what ten
     of the Phase 2 `audioeffects` classes are built on, so a defect here is a
     defect in all of them.
     """
@@ -478,7 +478,7 @@ class UniversalTraitTest(unittest.TestCase):
 
     def test_clear_leaves_the_node_as_a_freshly_built_one(self):
         """B10. A reset that leaves anything behind is a reset that does not
-        mean what it says - audioif#56 is that defect in `audiodynamics`, and
+        mean what it says - audiodsp#56 is that defect in `audiodynamics`, and
         this is the trait that would have caught it there."""
         for mode in audiobiquad.MODES:
             with self.subTest(mode=mode):
@@ -524,7 +524,7 @@ class UniversalTraitTest(unittest.TestCase):
 
 
 class BandPassPeakTest(unittest.TestCase):
-    """B11, and the departure audioif#64 records."""
+    """B11, and the departure audiodsp#64 records."""
 
     #: RBJ's constant-0 dB-peak band-pass has unity gain at its own centre at
     #: every Q. Anything else is the arithmetic, not the design.
@@ -551,7 +551,7 @@ class BandPassPeakTest(unittest.TestCase):
         resonator has rung up -- 2.09 time constants at 20 Hz / Q 32. The
         reading there was -1.1474 dB, and `20*log10(1 - exp(-2.09))` is
         **-1.147 dB**: the whole of it was incomplete settling, recorded as an
-        arithmetic defect (audioif#64) for as long as that window stood. The
+        arithmetic defect (audiodsp#64) for as long as that window stood. The
         same window is 3.30 tau at 31.5 Hz, 6.60 at 63 Hz and 20.9 at 100 Hz,
         and the readings fell away exactly as that suggests.
 
@@ -603,13 +603,13 @@ class BandPassPeakTest(unittest.TestCase):
                                        self.WANTED_DB, delta=0.05)
 
     def test_the_low_corner_holds_too(self):
-        """B11 at the corner audioif#64 was about. It holds now.
+        """B11 at the corner audiodsp#64 was about. It holds now.
 
         Two things were wrong there and only one of them was the filter:
 
         * the measurement ended before the resonator had rung up -- see
           `_peak_db`, and the test below, which pins it;
-        * `audioif_biquad_f32_process_s16()` was direct form I, whose
+        * `audiodsp_biquad_f32_process_s16()` was direct form I, whose
           `b0*x0 + b1*x1 + b2*x2 - a1*y1 - a2*y2` is the difference of two
           nearly-equal large numbers when the poles are close to the unit
           circle. Transposed direct form II is not, and costs nothing.
@@ -636,7 +636,7 @@ class BandPassPeakTest(unittest.TestCase):
                                        self.WANTED_DB, delta=0.15)
 
     def test_the_short_window_reads_the_ring_up_not_the_filter(self):
-        """The control for `_peak_db`'s window, and the record of audioif#64.
+        """The control for `_peak_db`'s window, and the record of audiodsp#64.
 
         A resonator approaches its final amplitude as `1 - exp(-t/tau)`, so a
         window that ends early reports the shortfall as if it were the filter.

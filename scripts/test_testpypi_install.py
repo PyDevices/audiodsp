@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Smoke a fresh pydevices-audioif install from TestPyPI.
+"""Smoke a fresh pydevices-audiodsp install from TestPyPI.
 
     scripts/test_testpypi_install.py [VERSION] [--skip-render]
 
 `docs/building-wheels.md` names this as a post-release step to run on fresh
-Linux and Windows hosts. Two things used to stop it being one (audioif#72):
+Linux and Windows hosts. Two things used to stop it being one (audiodsp#72):
 the version was frozen into the source as `0.0.1`, so it smoked a 2026-08-25
 build whichever release it was run for, and its embedded snippet used
 `array(...)` with no import, so it raised `NameError` before it could assert
@@ -17,12 +17,12 @@ the release it is run beside. Pass one explicitly to smoke any other.
 Two environments are built, each from scratch, because they answer different
 questions: the bare install is what someone who wants the audio nodes gets,
 and the `[render]` install is the only check anywhere that the extra's name is
-still spelled the way `pyproject.toml` declares it (audioif#35). `--skip-render`
+still spelled the way `pyproject.toml` declares it (audiodsp#35). `--skip-render`
 drops the second if numpy's download is not welcome.
 
 `--extra-index-url` is not optional: TestPyPI alone cannot resolve numpy, and
 a run without it fails in the dependency resolver with nothing to do with
-this package (audioif#30).
+this package (audiodsp#30).
 """
 
 import subprocess
@@ -61,7 +61,7 @@ print('[render] install OK: numpy', numpy.__version__)
 
 def smoke(label, requirement, code):
     """Build a throwaway venv, install `requirement` into it, run `code`."""
-    with tempfile.TemporaryDirectory(prefix="audioif-testpypi-") as directory:
+    with tempfile.TemporaryDirectory(prefix="audiodsp-testpypi-") as directory:
         root = Path(directory)
         venv.EnvBuilder(with_pip=True).create(root)
         python = root / ("Scripts/python.exe" if sys.platform == "win32"
@@ -83,13 +83,13 @@ def main(argv):
 
     version = arguments[0] if arguments else \
         (ROOT / "VERSION").read_text().strip()
-    print("smoking pydevices-audioif %s from TestPyPI" % version)
+    print("smoking pydevices-audiodsp %s from TestPyPI" % version)
 
-    smoke("bare", "pydevices-audioif==%s" % version, BARE)
+    smoke("bare", "pydevices-audiodsp==%s" % version, BARE)
     if "--skip-render" in argv:
         print("== [render]: skipped")
     else:
-        smoke("[render]", "pydevices-audioif[render]==%s" % version, RENDER)
+        smoke("[render]", "pydevices-audiodsp[render]==%s" % version, RENDER)
     print("all TestPyPI install checks passed for %s" % version)
     return 0
 

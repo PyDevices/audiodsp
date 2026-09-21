@@ -1,5 +1,5 @@
 // audioconvolve.Convolver for CircuitPython: the buffer plumbing around
-// shared/audioif_convolve.c. See Convolver.h.
+// shared/audiodsp_convolve.c. See Convolver.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -17,7 +17,7 @@ void audioconvolve_convolver_reset_buffer(
     // The history goes; the impulse stays. One is audio in flight and the
     // other is a setting -- reloading a room because playback restarted would
     // be both wrong and expensive.
-    audioif_convolve_reset(&self->state, &self->config);
+    audiodsp_convolve_reset(&self->state, &self->config);
 }
 
 audioio_get_buffer_result_t audioconvolve_convolver_get_buffer(
@@ -26,7 +26,7 @@ audioio_get_buffer_result_t audioconvolve_convolver_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_CONVOLVE_FRAMES) {
+    while (produced < AUDIODSP_CONVOLVE_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -42,11 +42,11 @@ audioio_get_buffer_result_t audioconvolve_convolver_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_CONVOLVE_FRAMES - produced;
+        uint32_t run = AUDIODSP_CONVOLVE_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_convolve_process_s16(&self->config, &self->state,
+        audiodsp_convolve_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -60,7 +60,7 @@ audioio_get_buffer_result_t audioconvolve_convolver_get_buffer(
     // the middle of a live graph never reports itself finished.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_CONVOLVE_FRAMES;
+        produced = AUDIODSP_CONVOLVE_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

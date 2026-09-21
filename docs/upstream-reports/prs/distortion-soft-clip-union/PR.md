@@ -116,7 +116,7 @@ result, not a universal constant.
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-distortion-soft-clip-union
-git am /path/to/audioif/docs/upstream-reports/prs/distortion-soft-clip-union/0001-Fix-audiofilters.Distortion-soft_clip-False-enabling.patch
+git am /path/to/audiodsp/docs/upstream-reports/prs/distortion-soft-clip-union/0001-Fix-audiofilters.Distortion-soft_clip-False-enabling.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-distortion-soft-clip-union

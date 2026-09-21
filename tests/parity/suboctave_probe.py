@@ -3,10 +3,10 @@
     suboctave_probe.py audiomath
 
 Like multiply_probe.py and feedback_delay_probe.py this one has no oracle:
-`audiomath` is audioif's own module, with no ancestor in CircuitPython or in
+`audiomath` is audiodsp's own module, with no ancestor in CircuitPython or in
 micropython-vst3's engine. What the golden pins is that every interpreter
 renders it identically -- the arithmetic is entirely inside
-shared/audioif_suboctave.c, the same C all three link, so a disagreement
+shared/audiodsp_suboctave.c, the same C all three link, so a disagreement
 between two of them would itself be the finding.
 
 The fixtures are built with integer arithmetic only, the way multiply_probe.py

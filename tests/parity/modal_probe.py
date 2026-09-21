@@ -3,7 +3,7 @@
     modal_probe.py audiomodal
 
 Like filter_f32_probe.py and feedback_delay_probe.py, this has no oracle:
-`audiomodal` is audioif's own module, with no ancestor in CircuitPython or in
+`audiomodal` is audiodsp's own module, with no ancestor in CircuitPython or in
 micropython-vst3's engine. What the gate pins is that every interpreter
 renders it identically, and that nothing moves it by accident later.
 

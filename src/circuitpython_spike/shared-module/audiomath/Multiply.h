@@ -1,6 +1,6 @@
-// audiomath.Multiply for CircuitPython. See audioif's src/audiomath/Multiply.h
-// for the MicroPython twin; the DSP is the same shared/audioif_multiply.c in
-// both, copied into this tree by audioif/apply_cp_patches.sh.
+// audiomath.Multiply for CircuitPython. See audiodsp's src/audiomath/Multiply.h
+// for the MicroPython twin; the DSP is the same shared/audiodsp_multiply.c in
+// both, copied into this tree by audiodsp/apply_cp_patches.sh.
 //
 // SPDX-License-Identifier: MIT
 
@@ -12,7 +12,7 @@
 #include "py/obj.h"
 #include "shared-module/audiocore/__init__.h"
 
-#include "shared/audioif_multiply.h"
+#include "shared/audiodsp_multiply.h"
 
 typedef struct {
     audiosample_base_t base;
@@ -22,8 +22,8 @@ typedef struct {
     // What to multiply it by. Pulled the same way, but with the opposite
     // failure: no modulator means the signal passes through untouched.
     mp_obj_t modulator;
-    audioif_multiply_config_t config;
-    int16_t buffer[AUDIOIF_MULTIPLY_FRAMES * 2];
+    audiodsp_multiply_config_t config;
+    int16_t buffer[AUDIODSP_MULTIPLY_FRAMES * 2];
     // Frames fetched from each input but not yet consumed, carried across
     // output blocks. The two inputs hand out different block lengths, so
     // neither cursor can be derived from the other.

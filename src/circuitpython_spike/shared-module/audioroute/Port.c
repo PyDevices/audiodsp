@@ -21,7 +21,7 @@ audioio_get_buffer_result_t audioroute_port_get_buffer(
         return GET_BUFFER_ERROR;
     }
     // Through CircuitPython's own funnel, not through the protocol directly,
-    // for the same reason the MicroPython twin uses audioif's: the funnel
+    // for the same reason the MicroPython twin uses audiodsp's: the funnel
     // carries the deinit guard, so a class that releases the node behind its
     // port gets GET_BUFFER_ERROR instead of a read of freed buffers. On this
     // build the funnel is stock `shared-module/audiocore/__init__.c` and it

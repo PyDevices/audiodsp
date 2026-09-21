@@ -5,7 +5,7 @@ from enum import Enum
 import math
 import struct
 from audiocore import GET_BUFFER_MORE_DATA, _AudioSample, get_buffer, reset_buffer
-import _audioif
+import _audiodsp
 
 
 def _value(value):
@@ -132,7 +132,7 @@ class Filter(_Effect):
             self._filters = tuple(filter)
         else:
             self._filters = (filter,)
-        self._filter_states = tuple(_audioif.BiquadState() for _ in self._filters)
+        self._filter_states = tuple(_audiodsp.BiquadState() for _ in self._filters)
 
     def _reset_state(self):
         for state in self._filter_states:
@@ -170,7 +170,7 @@ class Distortion(_Effect):
         from synthio import _advance_blocks
         _advance_blocks(self.sample_rate,
                         len(data) // (self.channel_count * 2))
-        return _audioif.distortion_s16(
+        return _audiodsp.distortion_s16(
             data,
             min(1.0, max(0.0, _value(self.drive))),
             min(60.0, max(-60.0, _value(self.pre_gain))),
@@ -238,7 +238,7 @@ class Phaser(_Effect):
         coefficient = int(((1.0 - frequency / (self.sample_rate / 2.0)) /
                            (1.0 + frequency / (self.sample_rate / 2.0))) * 32767)
         if self.bits_per_sample == 16:
-            return _audioif.phaser_s16(
+            return _audiodsp.phaser_s16(
                 data, self._feedback_words, self._allpass,
                 self.channel_count, self._stages, frequency,
                 self.sample_rate / 2.0,
@@ -270,7 +270,7 @@ class Phaser(_Effect):
 
 # CircuitPython 10.3.0's audiofilters_process_filter_chain: Q15 coefficients
 # from the same fast_sincos / Q_rsqrt tick as shared-module/synthio/Biquad.c,
-# then synthio_sat16 of the five-product sum. audioif_biquad is a different
+# then synthio_sat16 of the five-product sum. audiodsp_biquad is a different
 # arithmetic (wider shift) and is not this helper.
 _PAIR_SCALE = 0xfffffff // (32768 * 2 - 28000)
 
@@ -411,7 +411,7 @@ class _FilterChain:
     def tick(self, sample_rate):
         # A multiply by a reciprocal, matching synthio_global_W_scale exactly.
         # `(2 * pi) / sample_rate` differs in the last bits, and Q15 rounding
-        # turns that into different coefficients. See audioif_biquad_cp_w0().
+        # turns that into different coefficients. See audiodsp_biquad_cp_w0().
         w_scale = (2.0 * math.pi) * (1.0 / sample_rate)
         self.coeffs = [_cp_biquad_coeffs(biquad, w_scale)
                        for biquad in self.objs]

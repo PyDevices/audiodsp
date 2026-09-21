@@ -1,4 +1,4 @@
-// Compat shim for audioif. See namedtuple.h.
+// Compat shim for audiodsp. See namedtuple.h.
 //
 // namedtuple_print/namedtuple_attr/namedtuple_make_new below are verbatim
 // copies of the `static` functions of the same name in mainline

@@ -7,20 +7,20 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 //: Keyword -> the DSP's option slot, in the order
-//: shared/audioif_suboctave.h declares them.
+//: shared/audiodsp_suboctave.h declares them.
 static bool suboctave_option_slot(qstr name,
-    audioif_suboctave_option_t *option) {
+    audiodsp_suboctave_option_t *option) {
     if (name == MP_QSTR_order) {
-        *option = AUDIOIF_SUBOCTAVE_OPT_ORDER;
+        *option = AUDIODSP_SUBOCTAVE_OPT_ORDER;
     } else if (name == MP_QSTR_mix) {
-        *option = AUDIOIF_SUBOCTAVE_OPT_MIX;
+        *option = AUDIODSP_SUBOCTAVE_OPT_MIX;
     } else if (name == MP_QSTR_threshold) {
-        *option = AUDIOIF_SUBOCTAVE_OPT_THRESHOLD;
+        *option = AUDIODSP_SUBOCTAVE_OPT_THRESHOLD;
     } else if (name == MP_QSTR_hold_ms) {
-        *option = AUDIOIF_SUBOCTAVE_OPT_HOLD_MS;
+        *option = AUDIODSP_SUBOCTAVE_OPT_HOLD_MS;
     } else {
         return false;
     }
@@ -62,25 +62,25 @@ static mp_obj_t audiomath_suboctave_make_new(const mp_obj_type_t *type,
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_suboctave_config_init(&self->config, self->base.sample_rate);
-    audioif_suboctave_set_channel_count(&self->config,
+    audiodsp_suboctave_config_init(&self->config, self->base.sample_rate);
+    audiodsp_suboctave_set_channel_count(&self->config,
         (uint32_t)self->base.channel_count);
-    audioif_suboctave_state_init(&self->state);
+    audiodsp_suboctave_state_init(&self->state);
 
-    static const audioif_suboctave_option_t positional[] = {
-        AUDIOIF_SUBOCTAVE_OPT_ORDER,
-        AUDIOIF_SUBOCTAVE_OPT_MIX,
-        AUDIOIF_SUBOCTAVE_OPT_THRESHOLD,
-        AUDIOIF_SUBOCTAVE_OPT_HOLD_MS,
+    static const audiodsp_suboctave_option_t positional[] = {
+        AUDIODSP_SUBOCTAVE_OPT_ORDER,
+        AUDIODSP_SUBOCTAVE_OPT_MIX,
+        AUDIODSP_SUBOCTAVE_OPT_THRESHOLD,
+        AUDIODSP_SUBOCTAVE_OPT_HOLD_MS,
     };
     for (size_t i = 0; i < MP_ARRAY_SIZE(positional); ++i) {
         mp_obj_t value = args[ARG_order + i].u_obj;
         if (value != mp_const_none) {
-            audioif_suboctave_configure(&self->config, positional[i],
+            audiodsp_suboctave_configure(&self->config, positional[i],
                 (float)mp_obj_get_float(value));
         }
     }
-    audioif_suboctave_config_finish(&self->config);
+    audiodsp_suboctave_config_finish(&self->config);
 
     if (args[ARG_source].u_obj != mp_const_none) {
         audiosample_base_t *sample = audiosample_check(args[ARG_source].u_obj);
@@ -100,11 +100,11 @@ static mp_obj_t audiomath_suboctave_play(mp_obj_t self_in, mp_obj_t sample) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source channel_count does not match SubOctave"));
     }
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiomath_suboctave_play_obj,
@@ -122,12 +122,12 @@ static mp_obj_t audiomath_suboctave_set(size_t n_args, const mp_obj_t *args,
             continue;
         }
         qstr name = mp_obj_str_get_qstr(kw_args->table[i].key);
-        audioif_suboctave_option_t option;
+        audiodsp_suboctave_option_t option;
         if (!suboctave_option_slot(name, &option)) {
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown SubOctave option '%q'"), name);
         }
-        audioif_suboctave_configure(&self->config, option,
+        audiodsp_suboctave_configure(&self->config, option,
             (float)mp_obj_get_float(kw_args->table[i].value));
     }
     return mp_const_none;
@@ -137,9 +137,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audiomath_suboctave_set_obj, 1,
 
 static mp_obj_t audiomath_suboctave_clear(mp_obj_t self_in) {
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
-    audioif_suboctave_reset(&self->state);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+    audiodsp_suboctave_reset(&self->state);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomath_suboctave_clear_obj,
@@ -153,7 +153,7 @@ static audioio_get_buffer_result_t audiomath_suboctave_get_buffer(
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(self_in);
     const uint32_t width = 2u * self->base.channel_count;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_SUBOCTAVE_FRAMES) {
+    while (produced < AUDIODSP_SUBOCTAVE_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -168,11 +168,11 @@ static audioio_get_buffer_result_t audiomath_suboctave_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_SUBOCTAVE_FRAMES - produced;
+        uint32_t run = AUDIODSP_SUBOCTAVE_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_suboctave_process_s16(&self->config, &self->state,
+        audiodsp_suboctave_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -183,7 +183,7 @@ static audioio_get_buffer_result_t audiomath_suboctave_get_buffer(
     // in the middle of a live graph and never reports itself finished.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_SUBOCTAVE_FRAMES;
+        produced = AUDIODSP_SUBOCTAVE_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * width;
@@ -200,17 +200,17 @@ static void audiomath_suboctave_reset_buffer(mp_obj_t self_in,
     // The divider holds no audio, so unlike a delay this drops nothing
     // anybody can hear; what it stops is a restarted chain beginning on the
     // inverted half of the count.
-    audioif_suboctave_reset(&self->state);
+    audiodsp_suboctave_reset(&self->state);
 }
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, which is what makes every guarded entry point raise
 // afterwards -- `audiosample_get_buffer` and `audiosample_reset_buffer` in
 // audiocore for the audio path, and the three shared properties. The node
-// types audioif ported from CircuitPython have had this since they were
-// ported; the ones audioif wrote itself did not, so no class built on them
+// types audiodsp ported from CircuitPython have had this since they were
+// ported; the ones audiodsp wrote itself did not, so no class built on them
 // could release one and Tier 1's "deinit() releases every node the class
-// built" was unmeasurable on a board (audioif#58, #60, #63).
+// built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the
 // object holds a *reference* to: the upstream source, so releasing the tail
@@ -218,12 +218,12 @@ static void audiomath_suboctave_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audiomath_suboctave_deinit(mp_obj_t self_in) {
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomath_suboctave_deinit_obj, audiomath_suboctave_deinit);

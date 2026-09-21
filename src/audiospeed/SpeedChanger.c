@@ -18,7 +18,7 @@
 #include "cp_compat/objproperty.h"
 
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 #define OUTPUT_BUFFER_FRAMES 128
 
@@ -32,7 +32,7 @@ static uint32_t rate_to_fp(mp_obj_t rate_obj) {
     // Round to the nearest Q16 step. Upstream truncates, so a float landing a
     // hair under its neighbour loses a whole LSB instead of arriving at it:
     // 1/1.0000000000000004 becomes 65535/65536 rather than unity. A deliberate
-    // departure -- see docs/upstream-diff.md (audioif#92).
+    // departure -- see docs/upstream-diff.md (audiodsp#92).
     return (uint32_t)(rate * (1 << SPEED_SHIFT) + (mp_float_t)0.5);
 }
 
@@ -72,11 +72,11 @@ void common_hal_audiospeed_speedchanger_deinit(audiospeed_speedchanger_obj_t *se
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->output_buffer = NULL;
     self->source = MP_OBJ_NULL;
     audiosample_mark_deinit(&self->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void common_hal_audiospeed_speedchanger_set_rate(audiospeed_speedchanger_obj_t *self, uint32_t rate_fp) {
@@ -111,7 +111,7 @@ static bool fetch_source_buffer(audiospeed_speedchanger_obj_t *self) {
     // Carry the accumulator across the boundary rather than zeroing it. What
     // this buffer consumed is the frame count of the buffer *before* it, not
     // everything the phase was holding -- upstream throws away the remainder,
-    // so a hold restarts its staircase at every source buffer. audioif#91,
+    // so a hold restarts its staircase at every source buffer. audiodsp#91,
     // docs/upstream-diff.md.
     uint32_t consumed = self->src_sample_count << SPEED_SHIFT;
     self->phase = self->phase >= consumed ? self->phase - consumed : 0;

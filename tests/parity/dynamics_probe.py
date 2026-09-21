@@ -20,7 +20,7 @@ import sys
 from array import array
 
 import audiocore
-from audioif_util import float32_bits
+from audiodsp_util import float32_bits
 
 MODULE = sys.argv[1] if len(sys.argv) > 1 else "audiodynamics"
 # Both spellings are built-in modules under MicroPython, which does not record
@@ -63,7 +63,7 @@ def emit(tag, node, blocks):
         # decimals is seven significant digits, and MicroPython's
         # single-precision formatter is not correctly rounded that far, so
         # that column used to disagree on a float build while the audio did
-        # not. audioif#80; audioif_util.float32_bits says why.
+        # not. audiodsp#80; audiodsp_util.float32_bits says why.
         print("dyn", tag, index, len(data), sum(data), checksum(data),
               float32_bits(node.gain_reduction_db()))
 

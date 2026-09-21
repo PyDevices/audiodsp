@@ -2,7 +2,7 @@
 
     feedback_delay_probe.py audioecho
 
-Like multiply_probe.py, this has no oracle: `audioecho` is audioif's own
+Like multiply_probe.py, this has no oracle: `audioecho` is audiodsp's own
 module, with no ancestor in CircuitPython or in micropython-vst3's engine.
 What the golden pins is that every interpreter renders it identically.
 
@@ -104,7 +104,7 @@ emit("starved", node, 2)
 
 
 def mono_source(frames=100, level=14000):
-    """Mono, and **shorter than one DSP chunk** (AUDIOIF_FEEDBACK_DELAY_FRAMES
+    """Mono, and **shorter than one DSP chunk** (AUDIODSP_FEEDBACK_DELAY_FRAMES
     is 256), so `get_buffer`'s inner loop runs more than once and `produced`
     is non-zero on a later pass.
 
@@ -113,7 +113,7 @@ def mono_source(frames=100, level=14000):
     binding advanced its destination by `produced * 2` while the DSP wrote
     `channel_count` samples per frame - correct on stereo by coincidence, and
     correct on mono only while one chunk covers the whole pull. So the bug in
-    audioif#54 rendered different bytes on MicroPython from the CPython
+    audiodsp#54 rendered different bytes on MicroPython from the CPython
     extension and the patched CircuitPython build, and no fixture in this
     file could see it: measured before the fix, this case summed 176601 on
     MicroPython against 206555 on the CPython target.

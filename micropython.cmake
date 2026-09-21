@@ -1,8 +1,8 @@
-# MicroPython CMake glue for audioif (esp32, rp2, …).
+# MicroPython CMake glue for audiodsp (esp32, rp2, …).
 # For Make-based ports (unix, windows), see micropython.mk in this dir.
 #
 # Point USER_C_MODULES at this repo (or this file) directly, e.g.:
-#   idf.py build -DUSER_C_MODULES=<path to audioif>
+#   idf.py build -DUSER_C_MODULES=<path to audiodsp>
 # Or let the parent workspace's own aggregator discover it alongside
 # other usermods.
 
@@ -15,7 +15,7 @@ add_library(usermod_mpaudio INTERFACE)
 #     source list, kept in sync by hand -- both build flavors compile the
 #     same C files).
 target_sources(usermod_mpaudio INTERFACE
-    ${MPAUDIO_SRC_DIR}/cp_compat/audioif_build.c
+    ${MPAUDIO_SRC_DIR}/cp_compat/audiodsp_build.c
     ${MPAUDIO_SRC_DIR}/cp_compat/argcheck.c
     ${MPAUDIO_SRC_DIR}/cp_compat/enum.c
     ${MPAUDIO_SRC_DIR}/cp_compat/context_manager_helpers.c
@@ -23,42 +23,42 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/cp_compat/util.c
     ${MPAUDIO_SRC_DIR}/cp_compat/objproperty.c
     ${MPAUDIO_SRC_DIR}/cp_compat/namedtuple.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_sample.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_port.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_pump_lock.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_sample.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_port.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_pump_lock.c
     ${MPAUDIO_SRC_DIR}/audiopump/audiopump.c
     ${MPAUDIO_SRC_DIR}/audiopump/audiopump_ring.c
     ${MPAUDIO_SRC_DIR}/audiopump/audiopump_events.c
     ${MPAUDIO_SRC_DIR}/audiopump/audiopump_tap.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_rawsample.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_synth_dsp.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_envelope.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_distortion.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_biquad.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_echo.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_phaser.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_chorus.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_flanger.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_granular_pitch_shift.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_multitap.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_pitchshift.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_freeverb.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_dynamics.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_splitter.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_midside.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_remix.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_multiply.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_suboctave.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_feedback_delay.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_filter_f32.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_shaper.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_samplehold.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_ladder.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_trig.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_fft.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_convolve.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_tank.c
-    ${MPAUDIO_SRC_DIR}/shared/audioif_modal.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_rawsample.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_synth_dsp.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_envelope.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_distortion.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_biquad.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_echo.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_phaser.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_chorus.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_flanger.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_granular_pitch_shift.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_multitap.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_pitchshift.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_freeverb.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_dynamics.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_splitter.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_midside.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_remix.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_multiply.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_suboctave.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_feedback_delay.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_filter_f32.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_shaper.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_samplehold.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_ladder.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_trig.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_fft.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_convolve.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_tank.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_modal.c
     ${MPAUDIO_SRC_DIR}/mpaudio_modules.c
     ${MPAUDIO_SRC_DIR}/audiocore/__init__.c
     ${MPAUDIO_SRC_DIR}/audiocore/RawSample.c
@@ -124,7 +124,7 @@ target_include_directories(usermod_mpaudio INTERFACE ${MPAUDIO_SRC_DIR})
 # --- which pump lock ------------------------------------------------------
 #
 # Nothing to say any more, and that is the change. This used to define
-# AUDIOIF_PUMP_LOCK_FREERTOS here because the macro that would look obvious --
+# AUDIODSP_PUMP_LOCK_FREERTOS here because the macro that would look obvious --
 # ESP_PLATFORM -- is NOT defined for a user C module, and the POSIX branch
 # compiled and LINKED on esp32 anyway (IDF's newlib has pthread.h). The spike
 # lost a whole firmware to exactly that. There is no branch to choose now: the
@@ -179,8 +179,8 @@ set(MPAUDIO_MP3_SRC_DIR ${MPAUDIO_MOD_DIR}/.deps/mp3/src)
 if(NOT EXISTS ${MPAUDIO_MP3_SRC_DIR}/mp3dec.c)
     set(MPAUDIO_MP3_SRC_DIR ${MPAUDIO_MOD_DIR}/../mp3/src)
 endif()
-if(NOT EXISTS ${MPAUDIO_MP3_SRC_DIR}/mp3dec.c AND NOT DEFINED ENV{AUDIOIF_OPTIONAL_DEPS})
-    message(FATAL_ERROR "audioif: Adafruit_MP3 not found (.deps/mp3 or ../mp3). Run ./scripts/fetch_deps.sh, or set AUDIOIF_OPTIONAL_DEPS=1.")
+if(NOT EXISTS ${MPAUDIO_MP3_SRC_DIR}/mp3dec.c AND NOT DEFINED ENV{AUDIODSP_OPTIONAL_DEPS})
+    message(FATAL_ERROR "audiodsp: Adafruit_MP3 not found (.deps/mp3 or ../mp3). Run ./scripts/fetch_deps.sh, or set AUDIODSP_OPTIONAL_DEPS=1.")
 endif()
 if(EXISTS ${MPAUDIO_MP3_SRC_DIR}/mp3dec.c)
     target_include_directories(usermod_mpaudio INTERFACE ${MPAUDIO_MP3_SRC_DIR})
@@ -223,7 +223,7 @@ target_compile_definitions(usermod_mpaudio INTERFACE MICROPY_MODULE_BUILTIN_SUBP
 # essentially any real patch -- confirmed in phase 7/8d, two notes held on
 # a plain 2-oscillator/detuned voice is already 4 concurrent Notes, and the
 # excess is silently REFUSED rather than erroring. Corrected 2026-09-02
-# (audioif#14): this said "silently steals/truncates", which is the wrong
+# (audiodsp#14): this said "silently steals/truncates", which is the wrong
 # failure. find_channel_with_note (src/synthio/__init__.c:361) reclaims only
 # from RELEASED channels; when every channel is held the press is dropped
 # outright (:425). A note that never sounds is the one you cannot hear go
@@ -266,7 +266,7 @@ target_compile_definitions(usermod_mpaudio INTERFACE MICROPY_MODULE_BUILTIN_SUBP
 # reads it (cmods/micropython/py/mkrules.cmake:79-86), not a make variable
 # as on the unix Make path. Per-board tuning is the fuller phase 10 (port
 # matrix) job, not this one.
-# --- which audioif this firmware was built from -----------------------------
+# --- which audiodsp this firmware was built from -----------------------------
 # See micropython.mk for why this is computed at build time and not stored.
 # Quoted through CMake's generator so the strings survive as C string literals.
 execute_process(
@@ -284,8 +284,8 @@ else()
     set(MPAUDIO_VERSION "0.0.0+unknown")
 endif()
 target_compile_definitions(usermod_mpaudio INTERFACE
-    AUDIOIF_VERSION=\"${MPAUDIO_VERSION}\"
-    AUDIOIF_REVISION=\"${MPAUDIO_REVISION}\")
+    AUDIODSP_VERSION=\"${MPAUDIO_VERSION}\"
+    AUDIODSP_REVISION=\"${MPAUDIO_REVISION}\")
 
 target_compile_definitions(usermod_mpaudio INTERFACE CIRCUITPY_SYNTHIO_MAX_CHANNELS=64)
 
@@ -302,27 +302,27 @@ target_link_libraries(usermod INTERFACE usermod_mpaudio)
 #     add_library(usermod_ulab INTERFACE) unguarded, so a second include of
 #     it is a hard `another target with the same name already exists` error.
 #     Under the workspace aggregator (cmods/micropython.cmake, which globs
-#     mindepth 2/maxdepth 3) BOTH files are found and audioif's comes first
+#     mindepth 2/maxdepth 3) BOTH files are found and audiodsp's comes first
 #     alphabetically -- so this block must stand down there and leave
 #     cmods/ulab to the aggregator, exactly as before this block existed.
 #     CMOD_DIR is how that is detected: cmods/micropython.cmake:1 sets it in
 #     the same directory scope the included file runs in.
 if(TARGET usermod_ulab)
     # Someone already supplied ulab (aggregator reached it before us).
-    message(STATUS "audioif: ulab already provided by another usermod")
+    message(STATUS "audiodsp: ulab already provided by another usermod")
 elseif(DEFINED CMOD_DIR AND EXISTS ${CMOD_DIR}/ulab/code/micropython.cmake)
     # Workspace aggregator build: it will include cmods/ulab itself.
-    message(STATUS "audioif: ulab left to the workspace aggregator (${CMOD_DIR}/ulab)")
+    message(STATUS "audiodsp: ulab left to the workspace aggregator (${CMOD_DIR}/ulab)")
 else()
     set(MPAUDIO_ULAB_CODE_DIR ${MPAUDIO_MOD_DIR}/.deps/ulab/code)
     if(NOT EXISTS ${MPAUDIO_ULAB_CODE_DIR}/ulab.c)
         set(MPAUDIO_ULAB_CODE_DIR ${MPAUDIO_MOD_DIR}/../ulab/code)
     endif()
-    if(NOT EXISTS ${MPAUDIO_ULAB_CODE_DIR}/ulab.c AND NOT DEFINED ENV{AUDIOIF_OPTIONAL_DEPS})
-        message(FATAL_ERROR "audioif: ulab not found (looked in .deps/ulab and ../ulab). Run ./scripts/fetch_deps.sh, or set AUDIOIF_OPTIONAL_DEPS=1 to build without it")
+    if(NOT EXISTS ${MPAUDIO_ULAB_CODE_DIR}/ulab.c AND NOT DEFINED ENV{AUDIODSP_OPTIONAL_DEPS})
+        message(FATAL_ERROR "audiodsp: ulab not found (looked in .deps/ulab and ../ulab). Run ./scripts/fetch_deps.sh, or set AUDIODSP_OPTIONAL_DEPS=1 to build without it")
     endif()
     if(EXISTS ${MPAUDIO_ULAB_CODE_DIR}/ulab.c)
-        message(STATUS "audioif: ulab from ${MPAUDIO_ULAB_CODE_DIR}")
+        message(STATUS "audiodsp: ulab from ${MPAUDIO_ULAB_CODE_DIR}")
         include(${MPAUDIO_ULAB_CODE_DIR}/micropython.cmake)
     endif()
 endif()

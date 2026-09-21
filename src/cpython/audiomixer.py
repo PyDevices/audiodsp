@@ -5,7 +5,7 @@ from struct import pack as _pack, unpack as _unpack
 from audiocore import (
     GET_BUFFER_MORE_DATA, _AudioSample, _borrow, reset_buffer,
 )
-import _audioif
+import _audiodsp
 
 
 def _f32(value):
@@ -33,7 +33,7 @@ def _mod_mul(level):
     within a float32 rounding of one: 56 of the 65536 `int16` values at level
     100/127 alone, each off by a whole LSB. Inaudible at -90 dBFS, but the
     effects program's class gate compares CPython bytes with MicroPython bytes,
-    so it read as nondeterminism. audioif#84.
+    so it read as nondeterminism. audiodsp#84.
 
     Both roundings here are single, not double: `level` and 32767 are exact in
     `float`, and a `float` divide computed in `double` and rounded once is the
@@ -54,7 +54,7 @@ def _source_chunk(sample):
     it stood when the voice fetched it -- which is how a class that settles a
     filter behind a voice it has already attached gets the settled block out
     of its first render rather than the bang. This side copied, so the bang
-    survived and only CPython rendered it (audioif#89). See
+    survived and only CPython rendered it (audiodsp#89). See
     `audiocore._AudioSample._publish` for the other half.
 
     CircuitPython's mixer consumes packed 32-bit words. Any trailing bytes
@@ -92,7 +92,7 @@ class MixerVoice:
         # trailing bytes that do not form one), so a two-byte sample offers
         # nothing to take, and looping means it never reaches the exit that
         # stops a finished voice. On the native builds that is a hang rather
-        # than a short render: audioif#85.
+        # than a short render: audiodsp#85.
         #
         # Read off the fetch just made rather than off a declared length,
         # because a source here is any object with `_get_buffer` and has no
@@ -102,7 +102,7 @@ class MixerVoice:
         #
         # `voice.loop = True` set AFTER play() is deliberately not guarded;
         # the empty-fetch counter in `_get_buffer` covers it by stopping the
-        # voice, as it has since audioif#24.
+        # voice, as it has since audiodsp#24.
         if self._loop and not self._remaining and not self._source_more:
             self._sample, self._loop = None, False
             raise ValueError(
@@ -253,7 +253,7 @@ class Mixer(_AudioSample):
                 # A level or pan move waits for a zero crossing so it cannot
                 # click. The samples are read two at a time because that is the
                 # packed 32-bit word the gate tests; see
-                # audioif_assign_packed_level in src/shared/audioif_synth_dsp.c,
+                # audiodsp_assign_packed_level in src/shared/audiodsp_synth_dsp.c,
                 # which is the authority this mirrors.
                 active = list(voice._active_level)
                 mul_lo, mul_hi = _mod_mul(active[0]), _mod_mul(active[1])
@@ -285,7 +285,7 @@ class Mixer(_AudioSample):
         chunks = [chunk + bytes(size - len(chunk)) for chunk in chunks]
         if self.bits_per_sample == 16 and chunks:
             mixed = chunks[0]
-            for chunk in chunks[1:]: mixed = _audioif.mix_s16(mixed, chunk)
+            for chunk in chunks[1:]: mixed = _audiodsp.mix_s16(mixed, chunk)
         else:
             neutral = 128 if not self.samples_signed else 0
             mixed = bytes(max(0, min(255, sum(chunk[i] - neutral for chunk in chunks) + neutral)) for i in range(size))

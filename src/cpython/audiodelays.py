@@ -3,7 +3,7 @@
 from array import array
 import math
 
-import _audioif
+import _audiodsp
 from audiofilters import _Effect
 from audiofilters import _FilterChain
 from audiofilters import _mix_down
@@ -59,7 +59,7 @@ class Echo(_Effect):
                         len(data) // (self.channel_count * 2))
         delay_samples, rate, decay, mix = self._echo_args()
         if not self._filter_chain:
-            result, self._left_position, self._right_position = _audioif.echo_s16(
+            result, self._left_position, self._right_position = _audiodsp.echo_s16(
                 data, self._echo_buffer, self._left_position, self._right_position,
                 delay_samples, self._maximum_samples, rate, decay, mix,
                 self.freq_shift, self.channel_count,
@@ -129,7 +129,7 @@ class Chorus(_Effect):
         delay_samples = int(self.sample_rate / 1000.0 * delay_ms)
         delay_samples *= self.channel_count
         delay_samples = min(self._maximum_samples, max(1, delay_samples))
-        result, self._position = _audioif.chorus_s16(
+        result, self._position = _audiodsp.chorus_s16(
             data, self._chorus_buffer, self._position, delay_samples,
             self._maximum_samples, voices, mix,
         )
@@ -193,7 +193,7 @@ class MultiTapDelay(_Effect):
         offsets = array("I", (int(delay_samples * position)
                               for position in self._tap_positions))
         levels = array("d", self._tap_levels)
-        result, self._position = _audioif.multitap_s16(
+        result, self._position = _audiodsp.multitap_s16(
             data, self._delay_buffer, self._position, delay_samples,
             self.channel_count, offsets, levels,
             min(1.0, max(0.0, _value(self.decay))),
@@ -226,7 +226,7 @@ class PitchShift(_Effect):
                         len(data) // (self.channel_count * 2))
         read_rate = int(2.0 ** (_value(self.semitones) / 12.0) * 256)
         result, self._window_index, self._overlap_index, self._read_index = (
-            _audioif.pitchshift_s16(
+            _audiodsp.pitchshift_s16(
                 data, self._window_buffer, self._overlap_buffer,
                 self._window_samples, self._overlap_samples,
                 self.channel_count, read_rate, self._window_index,

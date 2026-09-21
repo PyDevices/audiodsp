@@ -1,7 +1,7 @@
-// audioecho.FeedbackDelay for CircuitPython. See audioif's
+// audioecho.FeedbackDelay for CircuitPython. See audiodsp's
 // src/audioecho/FeedbackDelay.h for the MicroPython twin; the DSP is the same
-// shared/audioif_feedback_delay.c in both, copied into this tree by
-// audioif/apply_cp_patches.sh.
+// shared/audiodsp_feedback_delay.c in both, copied into this tree by
+// audiodsp/apply_cp_patches.sh.
 //
 // SPDX-License-Identifier: MIT
 
@@ -13,7 +13,7 @@
 #include "py/obj.h"
 #include "shared-module/audiocore/__init__.h"
 
-#include "shared/audioif_feedback_delay.h"
+#include "shared/audiodsp_feedback_delay.h"
 
 typedef struct {
     audiosample_base_t base;
@@ -21,9 +21,9 @@ typedef struct {
     // The `wow_shape` table, kept here so the collector can see it: the
     // config borrows the samples and nothing else references the object.
     mp_obj_t wow_shape;
-    audioif_feedback_delay_config_t config;
-    audioif_feedback_delay_state_t state;
-    int16_t buffer[AUDIOIF_FEEDBACK_DELAY_FRAMES * 2];
+    audiodsp_feedback_delay_config_t config;
+    audiodsp_feedback_delay_state_t state;
+    int16_t buffer[AUDIODSP_FEEDBACK_DELAY_FRAMES * 2];
     // Source frames fetched but not yet consumed, carried across output
     // blocks.
     const int16_t *pending;

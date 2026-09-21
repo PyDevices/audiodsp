@@ -1,4 +1,4 @@
-// Compat shim for audioif, standing in for CircuitPython's
+// Compat shim for audiodsp, standing in for CircuitPython's
 // supervisor/background_callback.h (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT) -- see
 // docs/upstream-diff.md, "audiomp3: background_callback is synchronous

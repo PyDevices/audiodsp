@@ -4,7 +4,7 @@
 // Named apart from CircuitPython's `audiofilters` on purpose: this is not an
 // extension of `audiofilters.Distortion` but a different node -- one whose
 // curve arrives as data and whose shaping happens above the sample rate.
-// Adding either to `Distortion` would have made audioif's copy of a
+// Adding either to `Distortion` would have made audiodsp's copy of a
 // CircuitPython module diverge from the one on a stock board, which is the
 // one thing apply_cp_patches.sh is built to avoid.
 //
@@ -13,13 +13,13 @@
 #include "audioshaper/SampleHold.h"
 #include "audioshaper/Waveshaper.h"
 
-#include "cp_compat/audioif_build.h"
+#include "cp_compat/audiodsp_build.h"
 
 #include "py/obj.h"
 
 static const mp_rom_map_elem_t audioshaper_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audioshaper) },
-    AUDIOIF_BUILD_GLOBALS,
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_Waveshaper),
       MP_ROM_PTR(&audioshaper_waveshaper_type) },
     // The other half of lo-fi: the waveshaper quantises the value, the hold

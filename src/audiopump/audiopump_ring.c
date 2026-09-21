@@ -59,7 +59,7 @@
 #include "py/runtime.h"
 
 #include "audiocore/__init__.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 #include "audiopump/audiopump_ring.h"
 
@@ -119,7 +119,7 @@ typedef struct {
 // --- the consumer side: this runs on the pump thread ----------------------
 //
 // Nothing in here touches the MicroPython runtime. No allocation, no raise,
-// no lock of its own: the pump already holds audioif's lock for the whole
+// no lock of its own: the pump already holds audiodsp's lock for the whole
 // block pull and the funnel re-takes it recursively on the way in.
 
 static void audiopump_ring_reset_buffer(audiopump_ring_obj_t *self,
@@ -281,10 +281,10 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiopump_ring_stats_obj,
 static mp_obj_t audiopump_ring_clear(mp_obj_t self_in) {
     audiopump_ring_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_check_for_deinit(&self->base);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->r = self->w;
     self->rpos = self->wpos;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiopump_ring_clear_obj,
@@ -296,9 +296,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiopump_ring_clear_obj,
 // check both see a whole deinit rather than half of one.
 static mp_obj_t audiopump_ring_deinit(mp_obj_t self_in) {
     audiopump_ring_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiopump_ring_deinit_obj,

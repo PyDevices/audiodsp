@@ -24,7 +24,7 @@ import sys
 from array import array
 
 import audiocore
-from audioif_util import float32_bits
+from audiodsp_util import float32_bits
 
 MODULE = sys.argv[1] if len(sys.argv) > 1 else "audiodynamics"
 # A built-in module under MicroPython, which does not record those in
@@ -88,7 +88,7 @@ def emit(tag, node, blocks):
         # `"%.6f"`: the three targets hold the identical float32 and the
         # PCM beside it is byte-for-byte the same, but MicroPython's
         # single-precision formatter is not correctly rounded to seven
-        # significant digits. audioif#80.
+        # significant digits. audiodsp#80.
         print("dynopt", tag, index, len(data), sum(data), checksum(data),
               float32_bits(node.gain_reduction_db()))
 
@@ -258,7 +258,7 @@ for rate in (22050, 96000):
     node.play(source())
     emit("rate-%d" % rate, node, 3)
 
-# `gain_smooth_ms` (audioif#61): a one-pole on the computed gain, between the
+# `gain_smooth_ms` (audiodsp#61): a one-pole on the computed gain, between the
 # gain computer and the multiply. Off is asserted here as well as on, because
 # off is what every other fixture in this file and in dynamics_probe.py was
 # captured under -- an "off" case that stopped matching the un-smoothed cases
@@ -306,7 +306,7 @@ for rate in (22050, 96000):
     node.play(source())
     emit("smooth-rate-%d" % rate, node, 2)
 
-# `feedback_gain_corrected` (audioif#62). Off, a feedback detector reads the
+# `feedback_gain_corrected` (audiodsp#62). Off, a feedback detector reads the
 # reduced output, so the loop reduces its own detector input and settles at its
 # own fixed point: against a 20 dB overshoot, 4:1 through 20:1 all land between
 # 8.57 and 9.74 dB of reduction -- about 2:1 whatever the knob says. On, the

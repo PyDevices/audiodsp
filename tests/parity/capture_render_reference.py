@@ -12,18 +12,18 @@ pieces stopped running private copies of the DSP and started importing
 is this repository's DSP being heard in real music.
 
 The renderer moved out from under this script and was repointed in
-audioif#88. It used to be `micropython-vst3/tools/render_preview.py`. Three
+audiodsp#88. It used to be `micropython-vst3/tools/render_preview.py`. Three
 things changed and none of them are in this repository: the checkout is
 `mpvst` now (PyDevices/mpvst), the soundtrack is `examples/soundtrack/`, and
 mpvst `ef0bed5` moved the renderer to `examples/soundtrack/composer/preview.py`
 beside `harness.py`. It is invoked the way mpvst documents it
 (`preview.py --piece NAME out.wav`) and prints the same report, because both
-the old and the new renderer are thin shims over audioif's own `audiorender`
+the old and the new renderer are thin shims over audiodsp's own `audiorender`
 - so `normalize()` and the three line parsers below read it unchanged.
 
 The interpreter that renders (`--python`; this one by default) needs numpy,
-which the renderer imports, and `pydevices-audioif` installed - mpvst imports
-audioif from wherever it is installed, never from a sibling path. It also
+which the renderer imports, and `pydevices-audiodsp` installed - mpvst imports
+audiodsp from wherever it is installed, never from a sibling path. It also
 needs `audioinstruments` and `audioeffects`, which live in the audiocomponents
 repository (https://github.com/PyDevices/audiocomponents). Either install them
 into that interpreter or pass `--components-lib <audiocomponents checkout>/lib`.
@@ -289,7 +289,7 @@ def main():
                         default=str(DEFAULT_MPVST),
                         help="an mpvst checkout (default: %s)" % DEFAULT_MPVST)
     parser.add_argument("--python", default=sys.executable,
-                        help="an interpreter with numpy, pydevices-audioif and "
+                        help="an interpreter with numpy, pydevices-audiodsp and "
                              "the component packages (see the module docstring)")
     parser.add_argument("--components-lib", default=None,
                         help="an audiocomponents checkout's lib/ directory, put "

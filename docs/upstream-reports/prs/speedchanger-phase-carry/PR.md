@@ -1,7 +1,7 @@
 # PR for adafruit/circuitpython: audiospeed phase carry
 
 Branch: `fix-speedchanger-phase-carry` (one commit, the patch beside this
-document). From audioif#91 and the draft in
+document). From audiodsp#91 and the draft in
 [speedchanger-phase-carry.md](../../speedchanger-phase-carry.md).
 
 Independent of the [rate-rounding PR](../speedchanger-rate-rounding/PR.md):
@@ -107,7 +107,7 @@ frames per buffer is unchanged.
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-speedchanger-phase-carry
-git am /home/brad/gh/pydevices/audioif/docs/upstream-reports/prs/speedchanger-phase-carry/0001-audiospeed-carry-the-phase-across-source-buffers.patch
+git am /home/brad/gh/pydevices/audiodsp/docs/upstream-reports/prs/speedchanger-phase-carry/0001-audiospeed-carry-the-phase-across-source-buffers.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-speedchanger-phase-carry

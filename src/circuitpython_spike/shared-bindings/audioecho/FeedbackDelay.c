@@ -92,24 +92,24 @@
 // keyword order stays irrelevant.
 typedef struct {
     qstr name;
-    audioif_feedback_delay_option_t option;
+    audiodsp_feedback_delay_option_t option;
 } feedback_delay_option_name_t;
 
 static const feedback_delay_option_name_t feedback_delay_option_names[] = {
-    { MP_QSTR_delay_ms, AUDIOIF_FEEDBACK_DELAY_OPT_DELAY_MS },
-    { MP_QSTR_feedback, AUDIOIF_FEEDBACK_DELAY_OPT_FEEDBACK },
-    { MP_QSTR_mix, AUDIOIF_FEEDBACK_DELAY_OPT_MIX },
-    { MP_QSTR_damping_hz, AUDIOIF_FEEDBACK_DELAY_OPT_DAMPING_HZ },
-    { MP_QSTR_cut_hz, AUDIOIF_FEEDBACK_DELAY_OPT_CUT_HZ },
-    { MP_QSTR_wow_hz, AUDIOIF_FEEDBACK_DELAY_OPT_WOW_HZ },
-    { MP_QSTR_wow_depth_ms, AUDIOIF_FEEDBACK_DELAY_OPT_WOW_DEPTH_MS },
-    { MP_QSTR_cross_feed, AUDIOIF_FEEDBACK_DELAY_OPT_CROSS_FEED },
-    { MP_QSTR_loop_drive, AUDIOIF_FEEDBACK_DELAY_OPT_LOOP_DRIVE },
-    { MP_QSTR_input_pan, AUDIOIF_FEEDBACK_DELAY_OPT_INPUT_PAN },
-    { MP_QSTR_delay_slew, AUDIOIF_FEEDBACK_DELAY_OPT_DELAY_SLEW },
-    { MP_QSTR_wow_am_depth, AUDIOIF_FEEDBACK_DELAY_OPT_WOW_AM_DEPTH },
-    { MP_QSTR_loop_semitones, AUDIOIF_FEEDBACK_DELAY_OPT_LOOP_SEMITONES },
-    { MP_QSTR_loop_window_ms, AUDIOIF_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS },
+    { MP_QSTR_delay_ms, AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_MS },
+    { MP_QSTR_feedback, AUDIODSP_FEEDBACK_DELAY_OPT_FEEDBACK },
+    { MP_QSTR_mix, AUDIODSP_FEEDBACK_DELAY_OPT_MIX },
+    { MP_QSTR_damping_hz, AUDIODSP_FEEDBACK_DELAY_OPT_DAMPING_HZ },
+    { MP_QSTR_cut_hz, AUDIODSP_FEEDBACK_DELAY_OPT_CUT_HZ },
+    { MP_QSTR_wow_hz, AUDIODSP_FEEDBACK_DELAY_OPT_WOW_HZ },
+    { MP_QSTR_wow_depth_ms, AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_MS },
+    { MP_QSTR_cross_feed, AUDIODSP_FEEDBACK_DELAY_OPT_CROSS_FEED },
+    { MP_QSTR_loop_drive, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_DRIVE },
+    { MP_QSTR_input_pan, AUDIODSP_FEEDBACK_DELAY_OPT_INPUT_PAN },
+    { MP_QSTR_delay_slew, AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_SLEW },
+    { MP_QSTR_wow_am_depth, AUDIODSP_FEEDBACK_DELAY_OPT_WOW_AM_DEPTH },
+    { MP_QSTR_loop_semitones, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_SEMITONES },
+    { MP_QSTR_loop_window_ms, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS },
 };
 
 // `wow_shape` is a buffer, not a number, so it is handled beside
@@ -120,14 +120,14 @@ static const feedback_delay_option_name_t feedback_delay_option_names[] = {
 static void feedback_delay_set_shape(audioecho_feedback_delay_obj_t *self,
     mp_obj_t value) {
     if (value == mp_const_none) {
-        audioif_feedback_delay_set_wow_shape(&self->config, NULL, 0);
+        audiodsp_feedback_delay_set_wow_shape(&self->config, NULL, 0);
         self->wow_shape = MP_OBJ_NULL;
         return;
     }
     mp_buffer_info_t info;
     mp_get_buffer_raise(value, &info, MP_BUFFER_READ);
     if (info.len % sizeof(int16_t) != 0 ||
-        !audioif_feedback_delay_set_wow_shape(&self->config,
+        !audiodsp_feedback_delay_set_wow_shape(&self->config,
             (const int16_t *)info.buf,
             (uint32_t)(info.len / sizeof(int16_t)))) {
         mp_raise_ValueError(MP_ERROR_TEXT(
@@ -156,7 +156,7 @@ static void feedback_delay_apply_kwargs(audioecho_feedback_delay_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(feedback_delay_option_names); ++option) {
             if (feedback_delay_option_names[option].name == name) {
-                audioif_feedback_delay_configure(&self->config,
+                audiodsp_feedback_delay_configure(&self->config,
                     feedback_delay_option_names[option].option, value);
                 known = true;
                 break;
@@ -216,19 +216,19 @@ static mp_obj_t audioecho_feedback_delay_make_new(const mp_obj_type_t *type,
     if (line_frames < 2) {
         line_frames = 2;
     }
-    audioif_feedback_delay_config_init(&self->config, sample_rate,
+    audiodsp_feedback_delay_config_init(&self->config, sample_rate,
         line_frames);
-    audioif_feedback_delay_set_channel_count(&self->config, channel_count);
+    audiodsp_feedback_delay_set_channel_count(&self->config, channel_count);
     int16_t *line = m_malloc((size_t)line_frames * 2u * sizeof(int16_t));
     memset(line, 0, (size_t)line_frames * 2u * sizeof(int16_t));
-    audioif_feedback_delay_state_init(&self->state, line);
+    audiodsp_feedback_delay_state_init(&self->state, line);
     // The default delay is half the line rather than all of it, so a caller
     // who sizes the line and says nothing else still hears repeats.
-    audioif_feedback_delay_configure(&self->config,
-        AUDIOIF_FEEDBACK_DELAY_OPT_DELAY_MS, (float)max_delay_ms * 0.5f);
+    audiodsp_feedback_delay_configure(&self->config,
+        AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_MS, (float)max_delay_ms * 0.5f);
 
     feedback_delay_apply_kwargs(self, &kw_map);
-    audioif_feedback_delay_config_finish(&self->config);
+    audiodsp_feedback_delay_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -268,7 +268,7 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioecho_feedback_delay_set_obj, 1,
 //|
 static mp_obj_t audioecho_feedback_delay_clear(mp_obj_t self_in) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_feedback_delay_reset(&self->state, &self->config);
+    audiodsp_feedback_delay_reset(&self->state, &self->config);
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioecho_feedback_delay_clear_obj,
@@ -276,8 +276,8 @@ MP_DEFINE_CONST_FUN_OBJ_1(audioecho_feedback_delay_clear_obj,
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. The MicroPython
-// binding of this same type gained it on 2026-09-09 (audioif#58, #60, #63) and
-// this copy did not, which is audioif#75: the two bindings are hand-written and
+// binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
+// this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
 static mp_obj_t audioecho_feedback_delay_deinit(mp_obj_t self_in) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);

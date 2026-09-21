@@ -14,7 +14,7 @@
 //|
 //| The `audiomodal` module rings a signal through N two-pole resonators in
 //| parallel, summed in float and quantised once. It is not part of
-//| CircuitPython upstream; it comes from PyDevices' audioif.
+//| CircuitPython upstream; it comes from PyDevices' audiodsp.
 //|
 //| Hit a drum head, a marimba bar, a bell or a wine glass and it rings as a
 //| sum of decaying sinusoids at frequencies that are not harmonics of
@@ -36,8 +36,8 @@
 static const mp_rom_map_elem_t audiomodal_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audiomodal) },
     { MP_ROM_QSTR(MP_QSTR_Bank), MP_ROM_PTR(&audiomodal_bank_type) },
-    { MP_ROM_QSTR(MP_QSTR_FRAMES), MP_ROM_INT(AUDIOIF_MODAL_FRAMES) },
-    { MP_ROM_QSTR(MP_QSTR_MAX_MODES), MP_ROM_INT(AUDIOIF_MODAL_MAX_MODES) },
+    { MP_ROM_QSTR(MP_QSTR_FRAMES), MP_ROM_INT(AUDIODSP_MODAL_FRAMES) },
+    { MP_ROM_QSTR(MP_QSTR_MAX_MODES), MP_ROM_INT(AUDIODSP_MODAL_MAX_MODES) },
     { MP_ROM_QSTR(MP_QSTR_MIN_DECAY_MS), MP_ROM_INT(1) },
     { MP_ROM_QSTR(MP_QSTR_MAX_DECAY_MS), MP_ROM_INT(30000) },
 };

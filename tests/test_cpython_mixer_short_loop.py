@@ -38,7 +38,7 @@ class MixerShortLoop(unittest.TestCase):
         except subprocess.TimeoutExpired:
             self.fail(
                 "mixer_short_loop_probe.py did not finish in %d s. That is the"
-                " audioif#85 shape itself: a looping sample shorter than one"
+                " audiodsp#85 shape itself: a looping sample shorter than one"
                 " 32-bit word spinning the mix-down. Nothing was printed"
                 " because a killed process does not flush." % TIMEOUT)
         output = result.stdout.decode()

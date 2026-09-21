@@ -12,7 +12,7 @@
 #include "py/obj.h"
 
 #include "audiocore/__init__.h"
-#include "shared/audioif_granular_pitch_shift.h"
+#include "shared/audiodsp_granular_pitch_shift.h"
 #include "synthio/block.h"
 
 extern const mp_obj_type_t audiodelays_granular_pitch_shift_type;
@@ -40,7 +40,7 @@ typedef struct {
     uint32_t density;
     mp_float_t spread;
     uint32_t grain_gain;
-    audioif_granular_pitch_shift_state_t granular;
+    audiodsp_granular_pitch_shift_state_t granular;
 
     mp_obj_t sample;
 } audiodelays_granular_pitch_shift_obj_t;

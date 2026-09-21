@@ -1,5 +1,5 @@
 // audioshaper.SampleHold for CircuitPython: the buffer plumbing around
-// shared/audioif_samplehold.c. See SampleHold.h.
+// shared/audiodsp_samplehold.c. See SampleHold.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -18,7 +18,7 @@ void audioshaper_samplehold_reset_buffer(audioshaper_samplehold_obj_t *self,
     self->pending_frames = 0;
     self->source_done = false;
     self->source_exhausted = false;
-    audioif_samplehold_reset(&self->state, &self->config);
+    audiodsp_samplehold_reset(&self->state, &self->config);
 }
 
 audioio_get_buffer_result_t audioshaper_samplehold_get_buffer(
@@ -28,7 +28,7 @@ audioio_get_buffer_result_t audioshaper_samplehold_get_buffer(
     (void)channel;
     const uint32_t width = self->frame_bytes;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_SAMPLEHOLD_FRAMES) {
+    while (produced < AUDIODSP_SAMPLEHOLD_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL || self->source_exhausted ||
                 self->source_done) {
@@ -48,11 +48,11 @@ audioio_get_buffer_result_t audioshaper_samplehold_get_buffer(
             self->pending_frames = raw_bytes / width;
             self->source_done = (result == GET_BUFFER_DONE);
         }
-        uint32_t run = AUDIOIF_SAMPLEHOLD_FRAMES - produced;
+        uint32_t run = AUDIODSP_SAMPLEHOLD_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_samplehold_process(&self->config, &self->state,
+        audiodsp_samplehold_process(&self->config, &self->state,
             &self->buffer[produced * width], self->pending, run, width);
         self->pending += run * width;
         self->pending_frames -= run;

@@ -33,13 +33,13 @@
 #include "synthio/Note.h"
 #include "synthio/Synthesizer.h"
 #include "synthio/__init__.h"
-#include "shared/audioif_synth_dsp.h"
+#include "shared/audiodsp_synth_dsp.h"
 
 #include "py/builtin.h"
 #include "py/mperrno.h"
 #include "py/runtime.h"
 #include "py/stream.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 #define MP_PI MICROPY_FLOAT_CONST(3.14159265358979323846)
 
@@ -55,7 +55,7 @@ static const uint16_t notes[] = {8372, 8870, 9397, 9956, 10548, 11175, 11840,
 
 // cleaner sat16 by http://www.moseleyinstruments.com/
 int16_t synthio_sat16(int32_t n, int rshift) {
-    return audioif_sat16(n, rshift);
+    return audiodsp_sat16(n, rshift);
 }
 
 static int64_t round_float_to_int64(mp_float_t f) {
@@ -81,10 +81,10 @@ mp_float_t common_hal_synthio_voct_to_hz_float(mp_float_t octave) {
 // recursive: the pump is already holding it when the third one calls.
 void synthio_envelope_definition_set(synthio_envelope_definition_t *envelope, mp_obj_t obj, uint32_t sample_rate) {
     if (obj == mp_const_none) {
-        audioif_pump_lock_acquire();
-        audioif_envelope_definition_init(envelope, sample_rate, false,
+        audiodsp_pump_lock_acquire();
+        audiodsp_envelope_definition_init(envelope, sample_rate, false,
             0, 0, 0, 1, 1);
-        audioif_pump_lock_release();
+        audiodsp_pump_lock_release();
         return;
     }
     mp_arg_validate_type(obj, (mp_obj_type_t *)&synthio_envelope_type_obj, MP_QSTR_envelope);
@@ -98,23 +98,23 @@ void synthio_envelope_definition_set(synthio_envelope_definition_t *envelope, mp
     const mp_float_t r = mp_obj_get_float(fields[2]);
     const mp_float_t al = mp_obj_get_float(fields[3]);
     const mp_float_t sl = mp_obj_get_float(fields[4]);
-    audioif_pump_lock_acquire();
-    audioif_envelope_definition_init(envelope, sample_rate, true,
+    audiodsp_pump_lock_acquire();
+    audiodsp_envelope_definition_init(envelope, sample_rate, true,
         a, d, r, al, sl);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 static void synthio_envelope_state_step(synthio_envelope_state_t *state, synthio_envelope_definition_t *def, size_t n_steps) {
-    audioif_envelope_state_step(state, def, n_steps);
+    audiodsp_envelope_state_step(state, def, n_steps);
 }
 
 static void synthio_envelope_state_init(synthio_envelope_state_t *state, synthio_envelope_definition_t *def) {
-    audioif_envelope_state_init(state, def);
+    audiodsp_envelope_state_init(state, def);
 }
 
 static void synthio_envelope_state_release(synthio_envelope_state_t *state, synthio_envelope_definition_t *def) {
     (void)def;
-    audioif_envelope_state_release(state);
+    audiodsp_envelope_state_release(state);
 }
 
 static synthio_envelope_definition_t *synthio_synth_get_note_envelope(synthio_synth_t *synth, mp_obj_t note_obj) {
@@ -132,7 +132,7 @@ static synthio_envelope_definition_t *synthio_synth_get_note_envelope(synthio_sy
 #define RANGE_SHIFT (16)
 
 int16_t synthio_mix_down_sample(int32_t sample, int32_t scale) {
-    return audioif_mix_down_sample(sample, scale,
+    return audiodsp_mix_down_sample(sample, scale,
         SYNTHIO_MIX_DOWN_RANGE_LOW, SYNTHIO_MIX_DOWN_RANGE_HIGH);
 }
 
@@ -181,7 +181,7 @@ static bool synth_note_into_buffer(synthio_synth_t *synth, int chan, int32_t *ou
     }
 
     uint32_t lim = waveform_length << SYNTHIO_FREQUENCY_SHIFT;
-    if (!audioif_oscillator_fill(out_buffer32, waveform, waveform_start,
+    if (!audiodsp_oscillator_fill(out_buffer32, waveform, waveform_start,
         waveform_length, dds_rate, &synth->accum[chan], dur,
         SYNTHIO_FREQUENCY_SHIFT)) {
         return false;
@@ -199,7 +199,7 @@ static bool synth_note_into_buffer(synthio_synth_t *synth, int chan, int32_t *ou
         lim = ring_waveform_length << SYNTHIO_FREQUENCY_SHIFT;
 
         // Wrap on `>=`, not CircuitPython's `>`; see the note in
-        // audioif_oscillator_fill() and docs/upstream-diff.md.
+        // audiodsp_oscillator_fill() and docs/upstream-diff.md.
         uint32_t ring_span = lim - offset;
         if (accum >= lim) {
             accum = offset + (accum - offset) % ring_span;
@@ -231,7 +231,7 @@ static mp_obj_t synthio_synth_get_note_filter(mp_obj_t note_obj) {
 }
 
 static void sum_with_loudness(int32_t *out_buffer32, int32_t *tmp_buffer32, int16_t active_loudness[2], int16_t loudness[2], size_t dur, int synth_chan) {
-    audioif_sum_with_loudness(out_buffer32, tmp_buffer32, active_loudness,
+    audiodsp_sum_with_loudness(out_buffer32, tmp_buffer32, active_loudness,
         loudness, dur, synth_chan);
 }
 
@@ -277,7 +277,7 @@ void synthio_synth_synthesize(synthio_synth_t *synth, uint8_t **bufptr, uint32_t
         if (filter_obj != mp_const_none) {
             synthio_note_obj_t *note = MP_OBJ_TO_PTR(note_obj);
             if (mp_obj_is_type(filter_obj, &mp_type_tuple) || mp_obj_is_type(filter_obj, &mp_type_list)) {
-                // audioif extension (#11): serial cascade, one state per stage
+                // audiodsp extension (#11): serial cascade, one state per stage
                 size_t n_stages;
                 mp_obj_t *stages;
                 mp_obj_get_array(filter_obj, &n_stages, &stages);
@@ -328,11 +328,11 @@ void synthio_synth_deinit(synthio_synth_t *synth) {
     // the two NULLs land after the check has let a pull through, and
     // synthio_synth_synthesize returns buffers[buffer_index] -- NULL -- and
     // writes into it. Shared with MidiTrack, which is the other caller.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     synth->buffers[0] = NULL;
     synth->buffers[1] = NULL;
     audiosample_mark_deinit(&synth->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void synthio_synth_envelope_set(synthio_synth_t *synth, mp_obj_t envelope_obj) {
@@ -417,7 +417,7 @@ bool synthio_span_change_note(synthio_synth_t *synth, mp_obj_t old_note, mp_obj_
     // note, so a block can land between two notes of a chord -- a
     // millisecond of arpeggio, not a fault. The timestamped event queue is
     // what makes a chord one act.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     int channel;
     if (new_note != SYNTHIO_SILENCE && (channel = find_channel_with_note(synth, new_note)) != -1) {
         // Re-pressing a note that still holds its slot. Upstream sets ATTACK
@@ -446,7 +446,7 @@ bool synthio_span_change_note(synthio_synth_t *synth, mp_obj_t old_note, mp_obj_
         } else {
             synth->envelope_state[channel].state = SYNTHIO_ENVELOPE_STATE_ATTACK;
         }
-        audioif_pump_lock_release();
+        audiodsp_pump_lock_release();
         return true;
     }
     channel = find_channel_with_note(synth, old_note);
@@ -458,10 +458,10 @@ bool synthio_span_change_note(synthio_synth_t *synth, mp_obj_t old_note, mp_obj_
             synthio_envelope_state_init(&synth->envelope_state[channel], synthio_synth_get_note_envelope(synth, new_note));
             synth->accum[channel] = 0;
         }
-        audioif_pump_lock_release();
+        audiodsp_pump_lock_release();
         return true;
     }
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return false;
 }
 

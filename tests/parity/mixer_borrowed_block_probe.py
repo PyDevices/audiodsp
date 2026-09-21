@@ -3,7 +3,7 @@
 `common_hal_audiomixer_mixervoice_play` fetches one block from the source and
 keeps what `audiosample_get_buffer` handed back -- and what it handed back is a
 POINTER into the source node's own buffer (`int16_t buffer[...]` in
-`src/audiobiquad/Biquad.h`, and in every other node audioif wrote). The
+`src/audiobiquad/Biquad.h`, and in every other node audiodsp wrote). The
 mix-down reads that pointer later (`uint32_t *src = voice->remaining_buffer` in
 `src/audiomixer/Mixer.c`). So anything that pulls the source between the fetch
 and the mix overwrites the buffer, and the voice mixes the LATER block. A node
@@ -17,7 +17,7 @@ the bang the pole makes from cold. The CPython twin copied the block at
 `play()` instead of borrowing it, so the bang survived there and only CPython
 rendered it: shipped patches 4 and 6 came out `3b0e6b65f9c782d0` against
 `1f9bcf50dc14a4ee` on desktop MicroPython, desktop CircuitPython and both
-boards. audioif#89.
+boards. audiodsp#89.
 
 A probe of its own rather than a case appended to
 `mixer_level_precision_probe.py`: one comparison covers a probe's whole output,
@@ -43,7 +43,7 @@ import audiomixer
 
 SAMPLE_RATE = 48000
 CHANNELS = 2
-BLOCK = 256          # what every audioif node renders in
+BLOCK = 256          # what every audiodsp node renders in
 BLOCKS = 4
 BUFFER_SIZE = 2048   # a Mixer hands back half of what it is given: 256 frames
 

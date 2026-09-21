@@ -1,6 +1,6 @@
-// audioverb.Tank for CircuitPython. See audioif's src/audioverb/Tank.h for the
-// MicroPython twin; the DSP is the same shared/audioif_tank.c in both, copied
-// into this tree by audioif/apply_cp_patches.sh.
+// audioverb.Tank for CircuitPython. See audiodsp's src/audioverb/Tank.h for the
+// MicroPython twin; the DSP is the same shared/audiodsp_tank.c in both, copied
+// into this tree by audiodsp/apply_cp_patches.sh.
 //
 // SPDX-License-Identifier: MIT
 
@@ -12,14 +12,14 @@
 #include "py/obj.h"
 #include "shared-module/audiocore/__init__.h"
 
-#include "shared/audioif_tank.h"
+#include "shared/audiodsp_tank.h"
 
 typedef struct {
     audiosample_base_t base;
     mp_obj_t source;
-    audioif_tank_config_t config;
-    audioif_tank_state_t state;
-    int16_t buffer[AUDIOIF_TANK_FRAMES * 2];
+    audiodsp_tank_config_t config;
+    audiodsp_tank_state_t state;
+    int16_t buffer[AUDIODSP_TANK_FRAMES * 2];
     // Source frames fetched but not yet consumed, carried across output
     // blocks.
     const int16_t *pending;

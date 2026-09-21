@@ -3,7 +3,7 @@
     samplehold_probe.py audioshaper
 
 Like `waveshaper_probe.py` beside it this has no oracle: `audioshaper` is
-audioif's own module, with no ancestor in CircuitPython or in
+audiodsp's own module, with no ancestor in CircuitPython or in
 micropython-vst3's engine. What the gate pins is that every interpreter
 renders it identically.
 
@@ -24,7 +24,7 @@ wrapped on, so counting transitions counts refreshes.
 Three of the lines are verdicts rather than PCM, and they are the ones this
 node exists for. `refresh` is the count over a whole number of periods, which
 must equal `frames * den / num` exactly -- that is the claim a pair of
-`audiospeed.SpeedChanger` nodes could not make (audioif#97), and no amount of
+`audiospeed.SpeedChanger` nodes could not make (audiodsp#97), and no amount of
 PCM says whether it still holds. `frames` is one frame out per frame in.
 `wire` is 1/1 rendering the source's own bytes.
 """

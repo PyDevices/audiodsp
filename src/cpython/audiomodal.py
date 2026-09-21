@@ -16,7 +16,7 @@ response, so a modal table read out of a paper goes in as published without
 solving for a filter gain first.
 
 Not a mode on `audiobiquad.Biquad`, and the reason is not the usual one --
-`audiobiquad` is already audioif's own, so "an argument here would not exist
+`audiobiquad` is already audiodsp's own, so "an argument here would not exist
 on a stock board" does not apply. Three things make it a different node:
 
 - **It sums before the quantiser.** Built instead as N band-passes in
@@ -40,16 +40,16 @@ is not expressible past four modes without a tree of splitters and mixers.
 from audiocore import (
     GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
 )
-import _audioif
+import _audiodsp
 
 
-#: The audioif this was built from, the same pair the native builds put
-#: on this module (src/cp_compat/audioif_build.h). audioif#55.
-__version__ = _audioif.__version__
-__revision__ = _audioif.__revision__
+#: The audiodsp this was built from, the same pair the native builds put
+#: on this module (src/cp_compat/audiodsp_build.h). audiodsp#55.
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
-FRAMES = _audioif.MODAL_FRAMES
-MAX_MODES = _audioif.MODAL_MAX_MODES
+FRAMES = _audiodsp.MODAL_FRAMES
+MAX_MODES = _audiodsp.MODAL_MAX_MODES
 
 #: Decay bounds in MILLISECONDS, as integers, matching the names the
 #: MicroPython module exports. `set_mode` takes seconds as a float; these are
@@ -58,7 +58,7 @@ MIN_DECAY_MS = 1
 MAX_DECAY_MS = 30000
 
 #: Option name -> the native configure() slot, in the order
-#: shared/audioif_modal.h declares them, which is the order the MicroPython
+#: shared/audiodsp_modal.h declares them, which is the order the MicroPython
 #: bindings list them in too.
 _OPTIONS = {
     "mix": 0,
@@ -86,7 +86,7 @@ class Bank(_AudioSample):
         self._source = None
         self._pending = b""
         self._modes = modes
-        self._state = _audioif.ModalState(
+        self._state = _audiodsp.ModalState(
             sample_rate=self.sample_rate, channel_count=channel_count,
             modes=modes)
         self._apply(options)

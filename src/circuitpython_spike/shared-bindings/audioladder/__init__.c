@@ -14,7 +14,7 @@
 //|
 //| The `audioladder` module is four one-pole stages round a global feedback
 //| loop with an odd saturator inside the loop. It is not part of
-//| CircuitPython upstream; it comes from PyDevices' audioif.
+//| CircuitPython upstream; it comes from PyDevices' audiodsp.
 //|
 //| `audiofilters.Filter` is the linear version of the same shape, and a
 //| better one at what it does: a cascade of biquads tracks a resonant

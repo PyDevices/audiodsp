@@ -70,8 +70,8 @@ static mp_obj_t audiomath_multiply_make_new(const mp_obj_type_t *type,
     self->pending_source_frames = 0;
     self->pending_modulator = NULL;
     self->pending_modulator_frames = 0;
-    audioif_multiply_config_init(&self->config);
-    audioif_multiply_set_channel_count(&self->config,
+    audiodsp_multiply_config_init(&self->config);
+    audiodsp_multiply_set_channel_count(&self->config,
         (uint32_t)self->base.channel_count);
 
     if (args[ARG_source].u_obj != mp_const_none) {
@@ -92,7 +92,7 @@ static mp_obj_t audiomath_multiply_make_new(const mp_obj_type_t *type,
         self->modulator = args[ARG_modulator].u_obj;
     }
     if (args[ARG_mix].u_obj != mp_const_none) {
-        audioif_multiply_set_mix(&self->config,
+        audiodsp_multiply_set_mix(&self->config,
             (float)mp_obj_get_float(args[ARG_mix].u_obj));
     }
     return MP_OBJ_FROM_PTR(self);
@@ -156,7 +156,7 @@ static mp_obj_t audiomath_multiply_set(size_t n_args, const mp_obj_t *args,
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown Multiply option '%q'"), name);
         }
-        audioif_multiply_set_mix(&self->config,
+        audiodsp_multiply_set_mix(&self->config,
             (float)mp_obj_get_float(kw_args->table[i].value));
     }
     return mp_const_none;
@@ -166,8 +166,8 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audiomath_multiply_set_obj, 1,
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. The MicroPython
-// binding of this same type gained it on 2026-09-09 (audioif#58, #60, #63) and
-// this copy did not, which is audioif#75: the two bindings are hand-written and
+// binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
+// this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
 static mp_obj_t audiomath_multiply_deinit(mp_obj_t self_in) {
     audiomath_multiply_obj_t *self = MP_OBJ_TO_PTR(self_in);

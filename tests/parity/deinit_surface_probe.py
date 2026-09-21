@@ -8,16 +8,16 @@ or reading freed memory.
 
 It does not compare exception *types*, on purpose. The native builds raise
 CircuitPython's `ValueError` and the CPython target raises `RuntimeError`
-(audioif#73); this probe is not the place to settle that, so it records only
+(audiodsp#73); this probe is not the place to settle that, so it records only
 that the guard fired.
 
 **The fault this exists to catch.** Twelve of the node types --
-every one audioif wrote rather than ported from CircuitPython -- had no
+every one audiodsp wrote rather than ported from CircuitPython -- had no
 `deinit()` at all, so no class built on them could release one and Tier 1's
 "deinit() releases every node the class built" was unmeasurable on a board
-(audioif#58, #60, #63). One of them, `audiomixer.Mixer`, had `deinit()` and
+(audiodsp#58, #60, #63). One of them, `audiomixer.Mixer`, had `deinit()` and
 no guard on the C protocol entry point, and pulling a released one dumped
-core (audioif#59).
+core (audiodsp#59).
 
 Run `--fault` to check the probe can fail: it skips the `deinit()` call, so
 every node reads as unreleased and the run must exit nonzero. A probe whose
@@ -114,7 +114,7 @@ NODES = (
 def guard_fired(call):
     """Whether the released node refused, by either of the two conventions.
 
-    audioif's own builds **raise**: `audiosample_get_buffer` calls
+    audiodsp's own builds **raise**: `audiosample_get_buffer` calls
     `audiosample_check_for_deinit`, which throws. Upstream CircuitPython
     **returns an error** instead - `shared-module/audiocore/__init__.c:37`
     checks `audiosample_deinited()` and hands back `GET_BUFFER_ERROR` with a
@@ -124,7 +124,7 @@ def guard_fired(call):
 
     An earlier version counted only exceptions, and so reported every node on
     the patched CircuitPython build as unguarded - which was wrong, and was
-    written into audioif#59 before the measurement was taken. What a released
+    written into audiodsp#59 before the measurement was taken. What a released
     node must not do is hand back data.
     """
     try:

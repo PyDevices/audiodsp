@@ -1,6 +1,6 @@
-// audioroute.MidSide for CircuitPython. See audioif's src/audioroute/MidSide.h
-// for the MicroPython twin; the DSP is the same shared/audioif_midside.c in
-// both, copied into this tree by audioif/apply_cp_patches.sh.
+// audioroute.MidSide for CircuitPython. See audiodsp's src/audioroute/MidSide.h
+// for the MicroPython twin; the DSP is the same shared/audiodsp_midside.c in
+// both, copied into this tree by audiodsp/apply_cp_patches.sh.
 //
 // SPDX-License-Identifier: MIT
 
@@ -12,13 +12,13 @@
 #include "py/obj.h"
 #include "shared-module/audiocore/__init__.h"
 
-#include "shared/audioif_midside.h"
+#include "shared/audiodsp_midside.h"
 
 typedef struct {
     audiosample_base_t base;
     mp_obj_t source;
-    audioif_midside_config_t config;
-    int16_t buffer[AUDIOIF_MIDSIDE_FRAMES * 2];
+    audiodsp_midside_config_t config;
+    int16_t buffer[AUDIODSP_MIDSIDE_FRAMES * 2];
     // Source frames fetched but not yet consumed, carried across output
     // blocks.
     const int16_t *pending;

@@ -1,4 +1,4 @@
-// Compat shim for audioif. See proto.h.
+// Compat shim for audiodsp. See proto.h.
 //
 // Ported from CircuitPython's py/proto.c (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT), with the error path

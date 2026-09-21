@@ -20,8 +20,8 @@
 //| Mixer then sums back together, and it scales the difference between a
 //| stereo pair's channels so a drive can work on the middle of an image
 //| without smearing its sides. It is not part of CircuitPython upstream; it
-//| comes from PyDevices' audioif, which in turn took `Splitter` from
-//| micropython-vst3's audio engine. `MidSide` is audioif's own, and so is
+//| comes from PyDevices' audiodsp, which in turn took `Splitter` from
+//| micropython-vst3's audio engine. `MidSide` is audiodsp's own, and so is
 //| `Port` - the wire an effect hands out so the thing holding its output
 //| never has to be told the graph behind it changed.
 //|

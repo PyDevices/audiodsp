@@ -14,7 +14,7 @@
 //|
 //| The `audiodynamics` module provides compression, limiting, downward
 //| expansion, gating and transient shaping for audio chains. It is not part of
-//| CircuitPython upstream; it comes from PyDevices' audioif, which in turn took
+//| CircuitPython upstream; it comes from PyDevices' audiodsp, which in turn took
 //| it from micropython-vst3's audio engine.
 //|
 //| """
@@ -42,12 +42,12 @@ static const mp_rom_map_elem_t audiodynamics_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_Dynamics), MP_ROM_PTR(&audiodynamics_dynamics_type) },
 
     { MP_ROM_QSTR(MP_QSTR_DYN_COMPRESS),
-      MP_ROM_INT(AUDIOIF_DYNAMICS_COMPRESS) },
-    { MP_ROM_QSTR(MP_QSTR_DYN_LIMIT), MP_ROM_INT(AUDIOIF_DYNAMICS_LIMIT) },
-    { MP_ROM_QSTR(MP_QSTR_DYN_EXPAND), MP_ROM_INT(AUDIOIF_DYNAMICS_EXPAND) },
-    { MP_ROM_QSTR(MP_QSTR_DYN_GATE), MP_ROM_INT(AUDIOIF_DYNAMICS_GATE) },
+      MP_ROM_INT(AUDIODSP_DYNAMICS_COMPRESS) },
+    { MP_ROM_QSTR(MP_QSTR_DYN_LIMIT), MP_ROM_INT(AUDIODSP_DYNAMICS_LIMIT) },
+    { MP_ROM_QSTR(MP_QSTR_DYN_EXPAND), MP_ROM_INT(AUDIODSP_DYNAMICS_EXPAND) },
+    { MP_ROM_QSTR(MP_QSTR_DYN_GATE), MP_ROM_INT(AUDIODSP_DYNAMICS_GATE) },
     { MP_ROM_QSTR(MP_QSTR_DYN_TRANSIENT),
-      MP_ROM_INT(AUDIOIF_DYNAMICS_TRANSIENT) },
+      MP_ROM_INT(AUDIODSP_DYNAMICS_TRANSIENT) },
 };
 
 static MP_DEFINE_CONST_DICT(audiodynamics_module_globals,

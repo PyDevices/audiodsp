@@ -1,9 +1,9 @@
-// audioshaper.SampleHold for CircuitPython. See audioif's
+// audioshaper.SampleHold for CircuitPython. See audiodsp's
 // src/audioshaper/SampleHold.h for the MicroPython twin and for why an exact
-// rational hold is a node of audioif's own rather than a rate form added to
+// rational hold is a node of audiodsp's own rather than a rate form added to
 // `audiospeed.SpeedChanger`; the arithmetic is the same
-// shared/audioif_samplehold.c in both, copied into this tree by
-// audioif/apply_cp_patches.sh.
+// shared/audiodsp_samplehold.c in both, copied into this tree by
+// audiodsp/apply_cp_patches.sh.
 //
 // SPDX-License-Identifier: MIT
 
@@ -15,13 +15,13 @@
 #include "py/obj.h"
 #include "shared-module/audiocore/__init__.h"
 
-#include "shared/audioif_samplehold.h"
+#include "shared/audiodsp_samplehold.h"
 
 typedef struct {
     audiosample_base_t base;
     mp_obj_t source;
-    audioif_samplehold_config_t config;
-    audioif_samplehold_state_t state;
+    audiodsp_samplehold_config_t config;
+    audiodsp_samplehold_state_t state;
     // Bytes in one frame of the source's format, fixed at construction.
     uint8_t frame_bytes;
     // Source frames fetched but not yet consumed, carried across output
@@ -30,8 +30,8 @@ typedef struct {
     uint32_t pending_frames;
     bool source_done;
     bool source_exhausted;
-    uint8_t buffer[AUDIOIF_SAMPLEHOLD_FRAMES *
-        AUDIOIF_SAMPLEHOLD_MAX_FRAME_BYTES];
+    uint8_t buffer[AUDIODSP_SAMPLEHOLD_FRAMES *
+        AUDIODSP_SAMPLEHOLD_MAX_FRAME_BYTES];
 } audioshaper_samplehold_obj_t;
 
 void audioshaper_samplehold_reset_buffer(audioshaper_samplehold_obj_t *self,

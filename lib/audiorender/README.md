@@ -1,6 +1,6 @@
 # audiorender
 
-Renders a whole composition offline through audioif's own DSP: tracks,
+Renders a whole composition offline through audiodsp's own DSP: tracks,
 tempo map, notes, automation and sections in, a mixed stereo master and a
 level report out. This is the tier above `audioinstruments` and
 `audioeffects`, and unlike them it is unapologetically a desktop library:
@@ -10,7 +10,7 @@ the same C.
 
 ## Installation
 
-`audiorender` ships inside the `pydevices-audioif` distribution itself,
+`audiorender` ships inside the `pydevices-audiodsp` distribution itself,
 not as a separate package, and is never frozen into firmware or meant for
 a board. It needs `numpy`, which the distribution declares as the `render`
 extra rather than as a dependency — the core modules run on boards and in
@@ -18,13 +18,13 @@ wasm, where numpy has no place — so ask for the extra:
 
 ```sh
 python -m pip install --index-url https://test.pypi.org/simple/ \
-    --extra-index-url https://pypi.org/simple/ "pydevices-audioif[render]"
+    --extra-index-url https://pypi.org/simple/ "pydevices-audiodsp[render]"
 ```
 
 The second index is not optional: TestPyPI carries no numpy anyone can
 use — a 2.4.0.dev0 pre-release pip will not pick, and a 2015 1.9.3 sdist
 that cannot build on a supported Python — so without PyPI in the search
-path the extra fails to install. Installing `pydevices-audioif` without
+path the extra fails to install. Installing `pydevices-audiodsp` without
 `[render]` still gets you every core module; `import audiorender` is then
 the one thing that fails, on numpy.
 
@@ -89,7 +89,7 @@ pull_frames(frames) -> interleaved little-endian stereo int16
 
 `Voice` is that protocol over an `audioinstruments` instrument, which is
 what you want unless you are that host. `Puller` is the frame-buffering
-half on its own, for any audioif node.
+half on its own, for any audiodsp node.
 
 `Clock` is what tempo-locked instruments read. Build instruments with it as
 their `transport` and hand the same object to `render()`, which moves it to
