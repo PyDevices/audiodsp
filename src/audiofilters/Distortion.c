@@ -42,10 +42,10 @@
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/enum.h"
 #include "cp_compat/objproperty.h"
-#include "shared/audioif_distortion.h"
+#include "shared/audiodsp_distortion.h"
 
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // --- shared-module (DSP engine) -------------------------------------------
 
@@ -92,11 +92,11 @@ void common_hal_audiofilters_distortion_deinit(audiofilters_distortion_obj_t *se
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 mp_obj_t common_hal_audiofilters_distortion_get_drive(audiofilters_distortion_obj_t *self) {
@@ -176,13 +176,13 @@ void common_hal_audiofilters_distortion_play(audiofilters_distortion_obj_t *self
         0, &primed, &primed_length);
     primed_length /= (self->base.bits_per_sample / 8);
 
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->sample = sample;
     self->loop = loop;
     self->sample_remaining_buffer = (void *)primed;
     self->sample_buffer_length = primed_length;
     self->more_data = result == GET_BUFFER_MORE_DATA;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void common_hal_audiofilters_distortion_stop(audiofilters_distortion_obj_t *self) {
@@ -282,9 +282,9 @@ audioio_get_buffer_result_t audiofilters_distortion_get_buffer(audiofilters_dist
                         }
                     }
 
-                    int32_t word = audioif_distortion_sample(sample_word,
+                    int32_t word = audiodsp_distortion_sample(sample_word,
                         drive, pre_gain, post_gain,
-                        (audioif_distortion_mode_t)self->mode,
+                        (audiodsp_distortion_mode_t)self->mode,
                         self->soft_clip, mix, word_mask);
 
                     if (MP_LIKELY(self->base.bits_per_sample == 16)) {
@@ -400,14 +400,14 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiofilters_distortion_deinit_obj, audiofilter
 static void check_for_deinit(audiofilters_distortion_obj_t *self) {
     // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
     // contract is that nothing which can longjmp runs while it is held
-    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // (shared/audiodsp_pump_lock.h): a raise from in here never reaches the
     // release, so the mutex is left owned by a thread that has gone back to
     // the interpreter, and the pump blocks on it for ever. This is the guard
     // on every Python-facing method of this class, so it is the most reached
     // statement in the file.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     const bool released = audiosample_deinited(&self->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     if (released) {
         audiosample_check_for_deinit(&self->base);
     }

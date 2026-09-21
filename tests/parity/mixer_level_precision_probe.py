@@ -13,7 +13,7 @@ against the right's 25801. Each appears twice in a row, so each is scaled once
 by the left scale and once by the right. The leading zero pair is what opens
 the level gate on the first word, so no sample here renders at level zero.
 
-A float64 twin and a float32 native disagree on all 56. audioif#84.
+A float64 twin and a float32 native disagree on all 56. audiodsp#84.
 """
 
 from array import array

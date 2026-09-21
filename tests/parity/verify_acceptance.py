@@ -29,7 +29,7 @@ fixture_path = Path(__file__).parent / "golden" / "synthtools_acceptance.json"
 fixture = json.loads(fixture_path.read_text())
 environment = os.environ.copy()
 # tests/support (the ulab shim) and tests/vendor (synthtools) are test-only and
-# ship in no wheel, so they still come from the tree. audioif itself normally
+# ship in no wheel, so they still come from the tree. audiodsp itself normally
 # comes from the installed package.
 #
 # The caller's PYTHONPATH is PREPENDED rather than discarded, and that is

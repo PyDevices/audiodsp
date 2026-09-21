@@ -1,4 +1,4 @@
-// Module skeleton for audioif (tier 0 / phase 2 of
+// Module skeleton for audiodsp (tier 0 / phase 2 of
 // docs/porting-plan.md): registers the top-level modules the port will
 // grow into, each currently empty (just __name__). Each tier fills in its
 // module's globals table directly in this file as ported classes/functions
@@ -33,6 +33,6 @@
 // usermod. See audiodynamics/module.c, audioroute/module.c.
 
 // audiomath, audioecho, audioshaper, audioconvolve, audiobiquad and
-// audioverb and audiomodal (tier 6) are audioif's own, with no ancestor
+// audioverb and audiomodal (tier 6) are audiodsp's own, with no ancestor
 // anywhere.
 // See each module.c.

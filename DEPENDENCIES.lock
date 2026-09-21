@@ -1,4 +1,4 @@
-# Pinned native dependencies for standalone audioif builds.
+# Pinned native dependencies for standalone audiodsp builds.
 # <name> <clone-url> <commit>
 # ulab: the exact revision CircuitPython 10.2.1 vendors (the oracle's).
 # mp3: the exact Adafruit_MP3 commit the parent workspace's circuitpython

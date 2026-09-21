@@ -16,7 +16,7 @@
 
 #include "py/objtuple.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 void audiofilters_assign_filter_chain(audiofilters_filter_chain_t *self, mp_obj_t filter_in, uint8_t channel_count) {
     size_t n_items;
@@ -64,20 +64,20 @@ void audiofilters_assign_filter_chain(audiofilters_filter_chain_t *self, mp_obj_
     if (items == &self->obj) {
         // The single-filter case borrows the address of self->obj itself, so
         // the pointer has to be taken after the store, not before.
-        audioif_pump_lock_acquire();
+        audiodsp_pump_lock_acquire();
         self->obj = filter_in;
         self->states = states;
         self->objs = &self->obj;
         self->objs_len = n_items;
-        audioif_pump_lock_release();
+        audiodsp_pump_lock_release();
         return;
     }
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->obj = filter_in;
     self->states = states;
     self->objs = items;
     self->objs_len = n_items;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void audiofilters_reset_filter_chain(audiofilters_filter_chain_t *self, uint8_t channel_count) {
@@ -106,10 +106,10 @@ void audiofilters_deinit_filter_chain(audiofilters_filter_chain_t *self) {
     // objs_len first would leave the pull looping over a NULL objs; objs
     // first would leave it looping the old count over NULL. Neither, under
     // the lock.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->obj = mp_const_none;
     self->objs = NULL;
     self->objs_len = 0;
     self->states = NULL;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }

@@ -53,7 +53,7 @@
 #include "audiocore/__init__.h"
 #include "audiomixer/Mixer.h"
 #include "audiomixer/MixerVoice.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 #include "synthio/Note.h"
 #include "synthio/Synthesizer.h"
 #include "synthio/__init__.h"
@@ -154,7 +154,7 @@ static void audiopump_apply_play(audiopump_event_t *e, uint32_t *refused) {
     voice->loop = e->loop != 0;
     common_hal_audiomixer_mixervoice_reset(voice);
     if (voice->loop && voice->buffer_length == 0 && !voice->more_data) {
-        // audioif#85: a looping source that cannot fill one packed word never
+        // audiodsp#85: a looping source that cannot fill one packed word never
         // ends. play() raises here; an event counts it and leaves the voice
         // stopped rather than half-started.
         voice->sample = NULL;
@@ -316,10 +316,10 @@ static mp_obj_t audiopump_events_at(size_t n_args, const mp_obj_t *args) {
 
     // Everything above could raise and none of it is inside the lock. What
     // follows is a compare, a memmove and a store.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     if (q->count >= q->capacity) {
         q->dropped++;
-        audioif_pump_lock_release();
+        audiodsp_pump_lock_release();
         // A refusal with a count, not a raise from nowhere: a sequencer that
         // filled the queue wants to know it dropped a note, not to lose its
         // whole step to an exception.
@@ -339,7 +339,7 @@ static mp_obj_t audiopump_events_at(size_t n_args, const mp_obj_t *args) {
     q->count++;
     q->scheduled++;
     const uint32_t token = e.token;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_obj_new_int_from_uint(token);
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiopump_events_at_obj, 4, 6,
@@ -349,7 +349,7 @@ static mp_obj_t audiopump_events_cancel(mp_obj_t self_in, mp_obj_t token_in) {
     audiopump_events_obj_t *q = MP_OBJ_TO_PTR(self_in);
     const uint32_t token = (uint32_t)mp_obj_get_int_truncated(token_in);
     bool found = false;
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     for (uint16_t i = 0; i < q->count; i++) {
         if (q->ev[i].token == token) {
             q->count--;
@@ -361,7 +361,7 @@ static mp_obj_t audiopump_events_cancel(mp_obj_t self_in, mp_obj_t token_in) {
             break;
         }
     }
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_obj_new_bool(found);
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiopump_events_cancel_obj,
@@ -369,12 +369,12 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiopump_events_cancel_obj,
 
 static mp_obj_t audiopump_events_clear(mp_obj_t self_in) {
     audiopump_events_obj_t *q = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     const uint16_t was = q->count;
     q->count = 0;
     memset(q->ev, 0, (size_t)was * sizeof(audiopump_event_t));
     q->cancelled += was;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return MP_OBJ_NEW_SMALL_INT(was);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiopump_events_clear_obj,

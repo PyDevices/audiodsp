@@ -1,4 +1,4 @@
-// Compat shim for audioif. See enum.h.
+// Compat shim for audiodsp. See enum.h.
 //
 // Ported verbatim from CircuitPython's py/enum.c (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT). mp_arg_validate_type

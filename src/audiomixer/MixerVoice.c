@@ -21,7 +21,7 @@
 #include "cp_compat/objproperty.h"
 
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 static mp_obj_t audiomixer_mixervoice_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     mp_arg_check_num(n_args, n_kw, 0, 0, false);
@@ -79,7 +79,7 @@ void common_hal_audiomixer_mixervoice_play(audiomixer_mixervoice_obj_t *self, mp
     //
     // The pull inside reset() re-takes the same lock, which the recursive
     // mutex allows, and the raise below is outside it.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->sample = sample;
     self->loop = loop;
     common_hal_audiomixer_mixervoice_reset(self);
@@ -89,14 +89,14 @@ void common_hal_audiomixer_mixervoice_play(audiomixer_mixervoice_obj_t *self, mp
         self->sample = NULL;
         self->loop = false;
     }
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 
     // A LOOPING SOURCE THAT CANNOT FILL ONE PACKED WORD NEVER ENDS. A voice's
     // buffer is tracked in WORDS -- `buffer_length /= sizeof(uint32_t)` just
     // above, and again in Mixer.c -- so a two-byte sample measures ZERO words,
     // each pass of the mix-down consumes zero of them, and the fill does not
     // advance. Looping is what makes it unbounded: without it the voice
-    // reaches the not-more-data-and-not-looping exit and stops. audioif#85.
+    // reaches the not-more-data-and-not-looping exit and stops. audiodsp#85.
     //
     // The condition is read off the fetch reset() just did rather than off the
     // sample's declared length, because that is what the CPython twin can see
@@ -118,7 +118,7 @@ void common_hal_audiomixer_mixervoice_play(audiomixer_mixervoice_obj_t *self, mp
     // voice's buffer is legitimately empty at the end of any sample, so there
     // is no honest way to tell that case from this one at that moment. The
     // mix-down backstop in Mixer.c covers it -- the voice stops rather than
-    // spinning -- which is what the CPython twin has done since audioif#24.
+    // spinning -- which is what the CPython twin has done since audiodsp#24.
     if (refuse) {
         mp_raise_ValueError(MP_ERROR_TEXT("A looped sample must fill at least one 32-bit word"));
     }
@@ -142,13 +142,13 @@ void common_hal_audiomixer_mixervoice_reset(audiomixer_mixervoice_obj_t *self) {
     // Three of the voice's five words, written here. play() already holds the
     // lock when it calls this; a standalone reset() needs its own, and the
     // recursive mutex means neither has to know which case it is.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_reset_buffer(self->sample, false, 0);
     audioio_get_buffer_result_t result = audiosample_get_buffer(self->sample, false, 0, (uint8_t **)&self->remaining_buffer, &self->buffer_length);
     // Track length in terms of words.
     self->buffer_length /= sizeof(uint32_t);
     self->more_data = result == GET_BUFFER_MORE_DATA;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void common_hal_audiomixer_mixervoice_end(audiomixer_mixervoice_obj_t *self) {

@@ -1,5 +1,5 @@
 // audioroute.MidSide for CircuitPython: the buffer plumbing around
-// shared/audioif_midside.c. See MidSide.h.
+// shared/audiodsp_midside.c. See MidSide.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -24,7 +24,7 @@ audioio_get_buffer_result_t audioroute_midside_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_MIDSIDE_FRAMES) {
+    while (produced < AUDIODSP_MIDSIDE_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -40,11 +40,11 @@ audioio_get_buffer_result_t audioroute_midside_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_MIDSIDE_FRAMES - produced;
+        uint32_t run = AUDIODSP_MIDSIDE_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_midside_process_s16(&self->config,
+        audiodsp_midside_process_s16(&self->config,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -55,7 +55,7 @@ audioio_get_buffer_result_t audioroute_midside_get_buffer(
     // in the middle of a live graph and never reports itself finished.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_MIDSIDE_FRAMES;
+        produced = AUDIODSP_MIDSIDE_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

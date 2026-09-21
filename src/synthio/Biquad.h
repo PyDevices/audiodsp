@@ -11,7 +11,7 @@
 #include "py/obj.h"
 
 #include "synthio/block.h"
-#include "shared/audioif_biquad.h"
+#include "shared/audiodsp_biquad.h"
 
 extern const mp_obj_type_t synthio_biquad_type_obj;
 extern const mp_obj_type_t synthio_filter_mode_type;
@@ -28,15 +28,15 @@ struct synthio_biquad {
     synthio_filter_mode mode;
     synthio_block_slot_t f0, Q, A;
     mp_float_t cached_W0, cached_Q, cached_A;
-    // CircuitPython's Q15 coefficients, and nothing else. audioif#77, Brad
+    // CircuitPython's Q15 coefficients, and nothing else. audiodsp#77, Brad
     // 2026-09-09: a node CircuitPython also has renders CircuitPython's bytes,
     // so there is one coefficient set here rather than two. The widened
     // fixed-point kernel this file used to carry alongside is now reached only
     // through `audiobiquad`, which is ours.
-    audioif_biquad_cp_coefficients_t coefficients;
+    audiodsp_biquad_cp_coefficients_t coefficients;
 };
 
-typedef audioif_biquad_state_t biquad_filter_state;
+typedef audiodsp_biquad_state_t biquad_filter_state;
 
 mp_obj_t common_hal_synthio_biquad_get_A(synthio_biquad_t *self);
 void common_hal_synthio_biquad_set_A(synthio_biquad_t *self, mp_obj_t A);

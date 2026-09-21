@@ -201,7 +201,7 @@ supports idempotent `deinit`.
 ## Target layout
 
 ```
-audioif/
+audiodsp/
   AGENTS.md
   README.md
   LICENSE
@@ -499,7 +499,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
     CMake glue as the P4 (no board-specific source changes needed).
     `firmware.bin`: 1,462,324 bytes against RPI_PICO's 2,097,152-byte flash
     -- 69.7% used, ~30.3% headroom -- with the *entire* workspace stack
-    linked in (LVGL, ulab, pygraphics, displayif, audioif tiers
+    linked in (LVGL, ulab, pygraphics, displayif, audiodsp tiers
     0-4/6), not audio in isolation; tier 5 (audiomp3) is excluded on RP2040
     for the same reason it's excluded on the P4: not wired for any CMake
     port yet (see below), not a board-specific limitation -- RP2040's
@@ -513,7 +513,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
       see phase 7/8d): unix/windows set it to 14 (`micropython.mk`, matching
       CP's own unix `coverage` variant); every CMake/mcu port (esp32 *and*
       rp2, since `micropython.cmake` applies workspace-wide, not
-      per-board) gets a flat 8 (`audioif/micropython.cmake`) --
+      per-board) gets a flat 8 (`audiodsp/micropython.cmake`) --
       a deliberately modest, not-yet-per-board-tuned middle ground. A board
       with more headroom (P4 has PSRAM) or less can override via
       `target_compile_definitions`/`CFLAGS_EXTRA` per board; nothing in
@@ -526,7 +526,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
       mp3dec.h's closed list has no Xtensa branch either, so *every* esp32
       target (Xtensa: esp32/s2/s3; RISC-V: c2/c3/c5/c6/p4) needs the same
       escape hatch, while rp2 (ARM, native match) needs nothing.
-      `audioif/micropython.cmake` now wires tier 5 the same way
+      `audiodsp/micropython.cmake` now wires tier 5 the same way
       `micropython.mk` does (sources, include dir, the `mp3_alloc`
       allocator `-include`/`-fwrapv` on `buffers.c`), gated by ESP-IDF's
       own `CONFIG_IDF_TARGET_ARCH_RISCV`/`_ARCH_XTENSA` sdkconfig variables

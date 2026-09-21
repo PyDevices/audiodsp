@@ -26,7 +26,7 @@
 
 #include "py/runtime.h"
 #include "py/objlist.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // --- from shared-module/synthio/Synthesizer.c -----------------------------
 
@@ -43,9 +43,9 @@ void common_hal_synthio_synthesizer_deinit(synthio_synthesizer_obj_t *self) {
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     synthio_synth_deinit(&self->synth);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void synthio_synthesizer_reset_buffer(synthio_synthesizer_obj_t *self,
@@ -231,14 +231,14 @@ static mp_obj_t synthio_synthesizer_make_new(const mp_obj_type_t *type, size_t n
 static void check_for_deinit(synthio_synthesizer_obj_t *self) {
     // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
     // contract is that nothing which can longjmp runs while it is held
-    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // (shared/audiodsp_pump_lock.h): a raise from in here never reaches the
     // release, so the mutex is left owned by a thread that has gone back to
     // the interpreter, and the pump blocks on it for ever. This is the guard
     // on every Python-facing method of this class, so it is the most reached
     // statement in the file.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     const bool released = audiosample_deinited(&self->synth.base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     if (released) {
         audiosample_check_for_deinit(&self->synth.base);
     }

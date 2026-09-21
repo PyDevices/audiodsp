@@ -1,7 +1,7 @@
 # PR for adafruit/circuitpython: the Flanger's int32 interpolation
 
 Branch: `fix-flanger-int32-overflow` (one commit, the patch beside this
-document). From audioif#76 and the `audiodelays.Flanger` section of
+document). From audiodsp#76 and the `audiodelays.Flanger` section of
 [upstream-diff.md](../../../upstream-diff.md). Verified against the `10.3.0` tag
 (`d897c15f`) and the `main` tip (`268a168d`, 2026-09-17) —
 `shared-module/audiodelays/Flanger.c` is byte-identical between the two.
@@ -92,7 +92,7 @@ Happy to send the one-line `(int64_t)` cast, matching `delay_span_q16 * tri` eig
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-flanger-int32-overflow
-git am /home/brad/gh/pydevices/audioif/docs/upstream-reports/prs/flanger-int32-overflow/0001-audiodelays-widen-the-Flanger-s-wet-interpolation.patch
+git am /home/brad/gh/pydevices/audiodsp/docs/upstream-reports/prs/flanger-int32-overflow/0001-audiodelays-widen-the-Flanger-s-wet-interpolation.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-flanger-int32-overflow

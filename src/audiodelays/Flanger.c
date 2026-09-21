@@ -7,7 +7,7 @@
 // instead of the generic default___exit___obj method-dispatch helper) is
 // kept verbatim -- it's upstream's own micro-optimization for this one
 // type, not a port artifact. The signed-16 kernel follows the CPython
-// twin's arithmetic where the two differ (audioif#74).
+// twin's arithmetic where the two differ (audiodsp#74).
 //
 // SPDX-FileCopyrightText: Copyright (c) 2026 Tim Cocks for Adafruit Industries
 // SPDX-FileCopyrightText: Copyright (c) 2026 PyDevices
@@ -23,8 +23,8 @@
 #include "cp_compat/objproperty.h"
 
 #include "py/runtime.h"
-#include "shared/audioif_flanger.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_flanger.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // --- shared-module (DSP engine) -------------------------------------------
 
@@ -103,12 +103,12 @@ void common_hal_audiodelays_flanger_deinit(audiodelays_flanger_obj_t *self) {
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->delay_buffer = NULL;
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 mp_obj_t common_hal_audiodelays_flanger_get_min_delay_ms(audiodelays_flanger_obj_t *self) {
@@ -152,7 +152,7 @@ void common_hal_audiodelays_flanger_set_mix(audiodelays_flanger_obj_t *self, mp_
 }
 
 mp_float_t common_hal_audiodelays_flanger_get_lfo_value(audiodelays_flanger_obj_t *self) {
-    return (mp_float_t)audioif_flanger_triangle(self->flanger.lfo_phase[0]) /
+    return (mp_float_t)audiodsp_flanger_triangle(self->flanger.lfo_phase[0]) /
         MICROPY_FLOAT_CONST(65535.0);
 }
 
@@ -197,13 +197,13 @@ void common_hal_audiodelays_flanger_play(audiodelays_flanger_obj_t *self, mp_obj
         0, &primed, &primed_length);
     primed_length /= (self->base.bits_per_sample / 8);
 
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->sample = sample;
     self->loop = loop;
     self->sample_remaining_buffer = (void *)primed;
     self->sample_buffer_length = primed_length;
     self->more_data = result == GET_BUFFER_MORE_DATA;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void common_hal_audiodelays_flanger_stop(audiodelays_flanger_obj_t *self) {
@@ -253,8 +253,8 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
         int32_t mix = (int32_t)(synthio_block_slot_get_limited(&self->mix, MICROPY_FLOAT_CONST(0.0), MICROPY_FLOAT_CONST(1.0)) * 32767);
 
         mp_float_t sweep_top_ms = f_min_delay_ms + f_depth * ((mp_float_t)self->max_delay_ms - f_min_delay_ms);
-        uint32_t delay_min = audioif_flanger_ms_to_frames_q16(f_min_delay_ms, self->base.sample_rate, self->delay_buffer_frames);
-        uint32_t delay_span = audioif_flanger_ms_to_frames_q16(sweep_top_ms, self->base.sample_rate, self->delay_buffer_frames) - delay_min;
+        uint32_t delay_min = audiodsp_flanger_ms_to_frames_q16(f_min_delay_ms, self->base.sample_rate, self->delay_buffer_frames);
+        uint32_t delay_span = audiodsp_flanger_ms_to_frames_q16(sweep_top_ms, self->base.sample_rate, self->delay_buffer_frames) - delay_min;
         mp_float_t phase_inc_f = MIN(f_rate / self->base.sample_rate, MICROPY_FLOAT_CONST(0.5));
         uint32_t phase_inc = (uint32_t)(phase_inc_f * MICROPY_FLOAT_CONST(4294967296.0));
 
@@ -273,7 +273,7 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
             }
         } else if (self->base.bits_per_sample == 16 && self->base.samples_signed &&
             !single_channel_output) {
-            audioif_flanger_process_s16(word_buffer,
+            audiodsp_flanger_process_s16(word_buffer,
                 (int16_t *)self->sample_remaining_buffer, n, self->delay_buffer,
                 self->delay_buffer_frames, self->base.channel_count,
                 &self->flanger, delay_min, delay_span, phase_inc, feedback,
@@ -299,7 +299,7 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
                 }
                 conv_in[i] = (int16_t)sample_word;
             }
-            audioif_flanger_process_s16(conv_out, conv_in, n, self->delay_buffer,
+            audiodsp_flanger_process_s16(conv_out, conv_in, n, self->delay_buffer,
                 self->delay_buffer_frames, self->base.channel_count,
                 &self->flanger, delay_min, delay_span, phase_inc, feedback,
                 mix, self->invert);
@@ -381,14 +381,14 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiodelays_flanger_deinit_obj, audiodelays_fla
 static void check_for_deinit(audiodelays_flanger_obj_t *self) {
     // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
     // contract is that nothing which can longjmp runs while it is held
-    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // (shared/audiodsp_pump_lock.h): a raise from in here never reaches the
     // release, so the mutex is left owned by a thread that has gone back to
     // the interpreter, and the pump blocks on it for ever. This is the guard
     // on every Python-facing method of this class, so it is the most reached
     // statement in the file.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     const bool released = audiosample_deinited(&self->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     if (released) {
         audiosample_check_for_deinit(&self->base);
     }

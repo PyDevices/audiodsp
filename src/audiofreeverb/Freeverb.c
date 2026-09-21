@@ -24,10 +24,10 @@
 #include "cp_compat/argcheck.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/objproperty.h"
-#include "shared/audioif_freeverb.h"
+#include "shared/audiodsp_freeverb.h"
 
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // --- shared-module (DSP engine) -------------------------------------------
 
@@ -133,13 +133,13 @@ void common_hal_audiofreeverb_freeverb_deinit(audiofreeverb_freeverb_obj_t *self
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     audiofilters_deinit_filter_chain(&self->pre_filter);
     audiofilters_deinit_filter_chain(&self->post_filter);
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 mp_obj_t common_hal_audiofreeverb_freeverb_get_roomsize(audiofreeverb_freeverb_obj_t *self) {
@@ -240,13 +240,13 @@ void common_hal_audiofreeverb_freeverb_play(audiofreeverb_freeverb_obj_t *self, 
         0, &primed, &primed_length);
     primed_length /= (self->base.bits_per_sample / 8);
 
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->sample = sample;
     self->loop = loop;
     self->sample_remaining_buffer = (void *)primed;
     self->sample_buffer_length = primed_length;
     self->more_data = result == GET_BUFFER_MORE_DATA;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void common_hal_audiofreeverb_freeverb_stop(audiofreeverb_freeverb_obj_t *self) {
@@ -296,7 +296,7 @@ audioio_get_buffer_result_t audiofreeverb_freeverb_get_buffer(audiofreeverb_free
         audiofilters_tick_filter_chain(&self->pre_filter);
         audiofilters_tick_filter_chain(&self->post_filter);
         if (self->pre_filter.objs_len == 0 && self->post_filter.objs_len == 0) {
-            audioif_freeverb_process_s16_banks(word_buffer,
+            audiodsp_freeverb_process_s16_banks(word_buffer,
                 self->sample == NULL ? NULL : sample_src, n, self->combbuffers,
                 self->combbuffersizes, self->combbufferindex, self->combfitlers,
                 self->allpassbuffers, self->allpassbuffersizes,
@@ -414,14 +414,14 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiofreeverb_freeverb_deinit_obj, audiofreever
 static void check_for_deinit(audiofreeverb_freeverb_obj_t *self) {
     // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
     // contract is that nothing which can longjmp runs while it is held
-    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // (shared/audiodsp_pump_lock.h): a raise from in here never reaches the
     // release, so the mutex is left owned by a thread that has gone back to
     // the interpreter, and the pump blocks on it for ever. This is the guard
     // on every Python-facing method of this class, so it is the most reached
     // statement in the file.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     const bool released = audiosample_deinited(&self->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     if (released) {
         audiosample_check_for_deinit(&self->base);
     }

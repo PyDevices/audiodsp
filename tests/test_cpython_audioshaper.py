@@ -44,7 +44,7 @@ CUBIC = cubic_curve()
 def hard_clip_curve(threshold=0.10, points=2048):
     """A straight hard clip: linear to the rails over +-`threshold` of the
     input span, flat beyond it -- unlike CUBIC, which never has a flat top
-    at all. Driven hard, this is the shape audioif#99 is about."""
+    at all. Driven hard, this is the shape audiodsp#99 is about."""
     last = points - 1
     return array("h", [
         clamp15(int(round(max(-1.0, min(1.0, (
@@ -226,16 +226,16 @@ class AliasFloorTest(unittest.TestCase):
 
 
 class HeadroomTest(unittest.TestCase):
-    """audioif#99: a hard-clipping curve driven hard rings past the rails
+    """audiodsp#99: a hard-clipping curve driven hard rings past the rails
     once decimated, and `post_gain` re-clips that overshoot at the base
     rate -- after the oversampling is done, where no factor of it reaches.
 
-    Where this happens in the kernel (`src/shared/audioif_shaper.c`):
+    Where this happens in the kernel (`src/shared/audiodsp_shaper.c`):
     `shape_sample` runs the curve at the oversampled rate and its own clamp
     (`curve_lookup`, clampf to +-1) bounds each of those samples, but the
     *decimated* one is not clamped there -- `halfband_down` is a low-pass,
     not a clip, so a hard edge through it can overshoot +-1. `post_gain`
-    scales that decimated value (`audioif_shaper_process_s16`,
+    scales that decimated value (`audiodsp_shaper_process_s16`,
     `oversampled[0] * config->post_gain * 32768.0f`), and the only place
     this node ever clips to int16 is `to_s16`, two lines later, on
     `dry_gain * source + wet_gain * wet`. Everything from the curve to
@@ -379,7 +379,7 @@ if __name__ == "__main__":
 
 
 class UniversalTraitTest(unittest.TestCase):
-    """S9-S11 - the traits every audioif-own node carries."""
+    """S9-S11 - the traits every audiodsp-own node carries."""
 
     RATE = 48000
     CHANNELS = 2
@@ -517,7 +517,7 @@ class SampleHoldTest(unittest.TestCase):
     Measured on the effects programme's shipped hold, that pair's two rates
     multiplied to 0.9999947184696794 at 48 kHz -- one sample late per 189 339
     frames -- and to 1.0000107865780592 at 44.1 kHz, one sample early per
-    92 708 (audioif#97). So every check here is an equality against integer
+    92 708 (audiodsp#97). So every check here is an equality against integer
     arithmetic rather than a tolerance, and the control below is the pair
     itself: the same comparison run against what the class used to build must
     fail, or these tests are measuring nothing.
@@ -588,7 +588,7 @@ class SampleHoldTest(unittest.TestCase):
         """What the two-`SpeedChanger` chain holds, frame by frame.
 
         `down_q` and `up_q` are the class's own mapping onto audiospeed's Q16
-        grid, and the composition is the one the fix for audioif#91 made
+        grid, and the composition is the one the fix for audiodsp#91 made
         exact: `source[(((n*up)>>16)*down)>>16]`.
         """
         down_q = int(65536 * sample_rate / rate_hz + 0.5)

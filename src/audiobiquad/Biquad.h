@@ -1,10 +1,10 @@
 // audiobiquad.Biquad -- MicroPython bindings over the runtime-neutral float
-// biquad in shared/audioif_filter_f32.c.
+// biquad in shared/audiodsp_filter_f32.c.
 //
-// Not a CircuitPython port and not from vstaudio: audioif adds this one.
+// Not a CircuitPython port and not from vstaudio: audiodsp adds this one.
 // `audiofilters.Filter` over `synthio.Biquad` already filters, and its
 // recursion is integer with fixed points it can park on -- see
-// shared/audioif_filter_f32.h for the measurement, and docs/upstream-diff.md
+// shared/audiodsp_filter_f32.h for the measurement, and docs/upstream-diff.md
 // for where this module sits among the rest. A new module rather than an
 // argument on `audiofilters`, because an argument added to this port's copy
 // of a CircuitPython module would not exist on a stock board.
@@ -17,7 +17,7 @@
 
 #include "audiocore/__init__.h"
 #include "py/obj.h"
-#include "shared/audioif_filter_f32.h"
+#include "shared/audiodsp_filter_f32.h"
 #include "synthio/__init__.h"
 #include "synthio/block.h"
 
@@ -34,9 +34,9 @@ typedef struct {
     synthio_block_slot_t Q;
     synthio_block_slot_t gain_db;
     synthio_block_slot_t mix;
-    audioif_biquad_f32_config_t config;
-    audioif_biquad_f32_state_t state;
-    int16_t buffer[AUDIOIF_FILTER_F32_FRAMES * 2];
+    audiodsp_biquad_f32_config_t config;
+    audiodsp_biquad_f32_state_t state;
+    int16_t buffer[AUDIODSP_FILTER_F32_FRAMES * 2];
     // Source frames fetched but not yet consumed, carried across output
     // blocks.
     const int16_t *pending;

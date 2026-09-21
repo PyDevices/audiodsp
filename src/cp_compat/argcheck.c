@@ -1,4 +1,4 @@
-// Compat shim for audioif. See argcheck.h.
+// Compat shim for audiodsp. See argcheck.h.
 //
 // Ported from CircuitPython's py/argcheck.c and py/runtime.c (upstream
 // repo: https://github.com/adafruit/circuitpython, MIT), with the varg

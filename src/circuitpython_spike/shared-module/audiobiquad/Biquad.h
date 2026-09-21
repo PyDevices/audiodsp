@@ -1,7 +1,7 @@
-// audiobiquad.Biquad for CircuitPython. See audioif's
+// audiobiquad.Biquad for CircuitPython. See audiodsp's
 // src/audiobiquad/Biquad.h for the MicroPython twin; the DSP is the same
-// shared/audioif_filter_f32.c in both, copied into this tree by
-// audioif/apply_cp_patches.sh.
+// shared/audiodsp_filter_f32.c in both, copied into this tree by
+// audiodsp/apply_cp_patches.sh.
 //
 // SPDX-License-Identifier: MIT
 
@@ -15,7 +15,7 @@
 #include "shared-module/synthio/__init__.h"
 #include "shared-module/synthio/block.h"
 
-#include "shared/audioif_filter_f32.h"
+#include "shared/audiodsp_filter_f32.h"
 
 typedef struct {
     audiosample_base_t base;
@@ -24,9 +24,9 @@ typedef struct {
     synthio_block_slot_t Q;
     synthio_block_slot_t gain_db;
     synthio_block_slot_t mix;
-    audioif_biquad_f32_config_t config;
-    audioif_biquad_f32_state_t state;
-    int16_t buffer[AUDIOIF_FILTER_F32_FRAMES * 2];
+    audiodsp_biquad_f32_config_t config;
+    audiodsp_biquad_f32_state_t state;
+    int16_t buffer[AUDIODSP_FILTER_F32_FRAMES * 2];
     // Source frames fetched but not yet consumed, carried across output
     // blocks.
     const int16_t *pending;

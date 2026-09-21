@@ -3,10 +3,10 @@
     midside_probe.py audioroute
 
 Like multiply_probe.py, this has no oracle. `audioroute.Splitter` came from
-micropython-vst3's engine, but `MidSide` did not: it is audioif's own, with no
+micropython-vst3's engine, but `MidSide` did not: it is audiodsp's own, with no
 ancestor in CircuitPython or in that engine either. What the golden pins is
 that every interpreter renders it identically -- the arithmetic is entirely
-inside shared/audioif_midside.c, the same C all three link, so a disagreement
+inside shared/audiodsp_midside.c, the same C all three link, so a disagreement
 between two of them would itself be the finding.
 
 Two things a checksum cannot say are asserted here as well, because they are

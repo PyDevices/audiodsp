@@ -2,7 +2,7 @@
 
 from array import array
 
-import _audioif
+import _audiodsp
 
 from audiofilters import _Effect
 from audiofilters import _FilterChain
@@ -120,7 +120,7 @@ class Freeverb(_Effect):
             self._pre_filter.tick(self.sample_rate)
             self._post_filter.tick(self.sample_rate)
             return self._process_filtered(data, roomsize, damp, mix)
-        return _audioif.freeverb_s16(
+        return _audiodsp.freeverb_s16(
             data, self._comb, self._comb_indices, self._comb_filters,
             self._allpass, self._allpass_indices, roomsize, damp, mix,
         )

@@ -105,7 +105,7 @@ clear it (`reset_buffer`, and note (re)initialisation).
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-biquad-reset
-git am /path/to/audioif/docs/upstream-reports/prs/biquad-reset/0001-Fix-synthio_biquad_filter_reset-clearing-only-half-t.patch
+git am /path/to/audiodsp/docs/upstream-reports/prs/biquad-reset/0001-Fix-synthio_biquad_filter_reset-clearing-only-half-t.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-biquad-reset

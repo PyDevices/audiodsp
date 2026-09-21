@@ -21,7 +21,7 @@ what the node actually holds. All three are far enough from a half-step to
 round the same way under a 32-bit and a 64-bit `mp_float_t`.
 
 Both departures this probe sees are recorded in `docs/upstream-diff.md`
-(audioif#91, audioif#92).
+(audiodsp#91, audiodsp#92).
 """
 
 import sys

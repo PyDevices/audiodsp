@@ -96,67 +96,67 @@
 // stays irrelevant.
 typedef struct {
     qstr name;
-    audioif_dynamics_option_t option;
+    audiodsp_dynamics_option_t option;
 } dynamics_option_name_t;
 
 static const dynamics_option_name_t dynamics_option_names[] = {
-    { MP_QSTR_threshold_db, AUDIOIF_DYNAMICS_OPT_THRESHOLD_DB },
-    { MP_QSTR_ratio, AUDIOIF_DYNAMICS_OPT_RATIO },
-    { MP_QSTR_knee_db, AUDIOIF_DYNAMICS_OPT_KNEE_DB },
-    { MP_QSTR_makeup_db, AUDIOIF_DYNAMICS_OPT_MAKEUP_DB },
-    { MP_QSTR_attack_ms, AUDIOIF_DYNAMICS_OPT_ATTACK_MS },
-    { MP_QSTR_release_ms, AUDIOIF_DYNAMICS_OPT_RELEASE_MS },
-    { MP_QSTR_attack_gain_db, AUDIOIF_DYNAMICS_OPT_ATTACK_GAIN_DB },
-    { MP_QSTR_sustain_gain_db, AUDIOIF_DYNAMICS_OPT_SUSTAIN_GAIN_DB },
-    { MP_QSTR_sidechain_hz, AUDIOIF_DYNAMICS_OPT_SIDECHAIN_HZ },
-    { MP_QSTR_lookahead_ms, AUDIOIF_DYNAMICS_OPT_LOOKAHEAD_MS },
-    { MP_QSTR_true_peak, AUDIOIF_DYNAMICS_OPT_TRUE_PEAK },
+    { MP_QSTR_threshold_db, AUDIODSP_DYNAMICS_OPT_THRESHOLD_DB },
+    { MP_QSTR_ratio, AUDIODSP_DYNAMICS_OPT_RATIO },
+    { MP_QSTR_knee_db, AUDIODSP_DYNAMICS_OPT_KNEE_DB },
+    { MP_QSTR_makeup_db, AUDIODSP_DYNAMICS_OPT_MAKEUP_DB },
+    { MP_QSTR_attack_ms, AUDIODSP_DYNAMICS_OPT_ATTACK_MS },
+    { MP_QSTR_release_ms, AUDIODSP_DYNAMICS_OPT_RELEASE_MS },
+    { MP_QSTR_attack_gain_db, AUDIODSP_DYNAMICS_OPT_ATTACK_GAIN_DB },
+    { MP_QSTR_sustain_gain_db, AUDIODSP_DYNAMICS_OPT_SUSTAIN_GAIN_DB },
+    { MP_QSTR_sidechain_hz, AUDIODSP_DYNAMICS_OPT_SIDECHAIN_HZ },
+    { MP_QSTR_lookahead_ms, AUDIODSP_DYNAMICS_OPT_LOOKAHEAD_MS },
+    { MP_QSTR_true_peak, AUDIODSP_DYNAMICS_OPT_TRUE_PEAK },
     // The effects program's additions, every one of them default-off.
     { MP_QSTR_transient_fast_attack_ms,
-      AUDIOIF_DYNAMICS_OPT_TRANSIENT_FAST_ATTACK_MS },
+      AUDIODSP_DYNAMICS_OPT_TRANSIENT_FAST_ATTACK_MS },
     { MP_QSTR_transient_fast_release_ms,
-      AUDIOIF_DYNAMICS_OPT_TRANSIENT_FAST_RELEASE_MS },
+      AUDIODSP_DYNAMICS_OPT_TRANSIENT_FAST_RELEASE_MS },
     { MP_QSTR_transient_slow_attack_ms,
-      AUDIOIF_DYNAMICS_OPT_TRANSIENT_SLOW_ATTACK_MS },
+      AUDIODSP_DYNAMICS_OPT_TRANSIENT_SLOW_ATTACK_MS },
     { MP_QSTR_transient_slow_release_ms,
-      AUDIOIF_DYNAMICS_OPT_TRANSIENT_SLOW_RELEASE_MS },
-    { MP_QSTR_detector, AUDIOIF_DYNAMICS_OPT_DETECTOR },
-    { MP_QSTR_rms_ms, AUDIOIF_DYNAMICS_OPT_RMS_MS },
-    { MP_QSTR_feedback_detector, AUDIOIF_DYNAMICS_OPT_FEEDBACK_DETECTOR },
-    { MP_QSTR_sidechain_lp_hz, AUDIOIF_DYNAMICS_OPT_SIDECHAIN_LP_HZ },
-    { MP_QSTR_sidechain_poles, AUDIOIF_DYNAMICS_OPT_SIDECHAIN_POLES },
-    { MP_QSTR_key_listen, AUDIOIF_DYNAMICS_OPT_KEY_LISTEN },
-    { MP_QSTR_depth_db, AUDIOIF_DYNAMICS_OPT_DEPTH_DB },
-    { MP_QSTR_hold_ms, AUDIOIF_DYNAMICS_OPT_HOLD_MS },
-    { MP_QSTR_hysteresis_db, AUDIOIF_DYNAMICS_OPT_HYSTERESIS_DB },
-    { MP_QSTR_relative_threshold, AUDIOIF_DYNAMICS_OPT_RELATIVE_THRESHOLD },
-    { MP_QSTR_program_attack, AUDIOIF_DYNAMICS_OPT_PROGRAM_ATTACK },
-    { MP_QSTR_transient_dual, AUDIOIF_DYNAMICS_OPT_TRANSIENT_DUAL },
+      AUDIODSP_DYNAMICS_OPT_TRANSIENT_SLOW_RELEASE_MS },
+    { MP_QSTR_detector, AUDIODSP_DYNAMICS_OPT_DETECTOR },
+    { MP_QSTR_rms_ms, AUDIODSP_DYNAMICS_OPT_RMS_MS },
+    { MP_QSTR_feedback_detector, AUDIODSP_DYNAMICS_OPT_FEEDBACK_DETECTOR },
+    { MP_QSTR_sidechain_lp_hz, AUDIODSP_DYNAMICS_OPT_SIDECHAIN_LP_HZ },
+    { MP_QSTR_sidechain_poles, AUDIODSP_DYNAMICS_OPT_SIDECHAIN_POLES },
+    { MP_QSTR_key_listen, AUDIODSP_DYNAMICS_OPT_KEY_LISTEN },
+    { MP_QSTR_depth_db, AUDIODSP_DYNAMICS_OPT_DEPTH_DB },
+    { MP_QSTR_hold_ms, AUDIODSP_DYNAMICS_OPT_HOLD_MS },
+    { MP_QSTR_hysteresis_db, AUDIODSP_DYNAMICS_OPT_HYSTERESIS_DB },
+    { MP_QSTR_relative_threshold, AUDIODSP_DYNAMICS_OPT_RELATIVE_THRESHOLD },
+    { MP_QSTR_program_attack, AUDIODSP_DYNAMICS_OPT_PROGRAM_ATTACK },
+    { MP_QSTR_transient_dual, AUDIODSP_DYNAMICS_OPT_TRANSIENT_DUAL },
     { MP_QSTR_sustain_fast_attack_ms,
-      AUDIOIF_DYNAMICS_OPT_SUSTAIN_FAST_ATTACK_MS },
+      AUDIODSP_DYNAMICS_OPT_SUSTAIN_FAST_ATTACK_MS },
     { MP_QSTR_sustain_fast_release_ms,
-      AUDIOIF_DYNAMICS_OPT_SUSTAIN_FAST_RELEASE_MS },
+      AUDIODSP_DYNAMICS_OPT_SUSTAIN_FAST_RELEASE_MS },
     { MP_QSTR_sustain_slow_attack_ms,
-      AUDIOIF_DYNAMICS_OPT_SUSTAIN_SLOW_ATTACK_MS },
+      AUDIODSP_DYNAMICS_OPT_SUSTAIN_SLOW_ATTACK_MS },
     { MP_QSTR_sustain_slow_release_ms,
-      AUDIOIF_DYNAMICS_OPT_SUSTAIN_SLOW_RELEASE_MS },
-    { MP_QSTR_slow_hold_ms, AUDIOIF_DYNAMICS_OPT_SLOW_HOLD_MS },
-    { MP_QSTR_gain_smooth_ms, AUDIOIF_DYNAMICS_OPT_GAIN_SMOOTH_MS },
+      AUDIODSP_DYNAMICS_OPT_SUSTAIN_SLOW_RELEASE_MS },
+    { MP_QSTR_slow_hold_ms, AUDIODSP_DYNAMICS_OPT_SLOW_HOLD_MS },
+    { MP_QSTR_gain_smooth_ms, AUDIODSP_DYNAMICS_OPT_GAIN_SMOOTH_MS },
     { MP_QSTR_feedback_gain_corrected,
-      AUDIOIF_DYNAMICS_OPT_FEEDBACK_GAIN_CORRECTED },
+      AUDIODSP_DYNAMICS_OPT_FEEDBACK_GAIN_CORRECTED },
 };
 
 // The lookahead buffer is allocated only once someone asks for one, and only
 // ever grows: `set(lookahead_ms=...)` mid-stream is a live gesture, and
 // shrinking would mean freeing memory the DSP is reading out of.
 static void dynamics_ensure_lookahead(audiodynamics_dynamics_obj_t *self) {
-    const uint32_t wanted = audioif_dynamics_lookahead_frames(&self->config);
+    const uint32_t wanted = audiodsp_dynamics_lookahead_frames(&self->config);
     if (wanted == 0 || wanted <= self->state.lookahead_capacity) {
         return;
     }
     int16_t *buffer = m_malloc((size_t)wanted * self->base.channel_count *
         sizeof(int16_t));
-    audioif_dynamics_set_lookahead(&self->state, buffer, wanted);
+    audiodsp_dynamics_set_lookahead(&self->state, buffer, wanted);
 }
 
 static void dynamics_apply_kwargs(audiodynamics_dynamics_obj_t *self,
@@ -178,7 +178,7 @@ static void dynamics_apply_kwargs(audiodynamics_dynamics_obj_t *self,
                     "channel_count must be 1 or 2"));
             }
             self->base.channel_count = (uint8_t)channels;
-            audioif_dynamics_set_channel_count(&self->config, &self->state,
+            audiodsp_dynamics_set_channel_count(&self->config, &self->state,
                 (uint32_t)channels);
         }
     }
@@ -198,9 +198,9 @@ static void dynamics_apply_kwargs(audiodynamics_dynamics_obj_t *self,
             mp_obj_is_str(kw->table[i].value)) {
             const qstr word = mp_obj_str_get_qstr(kw->table[i].value);
             if (word == MP_QSTR_rms) {
-                value = (float)AUDIOIF_DYNAMICS_DETECT_RMS;
+                value = (float)AUDIODSP_DYNAMICS_DETECT_RMS;
             } else if (word == MP_QSTR_peak) {
-                value = (float)AUDIOIF_DYNAMICS_DETECT_PEAK;
+                value = (float)AUDIODSP_DYNAMICS_DETECT_PEAK;
             } else {
                 mp_raise_ValueError(MP_ERROR_TEXT(
                     "detector must be 'peak' or 'rms'"));
@@ -212,7 +212,7 @@ static void dynamics_apply_kwargs(audiodynamics_dynamics_obj_t *self,
         for (size_t option = 0; option < MP_ARRAY_SIZE(dynamics_option_names);
              ++option) {
             if (dynamics_option_names[option].name == name) {
-                audioif_dynamics_configure(&self->config,
+                audiodsp_dynamics_configure(&self->config,
                     dynamics_option_names[option].option, value);
                 known = true;
                 break;
@@ -245,14 +245,14 @@ static mp_obj_t audiodynamics_dynamics_make_new(const mp_obj_type_t *type,
     self->key_pending_frames = 0;
 
     const int mode = n_args >= 1 ? (int)mp_obj_get_int(all_args[0])
-                                 : AUDIOIF_DYNAMICS_COMPRESS;
-    audioif_dynamics_config_init(&self->config, mode, self->base.sample_rate);
-    audioif_dynamics_state_init(&self->state);
+                                 : AUDIODSP_DYNAMICS_COMPRESS;
+    audiodsp_dynamics_config_init(&self->config, mode, self->base.sample_rate);
+    audiodsp_dynamics_state_init(&self->state);
 
     mp_map_t kw_map;
     mp_map_init_fixed_table(&kw_map, n_kw, all_args + n_args);
     dynamics_apply_kwargs(self, &kw_map);
-    audioif_dynamics_config_finish(&self->config);
+    audiodsp_dynamics_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -322,8 +322,8 @@ MP_DEFINE_CONST_FUN_OBJ_1(audiodynamics_dynamics_gain_reduction_db_obj,
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. The MicroPython
-// binding of this same type gained it on 2026-09-09 (audioif#58, #60, #63) and
-// this copy did not, which is audioif#75: the two bindings are hand-written and
+// binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
+// this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
 static mp_obj_t audiodynamics_dynamics_deinit(mp_obj_t self_in) {
     audiodynamics_dynamics_obj_t *self = MP_OBJ_TO_PTR(self_in);

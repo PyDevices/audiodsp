@@ -1,14 +1,14 @@
-// audioroute.Port for CircuitPython. See audioif's src/audioroute/Port.h for
+// audioroute.Port for CircuitPython. See audiodsp's src/audioroute/Port.h for
 // what the node is for and why it exists; this is the same node, split the
 // way CircuitPython splits every node -- the struct and the pull here, the
 // Python-facing type in shared-bindings.
 //
 // There is NO pump lock in this half, and that is the whole difference
-// between the two copies. The MicroPython twin takes `audioif_pump_lock_*`
+// between the two copies. The MicroPython twin takes `audiodsp_pump_lock_*`
 // around `play()` and `deinit()` because on that build a C pump thread may be
 // inside a pull at the moment a setter re-points the port. CircuitPython has
 // no pump: its audio output pulls the graph from an interrupt or from the
-// same thread, `audioif_pump_lock.c` is not in `copy_manifest.txt`, and
+// same thread, `audiodsp_pump_lock.c` is not in `copy_manifest.txt`, and
 // nothing in this tree declares the hooks. So the lock is ABSENT here rather
 // than being a fourth platform branch of it -- which is also the shape Brad's
 // restructure wants, with the lock reduced to hooks that default to no-ops.

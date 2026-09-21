@@ -7,7 +7,7 @@ under a timeout** -- `timeout 60 ... mixer_short_loop_probe.py` -- because the
 defect it covers is a hang, and an unbounded run that hangs says nothing at
 all, where a killed one says everything.
 
-audioif#85. The mixer consumes whole 32-bit words: `MixerVoice` divides a
+audiodsp#85. The mixer consumes whole 32-bit words: `MixerVoice` divides a
 fetched buffer's byte length by `sizeof(uint32_t)`, so a two-byte sample
 measures zero words, every pass of the mix-down takes zero of them, and a
 looping voice never reaches the exit that stops a finished one. On the native
@@ -19,7 +19,7 @@ a program takes and the one that gives the programmer something to act on.
 `voice.loop = True` set afterwards is not refused -- at that moment an empty
 buffer is also what the end of any sample looks like -- so the mix-down carries
 a backstop instead: a second consecutive fetch that yields no word stops the
-voice, as the CPython twin has done since audioif#24.
+voice, as the CPython twin has done since audiodsp#24.
 
 **CircuitPython 10.3.0 hangs on case 1** and is not in the comparison for that
 reason; `audiomixer` is a stock CP module, this port fixes its own two targets,

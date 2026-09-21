@@ -8,7 +8,7 @@
 #include "py/objarray.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // Reads a bytes-like of int16 frames and reports how many whole frames of
 // `channels` it holds. Rejects an odd byte count outright: silently dropping
@@ -28,16 +28,16 @@ static const int16_t *impulse_taps(mp_obj_t buffer, uint32_t channels,
 static void convolver_allocate(audioconvolve_convolver_obj_t *self,
     uint32_t sample_rate, uint32_t max_taps, uint32_t ir_channels) {
     uint32_t partitions =
-        (max_taps + AUDIOIF_CONVOLVE_FRAMES - 1u) / AUDIOIF_CONVOLVE_FRAMES;
+        (max_taps + AUDIODSP_CONVOLVE_FRAMES - 1u) / AUDIODSP_CONVOLVE_FRAMES;
     if (partitions < 1u) partitions = 1u;
-    if (partitions > AUDIOIF_CONVOLVE_MAX_PARTITIONS) {
+    if (partitions > AUDIODSP_CONVOLVE_MAX_PARTITIONS) {
         mp_raise_ValueError(MP_ERROR_TEXT("impulse is too long"));
     }
-    audioif_convolve_config_init(&self->config, sample_rate, partitions,
+    audiodsp_convolve_config_init(&self->config, sample_rate, partitions,
         ir_channels);
-    size_t floats = audioif_convolve_float_count(&self->config);
+    size_t floats = audiodsp_convolve_float_count(&self->config);
     self->storage = m_malloc(floats * sizeof(float));
-    audioif_convolve_state_init(&self->state, &self->config, self->storage);
+    audiodsp_convolve_state_init(&self->state, &self->config, self->storage);
 }
 
 static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
@@ -101,17 +101,17 @@ static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
     self->storage = NULL;
 
     convolver_allocate(self, self->base.sample_rate, max_taps, ir_channels);
-    audioif_convolve_set_channel_count(&self->config,
+    audiodsp_convolve_set_channel_count(&self->config,
         (uint32_t)self->base.channel_count);
 
     if (args[ARG_mix].u_obj != mp_const_none) {
-        audioif_convolve_configure(&self->config, AUDIOIF_CONVOLVE_OPT_MIX,
+        audiodsp_convolve_configure(&self->config, AUDIODSP_CONVOLVE_OPT_MIX,
             (float)mp_obj_get_float(args[ARG_mix].u_obj));
     }
     if (taps != NULL) {
         float gain = args[ARG_gain].u_obj != mp_const_none
             ? (float)mp_obj_get_float(args[ARG_gain].u_obj) : 1.0f;
-        audioif_convolve_load_s16(&self->state, &self->config, taps,
+        audiodsp_convolve_load_s16(&self->state, &self->config, taps,
             tap_frames, impulse_channels, gain);
     }
     return MP_OBJ_FROM_PTR(self);
@@ -125,11 +125,11 @@ static mp_obj_t audioconvolve_convolver_play(mp_obj_t self_in,
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source channel_count does not match Convolver"));
     }
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioconvolve_convolver_play_obj,
@@ -148,7 +148,7 @@ static mp_obj_t audioconvolve_convolver_set(size_t n_args,
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown Convolver option '%q'"), name);
         }
-        audioif_convolve_configure(&self->config, AUDIOIF_CONVOLVE_OPT_MIX,
+        audiodsp_convolve_configure(&self->config, AUDIODSP_CONVOLVE_OPT_MIX,
             (float)mp_obj_get_float(kw_args->table[i].value));
     }
     return mp_const_none;
@@ -180,13 +180,13 @@ static mp_obj_t audioconvolve_convolver_load(size_t n_args,
     // construction and something downstream may already be pulling. An
     // impulse longer than the room made for it is a sizing mistake worth
     // hearing about, not a truncation to discover later.
-    if (frames > self->config.partitions * AUDIOIF_CONVOLVE_FRAMES) {
+    if (frames > self->config.partitions * AUDIODSP_CONVOLVE_FRAMES) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "impulse is longer than max_taps"));
     }
     float gain = parsed[ARG_gain].u_obj != mp_const_none
         ? (float)mp_obj_get_float(parsed[ARG_gain].u_obj) : 1.0f;
-    audioif_convolve_load_s16(&self->state, &self->config, taps, frames,
+    audiodsp_convolve_load_s16(&self->state, &self->config, taps, frames,
         channels, gain);
     return mp_const_none;
 }
@@ -217,7 +217,7 @@ static mp_obj_t audioconvolve_convolver_synthesize(size_t n_args,
         ? (float)mp_obj_get_float(parsed[ARG_predelay_ms].u_obj) : 0.0f;
     float diffusion = parsed[ARG_diffusion_ms].u_obj != mp_const_none
         ? (float)mp_obj_get_float(parsed[ARG_diffusion_ms].u_obj) : 0.0f;
-    audioif_convolve_synthesize(&self->state, &self->config, decay, damping,
+    audiodsp_convolve_synthesize(&self->state, &self->config, decay, damping,
         predelay, diffusion, (uint32_t)parsed[ARG_seed].u_int);
     return mp_const_none;
 }
@@ -226,9 +226,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_synthesize_obj, 1,
 
 static mp_obj_t audioconvolve_convolver_clear(mp_obj_t self_in) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
-    audioif_convolve_reset(&self->state, &self->config);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+    audiodsp_convolve_reset(&self->state, &self->config);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_clear_obj,
@@ -236,7 +236,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_clear_obj,
 
 static mp_obj_t audioconvolve_convolver_get_taps(mp_obj_t self_in) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    return MP_OBJ_NEW_SMALL_INT(self->state.loaded * AUDIOIF_CONVOLVE_FRAMES);
+    return MP_OBJ_NEW_SMALL_INT(self->state.loaded * AUDIODSP_CONVOLVE_FRAMES);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_get_taps_obj,
     audioconvolve_convolver_get_taps);
@@ -245,13 +245,13 @@ static MP_PROPERTY_GETTER(audioconvolve_convolver_taps_obj,
 
 static mp_obj_t audioconvolve_convolver_get_latency(mp_obj_t self_in) {
     // The loaded state, not a constant. A convolver with nothing loaded
-    // passes its input through (`shared/audioif_convolve.h`), so it adds no
+    // passes its input through (`shared/audiodsp_convolve.h`), so it adds no
     // latency at all, and reporting a whole partition of it told any class
     // that compensates to compensate for a delay that was not there
-    // (audioif#44's class-side clause, the half that costs no kernel change).
+    // (audiodsp#44's class-side clause, the half that costs no kernel change).
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
     return MP_OBJ_NEW_SMALL_INT(
-        self->state.loaded != 0 ? AUDIOIF_CONVOLVE_FRAMES : 0);
+        self->state.loaded != 0 ? AUDIODSP_CONVOLVE_FRAMES : 0);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_get_latency_obj,
     audioconvolve_convolver_get_latency);
@@ -265,7 +265,7 @@ static audioio_get_buffer_result_t audioconvolve_convolver_get_buffer(
     (void)channel;
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t produced = 0;
-    while (produced < AUDIOIF_CONVOLVE_FRAMES) {
+    while (produced < AUDIODSP_CONVOLVE_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -281,11 +281,11 @@ static audioio_get_buffer_result_t audioconvolve_convolver_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_CONVOLVE_FRAMES - produced;
+        uint32_t run = AUDIODSP_CONVOLVE_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_convolve_process_s16(&self->config, &self->state,
+        audiodsp_convolve_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count], self->pending,
             run);
         self->pending += run * self->base.channel_count;
@@ -299,7 +299,7 @@ static audioio_get_buffer_result_t audioconvolve_convolver_get_buffer(
     // the middle of a live graph never reports itself finished.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_CONVOLVE_FRAMES;
+        produced = AUDIODSP_CONVOLVE_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;
@@ -316,17 +316,17 @@ static void audioconvolve_convolver_reset_buffer(mp_obj_t self_in,
     // The history goes; the impulse stays. One is audio in flight and the
     // other is a setting -- reloading a room because playback restarted would
     // be both wrong and expensive.
-    audioif_convolve_reset(&self->state, &self->config);
+    audiodsp_convolve_reset(&self->state, &self->config);
 }
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, which is what makes every guarded entry point raise
 // afterwards -- `audiosample_get_buffer` and `audiosample_reset_buffer` in
 // audiocore for the audio path, and the three shared properties. The node
-// types audioif ported from CircuitPython have had this since they were
-// ported; the ones audioif wrote itself did not, so no class built on them
+// types audiodsp ported from CircuitPython have had this since they were
+// ported; the ones audiodsp wrote itself did not, so no class built on them
 // could release one and Tier 1's "deinit() releases every node the class
-// built" was unmeasurable on a board (audioif#58, #60, #63).
+// built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the
 // object holds a *reference* to: the upstream source, so releasing the tail
@@ -334,12 +334,12 @@ static void audioconvolve_convolver_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioconvolve_convolver_deinit(mp_obj_t self_in) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     self->storage = NULL;
     return mp_const_none;
 }

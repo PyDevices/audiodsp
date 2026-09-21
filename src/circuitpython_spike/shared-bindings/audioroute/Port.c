@@ -1,9 +1,9 @@
 // audioroute.Port bindings for CircuitPython.
 //
-// The MicroPython twin is audioif's src/audioroute/Port.c. Same class, same
+// The MicroPython twin is audiodsp's src/audioroute/Port.c. Same class, same
 // methods, same argument checks, in the same order -- deliberately, because
 // the two bindings are hand-written and nothing holds them to each other
-// (audioif#75 is what that costs when it slips). The one difference is that
+// (audiodsp#75 is what that costs when it slips). The one difference is that
 // this copy takes no pump lock: see shared-module/audioroute/Port.h.
 //
 // SPDX-License-Identifier: MIT

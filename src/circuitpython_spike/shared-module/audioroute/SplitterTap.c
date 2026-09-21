@@ -22,11 +22,11 @@ audioio_get_buffer_result_t audioroute_splitter_tap_get_buffer(
     (void)single_channel_output;
     (void)channel;
     audioroute_splitter_obj_t *self = MP_OBJ_TO_PTR(tap->owner);
-    if (audioif_splitter_starved(&self->state, tap->index)) {
+    if (audiodsp_splitter_starved(&self->state, tap->index)) {
         audioroute_splitter_pull(self);
     }
     uint32_t start = 0;
-    const uint32_t run = audioif_splitter_take(&self->state, tap->index,
+    const uint32_t run = audiodsp_splitter_take(&self->state, tap->index,
         &start);
     if (run == 0) {
         // Still nothing: the source is dry, or another tap has already read
@@ -34,7 +34,7 @@ audioio_get_buffer_result_t audioroute_splitter_tap_get_buffer(
         // branch stay in step rather than stalling the graph.
         memset(self->silence, 0, sizeof(self->silence));
         *buffer = (uint8_t *)self->silence;
-        *buffer_length = AUDIOIF_SPLITTER_CHUNK_FRAMES * 2u *
+        *buffer_length = AUDIODSP_SPLITTER_CHUNK_FRAMES * 2u *
             tap->base.channel_count;
         return GET_BUFFER_MORE_DATA;
     }
@@ -45,7 +45,7 @@ audioio_get_buffer_result_t audioroute_splitter_tap_get_buffer(
     }
     for (uint32_t frame = 0; frame < run; ++frame) {
         tap->mono[frame] = self->state.ring[
-            ((start + frame) % AUDIOIF_SPLITTER_RING_FRAMES) * 2u];
+            ((start + frame) % AUDIODSP_SPLITTER_RING_FRAMES) * 2u];
     }
     *buffer = (uint8_t *)tap->mono;
     *buffer_length = run * 2u;

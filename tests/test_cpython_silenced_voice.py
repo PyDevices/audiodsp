@@ -14,7 +14,7 @@ as much as a whole block — material this target added and the native builds di
 not. It cost one block of ``synthtools_acceptance``'s ``bass``, the first after
 ``note_off``, and nothing else: the gate is forced to pending at every block
 boundary, so it could not propagate past the block it happened in. That is what
-made it look like rounding rather than an extra voice. audioif#78.
+made it look like rounding rather than an extra voice. audiodsp#78.
 
 ## Why the material is a constant
 

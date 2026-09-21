@@ -8,16 +8,16 @@
 #include "cp_compat/objproperty.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 static void biquad_set_mode(audiobiquad_biquad_obj_t *self, mp_int_t mode) {
-    if (mode < AUDIOIF_BIQUAD_F32_LOW_PASS ||
-        mode > AUDIOIF_BIQUAD_F32_HIGH_SHELF) {
+    if (mode < AUDIODSP_BIQUAD_F32_LOW_PASS ||
+        mode > AUDIODSP_BIQUAD_F32_HIGH_SHELF) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "mode must be one of audiobiquad's LOW_PASS..HIGH_SHELF"));
     }
-    audioif_biquad_f32_configure(&self->config,
-        AUDIOIF_BIQUAD_F32_OPT_MODE, (float)mode);
+    audiodsp_biquad_f32_configure(&self->config,
+        AUDIODSP_BIQUAD_F32_OPT_MODE, (float)mode);
 }
 
 static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
@@ -58,9 +58,9 @@ static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
     self->pending = NULL;
     self->pending_frames = 0;
 
-    audioif_biquad_f32_config_init(&self->config, self->base.sample_rate,
+    audiodsp_biquad_f32_config_init(&self->config, self->base.sample_rate,
         (uint32_t)channel_count);
-    audioif_biquad_f32_state_init(&self->state);
+    audiodsp_biquad_f32_state_init(&self->state);
     biquad_set_mode(self, args[ARG_mode].u_int);
 
     // The default Q is the Butterworth one, spelled as a number rather than
@@ -75,7 +75,7 @@ static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
     synthio_block_assign_slot(args[ARG_gain_db].u_obj, &self->gain_db,
         MP_QSTR_gain_db);
     synthio_block_assign_slot(args[ARG_mix].u_obj, &self->mix, MP_QSTR_mix);
-    audioif_biquad_f32_config_finish(&self->config);
+    audiodsp_biquad_f32_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -83,17 +83,17 @@ static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
 // them. Doing the clamping in one place is what keeps the four targets
 // identical: the CPython twin passes the raw values down too.
 static void biquad_refresh(audiobiquad_biquad_obj_t *self) {
-    audioif_biquad_f32_configure(&self->config,
-        AUDIOIF_BIQUAD_F32_OPT_FREQUENCY,
+    audiodsp_biquad_f32_configure(&self->config,
+        AUDIODSP_BIQUAD_F32_OPT_FREQUENCY,
         (float)synthio_block_slot_get(&self->frequency));
-    audioif_biquad_f32_configure(&self->config, AUDIOIF_BIQUAD_F32_OPT_Q,
+    audiodsp_biquad_f32_configure(&self->config, AUDIODSP_BIQUAD_F32_OPT_Q,
         (float)synthio_block_slot_get(&self->Q));
-    audioif_biquad_f32_configure(&self->config,
-        AUDIOIF_BIQUAD_F32_OPT_GAIN_DB,
+    audiodsp_biquad_f32_configure(&self->config,
+        AUDIODSP_BIQUAD_F32_OPT_GAIN_DB,
         (float)synthio_block_slot_get(&self->gain_db));
-    audioif_biquad_f32_configure(&self->config, AUDIOIF_BIQUAD_F32_OPT_MIX,
+    audiodsp_biquad_f32_configure(&self->config, AUDIODSP_BIQUAD_F32_OPT_MIX,
         (float)synthio_block_slot_get(&self->mix));
-    audioif_biquad_f32_config_finish(&self->config);
+    audiodsp_biquad_f32_config_finish(&self->config);
 }
 
 // One chunk of the block layer, then the values it produced.
@@ -107,11 +107,11 @@ static void biquad_apply_blocks(audiobiquad_biquad_obj_t *self,
 static mp_obj_t audiobiquad_biquad_play(mp_obj_t self_in, mp_obj_t sample) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiobiquad_biquad_play_obj,
@@ -119,11 +119,11 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiobiquad_biquad_play_obj,
 
 static mp_obj_t audiobiquad_biquad_stop(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_stop_obj,
@@ -131,9 +131,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_stop_obj,
 
 static mp_obj_t audiobiquad_biquad_clear(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
-    audioif_biquad_f32_reset(&self->state);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+    audiodsp_biquad_f32_reset(&self->state);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_clear_obj,
@@ -194,7 +194,7 @@ MP_PROPERTY_GETSET(audiobiquad_biquad_mode_obj,
     (mp_obj_t)&audiobiquad_biquad_set_mode_obj);
 
 // (b0, b1, b2, a1, a2), normalized, at the settings in force -- what a test
-// compares with shared/audioif_biquad.c's fixed-point five without rendering.
+// compares with shared/audiodsp_biquad.c's fixed-point five without rendering.
 // Reads the block inputs but does not advance them, so looking at this does
 // not move an LFO along.
 static mp_obj_t audiobiquad_biquad_obj_get_coefficients(mp_obj_t self_in) {
@@ -221,7 +221,7 @@ static audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
     (void)channel;
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t produced = 0;
-    while (produced < AUDIOIF_FILTER_F32_FRAMES) {
+    while (produced < AUDIODSP_FILTER_F32_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -238,12 +238,12 @@ static audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_FILTER_F32_FRAMES - produced;
+        uint32_t run = AUDIODSP_FILTER_F32_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
         biquad_apply_blocks(self, run);
-        audioif_biquad_f32_process_s16(&self->config, &self->state,
+        audiodsp_biquad_f32_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -256,7 +256,7 @@ static audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
     // stops with the source, exactly as audioecho.FeedbackDelay's does.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_FILTER_F32_FRAMES;
+        produced = AUDIODSP_FILTER_F32_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;
@@ -272,7 +272,7 @@ static void audiobiquad_biquad_reset_buffer(mp_obj_t self_in,
     self->pending_frames = 0;
     // Everything goes. A filter's memory is audible: a chain restarted with
     // the previous take still in it plays that take's tail over the new one.
-    audioif_biquad_f32_reset(&self->state);
+    audiodsp_biquad_f32_reset(&self->state);
     // No unlock here, and there never was a lock to match it. reset_buffer is
     // reached through audiocore's funnel, which holds the pump lock across the
     // whole call -- so this body is already protected, and the release that
@@ -286,10 +286,10 @@ static void audiobiquad_biquad_reset_buffer(mp_obj_t self_in,
 // deinitialised, which is what makes every guarded entry point raise
 // afterwards -- `audiosample_get_buffer` and `audiosample_reset_buffer` in
 // audiocore for the audio path, and the three shared properties. The node
-// types audioif ported from CircuitPython have had this since they were
-// ported; the ones audioif wrote itself did not, so no class built on them
+// types audiodsp ported from CircuitPython have had this since they were
+// ported; the ones audiodsp wrote itself did not, so no class built on them
 // could release one and Tier 1's "deinit() releases every node the class
-// built" was unmeasurable on a board (audioif#58, #60, #63).
+// built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the
 // object holds a *reference* to: the upstream source, so releasing the tail
@@ -297,12 +297,12 @@ static void audiobiquad_biquad_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audiobiquad_biquad_deinit(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_deinit_obj, audiobiquad_biquad_deinit);

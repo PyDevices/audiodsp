@@ -9,9 +9,9 @@ that never fills 14 channels and never crosses the mix-down knee at +/-28000,
 so none of them can observe a change to CIRCUITPY_SYNTHIO_MAX_CHANNELS at all.
 
 Since 2026-09-06 a fifth gate does cross the knee --
-`tests/parity/verify_mixdown_knee.py`, audioif#27 -- but it sees exactly ONE
+`tests/parity/verify_mixdown_knee.py`, audiodsp#27 -- but it sees exactly ONE
 of the five sites. The CPython target reads only `src/cpython/synthio.py`'s
-`max_polyphony`, which it hands to `_audioif.mixdown_i32` as the limiter
+`max_polyphony`, which it hands to `_audiodsp.mixdown_i32` as the limiter
 divisor; the header, `micropython.mk` and `micropython.cmake` copies are read
 by no CI gate whatever.
 
@@ -23,10 +23,10 @@ this test passes by construction and which silently changes the audio.
 
 The five sites are genuinely independent -- three build paths plus two
 constants inside the CPython target, which does not read the header
-(setup.py builds _audioif from src/cpython/ and src/shared/ only, never from
+(setup.py builds _audiodsp from src/cpython/ and src/shared/ only, never from
 src/synthio/). There is no mechanism making them agree; only this check.
 
-DELIBERATELY NOT INCLUDED: `_audioif.c`'s `0x0fffffff / (32768 * 2 - 28000)`
+DELIBERATELY NOT INCLUDED: `_audiodsp.c`'s `0x0fffffff / (32768 * 2 - 28000)`
 is SYNTHIO_MIX_DOWN_SCALE(2) faithfully mirroring upstream CircuitPython's
 own two-channel default in a code path that is not ours to re-tune. It is a
 literal 2 that must stay 2. If you are here because you changed the ceiling
@@ -55,7 +55,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: gitignored binary in place. Every existing check would pass on a silently
 #: different oracle. Comparing the bytes is the only thing that notices.
 #:
-#: Re-pinned and MOVED 2026-09-17 for audioif#89. Two things changed. The
+#: Re-pinned and MOVED 2026-09-17 for audiodsp#89. Two things changed. The
 #: **path**: `cmods/bin/circuitpython` is what `cmods/build_interpreters.sh`'s
 #: `cp-unix` target installs, so anyone refreshing the workspace interpreters
 #: silently replaced the oracle with a coverage build at the variant's own
@@ -69,7 +69,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: own kernels moved under CircuitPython's untouched sources again. (PR #93's
 #: `audiospeed` fix is ours alone -- the CP tree keeps upstream's SpeedChanger,
 #: which is why `speedchanger_hold_probe.py` skips CircuitPython.) Built from
-#: CircuitPython 10.3.0 at `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64` with audioif at
+#: CircuitPython 10.3.0 at `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64` with audiodsp at
 #: 977ef26. Verified: it answers 64 voices; CircuitPython's own modules are
 #: byte-identical across the rebuild (`synthtools_acceptance` and
 #: `mixdown_knee`'s stored `circuitpython_stdout` both reproduce exactly); and
@@ -84,7 +84,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: section are identical. So rebuilding and comparing hashes cannot verify this
 #: pin -- reproducing the stored captures on the binary is what does.
 #:
-#: Re-pinned again 2026-09-09, later the same day, for audioif#64: the
+#: Re-pinned again 2026-09-09, later the same day, for audiodsp#64: the
 #: `audiobiquad` float biquad moved to transposed direct form II, and
 #: `audiobiquad` is one of the nine modules `apply_cp_patches.sh` adds to the CP
 #: tree -- so a change to our own shared kernel relinks this binary even though
@@ -150,7 +150,7 @@ SITES = (
      "src/cpython/synthio.py",
      r"^    max_polyphony = (\d+)"),
     ("CPython target, extension default",
-     "src/cpython/_audioif.c",
+     "src/cpython/_audiodsp.c",
      r"^    unsigned int max_polyphony = (\d+);"),
 )
 
@@ -170,7 +170,7 @@ class VoiceCeilingConsistency(unittest.TestCase):
                 lines.append("    %-34s %3d   (%s)" % (label, value, where))
             lines.append("")
             lines.append(
-                "    A patch behaves differently depending on how audioif was "
+                "    A patch behaves differently depending on how audiodsp was "
                 "built. No other gate here can see this. "
                 "tests/parity/verify_mixdown_knee.py crosses the mix-down "
                 "knee and so notices a ceiling change, but only in "
@@ -184,7 +184,7 @@ class VoiceCeilingConsistency(unittest.TestCase):
         """These two are one number wearing two hats, and they can drift.
 
         `synthio.py`'s value gates admission AND is passed to
-        `_audioif.mixdown_i32` as the limiter's divisor. `_audioif.c`'s is the
+        `_audiodsp.mixdown_i32` as the limiter's divisor. `_audiodsp.c`'s is the
         default for callers who pass nothing. If they diverge, a caller using
         the default limits to a different voice count than the engine admits.
         """
@@ -193,7 +193,7 @@ class VoiceCeilingConsistency(unittest.TestCase):
         self.assertEqual(
             admission, default,
             "src/cpython/synthio.py:max_polyphony (%d) and "
-            "src/cpython/_audioif.c's default (%d) must match: the first "
+            "src/cpython/_audiodsp.c's default (%d) must match: the first "
             "feeds mixdown_i32 as the limiter divisor, the second is what a "
             "caller gets who passes nothing."
             % (admission, default))

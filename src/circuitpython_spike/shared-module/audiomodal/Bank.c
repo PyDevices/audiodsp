@@ -1,5 +1,5 @@
 // audiomodal.Bank for CircuitPython: the buffer plumbing around
-// shared/audioif_modal.c. See Bank.h.
+// shared/audiodsp_modal.c. See Bank.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -16,7 +16,7 @@ void audiomodal_bank_reset_buffer(audiomodal_bank_obj_t *self,
     // Everything goes, for the reverberation tank's reason: a bank restarted
     // with the last take's partials still ringing plays the previous hit over
     // the new one.
-    audioif_modal_reset(&self->state);
+    audiodsp_modal_reset(&self->state);
 }
 
 audioio_get_buffer_result_t audiomodal_bank_get_buffer(
@@ -24,9 +24,9 @@ audioio_get_buffer_result_t audiomodal_bank_get_buffer(
     uint8_t **buffer, uint32_t *buffer_length) {
     (void)single_channel_output;
     (void)channel;
-    audioif_modal_config_finish(&self->config);
+    audiodsp_modal_config_finish(&self->config);
     uint32_t produced = 0;
-    while (produced < AUDIOIF_MODAL_FRAMES) {
+    while (produced < AUDIODSP_MODAL_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -43,11 +43,11 @@ audioio_get_buffer_result_t audiomodal_bank_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_MODAL_FRAMES - produced;
+        uint32_t run = AUDIODSP_MODAL_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_modal_process_s16(&self->config, &self->state,
+        audiodsp_modal_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -61,12 +61,12 @@ audioio_get_buffer_result_t audiomodal_bank_get_buffer(
     // this node exists not to be. Feeding zeros is what rings it out, so the
     // silent frames are pushed through the recursion rather than written over
     // the top of it.
-    if (produced < AUDIOIF_MODAL_FRAMES) {
-        static const int16_t quiet[AUDIOIF_MODAL_FRAMES * 2] = { 0 };
-        uint32_t run = AUDIOIF_MODAL_FRAMES - produced;
-        audioif_modal_process_s16(&self->config, &self->state,
+    if (produced < AUDIODSP_MODAL_FRAMES) {
+        static const int16_t quiet[AUDIODSP_MODAL_FRAMES * 2] = { 0 };
+        uint32_t run = AUDIODSP_MODAL_FRAMES - produced;
+        audiodsp_modal_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count], quiet, run);
-        produced = AUDIOIF_MODAL_FRAMES;
+        produced = AUDIODSP_MODAL_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

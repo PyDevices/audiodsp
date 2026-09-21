@@ -15,7 +15,7 @@ void audioroute_splitter_pull(audioroute_splitter_obj_t *self) {
     // including the one about to read, so the head is destroyed unseen and the
     // stream has a seam at 8192. The ring takes one ring's worth, this holds
     // the rest, and the source is not asked again until it is gone. Same shape
-    // as MixerVoice's remaining_buffer. audioif#87.
+    // as MixerVoice's remaining_buffer. audiodsp#87.
     if (self->pending_frames == 0) {
         uint8_t *raw = NULL;
         uint32_t raw_bytes = 0;
@@ -33,7 +33,7 @@ void audioroute_splitter_pull(audioroute_splitter_obj_t *self) {
             return;
         }
     }
-    const uint32_t taken = audioif_splitter_write(&self->state,
+    const uint32_t taken = audiodsp_splitter_write(&self->state,
         (const int16_t *)self->pending, self->pending_frames);
     self->pending += (size_t)taken * width;
     self->pending_frames -= taken;

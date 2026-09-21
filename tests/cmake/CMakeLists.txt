@@ -1,4 +1,4 @@
-# Configure-only harness for audioif's CMake glue (audioif#35).
+# Configure-only harness for audiodsp's CMake glue (audiodsp#35).
 #
 #   cmake -S tests/cmake -B <build dir> \
 #         -DMICROPY_DIR=<micropython checkout> \
@@ -15,7 +15,7 @@
 # `project(... NONE)` on purpose: no language is enabled, so this never looks
 # for a cross-compiler.
 cmake_minimum_required(VERSION 3.16)
-project(audioif_usermod_configure NONE)
+project(audiodsp_usermod_configure NONE)
 
 foreach(required MICROPY_DIR USER_C_MODULES)
     if(NOT DEFINED ${required})
@@ -38,9 +38,9 @@ include(${MICROPY_DIR}/py/usermod.cmake)
 foreach(target usermod usermod_mpaudio usermod_ulab)
     if(NOT TARGET ${target})
         message(FATAL_ERROR
-            "audioif's CMake glue did not define the ${target} target")
+            "audiodsp's CMake glue did not define the ${target} target")
     endif()
-    message(STATUS "audioif cmake check: target ${target} ok")
+    message(STATUS "audiodsp cmake check: target ${target} ok")
 endforeach()
 
 # 2. `usermod_mpaudio` is linked into `usermod`, which is what actually makes
@@ -51,7 +51,7 @@ if(NOT linked MATCHES "usermod_mpaudio")
     message(FATAL_ERROR
         "usermod_mpaudio is not linked into usermod (link libraries: ${linked})")
 endif()
-message(STATUS "audioif cmake check: usermod_mpaudio is linked into usermod")
+message(STATUS "audiodsp cmake check: usermod_mpaudio is linked into usermod")
 
 # 3. The source list is real and every file in it is on disk. A path typo in
 #    `micropython.cmake` is invisible until a port compiles, and this is the
@@ -67,7 +67,7 @@ foreach(source ${sources})
         message(FATAL_ERROR "usermod_mpaudio names a source that does not exist: ${source}")
     endif()
 endforeach()
-message(STATUS "audioif cmake check: ${source_count} sources, all present")
+message(STATUS "audiodsp cmake check: ${source_count} sources, all present")
 
 # 4. The voice ceiling, printed rather than compared. `micropython.cmake`'s
 #    own comment on that line says "no gate anywhere exercises this constant:
@@ -88,4 +88,4 @@ if(ceiling STREQUAL "")
     message(FATAL_ERROR
         "the CMake path defines no CIRCUITPY_SYNTHIO_MAX_CHANNELS")
 endif()
-message(STATUS "audioif cmake check: CIRCUITPY_SYNTHIO_MAX_CHANNELS=${ceiling}")
+message(STATUS "audiodsp cmake check: CIRCUITPY_SYNTHIO_MAX_CHANNELS=${ceiling}")

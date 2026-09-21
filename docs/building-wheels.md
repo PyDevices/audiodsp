@@ -1,6 +1,6 @@
 # Building and publishing wheels
 
-`pydevices-audioif` is a native CPython distribution. Build a local source
+`pydevices-audiodsp` is a native CPython distribution. Build a local source
 archive and wheel with:
 
 ```sh
@@ -8,7 +8,7 @@ python -m build
 ```
 
 A GitHub Release `vX.Y.Z` — matching the `VERSION` file, which is also where
-`_audioif.__version__` comes from — invokes the organization `publishing-v8`
+`_audiodsp.__version__` comes from — invokes the organization `publishing-v8`
 workflow (the pin is the `@publishing-v8` ref in
 `.github/workflows/publish-release-packages.yml`) with
 `build-kind: native-and-wasm`. It builds and validates exactly **21** wheels:
@@ -80,7 +80,7 @@ wheel is a claim; a wheel tested on emulated hardware is a weaker claim
 than it looks.
 
 **What the ARM lane found on its first run, and what closed it.** aarch64
-reproduces audioif's effects output byte for byte, since 2026-09-17. It did
+reproduces audiodsp's effects output byte for byte, since 2026-09-17. It did
 not at first, and the gap is the part worth keeping. Three of the four
 parity gates (`verify_acceptance`, `verify_streaming`, `verify_biquad`)
 were identical from the start; `verify_effects` was not — **6 of 744
@@ -91,7 +91,7 @@ rounding, and AArch64 fuses by baseline where x86-64 does not without
 `-mfma`. So the six blocks were accepted as an aarch64 baseline of its own,
 with the evidence written beside it.
 
-[#79](https://github.com/PyDevices/audioif/issues/79) forbade contraction
+[#79](https://github.com/PyDevices/audiodsp/issues/79) forbade contraction
 in every `src/shared/` file that computes in float, and the six blocks
 closed. Eight `ubuntu-24.04-arm` cells — Python 3.11 through 3.14 in two CI
 runs — now hash identically to the x86_64 reference, **0 of 882 numeric

@@ -20,10 +20,10 @@
 #include "cp_compat/argcheck.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/objproperty.h"
-#include "shared/audioif_echo.h"
+#include "shared/audiodsp_echo.h"
 
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // --- shared-module (DSP engine) -------------------------------------------
 
@@ -96,13 +96,13 @@ void common_hal_audiodelays_echo_deinit(audiodelays_echo_obj_t *self) {
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     audiofilters_deinit_filter_chain(&self->filter);
     self->echo_buffer = NULL;
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 mp_obj_t common_hal_audiodelays_echo_get_delay_ms(audiodelays_echo_obj_t *self) {
@@ -222,13 +222,13 @@ void common_hal_audiodelays_echo_play(audiodelays_echo_obj_t *self, mp_obj_t sam
         0, &primed, &primed_length);
     primed_length /= (self->base.bits_per_sample / 8);
 
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->sample = sample;
     self->loop = loop;
     self->sample_remaining_buffer = (void *)primed;
     self->sample_buffer_length = primed_length;
     self->more_data = result == GET_BUFFER_MORE_DATA;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void common_hal_audiodelays_echo_stop(audiodelays_echo_obj_t *self) {
@@ -371,9 +371,9 @@ audioio_get_buffer_result_t audiodelays_echo_get_buffer(audiodelays_echo_obj_t *
             } else {
                 if (self->base.bits_per_sample == 16 && self->base.samples_signed &&
                     !single_channel_output && self->filter.objs_len == 0) {
-                    audioif_echo_positions_t positions = {
+                    audiodsp_echo_positions_t positions = {
                         self->echo_buffer_left_pos, self->echo_buffer_right_pos};
-                    audioif_echo_process_s16(word_buffer, sample_src, n,
+                    audiodsp_echo_process_s16(word_buffer, sample_src, n,
                         echo_buffer, echo_buf_len, max_echo_buf_len,
                         self->echo_buffer_rate, decay, mix, self->freq_shift,
                         self->base.channel_count, &positions);
@@ -530,14 +530,14 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiodelays_echo_deinit_obj, audiodelays_echo_d
 static void check_for_deinit(audiodelays_echo_obj_t *self) {
     // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
     // contract is that nothing which can longjmp runs while it is held
-    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // (shared/audiodsp_pump_lock.h): a raise from in here never reaches the
     // release, so the mutex is left owned by a thread that has gone back to
     // the interpreter, and the pump blocks on it for ever. This is the guard
     // on every Python-facing method of this class, so it is the most reached
     // statement in the file.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     const bool released = audiosample_deinited(&self->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     if (released) {
         audiosample_check_for_deinit(&self->base);
     }

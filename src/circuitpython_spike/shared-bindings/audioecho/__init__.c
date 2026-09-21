@@ -15,7 +15,7 @@
 //| The `audioecho` module is a delay line whose feedback path carries a
 //| low-pass, a high-pass, a soft-clip, per-sample delay modulation and a
 //| cross-feed between the channels. It is not part of CircuitPython upstream;
-//| it comes from PyDevices' audioif.
+//| it comes from PyDevices' audiodsp.
 //|
 //| `audiodelays.Echo` is the plain version of the same idea: its feedback
 //| path is the echo times a decay and nothing else. Tape, analog and true

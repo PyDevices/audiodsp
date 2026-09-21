@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: Copyright (c) 2026 PyDevices
 //
-// audiopump - the spike's C pull loop, written against audioif's runtime
+// audiopump - the spike's C pull loop, written against audiodsp's runtime
 // neutral sample protocol.
 //
 // Three jobs, one loop:
@@ -25,7 +25,7 @@
 // pull the node behind it, because it calls `mp_proto_get_or_throw()` and
 // `audiosample_check_for_deinit()` and both of those raise. So the protocol
 // is resolved once, on the interpreter thread, into an
-// `audioif_sample_source_t`, and the loop calls through that. Node-internal
+// `audiodsp_sample_source_t`, and the loop calls through that. Node-internal
 // pulls still go through the funnel; see the spike notes for what that costs.
 
 #include <stdint.h>
@@ -37,9 +37,9 @@
 #include "py/runtime.h"
 
 #include "audiocore/__init__.h"
-#include "shared/audioif_port.h"
-#include "shared/audioif_pump_lock.h"
-#include "shared/audioif_sample.h"
+#include "shared/audiodsp_port.h"
+#include "shared/audiodsp_pump_lock.h"
+#include "shared/audiodsp_sample.h"
 
 #include "audiopump/audiopump.h"
 #include "audiopump/audiopump_events.h"
@@ -64,8 +64,8 @@
 // anywhere in src/.
 //
 // The thread, the mutex, the clock, the pacing and the sink all arrive through
-// shared/audioif_port.h. A driver binds itself by defining
-// audioif_port_driver(); with none bound the table is all NULLs and this loop
+// shared/audiodsp_port.h. A driver binds itself by defining
+// audiodsp_port_driver(); with none bound the table is all NULLs and this loop
 // runs exactly as the WebAssembly port runs it today -- one thread, no
 // hardware, driven a block at a time from audiopump.service().
 //
@@ -83,7 +83,7 @@
 // clock_gettime from this file: this file does not get to know what a clock is
 // made of.
 static inline uint64_t audiopump_now_us(void) {
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->now_us != NULL) {
         return port->now_us();
     }
@@ -105,7 +105,7 @@ enum {
     STATUS_BLOCKS = 0,      // blocks pulled
     STATUS_BYTES = 1,       // bytes seen
     STATUS_DIGEST = 2,      // FNV-1a 64 over every byte, in order
-    STATUS_LAST_RESULT = 3, // last audioif_buffer_result_t
+    STATUS_LAST_RESULT = 3, // last audiodsp_buffer_result_t
     STATUS_RUNNING = 4,     // 1 while the pump thread is inside the loop
     STATUS_ERROR = 5,       // 0 none, 1 buffer error, 2 null buffer, 3 done
     STATUS_TID = 6,         // unix: pthread_self(); esp32: the pinned core
@@ -114,7 +114,7 @@ enum {
     STATUS_RING_R = 9,      // bytes ever drained out of it
     STATUS_RING_OVF = 10,   // blocks the ring had no room for
     STATUS_DRAIN_DIGEST = 11, // FNV-1a 64 over every byte drained, in order
-    STATUS_PULL_US = 12,    // time inside audioif_sample_get, microseconds
+    STATUS_PULL_US = 12,    // time inside audiodsp_sample_get, microseconds
     STATUS_SINK_US = 13,    // time inside the sink write
     STATUS_SINK_TIMEOUTS = 14,
     STATUS_SINK_BYTES = 15,
@@ -126,8 +126,8 @@ enum {
     STATUS_DMA_BYTES = 21,  // bytes the I2S TX DMA actually clocked out
     STATUS_RX_BYTES = 22,   // bytes the I2S RX DMA actually clocked in
     STATUS_IN_TIMEOUTS = 23, // Input blocks the RX channel could not fill
-    // --- what audioif's pump lock says (shared/audioif_pump_lock.h) ---
-    STATUS_FAULT = 24,          // audioif_pump_fault_get(): why a pull gave up
+    // --- what audiodsp's pump lock says (shared/audiodsp_pump_lock.h) ---
+    STATUS_FAULT = 24,          // audiodsp_pump_fault_get(): why a pull gave up
     STATUS_LOCK_PUMP_WAIT = 25, // worst us the PUMP waited for a control swap
     STATUS_LOCK_CTRL_WAIT = 26, // worst us a CONTROL call waited for a pull
     STATUS_LOCK_CTRL_HELD = 27, // worst us the audio stood still inside a swap
@@ -152,7 +152,7 @@ enum {
 #define FNV_PRIME  (0x100000001b3ULL)
 
 typedef struct {
-    audioif_sample_source_t source;
+    audiodsp_sample_source_t source;
     // The adapter the source's context points at. Lives here, not on a
     // stack, because the pump thread outlives the call that built it.
     const audiosample_p_t *protocol;
@@ -193,7 +193,7 @@ typedef struct {
     mp_obj_t events;            // an Events queue, or MP_OBJ_NULL
     mp_obj_t tap;               // a Tap, or MP_OBJ_NULL
     // The format conversion, when the source is not already signed 16-bit
-    // stereo. NULL when it is, which is every graph audioif builds -- this
+    // stereo. NULL when it is, which is every graph audiodsp builds -- this
     // costs nothing to carry and one branch a block to skip.
     uint8_t *conv;
     uint32_t conv_len;
@@ -259,7 +259,7 @@ typedef struct {
     uint64_t acc_ring_wait_us;
     uint64_t acc_event_us_max;
     uint64_t wall_start;
-    audioif_buffer_result_t acc_result;
+    audiodsp_buffer_result_t acc_result;
     bool begun;                 // run_begin() has published the first words
     // wasm: the loop is entered from Python and must never block. It stops
     // when the output ring has no room for another block instead of dropping
@@ -295,7 +295,7 @@ static bool audiopump_live;
 // out by hand. mp_hal_delay_us is the fallback and does not raise on any port
 // here.
 static void audiopump_wait_us(uint64_t us) {
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->sleep_us != NULL) {
         port->sleep_us(us);
     } else {
@@ -305,18 +305,18 @@ static void audiopump_wait_us(uint64_t us) {
 
 // The protocol adapter, as a pair of functions with no MicroPython in them
 // beyond the already-resolved function pointers.
-static audioif_status_t audiopump_reset(void *context,
+static audiodsp_status_t audiopump_reset(void *context,
     bool single_channel_output, uint8_t audio_channel) {
     audiopump_ctx_t *ctx = context;
     ctx->protocol->reset_buffer(ctx->sample, single_channel_output,
         audio_channel);
-    return AUDIOIF_STATUS_OK;
+    return AUDIODSP_STATUS_OK;
 }
 
-static audioif_status_t audiopump_get(void *context,
+static audiodsp_status_t audiopump_get(void *context,
     bool single_channel_output, uint8_t audio_channel,
     const uint8_t **buffer, uint32_t *buffer_length,
-    audioif_buffer_result_t *result) {
+    audiodsp_buffer_result_t *result) {
     audiopump_ctx_t *ctx = context;
     // The tail's deinit check, which nothing else does. This adapter calls
     // the protocol DIRECTLY -- that is the whole point of resolving it once
@@ -330,21 +330,21 @@ static audioif_status_t audiopump_get(void *context,
     // it landed between two pulls, which is legitimate and must be silence
     // with a reason rather than a write through NULL.
     if (audiosample_deinited((audiosample_base_t *)MP_OBJ_TO_PTR(ctx->sample))) {
-        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_DEINITED);
+        audiodsp_pump_fault_set(AUDIODSP_PUMP_FAULT_DEINITED);
         *buffer = NULL;
         *buffer_length = 0;
-        *result = AUDIOIF_BUFFER_ERROR;
-        return AUDIOIF_STATUS_DEINITIALIZED;
+        *result = AUDIODSP_BUFFER_ERROR;
+        return AUDIODSP_STATUS_DEINITIALIZED;
     }
     uint8_t *raw = NULL;
     audioio_get_buffer_result_t got = ctx->protocol->get_buffer(ctx->sample,
         single_channel_output, audio_channel, &raw, buffer_length);
     *buffer = raw;
-    *result = (audioif_buffer_result_t)got;
-    return AUDIOIF_STATUS_OK;
+    *result = (audiodsp_buffer_result_t)got;
+    return AUDIODSP_STATUS_OK;
 }
 
-static const audioif_sample_ops_t audiopump_ops = {
+static const audiodsp_sample_ops_t audiopump_ops = {
     .reset_buffer = audiopump_reset,
     .get_buffer = audiopump_get,
 };
@@ -402,12 +402,12 @@ static uint32_t audiopump_convert_block(audiopump_ctx_t *ctx,
 // gate, and splitting the function does not relax it.
 static void audiopump_run_begin(audiopump_ctx_t *ctx) {
     ctx->acc_digest = FNV_OFFSET;
-    ctx->acc_result = AUDIOIF_BUFFER_MORE_DATA;
+    ctx->acc_result = AUDIODSP_BUFFER_MORE_DATA;
     ctx->status[STATUS_RUNNING] = 1;
     // The core on a board, the thread id on a desktop -- and 0 where there is
     // one thread and it is the interpreter's, which is the honest answer and
     // what the byte-identity probe asserts against on WebAssembly.
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     ctx->status[STATUS_TID] = port->status_tid != NULL ? port->status_tid() : 0;
     ctx->wall_start = audiopump_now_us();
     ctx->begun = true;
@@ -418,7 +418,7 @@ static void audiopump_run_end(audiopump_ctx_t *ctx) {
     ctx->status[STATUS_DIGEST] = ctx->acc_digest;
     ctx->status[STATUS_LAST_RESULT] = (uint64_t)ctx->acc_result;
     ctx->status[STATUS_ERROR] = ctx->acc_error;
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->stack_free != NULL) {
         ctx->status[STATUS_STACK_FREE] = (uint64_t)port->stack_free();
     }
@@ -447,13 +447,13 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
     uint64_t ring_waits = ctx->acc_ring_waits;
     uint64_t ring_wait_us = ctx->acc_ring_wait_us;
     uint64_t event_us_max = ctx->acc_event_us_max;
-    audioif_buffer_result_t result = ctx->acc_result;
+    audiodsp_buffer_result_t result = ctx->acc_result;
     const uint64_t wall_start = ctx->wall_start;
     uint64_t spent = 0;
     int why = AUDIOPUMP_SERVICE_DONE;
     // Resolved once per call rather than per block: this is the hot loop and
     // the binding cannot change under it.
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     // Can this build make the pump WAIT for the ring rather than drop into it?
     // Three things have to be true and none of them changes inside the loop:
     // there is a ring, there is a thread of our own to put to sleep, and the
@@ -465,7 +465,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         && port->park_spin != NULL;
 
     while (blocks < ctx->blocks && !ctx->stop) {
-        AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_TOP);
+        AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_TOP);
         if (spent >= budget) {
             why = AUDIOPUMP_SERVICE_MORE;
             break;
@@ -516,7 +516,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
                 // made a stopped pump read as a pump that had never waited,
                 // and the gate for this change reported 0 waits while it was
                 // sitting in one.
-                AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_RING_WAIT);
+                AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_RING_WAIT);
                 ctx->ring_wait = true;
                 ring_waits++;
                 ctx->status[STATUS_RING_WAITS] = ring_waits;
@@ -559,7 +559,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
                 why = AUDIOPUMP_SERVICE_PARKED;
                 break;
             }
-            AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_PARK);
+            AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_PARK);
             const uint64_t park_start = audiopump_now_us();
             parks++;
             ctx->parked = true;
@@ -611,14 +611,14 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         // rewire can no longer land in the middle of a pull -- which is what
         // killed Phaser 5 times out of 5 on the desktop and panicked core 0
         // on the P4 at the same statement. Nobody has to call park() for
-        // this; the lock is inside audioif, at the write.
+        // this; the lock is inside audiodsp, at the write.
         //
         // NOT held across the sink write below: that blocks for up to a DMA
         // block, and holding it there would make every knob wait for the
         // speaker instead of for the arithmetic.
-        AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_LOCK);
-        audioif_pump_lock_acquire_pump();
-        AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_PULL);
+        AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_LOCK);
+        audiodsp_pump_lock_acquire_pump();
+        AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_PULL);
         // Re-read the tail INSIDE the lock. A retarget that swapped it is
         // holding this lock while it does, so either we see the whole swap or
         // none of it -- the registry entry the handoff page designs, which is
@@ -652,7 +652,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         if (ctx->sample_type != NULL
             && (const void *)((mp_obj_base_t *)MP_OBJ_TO_PTR(ctx->sample))->type
                != ctx->sample_type) {
-            audioif_pump_lock_release_pump();
+            audiodsp_pump_lock_release_pump();
             error = 4;
             break;
         }
@@ -674,28 +674,28 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
                 ctx->status[STATUS_EVENT_US_MAX] = event_us_max;
             }
         }
-        audioif_status_t status = audioif_sample_get(&ctx->source, false, 0,
+        audiodsp_status_t status = audiodsp_sample_get(&ctx->source, false, 0,
             &buffer, &length, &result);
-        audioif_pump_lock_release_pump();
-        AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_DIGEST);
+        audiodsp_pump_lock_release_pump();
+        AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_DIGEST);
         const uint64_t dt = audiopump_now_us() - t0;
         pull_us += dt;
         if (dt > max_pull_us) {
             max_pull_us = dt;
         }
-        // A pull no longer raises: audioif's funnel returns GET_BUFFER_ERROR
+        // A pull no longer raises: audiodsp's funnel returns GET_BUFFER_ERROR
         // and leaves a code in its fault register instead of longjmping off a
         // thread that has no interpreter state to allocate the exception
         // from. So a deinited node, a missing protocol or a file-backed
         // source in the graph all arrive HERE, as a number, and the pump
         // stops pulling that source and publishes why.
-        if (status != AUDIOIF_STATUS_OK || result == AUDIOIF_BUFFER_ERROR) {
+        if (status != AUDIODSP_STATUS_OK || result == AUDIODSP_BUFFER_ERROR) {
             error = 1;
-            ctx->status[STATUS_FAULT] = audioif_pump_fault_get();
+            ctx->status[STATUS_FAULT] = audiodsp_pump_fault_get();
             break;
         }
-        const uint32_t fault = audioif_pump_fault_get();
-        if (fault != AUDIOIF_PUMP_FAULT_NONE) {
+        const uint32_t fault = audiodsp_pump_fault_get();
+        if (fault != AUDIODSP_PUMP_FAULT_NONE) {
             // A node swallowed the error into silence -- every node in the
             // palette treats GET_BUFFER_ERROR from its source as "produce
             // zeros" -- so the result came back clean and the graph is quietly
@@ -717,7 +717,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         // The conversion, before anything looks at the block: the digest,
         // the ring, the tap and the sink all see what will be clocked, not
         // what the source happened to store. One branch when there is
-        // nothing to convert, which is every graph audioif builds.
+        // nothing to convert, which is every graph audiodsp builds.
         if (ctx->conv != NULL && length) {
             length = audiopump_convert_block(ctx, buffer, length);
             buffer = ctx->conv;
@@ -785,7 +785,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         // which -- a write(2) and an i2s_channel_write are the same shape and
         // the difference between them was never the pump's business.
         if (ctx->to_sink && length && port->sink_write != NULL) {
-            AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_SINK);
+            AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_SINK);
             bool timed_out = false;
             const uint64_t s0 = audiopump_now_us();
             const uint32_t written = port->sink_write(buffer, length,
@@ -808,7 +808,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
                 + (uint64_t)ctx->frames * 1000000ULL / ctx->pace_rate;
             const uint64_t at = audiopump_now_us();
             if (due > at) {
-                AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_PACE);
+                AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_PACE);
                 port->sleep_us(due - at);
             }
         }
@@ -824,7 +824,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         ctx->status[STATUS_SINK_BYTES] = sink_bytes;
         ctx->status[STATUS_SINK_TIMEOUTS] = sink_timeouts;
         ctx->status[STATUS_MAX_PULL_US] = max_pull_us;
-        const audioif_pump_lock_stats_t *lock = audioif_pump_lock_stats();
+        const audiodsp_pump_lock_stats_t *lock = audiodsp_pump_lock_stats();
         ctx->status[STATUS_LOCK_PUMP_WAIT] = lock->pump_wait_us_max;
         ctx->status[STATUS_LOCK_CTRL_WAIT] = lock->ctrl_wait_us_max;
         ctx->status[STATUS_LOCK_CTRL_HELD] = lock->ctrl_held_us_max;
@@ -836,7 +836,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         if (port->sink_rx_bytes != NULL) {
             ctx->status[STATUS_RX_BYTES] = port->sink_rx_bytes();
         }
-        if (result == AUDIOIF_BUFFER_DONE) {
+        if (result == AUDIODSP_BUFFER_DONE) {
             if (!ctx->loop) {
                 error = 3;
                 break;
@@ -852,9 +852,9 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
             // so it never enters the runtime. A RawSample with one buffer
             // says DONE on every pull, which is why a looped RawSample is
             // this branch every single block and has to be this cheap.
-            AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_RESET);
-            (void)audioif_sample_reset(&ctx->source, false, 0);
-            result = AUDIOIF_BUFFER_MORE_DATA;
+            AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_RESET);
+            (void)audiodsp_sample_reset(&ctx->source, false, 0);
+            result = AUDIODSP_BUFFER_MORE_DATA;
         }
     }
 
@@ -927,7 +927,7 @@ static void audiopump_prepare(mp_obj_t sample, mp_obj_t blocks_in,
     const audiosample_p_t *protocol = mp_proto_get_or_throw(
         MP_QSTR_protocol_audiosample, sample);
     audiosample_check_for_deinit(MP_OBJ_TO_PTR(sample));
-    audioif_pump_fault_clear();
+    audiodsp_pump_fault_clear();
 
     ctx->protocol = protocol;
     ctx->sample = sample;
@@ -978,7 +978,7 @@ static void audiopump_open_sink(mp_obj_t sink) {
     if (sink == MP_OBJ_NULL || sink == mp_const_none) {
         return;
     }
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     if (mp_obj_is_str(sink)) {
         if (port->sink_open == NULL) {
             mp_raise_ValueError(MP_ERROR_TEXT(
@@ -999,7 +999,7 @@ static void audiopump_open_sink(mp_obj_t sink) {
 }
 
 static void audiopump_close_sink(void) {
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->sink_close != NULL) {
         port->sink_close();
     }
@@ -1077,7 +1077,7 @@ static void audiopump_entry(void *arg) {
 // finalises it anyway. No port patch.
 //
 // Finalisers run before gc_sweep_free_blocks, so the graph is still intact
-// while this runs -- and audioif has no finalisers of its own outside
+// while this runs -- and audiodsp has no finalisers of its own outside
 // audiomp3, so nothing can deinit a node ahead of us.
 
 // `release_guard` is true only when the finaliser itself is calling: the guard
@@ -1091,8 +1091,8 @@ static void audiopump_entry(void *arg) {
 static void audiopump_teardown(bool release_guard) {
     audiopump_ctx.stop = true;
     audiopump_ctx.park_req = false;
-    audioif_pump_set_active(false);
-    const audioif_port_ops_t *port = audioif_port();
+    audiodsp_pump_set_active(false);
+    const audiodsp_port_ops_t *port = audiodsp_port();
     if (audiopump_live && !audiopump_ctx.service_mode) {
         if (port->thread_wake != NULL) {
             port->thread_wake();
@@ -1192,8 +1192,8 @@ static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_shutdown_obj, audiopump_shutdown);
 
 // A file-backed source cannot be pulled by a pump: it reads through the VFS
 // from inside get_buffer, which re-enters the interpreter, and it raises
-// there. audioif's WaveFile and MP3Decoder now refuse it from the inside --
-// they publish AUDIOIF_PUMP_FAULT_UNPUMPABLE and go silent rather than
+// there. audiodsp's WaveFile and MP3Decoder now refuse it from the inside --
+// they publish AUDIODSP_PUMP_FAULT_UNPUMPABLE and go silent rather than
 // crash -- but a graph that is nothing BUT a file is worth refusing at the
 // door, with a sentence, instead of playing silence and leaving a number to
 // be looked up.
@@ -1252,12 +1252,12 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
     audiopump_prepare(args[ARG_sample].u_obj, args[ARG_blocks].u_obj,
         args[ARG_status].u_obj, args[ARG_ring].u_obj, &audiopump_ctx);
     audiopump_ctx.sink_timeout_ms = (uint32_t)args[ARG_timeout_ms].u_int;
-    // From here on audioif knows a pump exists, so the file-backed sources
+    // From here on audiodsp knows a pump exists, so the file-backed sources
     // refuse to be pulled and the funnel reports rather than raises. Set
     // BEFORE the thread is created, cleared after it has gone, both from this
     // thread -- so there is a happens-before at each end and no flag race.
-    audioif_pump_lock_stats_reset();
-    audioif_pump_set_active(true);
+    audiodsp_pump_lock_stats_reset();
+    audiodsp_pump_set_active(true);
 
     audiopump_ctx.loop = args[ARG_loop].u_bool;
     audiopump_ctx.retarget_loop = -1;
@@ -1279,7 +1279,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audiopump_spawn_obj, 3, audiopump_spawn);
 // audiopump_c_spawn() end here, so a device binding cannot drift from the
 // Python surface.
 static int audiopump_launch(int core, int prio, int stack, bool psram) {
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->thread_start == NULL) {
         // The shape a port with no thread gets -- and, just as usefully, the
         // shape a build gets when its driver did NOT bind. spawn() adopts the
@@ -1297,7 +1297,7 @@ static int audiopump_launch(int core, int prio, int stack, bool psram) {
         return -2;
     }
 
-    const audioif_port_thread_cfg_t cfg = {
+    const audiodsp_port_thread_cfg_t cfg = {
         .core = core,
         .prio = prio,
         .stack = stack,
@@ -1305,7 +1305,7 @@ static int audiopump_launch(int core, int prio, int stack, bool psram) {
     };
     int where = -1;
     if (!port->thread_start(audiopump_entry, &audiopump_ctx, &cfg, &where)) {
-        audioif_pump_set_active(false);
+        audiodsp_pump_set_active(false);
         mp_raise_OSError(MP_ENOMEM);
     }
     audiopump_live = true;
@@ -1359,8 +1359,8 @@ int audiopump_c_spawn(mp_obj_t sample, mp_obj_t status, uint64_t blocks,
         audiopump_ctx.max_block_bytes = frames * 4;
         MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_CONVERT] = convert->scratch;
     }
-    audioif_pump_lock_stats_reset();
-    audioif_pump_set_active(true);
+    audiodsp_pump_lock_stats_reset();
+    audiodsp_pump_set_active(true);
     audiopump_ctx.loop = loop;
     audiopump_ctx.retarget_loop = -1;
     audiopump_open_sink(sink);
@@ -1405,18 +1405,18 @@ bool audiopump_c_join(uint32_t timeout_ms) {
         // it from here is the supported direction; on a desktop this is the
         // pthread_join or the WaitForSingleObject. Either way it is the
         // driver's call and it happens after the loop has been seen to end.
-        const audioif_port_ops_t *port = audioif_port();
+        const audiodsp_port_ops_t *port = audiodsp_port();
         if (port->thread_release != NULL) {
             port->thread_release();
         }
     }
     audiopump_live = false;
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->sink_close != NULL) {
         port->sink_close();
     }
     audiopump_ctx.to_sink = false;
-    audioif_pump_set_active(false);
+    audiodsp_pump_set_active(false);
     MP_STATE_VM(audiopump_held)[0] = MP_OBJ_NULL;
     MP_STATE_VM(audiopump_held)[1] = MP_OBJ_NULL;
     MP_STATE_VM(audiopump_held)[2] = MP_OBJ_NULL;
@@ -1435,7 +1435,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiopump_join_obj, 0, 1,
 void audiopump_c_stop(void) {
     audiopump_ctx.stop = true;
     audiopump_ctx.park_req = false;
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->thread_wake != NULL) {
         port->thread_wake();
     }
@@ -1489,7 +1489,7 @@ bool audiopump_c_park(uint32_t timeout_us) {
     // Without this, park() on a back-pressured pump waits its whole timeout
     // and then reports failure -- which is every retarget and every teardown.
     {
-        const audioif_port_ops_t *port = audioif_port();
+        const audiodsp_port_ops_t *port = audiodsp_port();
         if (port->thread_wake != NULL) {
             port->thread_wake();
         }
@@ -1564,7 +1564,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiopump_service_obj, 0, 1,
 // driver did not bind, which is the point: one question, asked once, rather
 // than every caller sniffing for i2s_start or sys.platform.
 static mp_obj_t audiopump_threaded(void) {
-    return mp_obj_new_bool(audioif_port_threaded());
+    return mp_obj_new_bool(audiodsp_port_threaded());
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_threaded_obj, audiopump_threaded);
 
@@ -1578,7 +1578,7 @@ static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_threaded_obj, audiopump_threaded);
 // caller's next service() is the wake. False only on a threaded build with no
 // park_spin -- which is a driver that is not finished, and now says so.
 static mp_obj_t audiopump_backpressure(void) {
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     return mp_obj_new_bool(port->thread_start == NULL
         || port->park_spin != NULL);
 }
@@ -1589,7 +1589,7 @@ static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_backpressure_obj,
 // makes the split checkable from Python -- a build that should have a thread
 // and says "none" has a link-order problem, not a mystery.
 static mp_obj_t audiopump_driver(void) {
-    return mp_obj_new_str_from_cstr(audioif_port_name());
+    return mp_obj_new_str_from_cstr(audiodsp_port_name());
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_driver_obj, audiopump_driver);
 
@@ -1615,7 +1615,7 @@ void audiopump_c_retarget(mp_obj_t sample, int loop) {
     audiosample_check_for_deinit(MP_OBJ_TO_PTR(sample));
     MP_STATE_VM(audiopump_held)[0] = sample;
 
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiopump_ctx.protocol = protocol;
     audiopump_ctx.sample = sample;
     // The loop flag belongs to the tail, not to the pump's whole lifetime.
@@ -1629,7 +1629,7 @@ void audiopump_c_retarget(mp_obj_t sample, int loop) {
     // The type word is re-read by the loop, inside the same lock, so the
     // soft-reset guard cannot see a half-updated pair.
     audiopump_ctx.retarget_req = true;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 static mp_obj_t audiopump_retarget(size_t n_args, const mp_obj_t *pos_args,
@@ -1656,7 +1656,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audiopump_retarget_obj, 1,
 
 void audiopump_c_unpark(void) {
     audiopump_ctx.park_req = false;
-    const audioif_port_ops_t *port = audioif_port();
+    const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->thread_wake != NULL) {
         port->thread_wake();
     }
@@ -1711,7 +1711,7 @@ static mp_obj_t audiopump_drain(mp_obj_t out_in) {
     // room still missing. Guarded on the flag rather than done unconditionally
     // because a drain runs every tick and a wake is a syscall.
     if (ctx->ring_wait) {
-        const audioif_port_ops_t *port = audioif_port();
+        const audiodsp_port_ops_t *port = audiodsp_port();
         if (port->thread_wake != NULL) {
             port->thread_wake();
         }
@@ -1747,18 +1747,18 @@ static mp_obj_t audiopump_set_events(size_t n_args, const mp_obj_t *args) {
         }
         if (q == mp_const_none) {
             // Detach: the pump lets go first, then the root does.
-            audioif_pump_lock_acquire();
+            audiodsp_pump_lock_acquire();
             audiopump_ctx.events = MP_OBJ_NULL;
-            audioif_pump_lock_release();
+            audiodsp_pump_lock_release();
             MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_EVENTS] = MP_OBJ_NULL;
         } else {
             // Attach: the root takes hold first, so the queue is reachable
             // before the pump can reach it.
             audiopump_arm_guard();
             MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_EVENTS] = q;
-            audioif_pump_lock_acquire();
+            audiodsp_pump_lock_acquire();
             audiopump_ctx.events = q;
-            audioif_pump_lock_release();
+            audiodsp_pump_lock_release();
         }
     }
     mp_obj_t held = MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_EVENTS];
@@ -1774,16 +1774,16 @@ static mp_obj_t audiopump_set_tap(size_t n_args, const mp_obj_t *args) {
             mp_raise_TypeError(MP_ERROR_TEXT("expected a Tap"));
         }
         if (t == mp_const_none) {
-            audioif_pump_lock_acquire();
+            audiodsp_pump_lock_acquire();
             audiopump_ctx.tap = MP_OBJ_NULL;
-            audioif_pump_lock_release();
+            audiodsp_pump_lock_release();
             MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_TAP] = MP_OBJ_NULL;
         } else {
             audiopump_arm_guard();
             MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_TAP] = t;
-            audioif_pump_lock_acquire();
+            audiodsp_pump_lock_acquire();
             audiopump_ctx.tap = t;
-            audioif_pump_lock_release();
+            audiodsp_pump_lock_release();
         }
     }
     mp_obj_t held = MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_TAP];
@@ -1799,7 +1799,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiopump_set_tap_obj, 0, 1,
 // running and wants to zero them between rounds.
 
 static mp_obj_t audiopump_lock_stats(void) {
-    const audioif_pump_lock_stats_t *s = audioif_pump_lock_stats();
+    const audiodsp_pump_lock_stats_t *s = audiodsp_pump_lock_stats();
     mp_obj_t items[7] = {
         mp_obj_new_int_from_ull(s->pump_takes),
         mp_obj_new_int_from_ull(s->pump_wait_us),
@@ -1815,15 +1815,15 @@ static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_lock_stats_obj,
     audiopump_lock_stats);
 
 static mp_obj_t audiopump_lock_reset(void) {
-    audioif_pump_lock_stats_reset();
-    audioif_pump_fault_clear();
+    audiodsp_pump_lock_stats_reset();
+    audiodsp_pump_fault_clear();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_lock_reset_obj,
     audiopump_lock_reset);
 
 static mp_obj_t audiopump_fault(void) {
-    return mp_obj_new_int_from_uint(audioif_pump_fault_get());
+    return mp_obj_new_int_from_uint(audiodsp_pump_fault_get());
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_fault_obj, audiopump_fault);
 

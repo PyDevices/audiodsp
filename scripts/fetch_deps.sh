@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch audioif's pinned native dependencies into .deps/ for standalone
+# Fetch audiodsp's pinned native dependencies into .deps/ for standalone
 # builds (a workspace checkout with sibling clones already in place needs
 # none of this -- the build glue prefers .deps/ and falls back to the
 # siblings).

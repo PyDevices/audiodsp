@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pydevices-audioif"
+name = "pydevices-audiodsp"
 dynamic = ["version"]
 description = "CircuitPython-compatible audio synthesis and effects for PyDevices"
 readme = "README.md"
@@ -24,7 +24,7 @@ dependencies = []
 # standard library: numpy, a whole song in memory, a desktop's job. The core
 # modules run on boards and in wasm, where numpy has no place -- so numpy is
 # an extra, not a dependency, and the bare wheel stays dependency-free:
-#   pip install "pydevices-audioif[render]"
+#   pip install "pydevices-audiodsp[render]"
 # TestPyPI carries no usable numpy (only a 2.4.0.dev0 pre-release and a 2015
 # 1.9.3 sdist), so the documented TestPyPI install line also passes
 # --extra-index-url https://pypi.org/simple/.
@@ -32,25 +32,25 @@ dependencies = []
 render = ["numpy"]
 
 [project.urls]
-Repository = "https://github.com/PyDevices/audioif"
-Issues = "https://github.com/PyDevices/audioif/issues"
+Repository = "https://github.com/PyDevices/audiodsp"
+Issues = "https://github.com/PyDevices/audiodsp/issues"
 
 [tool.setuptools]
 py-modules = ["audiocore", "synthio", "audiomixer", "audiofilters", "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics", "audioroute", "audiomath", "audioecho", "audioconvolve", "audiobiquad", "audioshaper", "audioladder", "audioverb", "audiomodal"]
 # Keep py-modules explicit: src/cpython is the root package directory now, and
 # an automatic scan there would also pick up anything else that lands in it.
-packages = ["audiorender", "audioif_util"]
-# audiorender and audioif_util are the pure-Python packages this wheel
+packages = ["audiorender", "audiodsp_util"]
+# audiorender and audiodsp_util are the pure-Python packages this wheel
 # carries. The instrument and effect libraries (audioinstruments,
 # audioeffects) are not in this repository any more: they are developed and
 # published from https://github.com/PyDevices/audiocomponents as their own
-# distributions, each depending on pydevices-audioif.
+# distributions, each depending on pydevices-audiodsp.
 #
-# audioif_util is `struct` and two functions, and it is here rather than
+# audiodsp_util is `struct` and two functions, and it is here rather than
 # beside the wrappers because it is the one pure-Python thing in this
 # repository that has to run on a *board*: a class deriving a setting in
-# Python rounds it differently there, and audioif_util.float32 is how it
-# stops (docs/correctness-standard.md, audioif#80, audiocomponents#75).
+# Python rounds it differently there, and audiodsp_util.float32 is how it
+# stops (docs/correctness-standard.md, audiodsp#80, audiocomponents#75).
 
 # The CPython target is one directory: src/cpython holds the extension source,
 # the extension built in place, and the thirteen modules that wrap it. They are
@@ -65,7 +65,7 @@ packages = ["audiorender", "audioif_util"]
 [tool.setuptools.package-dir]
 "" = "src/cpython"
 audiorender = "lib/audiorender"
-audioif_util = "lib/audioif_util"
+audiodsp_util = "lib/audiodsp_util"
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}

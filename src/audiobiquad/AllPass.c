@@ -8,7 +8,7 @@
 #include "cp_compat/objproperty.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 static mp_obj_t audiobiquad_allpass_make_new(const mp_obj_type_t *type,
     size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
@@ -36,7 +36,7 @@ static mp_obj_t audiobiquad_allpass_make_new(const mp_obj_type_t *type,
         mp_raise_ValueError(MP_ERROR_TEXT("sample_rate must be at least 1"));
     }
     mp_int_t stages = args[ARG_stages].u_int;
-    if (stages < 1 || stages > (mp_int_t)AUDIOIF_FILTER_F32_MAX_STAGES) {
+    if (stages < 1 || stages > (mp_int_t)AUDIODSP_FILTER_F32_MAX_STAGES) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "stages must be between 1 and audiobiquad.MAX_STAGES"));
     }
@@ -53,7 +53,7 @@ static mp_obj_t audiobiquad_allpass_make_new(const mp_obj_type_t *type,
     self->pending = NULL;
     self->pending_frames = 0;
 
-    audioif_allpass_f32_config_init(&self->config, self->base.sample_rate,
+    audiodsp_allpass_f32_config_init(&self->config, self->base.sample_rate,
         (uint32_t)channel_count, (uint32_t)stages);
     // `stages` sizes the state, so it is fixed at construction and the state
     // is allocated by the binding -- the DSP layer only borrows the pointer,
@@ -61,14 +61,14 @@ static mp_obj_t audiobiquad_allpass_make_new(const mp_obj_type_t *type,
     const uint32_t count = (uint32_t)(channel_count * stages);
     float *lanes = m_malloc((size_t)count * sizeof(float));
     memset(lanes, 0, (size_t)count * sizeof(float));
-    audioif_allpass_f32_state_init(&self->state, lanes, count);
+    audiodsp_allpass_f32_state_init(&self->state, lanes, count);
 
     synthio_block_assign_slot(args[ARG_frequency].u_obj, &self->frequency,
         MP_QSTR_frequency);
     synthio_block_assign_slot(args[ARG_feedback].u_obj, &self->feedback,
         MP_QSTR_feedback);
     synthio_block_assign_slot(args[ARG_mix].u_obj, &self->mix, MP_QSTR_mix);
-    audioif_allpass_f32_config_finish(&self->config);
+    audiodsp_allpass_f32_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -77,15 +77,15 @@ static mp_obj_t audiobiquad_allpass_make_new(const mp_obj_type_t *type,
 // (-0.99..0.99) and so, unlike audiofilters/Phaser.c:211's 0.1..0.9, lets
 // zero be zero.
 static void allpass_refresh(audiobiquad_allpass_obj_t *self) {
-    audioif_allpass_f32_configure(&self->config,
-        AUDIOIF_ALLPASS_F32_OPT_FREQUENCY,
+    audiodsp_allpass_f32_configure(&self->config,
+        AUDIODSP_ALLPASS_F32_OPT_FREQUENCY,
         (float)synthio_block_slot_get(&self->frequency));
-    audioif_allpass_f32_configure(&self->config,
-        AUDIOIF_ALLPASS_F32_OPT_FEEDBACK,
+    audiodsp_allpass_f32_configure(&self->config,
+        AUDIODSP_ALLPASS_F32_OPT_FEEDBACK,
         (float)synthio_block_slot_get(&self->feedback));
-    audioif_allpass_f32_configure(&self->config, AUDIOIF_ALLPASS_F32_OPT_MIX,
+    audiodsp_allpass_f32_configure(&self->config, AUDIODSP_ALLPASS_F32_OPT_MIX,
         (float)synthio_block_slot_get(&self->mix));
-    audioif_allpass_f32_config_finish(&self->config);
+    audiodsp_allpass_f32_config_finish(&self->config);
 }
 
 // One chunk of the block layer, then the values it produced.
@@ -99,11 +99,11 @@ static void allpass_apply_blocks(audiobiquad_allpass_obj_t *self,
 static mp_obj_t audiobiquad_allpass_play(mp_obj_t self_in, mp_obj_t sample) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiobiquad_allpass_play_obj,
@@ -111,11 +111,11 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiobiquad_allpass_play_obj,
 
 static mp_obj_t audiobiquad_allpass_stop(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_stop_obj,
@@ -123,9 +123,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_stop_obj,
 
 static mp_obj_t audiobiquad_allpass_clear(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
-    audioif_allpass_f32_reset(&self->state);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+    audiodsp_allpass_f32_reset(&self->state);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_clear_obj,
@@ -193,7 +193,7 @@ static audioio_get_buffer_result_t audiobiquad_allpass_get_buffer(
     (void)channel;
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t produced = 0;
-    while (produced < AUDIOIF_FILTER_F32_FRAMES) {
+    while (produced < AUDIODSP_FILTER_F32_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -210,12 +210,12 @@ static audioio_get_buffer_result_t audiobiquad_allpass_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_FILTER_F32_FRAMES - produced;
+        uint32_t run = AUDIODSP_FILTER_F32_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
         allpass_apply_blocks(self, run);
-        audioif_allpass_f32_process_s16(&self->config, &self->state,
+        audiodsp_allpass_f32_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -224,7 +224,7 @@ static audioio_get_buffer_result_t audiobiquad_allpass_get_buffer(
     }
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_FILTER_F32_FRAMES;
+        produced = AUDIODSP_FILTER_F32_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;
@@ -238,17 +238,17 @@ static void audiobiquad_allpass_reset_buffer(mp_obj_t self_in,
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_allpass_f32_reset(&self->state);
+    audiodsp_allpass_f32_reset(&self->state);
 }
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, which is what makes every guarded entry point raise
 // afterwards -- `audiosample_get_buffer` and `audiosample_reset_buffer` in
 // audiocore for the audio path, and the three shared properties. The node
-// types audioif ported from CircuitPython have had this since they were
-// ported; the ones audioif wrote itself did not, so no class built on them
+// types audiodsp ported from CircuitPython have had this since they were
+// ported; the ones audiodsp wrote itself did not, so no class built on them
 // could release one and Tier 1's "deinit() releases every node the class
-// built" was unmeasurable on a board (audioif#58, #60, #63).
+// built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the
 // object holds a *reference* to: the upstream source, so releasing the tail
@@ -256,12 +256,12 @@ static void audiobiquad_allpass_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audiobiquad_allpass_deinit(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_deinit_obj, audiobiquad_allpass_deinit);

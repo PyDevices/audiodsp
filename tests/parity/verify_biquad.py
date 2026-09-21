@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 fixture_path = Path(__file__).parent / "golden" / "biquad_component.json"
 probe = Path(__file__).parent / "biquad_component_probe.py"
 environment = os.environ.copy()
-# The probe rounds Q and A the way a board would (audioif_util.float32), so
+# The probe rounds Q and A the way a board would (audiodsp_util.float32), so
 # `lib/` goes on the path ahead of whatever wheel is installed -- same reason
 # as verify_dsp.py, and it is what lets this run from a fresh checkout.
 environment["PYTHONPATH"] = os.pathsep.join(

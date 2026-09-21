@@ -1,10 +1,10 @@
 """The three option tables for `audiodynamics` must agree, name for number.
 
 `Dynamics` takes its settings by keyword, and each keyword has to reach the
-same slot in `audioif_dynamics_configure()` on all three targets. Three tables
+same slot in `audiodsp_dynamics_configure()` on all three targets. Three tables
 say which slot:
 
-    src/shared/audioif_dynamics.h   the C enum -- the authority
+    src/shared/audiodsp_dynamics.h   the C enum -- the authority
     src/audiodynamics/Dynamics.c    MicroPython, name -> enum constant
     src/cpython/audiodynamics.py    the CPython twin, name -> a LITERAL INTEGER
     src/circuitpython_spike/shared-bindings/audiodynamics/Dynamics.c
@@ -38,23 +38,23 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-HEADER = ROOT / "src" / "shared" / "audioif_dynamics.h"
+HEADER = ROOT / "src" / "shared" / "audiodsp_dynamics.h"
 BINDING = ROOT / "src" / "audiodynamics" / "Dynamics.c"
 SPIKE = (ROOT / "src" / "circuitpython_spike" / "shared-bindings"
          / "audiodynamics" / "Dynamics.c")
 TWIN = ROOT / "src" / "cpython" / "audiodynamics.py"
 
-PREFIX = "AUDIOIF_DYNAMICS_OPT_"
+PREFIX = "AUDIODSP_DYNAMICS_OPT_"
 
 
 def enum_order():
-    """The option names in `audioif_dynamics_option_t`, in declaration order,
+    """The option names in `audiodsp_dynamics_option_t`, in declaration order,
     with the `_COUNT` sentinel dropped."""
     text = HEADER.read_text()
-    body = re.search(r"typedef enum\b(.*?)\}\s*audioif_dynamics_option_t;",
+    body = re.search(r"typedef enum\b(.*?)\}\s*audiodsp_dynamics_option_t;",
                      text, re.DOTALL)
     if body is None:
-        raise AssertionError("no audioif_dynamics_option_t in %s" % HEADER)
+        raise AssertionError("no audiodsp_dynamics_option_t in %s" % HEADER)
     names = re.findall(PREFIX + r"[A-Z0-9_]+", body.group(1))
     if names[-1] != PREFIX + "COUNT":
         raise AssertionError(

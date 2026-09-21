@@ -26,7 +26,7 @@ jobs:
 
       # The rule you cannot see: nothing in src/ may know what a thread, a
       # mutex, a clock or an I2S channel is. Those arrive through
-      # shared/audioif_port.h from a driver in another repository. A single
+      # shared/audiodsp_port.h from a driver in another repository. A single
       # #include <pthread.h> compiles happily on the box you are working on
       # and only bites the next port, so it is checked rather than
       # remembered.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Design (and check) audioif_shaper.c's polyphase half-band coefficients.
+"""Design (and check) audiodsp_shaper.c's polyphase half-band coefficients.
 
     tools/design_halfband.py --verify      check the shipped four
     tools/design_halfband.py --design      search for them again
@@ -29,7 +29,7 @@ import math
 
 import numpy as np
 
-#: What src/shared/audioif_shaper.c ships, branch 0 then branch 1.
+#: What src/shared/audiodsp_shaper.c ships, branch 0 then branch 1.
 SHIPPED = ((0.0903576217, 0.5794053552), (0.3127017166, 0.8516878519))
 
 PASSBAND_EDGE = 0.4167
@@ -141,7 +141,7 @@ def main():
     parser.add_argument("--sections", type=int, default=2,
                         help="all-passes per branch (default 2)")
     parser.add_argument("--verify", action="store_true",
-                        help="check the coefficients audioif_shaper.c ships")
+                        help="check the coefficients audiodsp_shaper.c ships")
     arguments = parser.parse_args()
     if arguments.design:
         design(sections=arguments.sections)

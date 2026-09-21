@@ -5,7 +5,7 @@ from collections import namedtuple
 from enum import Enum
 import math
 
-import _audioif
+import _audiodsp
 from audiocore import GET_BUFFER_MORE_DATA, _AudioSample
 
 waveform_max_length = 16384
@@ -244,11 +244,11 @@ class Note:
         self._envelope_state = None
         self._envelope_seen = None
         self._released = False
-        # One state per possible cascade stage (audioif extension #11:
+        # One state per possible cascade stage (audiodsp extension #11:
         # ``filter`` accepts a Biquad or a tuple/list of up to four
         # Biquads applied in series). A single filter uses stage 0 and
         # behaves exactly as stock CircuitPython.
-        self._filter_states = tuple(_audioif.BiquadState() for _ in range(4))
+        self._filter_states = tuple(_audiodsp.BiquadState() for _ in range(4))
 
     @property
     def filter(self):
@@ -317,11 +317,11 @@ class Synthesizer(_AudioSample):
     def _start_note(self, note):
         envelope = note.envelope if note.envelope is not None else self.envelope
         if envelope is None:
-            note._envelope_state = _audioif.EnvelopeState(
+            note._envelope_state = _audiodsp.EnvelopeState(
                 self.sample_rate, False
             )
         else:
-            note._envelope_state = _audioif.EnvelopeState(
+            note._envelope_state = _audiodsp.EnvelopeState(
                 self.sample_rate, True, *envelope
             )
         note._envelope_seen = envelope
@@ -511,7 +511,7 @@ class Synthesizer(_AudioSample):
             # rendered at until the waveform crosses zero, so a note dropping
             # to level 0 kept sounding at its previous loudness for up to a
             # whole block -- audible material this target added and the native
-            # builds did not. That was audioif#78: one block of
+            # builds did not. That was audiodsp#78: one block of
             # synthtools_acceptance's `bass`, the first after note_off.
             if note._envelope_state.level == 0:
                 silenced.append(note)
@@ -533,7 +533,7 @@ class Synthesizer(_AudioSample):
             else:
                 frequency_scaled = int(note.frequency * 65536.0 + 0.5)
                 bend_scaled = scaled(note.bend, -12, 12)
-                frequency_scaled = _audioif.pitch_bend(frequency_scaled, bend_scaled)
+                frequency_scaled = _audiodsp.pitch_bend(frequency_scaled, bend_scaled)
                 dds_rate = (
                     self.sample_rate // 2 + frequency_scaled * (end - start)
                 ) // self.sample_rate
@@ -559,7 +559,7 @@ class Synthesizer(_AudioSample):
                 loudness_left = (envelope_level * left_pan) >> 15
                 loudness_right = (envelope_level * right_pan) >> 15
 
-            voice_data, note._accum = _audioif.oscillator_raw_i32(
+            voice_data, note._accum = _audiodsp.oscillator_raw_i32(
                 waveform, note._accum, dds_rate, start, end, sample_count,
             )
 
@@ -578,7 +578,7 @@ class Synthesizer(_AudioSample):
                                min(ring_length,
                                    int(_value(note.ring_waveform_loop_end))))
                 ring_scaled = int(note.ring_frequency * 65536.0 + 0.5)
-                ring_bent = _audioif.pitch_bend(
+                ring_bent = _audiodsp.pitch_bend(
                     ring_scaled, scaled(note.ring_bend, -12, 12))
                 ring_dds_rate = (
                     self.sample_rate // 2 + ring_bent * (ring_end - ring_start)
@@ -591,7 +591,7 @@ class Synthesizer(_AudioSample):
                 if ring_dds_rate > (ring_end << 16) // 2:
                     ring_dds_rate = 0
                 if ring_dds_rate and ring_dds_rate <= (end << 16) // 2:
-                    voice_data, note._ring_accum = _audioif.ring_multiply_i32(
+                    voice_data, note._ring_accum = _audiodsp.ring_multiply_i32(
                         voice_data, ring_waveform, note._ring_accum,
                         ring_dds_rate, ring_start, ring_end,
                     )
@@ -613,7 +613,7 @@ class Synthesizer(_AudioSample):
             # active to pending at the end of the block, so what carries into
             # the next call is simply this block's pending pair.
             active = self._active_loudness[slot]
-            contribution = _audioif.apply_loudness_i32(
+            contribution = _audiodsp.apply_loudness_i32(
                 voice_data, loudness_left, loudness_right, channels,
                 active[0], active[1],
             )
@@ -632,7 +632,7 @@ class Synthesizer(_AudioSample):
             self._refresh_envelope(note)
             note._envelope_state.step(sample_count)
 
-        output = _audioif.mixdown_i32(mixed, self.max_polyphony)
+        output = _audiodsp.mixdown_i32(mixed, self.max_polyphony)
         # Two, as `synthio/__init__.h`'s `int16_t *buffers[2]` is.
         return self._publish(output, 2)
 

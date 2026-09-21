@@ -1,7 +1,7 @@
-// audioshaper.Waveshaper for CircuitPython. See audioif's
+// audioshaper.Waveshaper for CircuitPython. See audiodsp's
 // src/audioshaper/Waveshaper.h for the MicroPython twin; the DSP is the same
-// shared/audioif_shaper.c in both, copied into this tree by
-// audioif/apply_cp_patches.sh.
+// shared/audiodsp_shaper.c in both, copied into this tree by
+// audiodsp/apply_cp_patches.sh.
 //
 // SPDX-License-Identifier: MIT
 
@@ -13,14 +13,14 @@
 #include "py/obj.h"
 #include "shared-module/audiocore/__init__.h"
 
-#include "shared/audioif_shaper.h"
+#include "shared/audiodsp_shaper.h"
 
 typedef struct {
     audiosample_base_t base;
     mp_obj_t source;
-    audioif_shaper_config_t config;
-    audioif_shaper_state_t state;
-    int16_t buffer[AUDIOIF_SHAPER_FRAMES * 2];
+    audiodsp_shaper_config_t config;
+    audiodsp_shaper_state_t state;
+    int16_t buffer[AUDIODSP_SHAPER_FRAMES * 2];
     // The curve, copied at construction so the caller may drop the array it
     // built. The config borrows this pointer; the GC keeps it because this
     // object holds it.

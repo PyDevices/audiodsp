@@ -14,7 +14,7 @@
 //|
 //| The `audioverb` module is Dattorro's plate reverberator with its twelve
 //| line lengths and its output taps handed in rather than compiled in. It is
-//| not part of CircuitPython upstream; it comes from PyDevices' audioif.
+//| not part of CircuitPython upstream; it comes from PyDevices' audiodsp.
 //|
 //| `audiofreeverb.Freeverb` is the fixed version of the same idea: one
 //| Schroeder/Moorer comb-and-all-pass bank, its line lengths constants, no

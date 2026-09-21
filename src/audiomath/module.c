@@ -10,8 +10,8 @@
 #include "audiomath/Multiply.h"
 #include "audiomath/SubOctave.h"
 
-#include "cp_compat/audioif_build.h"
-#include "shared/audioif_remix.h"
+#include "cp_compat/audiodsp_build.h"
+#include "shared/audiodsp_remix.h"
 
 #include "py/obj.h"
 #include "py/runtime.h"
@@ -47,7 +47,7 @@ static mp_obj_t audiomath_remix_s16(size_t n_args, const mp_obj_t *args) {
         dest = mp_obj_new_bytearray_by_ref(dst_len, buf);
         mp_get_buffer_raise(dest, &dst, MP_BUFFER_WRITE);
     }
-    audioif_remix_s16((int16_t *)dst.buf, (const int16_t *)src.buf,
+    audiodsp_remix_s16((int16_t *)dst.buf, (const int16_t *)src.buf,
         (uint32_t)frames, (uint32_t)src_ch, (uint32_t)dst_ch);
     return dest;
 }
@@ -56,7 +56,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiomath_remix_s16_obj, 3, 4,
 
 static const mp_rom_map_elem_t audiomath_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audiomath) },
-    AUDIOIF_BUILD_GLOBALS,
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_Multiply), MP_ROM_PTR(&audiomath_multiply_type) },
     { MP_ROM_QSTR(MP_QSTR_SubOctave),
       MP_ROM_PTR(&audiomath_suboctave_type) },

@@ -60,7 +60,7 @@
 #include "cp_compat/background_callback.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/objproperty.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 #include "coder.h"
 #include "mp3common.h"
@@ -450,7 +450,7 @@ void common_hal_audiomp3_mp3file_deinit(audiomp3_mp3file_obj_t *self) {
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     if (self->decoder) {
         MP3FreeDecoder(self->decoder);
@@ -462,7 +462,7 @@ void common_hal_audiomp3_mp3file_deinit(audiomp3_mp3file_obj_t *self) {
     self->stream = mp_const_none;
     self->settimeout_args[0] = MP_OBJ_NULL;
     self->samples_decoded = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 // audiomp3 is the one module in the palette that cannot be made pump-safe,
@@ -475,8 +475,8 @@ void common_hal_audiomp3_mp3file_deinit(audiomp3_mp3file_obj_t *self) {
 void audiomp3_mp3file_reset_buffer(audiomp3_mp3file_obj_t *self,
     bool single_channel_output,
     uint8_t channel) {
-    if (audioif_pump_on_pump_thread()) {
-        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_UNPUMPABLE);
+    if (audiodsp_pump_on_pump_thread()) {
+        audiodsp_pump_fault_set(AUDIODSP_PUMP_FAULT_UNPUMPABLE);
         return;
     }
     if (single_channel_output && channel == 1) {
@@ -501,8 +501,8 @@ audioio_get_buffer_result_t audiomp3_mp3file_get_buffer(audiomp3_mp3file_obj_t *
     uint8_t channel,
     uint8_t **bufptr,
     uint32_t *buffer_length) {
-    if (audioif_pump_on_pump_thread()) {
-        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_UNPUMPABLE);
+    if (audiodsp_pump_on_pump_thread()) {
+        audiodsp_pump_fault_set(AUDIODSP_PUMP_FAULT_UNPUMPABLE);
         *bufptr = NULL;
         *buffer_length = 0;
         return GET_BUFFER_ERROR;
@@ -638,14 +638,14 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiomp3_mp3file_deinit_obj, audiomp3_mp3file_d
 static void check_for_deinit(audiomp3_mp3file_obj_t *self) {
     // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
     // contract is that nothing which can longjmp runs while it is held
-    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // (shared/audiodsp_pump_lock.h): a raise from in here never reaches the
     // release, so the mutex is left owned by a thread that has gone back to
     // the interpreter, and the pump blocks on it for ever. This is the guard
     // on every Python-facing method of this class, so it is the most reached
     // statement in the file.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     const bool released = audiosample_deinited(&self->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     if (released) {
         audiosample_check_for_deinit(&self->base);
     }

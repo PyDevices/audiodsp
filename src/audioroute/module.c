@@ -19,13 +19,13 @@
 #include "audioroute/Splitter.h"
 #include "audioroute/SplitterTap.h"
 
-#include "cp_compat/audioif_build.h"
+#include "cp_compat/audiodsp_build.h"
 
 #include "py/obj.h"
 
 static const mp_rom_map_elem_t audioroute_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audioroute) },
-    AUDIOIF_BUILD_GLOBALS,
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_MidSide), MP_ROM_PTR(&audioroute_midside_type) },
     { MP_ROM_QSTR(MP_QSTR_Port), MP_ROM_PTR(&audioroute_port_type) },
     { MP_ROM_QSTR(MP_QSTR_Splitter), MP_ROM_PTR(&audioroute_splitter_type) },

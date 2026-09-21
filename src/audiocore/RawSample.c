@@ -21,7 +21,7 @@
 
 #include "py/binary.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // --- from shared-module/audiocore/RawSample.c ---------------------------
 
@@ -34,7 +34,7 @@ void common_hal_audioio_rawsample_construct(audioio_rawsample_obj_t *self,
     uint32_t sample_rate,
     bool single_buffer) {
 
-    audioif_rawsample_construct(&self->shared_state, &self->shared_info,
+    audiodsp_rawsample_construct(&self->shared_state, &self->shared_info,
         buffer, len, bytes_per_sample, samples_signed, channel_count,
         sample_rate, single_buffer);
     self->base.bits_per_sample = self->shared_info.bits_per_sample;
@@ -50,17 +50,17 @@ void common_hal_audioio_rawsample_deinit(audioio_rawsample_obj_t *self) {
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
-    audioif_rawsample_deinit(&self->shared_state);
+    audiodsp_pump_lock_acquire();
+    audiodsp_rawsample_deinit(&self->shared_state);
     audiosample_mark_deinit(&self->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void audioio_rawsample_reset_buffer(audioio_rawsample_obj_t *self,
     bool single_channel_output,
     uint8_t channel) {
-    audioif_sample_source_t source = audioif_rawsample_source(&self->shared_state);
-    (void)audioif_sample_reset(&source, single_channel_output, channel);
+    audiodsp_sample_source_t source = audiodsp_rawsample_source(&self->shared_state);
+    (void)audiodsp_sample_reset(&source, single_channel_output, channel);
 }
 
 audioio_get_buffer_result_t audioio_rawsample_get_buffer(audioio_rawsample_obj_t *self,
@@ -69,12 +69,12 @@ audioio_get_buffer_result_t audioio_rawsample_get_buffer(audioio_rawsample_obj_t
     uint8_t **buffer,
     uint32_t *buffer_length) {
 
-    audioif_sample_source_t source = audioif_rawsample_source(&self->shared_state);
+    audiodsp_sample_source_t source = audiodsp_rawsample_source(&self->shared_state);
     const uint8_t *shared_buffer = NULL;
-    audioif_buffer_result_t result = AUDIOIF_BUFFER_ERROR;
-    audioif_status_t status = audioif_sample_get(&source, single_channel_output,
+    audiodsp_buffer_result_t result = AUDIODSP_BUFFER_ERROR;
+    audiodsp_status_t status = audiodsp_sample_get(&source, single_channel_output,
         channel, &shared_buffer, buffer_length, &result);
-    if (status != AUDIOIF_STATUS_OK) {
+    if (status != AUDIODSP_STATUS_OK) {
         *buffer = NULL;
         *buffer_length = 0;
         return GET_BUFFER_ERROR;

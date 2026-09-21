@@ -15,7 +15,7 @@
 #include "cp_compat/enum.h"
 #include "cp_compat/objproperty.h"
 #include "cp_compat/util.h"
-#include "shared/audioif_biquad.h"
+#include "shared/audiodsp_biquad.h"
 #include "synthio/Biquad.h"
 #include "synthio/__init__.h"
 
@@ -29,7 +29,7 @@ mp_obj_t common_hal_synthio_biquad_new(synthio_filter_mode mode) {
     // Every path into the filter ticks first, which fills these in; a Biquad
     // that somehow reaches the DSP untouched should be a pass-through rather
     // than a shift of zero.
-    audioif_biquad_cp_init(&self->coefficients);
+    audiodsp_biquad_cp_init(&self->coefficients);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -90,27 +90,27 @@ void common_hal_synthio_biquad_tick(mp_obj_t self_in) {
     }
 
     // CircuitPython's own Q15 arithmetic, from the shared kernel so all three
-    // targets run one copy (audioif#77). `synthio.Biquad` is a node
+    // targets run one copy (audiodsp#77). `synthio.Biquad` is a node
     // CircuitPython also has, so it renders CircuitPython's bytes; the widened
-    // kernel beside it in audioif_biquad.c is used only by `audiobiquad`,
+    // kernel beside it in audiodsp_biquad.c is used only by `audiobiquad`,
     // which is ours.
-    audioif_biquad_cp_configure(&self->coefficients, self->mode, W0, Q, A);
+    audiodsp_biquad_cp_configure(&self->coefficients, self->mode, W0, Q, A);
 }
 
 void synthio_biquad_filter_reset(biquad_filter_state *st) {
     // All four state words, not upstream 10.3.0's `x` only. Fixed on
-    // CircuitPython main by 8a3deace5c; see audioif_biquad.c.
-    audioif_biquad_reset(st);
+    // CircuitPython main by 8a3deace5c; see audiodsp_biquad.c.
+    audiodsp_biquad_reset(st);
 }
 
 void synthio_biquad_filter_samples(mp_obj_t self_in, biquad_filter_state *st, int32_t *buffer, size_t n_samples) {
     synthio_biquad_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_biquad_cp_process(&self->coefficients, st, buffer, n_samples);
+    audiodsp_biquad_cp_process(&self->coefficients, st, buffer, n_samples);
 }
 
 int32_t synthio_biquad_filter_sample(mp_obj_t self_in, biquad_filter_state *st, int32_t input) {
     synthio_biquad_t *self = MP_OBJ_TO_PTR(self_in);
-    return audioif_biquad_cp_sample(&self->coefficients, st, input);
+    return audiodsp_biquad_cp_sample(&self->coefficients, st, input);
 }
 
 // --- from shared-bindings/synthio/Biquad.c --------------------------------

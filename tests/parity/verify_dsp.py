@@ -15,13 +15,13 @@ at ...)` and carry on; both are gone.
 
 ## Why agreement is the right check for these nodes
 
-All three targets compile the same C - `shared/audioif_dynamics.c`,
-`audioif_splitter.c`, `audioif_midside.c`, `audioif_multiply.c`,
-`audioif_suboctave.c`, `audioif_feedback_delay.c`, `audioif_shaper.c`,
-`audioif_samplehold.c`, `audioif_ladder.c`, `audioif_convolve.c`,
-`audioif_tank.c`,
-`audioif_flanger.c`, `audioif_granular_pitch_shift.c`, with `audioif_fft.c` and
-`audioif_trig.c` under the convolver. The CPython extension links it, the
+All three targets compile the same C - `shared/audiodsp_dynamics.c`,
+`audiodsp_splitter.c`, `audiodsp_midside.c`, `audiodsp_multiply.c`,
+`audiodsp_suboctave.c`, `audiodsp_feedback_delay.c`, `audiodsp_shaper.c`,
+`audiodsp_samplehold.c`, `audiodsp_ladder.c`, `audiodsp_convolve.c`,
+`audiodsp_tank.c`,
+`audiodsp_flanger.c`, `audiodsp_granular_pitch_shift.c`, with `audiodsp_fft.c` and
+`audiodsp_trig.c` under the convolver. The CPython extension links it, the
 MicroPython usermod compiles it, and the patched CircuitPython build compiles it
 again. So a difference between two of them is never a difference of intent: it
 is a width, an undefined shift, a compiler's choice or an architecture. That is
@@ -108,15 +108,15 @@ PROBES = (
     # Waveshaper's bytes did not change. Its last lines are counts rather than
     # PCM -- refreshes over a whole number of periods -- because the claim the
     # node exists for is exactness over time, and PCM does not say whether that
-    # still holds (audioif#97).
+    # still holds (audiodsp#97).
     ("samplehold_probe.py", "audioshaper", {}, None),
     ("convolve_probe.py", "audioconvolve", {}, None),
     ("filter_f32_probe.py", "audiobiquad", {}, None),
     ("modal_probe.py", "audiomodal", {}, None),
     # synthio.Biquad and audiofilters.Filter are CircuitPython's, so they are
     # held to CircuitPython's bytes and NOT to a stored digest -- which is the
-    # whole of audioif#77: graded against its own capture, this probe reported
-    # green for months while the CPython twin ran audioif's widened fixed point
+    # whole of audiodsp#77: graded against its own capture, this probe reported
+    # green for months while the CPython twin ran audiodsp's widened fixed point
     # and MicroPython ran CircuitPython's Q15, 11 LSB apart by the eighth
     # sample of an 800 Hz low-pass. Comparing the interpreters is what sees it.
     ("biquad_component_probe.py", "audiofilters",
@@ -133,28 +133,28 @@ PROBES = (
     # scaled a voice in float64 where the kernel scales in float32 and
     # truncated a different integer on 56 of the 65536 int16 values at level
     # 100/127 -- invisible to every stored digest in the repository, because
-    # none of their material lands on one. audioif#84.
+    # none of their material lands on one. audiodsp#84.
     ("mixer_level_precision_probe.py", "audiomixer", {}, None),
     # A voice mixes from its source's buffer as that buffer stands at mix
     # time, because what it holds is a pointer into it. The twin copied the
     # block at play() instead, so a class that settles a filter behind a voice
     # it has already attached -- Saturation's coupling pole -- rendered its
     # first block differently on CPython than on every native build.
-    # audioif#89.
+    # audiodsp#89.
     ("mixer_borrowed_block_probe.py", "audiomixer", {}, None),
     ("tank_probe.py", "audioverb", {}, None),
     ("flanger_probe.py", "audiodelays",
      {"circuitpython": "upstream's own Flanger overflows int32 in its wet "
                        "interpolation on full-scale material and ours does "
-                       "not - audioif#76, a deliberate departure recorded in "
+                       "not - audiodsp#76, a deliberate departure recorded in "
                        "docs/upstream-diff.md"},
      None),
     ("granular_pitch_shift_probe.py", "audiodelays", {}, None),
     ("resampler_probe.py", "audiospeed", {}, None),
     # Two departures from 10.3.0, both of them upstream bugs this port
     # declines to reproduce: the Q16 rate truncates there and rounds here
-    # (audioif#92), and the phase accumulator is zeroed at every source buffer
-    # there and carried here (audioif#91). See docs/upstream-diff.md.
+    # (audiodsp#92), and the phase accumulator is zeroed at every source buffer
+    # there and carried here (audiodsp#91). See docs/upstream-diff.md.
     #
     # `resampler_probe.py` above cannot see either one -- it asks only for 2.0,
     # 1.0 and 0.5, which are exact in Q16 and divide a buffer exactly -- which
@@ -167,7 +167,7 @@ PROBES = (
     ("speedchanger_hold_probe.py", "audiospeed",
      {"circuitpython": "upstream's SpeedChanger truncates its Q16 rate and "
                        "restarts its phase at every source buffer, and ours "
-                       "does neither - audioif#92 and audioif#91, both "
+                       "does neither - audiodsp#92 and audiodsp#91, both "
                        "deliberate departures recorded in "
                        "docs/upstream-diff.md"},
      None),
@@ -179,12 +179,12 @@ PROBES = (
 def run_probe(argv_prefix, probe, module):
     """A probe's stdout, newline-normalised. Raises if it does not run."""
     environment = os.environ.copy()
-    # CPython imports audioif from the installed package. MicroPython and
+    # CPython imports audiodsp from the installed package. MicroPython and
     # CircuitPython take these modules from their own firmware, so MICROPYPATH
     # is only here for anything a probe loads out of the tree -- `lib/` is on
-    # it because `audioif_util` lives there, and a probe that derives a setting
+    # it because `audiodsp_util` lives there, and a probe that derives a setting
     # in Python has to round it the way a board would before handing it over
-    # (docs/correctness-standard.md, audioif#80).
+    # (docs/correctness-standard.md, audiodsp#80).
     environment["MICROPYPATH"] = "%s:%s" % (ROOT, ROOT / "lib")
     # The same directory for the CPython leg, ahead of whatever is installed.
     # It is pure Python with no DSP in it, and putting it here is what lets
@@ -321,7 +321,7 @@ def verify(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--micropython", default=None,
-                        help="a MicroPython binary with the audioif usermod")
+                        help="a MicroPython binary with the audiodsp usermod")
     parser.add_argument("--circuitpython", default=None,
                         help="a patched CircuitPython build")
     parser.add_argument("--known-divergent", action="append", metavar="PROBE",

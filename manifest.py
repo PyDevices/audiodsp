@@ -1,4 +1,4 @@
-"""audioif's freeze manifest: deliberately empty.
+"""audiodsp's freeze manifest: deliberately empty.
 
 The parent workspace's freeze manifests (one per interpreter) include this
 file for every build they make, so anything unconditional here would land in
@@ -18,7 +18,7 @@ every interpreter in the workspace. There is nothing to put here:
 - The instrument and effect libraries (``audioinstruments``,
   ``audioeffects``) no longer live in this repository. They are developed
   and published from https://github.com/PyDevices/audiocomponents and reach
-  boards by MIP from there. The opt-in ``AUDIOIF_FREEZE_LIBS`` switch that
+  boards by MIP from there. The opt-in ``AUDIODSP_FREEZE_LIBS`` switch that
   used to freeze this repository's copies went with them; a frozen copy
   would shadow the mip-installed one, and what is running would stop being
   what was published - the trap ``pydevices``' own manifest refuses to walk

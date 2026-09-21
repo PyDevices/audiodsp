@@ -5,7 +5,7 @@
 
 Everything else that script does is additive - new files, new lines in a build
 list - and marker comments are enough to make those idempotent. What lives here
-is the one place audioif has to change code CircuitPython already had, which
+is the one place audiodsp has to change code CircuitPython already had, which
 needs a before as well as an after.
 
 Each rewrite is idempotent, and fails loudly rather than quietly when neither
@@ -16,16 +16,16 @@ underneath us upstream and a person should look at it.
 import sys
 from pathlib import Path
 
-MARKER = "/* >>> audioif-cp begin (apply_cp_patches.sh) */"
+MARKER = "/* >>> audiodsp-cp begin (apply_cp_patches.sh) */"
 
 #: (path in the CircuitPython tree, the text as upstream writes it, ours)
 #:
 #: audiocore.get_buffer handed back a memoryview typed by the sample's width,
 #: so len() counted samples while the C protocol's buffer_length counts bytes.
 #: Every byte calculation downstream was then wrong by the sample width - a
-#: silent 2x for ordinary 16-bit audio. audioif's own audiocore returns a byte
+#: silent 2x for ordinary 16-bit audio. audiodsp's own audiocore returns a byte
 #: view; this makes the oracle agree, so parity captures compare like with
-#: like. See audioif 413d87a.
+#: like. See audiodsp 413d87a.
 REPLACEMENTS = [
     (
         "shared-bindings/audiocore/__init__.c",
@@ -62,9 +62,9 @@ REPLACEMENTS = [
         void *result_buf = m_malloc_without_collect(buffer_length);
         memcpy(result_buf, buffer, buffer_length);
         // Byte view: len(buf) is bytes, matching the C protocol's
-        // buffer_length and audioif's own audiocore.get_buffer.
+        // buffer_length and audiodsp's own audiocore.get_buffer.
         result[1] = mp_obj_new_memoryview('B', buffer_length, result_buf);
-/* >>> audioif-cp end */
+/* >>> audiodsp-cp end */
     }
 """,
     ),
@@ -85,7 +85,7 @@ def main():
             continue
         if before not in text:
             raise SystemExit(
-                "%s: neither audioif's marker nor the upstream text is there "
+                "%s: neither audiodsp's marker nor the upstream text is there "
                 "any more - the file changed upstream, and this rewrite needs "
                 "a person to re-read it" % relative)
         pending += 1

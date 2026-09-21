@@ -2,7 +2,7 @@
 with an odd saturator inside the loop.
 
 Not a CircuitPython module, and not from micropython-vst3's engine either --
-audioif adds it. `audiofilters.Filter` reproduces a resonant low-pass, and
+audiodsp adds it. `audiofilters.Filter` reproduces a resonant low-pass, and
 this is not a better one: it is the thing a cascade of biquads cannot be,
 because a biquad cascade is linear and a ladder's character is what its
 feedback loop's nonlinearity does.
@@ -28,7 +28,7 @@ default, because half the cost is the wrong saving on the one node whose job
 is to distort. `mix` is a plain crossfade, 0 a wire and 1 the filter.
 
 A module of its own rather than arguments on `audiofilters.Filter`,
-deliberately: an argument added to audioif's copy of a CircuitPython module
+deliberately: an argument added to audiodsp's copy of a CircuitPython module
 would not exist on a stock board, so an effect written against it would
 silently be a different effect there. This either installs whole or is absent
 and says so on import.
@@ -37,18 +37,18 @@ and says so on import.
 from audiocore import (
     GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
 )
-import _audioif
+import _audiodsp
 
 
-#: The audioif this was built from, the same pair the native builds put
-#: on this module (src/cp_compat/audioif_build.h). audioif#55.
-__version__ = _audioif.__version__
-__revision__ = _audioif.__revision__
+#: The audiodsp this was built from, the same pair the native builds put
+#: on this module (src/cp_compat/audiodsp_build.h). audiodsp#55.
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
-FRAMES = _audioif.LADDER_FRAMES
+FRAMES = _audiodsp.LADDER_FRAMES
 
 #: Option name -> the native configure() slot. Kept in the order
-#: shared/audioif_ladder.h declares, which is the order the MicroPython
+#: shared/audiodsp_ladder.h declares, which is the order the MicroPython
 #: bindings list them in too.
 _OPTIONS = {
     "cutoff_hz": 0,
@@ -76,7 +76,7 @@ class Ladder(_AudioSample):
         self._deinited = False
         self._source = None
         self._pending = b""
-        self._state = _audioif.LadderState(
+        self._state = _audiodsp.LadderState(
             sample_rate=self.sample_rate, channel_count=channel_count)
         self._apply(options)
         self._state.finish()

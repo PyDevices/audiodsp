@@ -4,7 +4,7 @@
 // Named apart from CircuitPython's `audiodelays` on purpose: this is not an
 // extension of `audiodelays.Echo` but a second delay that has a filter, a
 // soft-clip and a cross-feed inside its feedback loop. Adding those to
-// `Echo` would have made audioif's copy of a CircuitPython module diverge
+// `Echo` would have made audiodsp's copy of a CircuitPython module diverge
 // from the one on a stock board, which is the one thing apply_cp_patches.sh
 // is built to avoid.
 //
@@ -12,13 +12,13 @@
 
 #include "audioecho/FeedbackDelay.h"
 
-#include "cp_compat/audioif_build.h"
+#include "cp_compat/audiodsp_build.h"
 
 #include "py/obj.h"
 
 static const mp_rom_map_elem_t audioecho_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audioecho) },
-    AUDIOIF_BUILD_GLOBALS,
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_FeedbackDelay),
       MP_ROM_PTR(&audioecho_feedback_delay_type) },
 };

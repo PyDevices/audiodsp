@@ -9,22 +9,22 @@
 
 #include "audiodynamics/Dynamics.h"
 
-#include "cp_compat/audioif_build.h"
+#include "cp_compat/audiodsp_build.h"
 
 #include "py/obj.h"
 
 static const mp_rom_map_elem_t audiodynamics_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audiodynamics) },
-    AUDIOIF_BUILD_GLOBALS,
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_Dynamics), MP_ROM_PTR(&audiodynamics_dynamics_type) },
 
     { MP_ROM_QSTR(MP_QSTR_DYN_COMPRESS),
-      MP_ROM_INT(AUDIOIF_DYNAMICS_COMPRESS) },
-    { MP_ROM_QSTR(MP_QSTR_DYN_LIMIT), MP_ROM_INT(AUDIOIF_DYNAMICS_LIMIT) },
-    { MP_ROM_QSTR(MP_QSTR_DYN_EXPAND), MP_ROM_INT(AUDIOIF_DYNAMICS_EXPAND) },
-    { MP_ROM_QSTR(MP_QSTR_DYN_GATE), MP_ROM_INT(AUDIOIF_DYNAMICS_GATE) },
+      MP_ROM_INT(AUDIODSP_DYNAMICS_COMPRESS) },
+    { MP_ROM_QSTR(MP_QSTR_DYN_LIMIT), MP_ROM_INT(AUDIODSP_DYNAMICS_LIMIT) },
+    { MP_ROM_QSTR(MP_QSTR_DYN_EXPAND), MP_ROM_INT(AUDIODSP_DYNAMICS_EXPAND) },
+    { MP_ROM_QSTR(MP_QSTR_DYN_GATE), MP_ROM_INT(AUDIODSP_DYNAMICS_GATE) },
     { MP_ROM_QSTR(MP_QSTR_DYN_TRANSIENT),
-      MP_ROM_INT(AUDIOIF_DYNAMICS_TRANSIENT) },
+      MP_ROM_INT(AUDIODSP_DYNAMICS_TRANSIENT) },
 };
 static MP_DEFINE_CONST_DICT(audiodynamics_module_globals,
     audiodynamics_module_globals_table);

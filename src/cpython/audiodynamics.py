@@ -67,13 +67,13 @@ measurements; briefly:
 from audiocore import (
     GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
 )
-import _audioif
+import _audiodsp
 
 
-#: The audioif this was built from, the same pair the native builds put
-#: on this module (src/cp_compat/audioif_build.h). audioif#55.
-__version__ = _audioif.__version__
-__revision__ = _audioif.__revision__
+#: The audiodsp this was built from, the same pair the native builds put
+#: on this module (src/cp_compat/audiodsp_build.h). audiodsp#55.
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
 DYN_COMPRESS = 0
 DYN_LIMIT = 1
@@ -82,7 +82,7 @@ DYN_GATE = 3
 DYN_TRANSIENT = 4
 
 #: Option name -> the native configure() slot. Kept in the order
-#: shared/audioif_dynamics.h declares, which is the order the MicroPython
+#: shared/audiodsp_dynamics.h declares, which is the order the MicroPython
 #: bindings list them in too.
 _OPTIONS = {
     "threshold_db": 0,
@@ -127,7 +127,7 @@ _OPTIONS = {
 #: float like every other, so the word is mapped here.
 _DETECTORS = {"peak": 0.0, "rms": 1.0}
 
-FRAMES = _audioif.DYNAMICS_FRAMES
+FRAMES = _audiodsp.DYNAMICS_FRAMES
 
 
 class Dynamics(_AudioSample):
@@ -147,12 +147,12 @@ class Dynamics(_AudioSample):
         self._pending = b""
         self._key_source = None
         self._key_pending = b""
-        self._state = _audioif.DynamicsState(mode=int(mode),
+        self._state = _audiodsp.DynamicsState(mode=int(mode),
                                              sample_rate=sample_rate,
                                              channel_count=channel_count)
         self._apply(options)
         # Only now do the unset attack/release times fall back to their
-        # defaults - see shared/audioif_dynamics.h for why that is a separate
+        # defaults - see shared/audiodsp_dynamics.h for why that is a separate
         # step rather than part of the initial state.
         self._state.finish()
 
@@ -217,11 +217,11 @@ class Dynamics(_AudioSample):
         self._check()
         self._pending = b""
         self._key_pending = b""
-        # `_state.reset()` is `audioif_dynamics_reset` in the shared C, so
+        # `_state.reset()` is `audiodsp_dynamics_reset` in the shared C, so
         # this target and the two native ones drop the same things: every
         # thing the detector remembers, including the side-chain filter
         # memory and the reported gain reduction, which used to survive
-        # (audioif#56). What is kept is configuration.
+        # (audiodsp#56). What is kept is configuration.
         self._state.reset()
 
     def _take_key(self, wanted):

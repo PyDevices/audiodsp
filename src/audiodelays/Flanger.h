@@ -12,7 +12,7 @@
 #include "py/obj.h"
 
 #include "audiocore/__init__.h"
-#include "shared/audioif_flanger.h"
+#include "shared/audiodsp_flanger.h"
 #include "synthio/block.h"
 
 extern const mp_obj_type_t audiodelays_flanger_type;
@@ -41,7 +41,7 @@ typedef struct {
 
     int16_t *delay_buffer;
     uint32_t delay_buffer_frames;
-    audioif_flanger_state_t flanger;
+    audiodsp_flanger_state_t flanger;
 
     mp_obj_t sample;
 } audiodelays_flanger_obj_t;

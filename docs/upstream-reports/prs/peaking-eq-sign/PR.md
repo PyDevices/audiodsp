@@ -96,7 +96,7 @@ instead):
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-peaking-eq-sign
-git am /path/to/audioif/docs/upstream-reports/prs/peaking-eq-sign/0001-Fix-sign-of-b2-in-synthio-PEAKING_EQ-biquad.patch
+git am /path/to/audiodsp/docs/upstream-reports/prs/peaking-eq-sign/0001-Fix-sign-of-b2-in-synthio-PEAKING_EQ-biquad.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-peaking-eq-sign

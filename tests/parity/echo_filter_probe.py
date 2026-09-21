@@ -5,9 +5,9 @@
 The first case sets no filter. Its bytes have to be the bytes Echo produced
 before the property existed: an empty chain returns the word unchanged.
 
-`decay` goes through `audioif_util.float32` because the node keeps it as an
+`decay` goes through `audiodsp_util.float32` because the node keeps it as an
 `mp_float_t`: 0.7 written plainly is a different number on a single-precision
-build, and the un-filtered case diverged on that alone (audioif#80).
+build, and the un-filtered case diverged on that alone (audiodsp#80).
 
 **What that does not fix, and cannot from here.** The three cases that attach
 a `synthio.Biquad` still diverge on a single-precision MicroPython, and the
@@ -15,7 +15,7 @@ cause is below this file: `src/audiodelays/Echo.c:389` computes its per-sample
 `echo * decay + sample_word` in `mp_float_t` while the CPython twin's filtered
 path (`src/cpython/audiodelays.py`) computes it in Python double. Rounding
 those two expressions to float32 in the twin lands it on the float build's
-bytes exactly, which is the measurement. audioif#102.
+bytes exactly, which is the measurement. audiodsp#102.
 """
 
 import sys
@@ -23,7 +23,7 @@ from array import array
 
 import audiocore
 import synthio
-from audioif_util import float32
+from audiodsp_util import float32
 
 MODULE = sys.argv[1] if len(sys.argv) > 1 else "audiodelays"
 delays = __import__(MODULE)

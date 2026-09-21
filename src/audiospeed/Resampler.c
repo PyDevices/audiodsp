@@ -7,7 +7,7 @@
 #include "cp_compat/objproperty.h"
 #include "cp_compat/util.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 void audiospeed_resampler_set_sample_rate(audiospeed_resampler_obj_t *self,
     uint32_t sample_rate) {
@@ -20,7 +20,7 @@ void audiospeed_resampler_set_sample_rate(audiospeed_resampler_obj_t *self,
     if (self->speed.source != MP_OBJ_NULL && sample_rate != 0) {
         // Rounded, not truncated, for the same reason `rate_to_fp` rounds:
         // 48000/44100 is 71331.9 in Q16 and upstream's cast hands back
-        // 71331. docs/upstream-diff.md, audioif#92.
+        // 71331. docs/upstream-diff.md, audiodsp#92.
         self->speed.rate_fp = (uint32_t)(
             (mp_float_t)self->speed.base.sample_rate / sample_rate *
             (1 << SPEED_SHIFT) + (mp_float_t)0.5);
@@ -57,11 +57,11 @@ static mp_obj_t audiospeed_resampler_deinit(mp_obj_t self_in) {
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiospeed_resampler_obj_t *self = MP_OBJ_TO_PTR(self_in);
     common_hal_audiospeed_speedchanger_deinit(&self->speed);
     self->destination_rate = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiospeed_resampler_deinit_obj,

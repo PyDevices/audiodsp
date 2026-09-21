@@ -10,7 +10,7 @@ same split `dynamics_extras_probe.py` makes, and for the same reason. That
 file's hash is one hash over its whole output, so a case appended to it would
 move the number that says the addition changed nothing.
 
-Neither has an oracle: `audioecho` is audioif's own, with no ancestor in
+Neither has an oracle: `audioecho` is audiodsp's own, with no ancestor in
 CircuitPython or in micropython-vst3's engine. What the golden pins is that
 every interpreter renders these identically, which matters more here than
 almost anywhere else in the suite -- the loop is recursive and runs in

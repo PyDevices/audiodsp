@@ -65,17 +65,17 @@
 // irrelevant.
 typedef struct {
     qstr name;
-    audioif_shaper_option_t option;
+    audiodsp_shaper_option_t option;
 } waveshaper_option_name_t;
 
 static const waveshaper_option_name_t waveshaper_option_names[] = {
-    { MP_QSTR_pre_gain, AUDIOIF_SHAPER_OPT_PRE_GAIN },
-    { MP_QSTR_bias, AUDIOIF_SHAPER_OPT_BIAS },
-    { MP_QSTR_post_gain, AUDIOIF_SHAPER_OPT_POST_GAIN },
-    { MP_QSTR_mix, AUDIOIF_SHAPER_OPT_MIX },
-    { MP_QSTR_hysteresis, AUDIOIF_SHAPER_OPT_HYSTERESIS },
-    { MP_QSTR_hysteresis_width, AUDIOIF_SHAPER_OPT_HYSTERESIS_WIDTH },
-    { MP_QSTR_hysteresis_bias, AUDIOIF_SHAPER_OPT_HYSTERESIS_BIAS },
+    { MP_QSTR_pre_gain, AUDIODSP_SHAPER_OPT_PRE_GAIN },
+    { MP_QSTR_bias, AUDIODSP_SHAPER_OPT_BIAS },
+    { MP_QSTR_post_gain, AUDIODSP_SHAPER_OPT_POST_GAIN },
+    { MP_QSTR_mix, AUDIODSP_SHAPER_OPT_MIX },
+    { MP_QSTR_hysteresis, AUDIODSP_SHAPER_OPT_HYSTERESIS },
+    { MP_QSTR_hysteresis_width, AUDIODSP_SHAPER_OPT_HYSTERESIS_WIDTH },
+    { MP_QSTR_hysteresis_bias, AUDIODSP_SHAPER_OPT_HYSTERESIS_BIAS },
 };
 
 static void waveshaper_load_curve(audioshaper_waveshaper_obj_t *self,
@@ -89,7 +89,7 @@ static void waveshaper_load_curve(audioshaper_waveshaper_obj_t *self,
     int16_t *copy = m_malloc(info.len);
     memcpy(copy, info.buf, info.len);
     self->curve = copy;
-    audioif_shaper_set_curve(&self->config, copy, (uint32_t)(info.len / 2));
+    audiodsp_shaper_set_curve(&self->config, copy, (uint32_t)(info.len / 2));
 }
 
 static void waveshaper_apply_kwargs(audioshaper_waveshaper_obj_t *self,
@@ -112,7 +112,7 @@ static void waveshaper_apply_kwargs(audioshaper_waveshaper_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(waveshaper_option_names); ++option) {
             if (waveshaper_option_names[option].name == name) {
-                audioif_shaper_configure(&self->config,
+                audiodsp_shaper_configure(&self->config,
                     waveshaper_option_names[option].option, value);
                 known = true;
                 break;
@@ -123,7 +123,7 @@ static void waveshaper_apply_kwargs(audioshaper_waveshaper_obj_t *self,
                 MP_ERROR_TEXT("unknown Waveshaper option '%q'"), name);
         }
     }
-    audioif_shaper_config_finish(&self->config);
+    audiodsp_shaper_config_finish(&self->config);
 }
 
 static mp_obj_t audioshaper_waveshaper_make_new(const mp_obj_type_t *type,
@@ -178,9 +178,9 @@ static mp_obj_t audioshaper_waveshaper_make_new(const mp_obj_type_t *type,
     self->pending = NULL;
     self->pending_frames = 0;
 
-    audioif_shaper_config_init(&self->config, sample_rate, oversample);
-    audioif_shaper_set_channel_count(&self->config, channel_count);
-    audioif_shaper_state_init(&self->state);
+    audiodsp_shaper_config_init(&self->config, sample_rate, oversample);
+    audiodsp_shaper_set_channel_count(&self->config, channel_count);
+    audiodsp_shaper_state_init(&self->state);
     waveshaper_apply_kwargs(self, &kw_map);
     return MP_OBJ_FROM_PTR(self);
 }
@@ -223,7 +223,7 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioshaper_waveshaper_set_obj, 1,
 //|
 static mp_obj_t audioshaper_waveshaper_clear(mp_obj_t self_in) {
     audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_shaper_reset(&self->state);
+    audiodsp_shaper_reset(&self->state);
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_waveshaper_clear_obj,
@@ -231,8 +231,8 @@ MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_waveshaper_clear_obj,
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. The MicroPython
-// binding of this same type gained it on 2026-09-09 (audioif#58, #60, #63) and
-// this copy did not, which is audioif#75: the two bindings are hand-written and
+// binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
+// this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
 static mp_obj_t audioshaper_waveshaper_deinit(mp_obj_t self_in) {
     audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(self_in);

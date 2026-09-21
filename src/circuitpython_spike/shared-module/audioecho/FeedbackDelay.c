@@ -1,5 +1,5 @@
 // audioecho.FeedbackDelay for CircuitPython: the buffer plumbing around
-// shared/audioif_feedback_delay.c. See FeedbackDelay.h.
+// shared/audiodsp_feedback_delay.c. See FeedbackDelay.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -17,7 +17,7 @@ void audioecho_feedback_delay_reset_buffer(
     // Unlike audiodynamics, everything goes. A delay's whole state is
     // audible: a chain restarted with the old repeats still in the line
     // plays the previous take over the new one.
-    audioif_feedback_delay_reset(&self->state, &self->config);
+    audiodsp_feedback_delay_reset(&self->state, &self->config);
 }
 
 audioio_get_buffer_result_t audioecho_feedback_delay_get_buffer(
@@ -26,7 +26,7 @@ audioio_get_buffer_result_t audioecho_feedback_delay_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_FEEDBACK_DELAY_FRAMES) {
+    while (produced < AUDIODSP_FEEDBACK_DELAY_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -42,11 +42,11 @@ audioio_get_buffer_result_t audioecho_feedback_delay_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_FEEDBACK_DELAY_FRAMES - produced;
+        uint32_t run = AUDIODSP_FEEDBACK_DELAY_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_feedback_delay_process_s16(&self->config, &self->state,
+        audiodsp_feedback_delay_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -60,7 +60,7 @@ audioio_get_buffer_result_t audioecho_feedback_delay_get_buffer(
     // matches audiodelays.Echo, whose users expect it.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_FEEDBACK_DELAY_FRAMES;
+        produced = AUDIODSP_FEEDBACK_DELAY_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

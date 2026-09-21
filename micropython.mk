@@ -1,4 +1,4 @@
-# MicroPython Make-based build glue for audioif (unix, windows).
+# MicroPython Make-based build glue for audiodsp (unix, windows).
 # For CMake-based ports (esp32, rp2, …), see micropython.cmake in this dir.
 #
 # Discovered via USER_C_MODULES pointing at the workspace directory that
@@ -10,9 +10,9 @@ MPAUDIO_SRC_DIR := $(MPAUDIO_MOD_DIR)/src
 
 CFLAGS_USERMOD += -I$(MPAUDIO_SRC_DIR)
 
-# --- which audioif this firmware was built from -----------------------------
+# --- which audiodsp this firmware was built from -----------------------------
 #
-# audioif#55. `os.uname().version` answers for MicroPython and says nothing
+# audiodsp#55. `os.uname().version` answers for MicroPython and says nothing
 # about us, so a board digest that moves cannot be attributed to a revision.
 # Computed HERE, from the directory the build is actually reading, because that
 # is the only place that knows: on 2026-09-09 a firmware had been built from a
@@ -21,18 +21,18 @@ CFLAGS_USERMOD += -I$(MPAUDIO_SRC_DIR)
 #
 # `--always --dirty` so a tree with uncommitted changes says so. Both default
 # to "unknown" rather than guessing if git is absent or this is a tarball --
-# see src/cp_compat/audioif_build.c.
+# see src/cp_compat/audiodsp_build.c.
 MPAUDIO_VERSION := $(shell cat $(MPAUDIO_MOD_DIR)/VERSION 2>/dev/null || echo 0.0.0+unknown)
 MPAUDIO_REVISION := $(shell git -C $(MPAUDIO_MOD_DIR) describe --always --dirty --abbrev=7 2>/dev/null || echo unknown)
-CFLAGS_USERMOD += -DAUDIOIF_VERSION='"$(MPAUDIO_VERSION)"'
-CFLAGS_USERMOD += -DAUDIOIF_REVISION='"$(MPAUDIO_REVISION)"'
+CFLAGS_USERMOD += -DAUDIODSP_VERSION='"$(MPAUDIO_VERSION)"'
+CFLAGS_USERMOD += -DAUDIODSP_REVISION='"$(MPAUDIO_REVISION)"'
 
 # --- cp_compat: small shims for CircuitPython-only helpers (mp_arg_validate_*,
 #     cp_enum, MP_PROPERTY_GETTER/GETSET, default___enter__/__exit__) that the
 #     ported CircuitPython audio/synthio sources call directly. See
 #     docs/porting-plan.md tier 0 and src/cp_compat/*.h for provenance.
 SRC_USERMOD_C += \
-    $(MPAUDIO_SRC_DIR)/cp_compat/audioif_build.c \
+    $(MPAUDIO_SRC_DIR)/cp_compat/audiodsp_build.c \
     $(MPAUDIO_SRC_DIR)/cp_compat/argcheck.c \
     $(MPAUDIO_SRC_DIR)/cp_compat/enum.c \
     $(MPAUDIO_SRC_DIR)/cp_compat/context_manager_helpers.c \
@@ -43,45 +43,45 @@ SRC_USERMOD_C += \
 
 # --- runtime-neutral sample protocol/state shared with the CPython wheel
 SRC_USERMOD_C += \
-    $(MPAUDIO_SRC_DIR)/shared/audioif_sample.c \
-    $(MPAUDIO_SRC_DIR)/shared/audioif_port.c \
-    $(MPAUDIO_SRC_DIR)/shared/audioif_pump_lock.c \
-    $(MPAUDIO_SRC_DIR)/shared/audioif_rawsample.c \
-    $(MPAUDIO_SRC_DIR)/shared/audioif_synth_dsp.c \
-    $(MPAUDIO_SRC_DIR)/shared/audioif_envelope.c \
-    $(MPAUDIO_SRC_DIR)/shared/audioif_distortion.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_biquad.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_echo.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_phaser.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_chorus.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_flanger.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_granular_pitch_shift.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_multitap.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_pitchshift.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_freeverb.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_dynamics.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_splitter.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_midside.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_remix.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_multiply.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_suboctave.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_feedback_delay.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_filter_f32.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_shaper.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_samplehold.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_ladder.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_trig.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_fft.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_convolve.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_tank.c
-SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_modal.c
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_sample.c \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_port.c \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_pump_lock.c \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_rawsample.c \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_synth_dsp.c \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_envelope.c \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_distortion.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_biquad.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_echo.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_phaser.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_chorus.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_flanger.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_granular_pitch_shift.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_multitap.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_pitchshift.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_freeverb.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_dynamics.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_splitter.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_midside.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_remix.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_multiply.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_suboctave.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_feedback_delay.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_filter_f32.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_shaper.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_samplehold.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_ladder.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_trig.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_fft.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_convolve.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_tank.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_modal.c
 
 # --- the pump engine: the portable half of the live audio path --------------
 #
 # The pull loop, service(), the push ring, the event queue, the tap, the output
 # ring, the status words, the fault register, retarget/park and the finaliser
 # guard that makes the pump die with the VM. No thread, no mutex, no clock and
-# no sink in any of it -- those arrive through shared/audioif_port.h from a
+# no sink in any of it -- those arrive through shared/audiodsp_port.h from a
 # driver that may or may not be linked. With none linked this is the
 # WebAssembly shape: one thread, audiopump.service() drives the loop.
 SRC_USERMOD_C += \
@@ -104,8 +104,8 @@ ifeq ($(wildcard $(MPAUDIO_ULAB_CODE_DIR)/ulab.c),)
 MPAUDIO_ULAB_CODE_DIR := $(abspath $(MPAUDIO_MOD_DIR)/../ulab/code)
 endif
 ifeq ($(wildcard $(MPAUDIO_ULAB_CODE_DIR)/ulab.c),)
-ifneq ($(AUDIOIF_OPTIONAL_DEPS),1)
-$(error audioif: ulab not found (looked in .deps/ulab and ../ulab). Run ./scripts/fetch_deps.sh, or set AUDIOIF_OPTIONAL_DEPS=1 to build without it)
+ifneq ($(AUDIODSP_OPTIONAL_DEPS),1)
+$(error audiodsp: ulab not found (looked in .deps/ulab and ../ulab). Run ./scripts/fetch_deps.sh, or set AUDIODSP_OPTIONAL_DEPS=1 to build without it)
 endif
 endif
 ifneq ($(wildcard $(MPAUDIO_ULAB_CODE_DIR)/ulab.c),)
@@ -147,7 +147,7 @@ SRC_USERMOD_C += \
 # realistic polyphonic patch blows past 2 immediately (two notes held on a
 # 2-oscillator/detuned voice is already 4 concurrent Notes), and the excess
 # is silently REFUSED -- not stolen, not truncated. Corrected 2026-09-02
-# (audioif#14): this comment used to say "silently stealing/truncating",
+# (audiodsp#14): this comment used to say "silently stealing/truncating",
 # which describes a gentler failure than the one that happens.
 # find_channel_with_note (src/synthio/__init__.c:361) scans only channels
 # where the note is NOT playing and takes the quietest, so it reclaims from
@@ -230,13 +230,13 @@ SRC_USERMOD_C += \
 #
 # The modules here are not CircuitPython ports. The first two come from
 # micropython-vst3's `vstaudio` usermod, which grew them for its effects
-# library; the rest are audioif's own -- audiomath is the only way to modulate
+# library; the rest are audiodsp's own -- audiomath is the only way to modulate
 # a stream at audio rate and the only way to divide one down in frequency,
 # audioecho puts a filter inside a delay's feedback loop, audioladder puts
 # four one-poles and a saturator inside a filter's, audioconvolve applies a
 # measured impulse response rather than imitating one, audiobiquad
 # filters in float so a tail reaches exact zero, which neither ported
-# kernel can (audioif#23, #36), and audioverb is a reverberation tank whose
+# kernel can (audiodsp#23, #36), and audioverb is a reverberation tank whose
 # line lengths and output taps come from Python rather than being compiled
 # in the way audiofreeverb's are, and audiomodal sums a bank of
 # resonators before the quantiser, which a chain of audiobiquads cannot
@@ -319,8 +319,8 @@ ifeq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)
 MPAUDIO_MP3_SRC_DIR := $(abspath $(MPAUDIO_MOD_DIR)/../mp3/src)
 endif
 ifeq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)
-ifneq ($(AUDIOIF_OPTIONAL_DEPS),1)
-$(error audioif: Adafruit_MP3 not found (looked in .deps/mp3 and ../mp3). Run ./scripts/fetch_deps.sh, or set AUDIOIF_OPTIONAL_DEPS=1 to build without audiomp3)
+ifneq ($(AUDIODSP_OPTIONAL_DEPS),1)
+$(error audiodsp: Adafruit_MP3 not found (looked in .deps/mp3 and ../mp3). Run ./scripts/fetch_deps.sh, or set AUDIODSP_OPTIONAL_DEPS=1 to build without audiomp3)
 endif
 endif
 ifneq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)

@@ -29,10 +29,10 @@ never to a previous version of its own output.
 | D12 | The correction is inert outside COMPRESS and without the detector | exact |
 | D13 | `reset()` leaves the node as a freshly built one | exact, 0 LSB |
 
-D8 through D12 arrived with audioif#61 and audioif#62 and were written the same
+D8 through D12 arrived with audiodsp#61 and audiodsp#62 and were written the same
 day; D1 through D6 were here before the traits had names.
 
-**D13 is why the traits exist at all.** It is audioif#56: `reset()` used to keep
+**D13 is why the traits exist at all.** It is audiodsp#56: `reset()` used to keep
 the side-chain filter memory, so a reset node was not a fresh one - measured, a
 fresh node gated a quiet tone to 0 LSB and the same node after a loud pass and a
 reset passed it at 32. The fix is in the shared C, so it moved all three targets
@@ -48,7 +48,7 @@ import audiocore
 import audiodynamics
 
 SAMPLE_RATE = 48000
-#: What the traits folded in from audioif#61 and #62 call it.
+#: What the traits folded in from audiodsp#61 and #62 call it.
 RATE = SAMPLE_RATE
 CHANNELS = 2
 
@@ -438,7 +438,7 @@ if __name__ == "__main__":
 
 
 class ResetTest(unittest.TestCase):
-    """D13 - audioif#56. A reset that leaves anything behind is a reset that
+    """D13 - audiodsp#56. A reset that leaves anything behind is a reset that
     does not mean what it says."""
 
     THRESHOLD_DB = -39.7
@@ -515,7 +515,7 @@ class ResetTest(unittest.TestCase):
 
 
 class UniversalTraitTest(unittest.TestCase):
-    """D14 and D15 - the traits every audioif-own node carries."""
+    """D14 and D15 - the traits every audiodsp-own node carries."""
 
     def _alternating(self, frames=4096, level=32767):
         values = array("h")

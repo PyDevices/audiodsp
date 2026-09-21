@@ -1,5 +1,5 @@
 // audioshaper.SampleHold -- MicroPython bindings over the runtime-neutral
-// sample-and-hold in shared/audioif_samplehold.c.
+// sample-and-hold in shared/audiodsp_samplehold.c.
 //
 // In `audioshaper` rather than `audiospeed`, and that is the whole decision.
 // `audiospeed` is a CircuitPython port: its `SpeedChanger` rate is 16.16 fixed
@@ -11,7 +11,7 @@
 // byte-identical to what it was before this node existed.
 //
 // This module is where it belongs for a second reason: `audioshaper/module.c`
-// already carries the argument for a lo-fi primitive that is audioif's own,
+// already carries the argument for a lo-fi primitive that is audiodsp's own,
 // and a zero-order hold is the other half of what a bitcrusher is. The
 // waveshaper quantises the value; this quantises the time.
 //
@@ -24,13 +24,13 @@
 
 #include "audiocore/__init__.h"
 #include "py/obj.h"
-#include "shared/audioif_samplehold.h"
+#include "shared/audiodsp_samplehold.h"
 
 typedef struct {
     audiosample_base_t base;
     mp_obj_t source;
-    audioif_samplehold_config_t config;
-    audioif_samplehold_state_t state;
+    audiodsp_samplehold_config_t config;
+    audiodsp_samplehold_state_t state;
     //: Bytes in one frame of the source's format, fixed at construction. The
     //: node copies frames and never looks inside a sample, so this is all it
     //: needs to know about the format it is carrying.
@@ -44,8 +44,8 @@ typedef struct {
     uint32_t pending_frames;
     bool source_done;
     bool source_exhausted;
-    uint8_t buffer[AUDIOIF_SAMPLEHOLD_FRAMES *
-        AUDIOIF_SAMPLEHOLD_MAX_FRAME_BYTES];
+    uint8_t buffer[AUDIODSP_SAMPLEHOLD_FRAMES *
+        AUDIODSP_SAMPLEHOLD_MAX_FRAME_BYTES];
 } audioshaper_samplehold_obj_t;
 
 extern const mp_obj_type_t audioshaper_samplehold_type;

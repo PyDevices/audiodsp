@@ -1,5 +1,5 @@
 // audiomath.Multiply for CircuitPython: the buffer plumbing around
-// shared/audioif_multiply.c. See Multiply.h.
+// shared/audiodsp_multiply.c. See Multiply.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -25,7 +25,7 @@ audioio_get_buffer_result_t audiomath_multiply_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_MULTIPLY_FRAMES) {
+    while (produced < AUDIODSP_MULTIPLY_FRAMES) {
         if (self->pending_source_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -56,7 +56,7 @@ audioio_get_buffer_result_t audiomath_multiply_get_buffer(
                 self->pending_modulator_frames = raw_bytes / width;
             }
         }
-        uint32_t run = AUDIOIF_MULTIPLY_FRAMES - produced;
+        uint32_t run = AUDIODSP_MULTIPLY_FRAMES - produced;
         if (run > self->pending_source_frames) {
             run = self->pending_source_frames;
         }
@@ -64,7 +64,7 @@ audioio_get_buffer_result_t audiomath_multiply_get_buffer(
             if (run > self->pending_modulator_frames) {
                 run = self->pending_modulator_frames;
             }
-            audioif_multiply_process_s16(&self->config,
+            audiodsp_multiply_process_s16(&self->config,
                 &self->buffer[produced * self->base.channel_count],
                 self->pending_source,
                 self->pending_modulator, run);
@@ -83,7 +83,7 @@ audioio_get_buffer_result_t audiomath_multiply_get_buffer(
     // in the middle of a live graph and never reports itself finished.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_MULTIPLY_FRAMES;
+        produced = AUDIODSP_MULTIPLY_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

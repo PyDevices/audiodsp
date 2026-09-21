@@ -29,7 +29,7 @@ typedef struct synthio_note_obj {
     mp_obj_t waveform_obj, envelope_obj, ring_waveform_obj;
     mp_obj_t filter_obj;
 
-    // Serial filter cascade (audioif extension, issue #11): Note.filter
+    // Serial filter cascade (audiodsp extension, issue #11): Note.filter
     // accepts a Biquad or a tuple/list of up to
     // SYNTHIO_NOTE_MAX_FILTER_STAGES Biquads applied in series, each
     // stage with its own state. Stock CircuitPython accepts one Biquad;

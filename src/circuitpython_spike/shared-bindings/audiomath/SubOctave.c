@@ -91,25 +91,25 @@ static mp_obj_t audiomath_suboctave_make_new(const mp_obj_type_t *type,
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_suboctave_config_init(&self->config, self->base.sample_rate);
-    audioif_suboctave_set_channel_count(&self->config,
+    audiodsp_suboctave_config_init(&self->config, self->base.sample_rate);
+    audiodsp_suboctave_set_channel_count(&self->config,
         (uint32_t)self->base.channel_count);
-    audioif_suboctave_state_init(&self->state);
+    audiodsp_suboctave_state_init(&self->state);
 
-    static const audioif_suboctave_option_t positional[] = {
-        AUDIOIF_SUBOCTAVE_OPT_ORDER,
-        AUDIOIF_SUBOCTAVE_OPT_MIX,
-        AUDIOIF_SUBOCTAVE_OPT_THRESHOLD,
-        AUDIOIF_SUBOCTAVE_OPT_HOLD_MS,
+    static const audiodsp_suboctave_option_t positional[] = {
+        AUDIODSP_SUBOCTAVE_OPT_ORDER,
+        AUDIODSP_SUBOCTAVE_OPT_MIX,
+        AUDIODSP_SUBOCTAVE_OPT_THRESHOLD,
+        AUDIODSP_SUBOCTAVE_OPT_HOLD_MS,
     };
     for (size_t i = 0; i < MP_ARRAY_SIZE(positional); ++i) {
         mp_obj_t value = args[ARG_order + i].u_obj;
         if (value != mp_const_none) {
-            audioif_suboctave_configure(&self->config, positional[i],
+            audiodsp_suboctave_configure(&self->config, positional[i],
                 (float)mp_obj_get_float(value));
         }
     }
-    audioif_suboctave_config_finish(&self->config);
+    audiodsp_suboctave_config_finish(&self->config);
 
     if (args[ARG_source].u_obj != mp_const_none) {
         audiosample_base_t *sample = audiosample_check(args[ARG_source].u_obj);
@@ -152,15 +152,15 @@ MP_DEFINE_CONST_FUN_OBJ_2(audiomath_suboctave_play_obj,
 //|         the mix must not flip the output's polarity under the player."""
 //|         ...
 static bool suboctave_option_slot(qstr name,
-    audioif_suboctave_option_t *option) {
+    audiodsp_suboctave_option_t *option) {
     if (name == MP_QSTR_order) {
-        *option = AUDIOIF_SUBOCTAVE_OPT_ORDER;
+        *option = AUDIODSP_SUBOCTAVE_OPT_ORDER;
     } else if (name == MP_QSTR_mix) {
-        *option = AUDIOIF_SUBOCTAVE_OPT_MIX;
+        *option = AUDIODSP_SUBOCTAVE_OPT_MIX;
     } else if (name == MP_QSTR_threshold) {
-        *option = AUDIOIF_SUBOCTAVE_OPT_THRESHOLD;
+        *option = AUDIODSP_SUBOCTAVE_OPT_THRESHOLD;
     } else if (name == MP_QSTR_hold_ms) {
-        *option = AUDIOIF_SUBOCTAVE_OPT_HOLD_MS;
+        *option = AUDIODSP_SUBOCTAVE_OPT_HOLD_MS;
     } else {
         return false;
     }
@@ -176,12 +176,12 @@ static mp_obj_t audiomath_suboctave_set(size_t n_args, const mp_obj_t *args,
             continue;
         }
         qstr name = mp_obj_str_get_qstr(kw_args->table[i].key);
-        audioif_suboctave_option_t option;
+        audiodsp_suboctave_option_t option;
         if (!suboctave_option_slot(name, &option)) {
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown SubOctave option '%q'"), name);
         }
-        audioif_suboctave_configure(&self->config, option,
+        audiodsp_suboctave_configure(&self->config, option,
             (float)mp_obj_get_float(kw_args->table[i].value));
     }
     return mp_const_none;
@@ -197,7 +197,7 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audiomath_suboctave_set_obj, 1,
 //|
 static mp_obj_t audiomath_suboctave_clear(mp_obj_t self_in) {
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_suboctave_reset(&self->state);
+    audiodsp_suboctave_reset(&self->state);
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audiomath_suboctave_clear_obj,
@@ -205,8 +205,8 @@ MP_DEFINE_CONST_FUN_OBJ_1(audiomath_suboctave_clear_obj,
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. The MicroPython
-// binding of this same type gained it on 2026-09-09 (audioif#58, #60, #63) and
-// this copy did not, which is audioif#75: the two bindings are hand-written and
+// binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
+// this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
 static mp_obj_t audiomath_suboctave_deinit(mp_obj_t self_in) {
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(self_in);

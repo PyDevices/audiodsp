@@ -7,7 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // The options `Bank(...)` and `set(...)` accept, paired with the shared DSP's
 // enum. `modes`, `sample_rate` and `channel_count` are deliberately absent:
@@ -15,12 +15,12 @@
 // than from it, and keyword order stays irrelevant.
 typedef struct {
     qstr name;
-    audioif_modal_option_t option;
+    audiodsp_modal_option_t option;
 } modal_option_name_t;
 
 static const modal_option_name_t modal_option_names[] = {
-    { MP_QSTR_mix, AUDIOIF_MODAL_OPT_MIX },
-    { MP_QSTR_gain, AUDIOIF_MODAL_OPT_GAIN },
+    { MP_QSTR_mix, AUDIODSP_MODAL_OPT_MIX },
+    { MP_QSTR_gain, AUDIODSP_MODAL_OPT_GAIN },
 };
 
 static void modal_apply_kwargs(audiomodal_bank_obj_t *self,
@@ -39,7 +39,7 @@ static void modal_apply_kwargs(audiomodal_bank_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(modal_option_names); ++option) {
             if (modal_option_names[option].name == name) {
-                audioif_modal_configure(&self->config,
+                audiodsp_modal_configure(&self->config,
                     modal_option_names[option].option, value);
                 known = true;
                 break;
@@ -74,10 +74,10 @@ static mp_obj_t audiomodal_bank_make_new(const mp_obj_type_t *type,
             modes = mp_obj_get_int(kw_map.table[i].value);
         }
     }
-    if (modes < 1 || modes > (mp_int_t)AUDIOIF_MODAL_MAX_MODES) {
+    if (modes < 1 || modes > (mp_int_t)AUDIODSP_MODAL_MAX_MODES) {
         mp_raise_msg_varg(&mp_type_ValueError,
             MP_ERROR_TEXT("modes must be 1 to %d"),
-            (int)AUDIOIF_MODAL_MAX_MODES);
+            (int)AUDIODSP_MODAL_MAX_MODES);
     }
     if (channel_count < 1u || channel_count > 2u) {
         mp_raise_ValueError(MP_ERROR_TEXT("channel_count must be 1 or 2"));
@@ -94,29 +94,29 @@ static mp_obj_t audiomodal_bank_make_new(const mp_obj_type_t *type,
     self->pending = NULL;
     self->pending_frames = 0;
 
-    self->modes = m_malloc((size_t)modes * sizeof(audioif_modal_mode_t));
-    self->coeffs = m_malloc((size_t)modes * sizeof(audioif_modal_coeff_t));
-    audioif_modal_config_init(&self->config, sample_rate, channel_count,
+    self->modes = m_malloc((size_t)modes * sizeof(audiodsp_modal_mode_t));
+    self->coeffs = m_malloc((size_t)modes * sizeof(audiodsp_modal_coeff_t));
+    audiodsp_modal_config_init(&self->config, sample_rate, channel_count,
         (uint32_t)modes, self->modes, self->coeffs);
-    uint32_t words = audioif_modal_state_floats(&self->config);
+    uint32_t words = audiodsp_modal_state_floats(&self->config);
     self->s1 = m_malloc((size_t)words * sizeof(float));
     self->s2 = m_malloc((size_t)words * sizeof(float));
-    audioif_modal_state_init(&self->state, &self->config, self->s1, self->s2,
+    audiodsp_modal_state_init(&self->state, &self->config, self->s1, self->s2,
         words);
 
     modal_apply_kwargs(self, &kw_map);
-    audioif_modal_config_finish(&self->config);
+    audiodsp_modal_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
 static mp_obj_t audiomodal_bank_play(mp_obj_t self_in, mp_obj_t sample) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiomodal_bank_play_obj,
@@ -144,7 +144,7 @@ static mp_obj_t audiomodal_bank_set_mode(size_t n_args,
             MP_ERROR_TEXT("mode index must be 0 to %d"),
             (int)self->config.mode_count - 1);
     }
-    audioif_modal_set_mode(&self->config, (uint32_t)index,
+    audiodsp_modal_set_mode(&self->config, (uint32_t)index,
         (float)mp_obj_get_float(args[2]), (float)mp_obj_get_float(args[3]),
         (float)mp_obj_get_float(args[4]));
     return mp_const_none;
@@ -173,7 +173,7 @@ static mp_obj_t audiomodal_bank_set_modes(mp_obj_t self_in, mp_obj_t table) {
             mp_raise_ValueError(MP_ERROR_TEXT(
                 "each mode is (frequency, decay, gain)"));
         }
-        audioif_modal_set_mode(&self->config, (uint32_t)i,
+        audiodsp_modal_set_mode(&self->config, (uint32_t)i,
             (float)mp_obj_get_float(row[0]), (float)mp_obj_get_float(row[1]),
             (float)mp_obj_get_float(row[2]));
     }
@@ -181,8 +181,8 @@ static mp_obj_t audiomodal_bank_set_modes(mp_obj_t self_in, mp_obj_t table) {
     // last kit's partials, so a shorter table is a smaller drum and not a
     // chord of two.
     for (uint32_t i = (uint32_t)count; i < self->config.mode_count; ++i) {
-        audioif_modal_set_mode(&self->config, i, 0.0f,
-            AUDIOIF_MODAL_MIN_DECAY, 0.0f);
+        audiodsp_modal_set_mode(&self->config, i, 0.0f,
+            AUDIODSP_MODAL_MIN_DECAY, 0.0f);
     }
     return mp_const_none;
 }
@@ -191,9 +191,9 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiomodal_bank_set_modes_obj,
 
 static mp_obj_t audiomodal_bank_clear(mp_obj_t self_in) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
-    audioif_modal_reset(&self->state);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_acquire();
+    audiodsp_modal_reset(&self->state);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_clear_obj,
@@ -204,7 +204,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_clear_obj,
 // voice allocator can ask "has this drum stopped?" and be told the truth.
 static mp_obj_t audiomodal_bank_obj_get_ringing(mp_obj_t self_in) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    return mp_obj_new_bool(!audioif_modal_silent(&self->state));
+    return mp_obj_new_bool(!audiodsp_modal_silent(&self->state));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_get_ringing_obj,
     audiomodal_bank_obj_get_ringing);
@@ -226,9 +226,9 @@ static audioio_get_buffer_result_t audiomodal_bank_get_buffer(
     (void)single_channel_output;
     (void)channel;
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_modal_config_finish(&self->config);
+    audiodsp_modal_config_finish(&self->config);
     uint32_t produced = 0;
-    while (produced < AUDIOIF_MODAL_FRAMES) {
+    while (produced < AUDIODSP_MODAL_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -245,11 +245,11 @@ static audioio_get_buffer_result_t audiomodal_bank_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_MODAL_FRAMES - produced;
+        uint32_t run = AUDIODSP_MODAL_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_modal_process_s16(&self->config, &self->state,
+        audiodsp_modal_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -263,12 +263,12 @@ static audioio_get_buffer_result_t audiomodal_bank_get_buffer(
     // thing this node exists not to be. Feeding zeros is what rings it out,
     // so the silent block is synthesised and pushed through the recursion
     // rather than memset over the top of it.
-    if (produced < AUDIOIF_MODAL_FRAMES) {
-        static const int16_t quiet[AUDIOIF_MODAL_FRAMES * 2] = { 0 };
-        uint32_t run = AUDIOIF_MODAL_FRAMES - produced;
-        audioif_modal_process_s16(&self->config, &self->state,
+    if (produced < AUDIODSP_MODAL_FRAMES) {
+        static const int16_t quiet[AUDIODSP_MODAL_FRAMES * 2] = { 0 };
+        uint32_t run = AUDIODSP_MODAL_FRAMES - produced;
+        audiodsp_modal_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count], quiet, run);
-        produced = AUDIOIF_MODAL_FRAMES;
+        produced = AUDIODSP_MODAL_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;
@@ -284,24 +284,24 @@ static void audiomodal_bank_reset_buffer(mp_obj_t self_in,
     self->pending_frames = 0;
     // Everything goes, for the delay's reason: a bank restarted with the last
     // take's partials still ringing plays the previous hit over the new one.
-    audioif_modal_reset(&self->state);
+    audiodsp_modal_reset(&self->state);
 }
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, which is what makes every guarded entry point raise
-// afterwards (audioif#58, #60, #63). The inline output buffer goes with the
+// afterwards (audiodsp#58, #60, #63). The inline output buffer goes with the
 // object; what is cleared here is what the object holds a *reference* to --
 // the upstream source, so releasing the tail of a chain lets the GC reclaim
 // the rest of it, and every borrowed pointer into a source's buffer, so
 // nothing dangles.
 static mp_obj_t audiomodal_bank_deinit(mp_obj_t self_in) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_deinit_obj,

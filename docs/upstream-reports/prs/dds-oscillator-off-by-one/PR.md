@@ -100,7 +100,7 @@ addressed together.
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-dds-oscillator-off-by-one
-git am /path/to/audioif/docs/upstream-reports/prs/dds-oscillator-off-by-one/0001-Fix-synthio-oscillator-wrapping-one-sample-late.patch
+git am /path/to/audiodsp/docs/upstream-reports/prs/dds-oscillator-off-by-one/0001-Fix-synthio-oscillator-wrapping-one-sample-late.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-dds-oscillator-off-by-one

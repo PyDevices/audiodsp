@@ -1,5 +1,5 @@
 // audiodynamics.Dynamics -- MicroPython bindings over the runtime-neutral
-// dynamics DSP in shared/audioif_dynamics.c.
+// dynamics DSP in shared/audiodsp_dynamics.c.
 //
 // Not a CircuitPython port: this module comes from micropython-vst3's
 // `vstaudio` usermod, which is where the effects library's compressors,
@@ -15,14 +15,14 @@
 
 #include "audiocore/__init__.h"
 #include "py/obj.h"
-#include "shared/audioif_dynamics.h"
+#include "shared/audiodsp_dynamics.h"
 
 typedef struct {
     audiosample_base_t base;
     mp_obj_t source;
-    audioif_dynamics_config_t config;
-    audioif_dynamics_state_t state;
-    int16_t buffer[AUDIOIF_DYNAMICS_FRAMES * 2];
+    audiodsp_dynamics_config_t config;
+    audiodsp_dynamics_state_t state;
+    int16_t buffer[AUDIODSP_DYNAMICS_FRAMES * 2];
     // Source frames fetched but not yet consumed, carried across output blocks.
     const int16_t *pending;
     uint32_t pending_frames;

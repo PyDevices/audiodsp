@@ -4,7 +4,7 @@
 // equivalent, see docs/upstream-diff.md). `attr, cp_compat_attr` added for
 // semitones/mix/spread/playing. The custom `__exit__` is kept verbatim, same
 // as Chorus (see that file's comment). The signed-16 kernel follows the
-// CPython twin's arithmetic where the two differ (audioif#74).
+// CPython twin's arithmetic where the two differ (audiodsp#74).
 //
 // SPDX-FileCopyrightText: Copyright (c) 2026 Tim Cocks for Adafruit Industries
 // SPDX-FileCopyrightText: Copyright (c) 2026 PyDevices
@@ -18,10 +18,10 @@
 #include "cp_compat/argcheck.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/objproperty.h"
-#include "shared/audioif_granular_pitch_shift.h"
+#include "shared/audiodsp_granular_pitch_shift.h"
 
 #include "py/runtime.h"
-#include "shared/audioif_pump_lock.h"
+#include "shared/audiodsp_pump_lock.h"
 
 // --- shared-module (DSP engine) -------------------------------------------
 
@@ -61,8 +61,8 @@ void common_hal_audiodelays_granular_pitch_shift_construct(
     if (density < 1) {
         density = 1;
     }
-    if (density > AUDIOIF_GRANULAR_MAX_GRAINS) {
-        density = AUDIOIF_GRANULAR_MAX_GRAINS;
+    if (density > AUDIODSP_GRANULAR_MAX_GRAINS) {
+        density = AUDIODSP_GRANULAR_MAX_GRAINS;
     }
     self->density = density;
     common_hal_audiodelays_granular_pitch_shift_set_spread(self, spread);
@@ -78,9 +78,9 @@ void common_hal_audiodelays_granular_pitch_shift_construct(
     memset(self->capture_buffer, 0, capture_bytes);
 
     self->envelope_table = m_malloc(self->grain_size * sizeof(int16_t));
-    audioif_granular_pitch_shift_fill_envelope(self->envelope_table, self->grain_size);
+    audiodsp_granular_pitch_shift_fill_envelope(self->envelope_table, self->grain_size);
 
-    audioif_granular_pitch_shift_reset_state(&self->granular);
+    audiodsp_granular_pitch_shift_reset_state(&self->granular);
     self->granular.rng_state = 0x1234abcdu;
 
     mp_float_t f_semitones = synthio_block_slot_get(&self->semitones);
@@ -93,13 +93,13 @@ void common_hal_audiodelays_granular_pitch_shift_deinit(
     // nulling AFTER it is -- the funnel's guard has already let a
     // pull in by then, and the pull writes into a buffer that has
     // just become NULL. Detach under the lock, free afterwards.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->envelope_table = NULL;
     self->capture_buffer = NULL;
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 mp_obj_t common_hal_audiodelays_granular_pitch_shift_get_semitones(
@@ -117,7 +117,7 @@ void common_hal_audiodelays_granular_pitch_shift_set_semitones(
 void granular_pitch_shift_recalculate_rate(
     audiodelays_granular_pitch_shift_obj_t *self, mp_float_t semitones) {
     self->granular.read_rate = (uint32_t)(MICROPY_FLOAT_C_FUN(pow)(2.0,
-        semitones / MICROPY_FLOAT_CONST(12.0)) * (1 << AUDIOIF_GRANULAR_PITCH_READ_SHIFT));
+        semitones / MICROPY_FLOAT_CONST(12.0)) * (1 << AUDIODSP_GRANULAR_PITCH_READ_SHIFT));
     self->current_semitones = semitones;
 }
 
@@ -158,7 +158,7 @@ void audiodelays_granular_pitch_shift_reset_buffer(
     memset(self->capture_buffer, 0, self->capture_len * self->base.channel_count * sizeof(int16_t));
     uint32_t rng = self->granular.rng_state;
     uint32_t read_rate = self->granular.read_rate;
-    audioif_granular_pitch_shift_reset_state(&self->granular);
+    audiodsp_granular_pitch_shift_reset_state(&self->granular);
     self->granular.rng_state = rng;
     self->granular.read_rate = read_rate;
 }
@@ -185,13 +185,13 @@ void common_hal_audiodelays_granular_pitch_shift_play(
         0, &primed, &primed_length);
     primed_length /= (self->base.bits_per_sample / 8);
 
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     self->sample = sample;
     self->loop = loop;
     self->sample_remaining_buffer = (void *)primed;
     self->sample_buffer_length = primed_length;
     self->more_data = result == GET_BUFFER_MORE_DATA;
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
 }
 
 void common_hal_audiodelays_granular_pitch_shift_stop(
@@ -256,7 +256,7 @@ audioio_get_buffer_result_t audiodelays_granular_pitch_shift_get_buffer(
             }
         } else if (self->base.bits_per_sample == 16 && self->base.samples_signed &&
             !single_channel_output) {
-            audioif_granular_pitch_shift_process_s16(word_buffer,
+            audiodsp_granular_pitch_shift_process_s16(word_buffer,
                 (int16_t *)self->sample_remaining_buffer, n, self->capture_buffer,
                 self->capture_len, self->envelope_table, self->base.channel_count,
                 self->grain_size, self->density, self->spread, self->grain_gain,
@@ -282,7 +282,7 @@ audioio_get_buffer_result_t audiodelays_granular_pitch_shift_get_buffer(
                 }
                 conv_in[i] = (int16_t)sample_word;
             }
-            audioif_granular_pitch_shift_process_s16(conv_out, conv_in, n,
+            audiodsp_granular_pitch_shift_process_s16(conv_out, conv_in, n,
                 self->capture_buffer, self->capture_len, self->envelope_table,
                 self->base.channel_count, self->grain_size, self->density,
                 self->spread, self->grain_gain, mix, &self->granular);
@@ -340,7 +340,7 @@ static mp_obj_t audiodelays_granular_pitch_shift_make_new(const mp_obj_type_t *t
     mp_int_t channel_count = mp_arg_validate_int_range(args[ARG_channel_count].u_int, 1, 2, MP_QSTR_channel_count);
     mp_int_t sample_rate = mp_arg_validate_int_min(args[ARG_sample_rate].u_int, 1, MP_QSTR_sample_rate);
     mp_int_t grain_size = mp_arg_validate_int_min(args[ARG_grain_size].u_int, 2, MP_QSTR_grain_size);
-    mp_int_t density = mp_arg_validate_int_range(args[ARG_density].u_int, 1, AUDIOIF_GRANULAR_MAX_GRAINS, MP_QSTR_density);
+    mp_int_t density = mp_arg_validate_int_range(args[ARG_density].u_int, 1, AUDIODSP_GRANULAR_MAX_GRAINS, MP_QSTR_density);
     mp_int_t bits_per_sample = args[ARG_bits_per_sample].u_int;
     if (bits_per_sample != 8 && bits_per_sample != 16) {
         mp_raise_ValueError(MP_ERROR_TEXT("bits_per_sample must be 8 or 16"));
@@ -373,14 +373,14 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiodelays_granular_pitch_shift_deinit_obj, au
 static void check_for_deinit(audiodelays_granular_pitch_shift_obj_t *self) {
     // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
     // contract is that nothing which can longjmp runs while it is held
-    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // (shared/audiodsp_pump_lock.h): a raise from in here never reaches the
     // release, so the mutex is left owned by a thread that has gone back to
     // the interpreter, and the pump blocks on it for ever. This is the guard
     // on every Python-facing method of this class, so it is the most reached
     // statement in the file.
-    audioif_pump_lock_acquire();
+    audiodsp_pump_lock_acquire();
     const bool released = audiosample_deinited(&self->base);
-    audioif_pump_lock_release();
+    audiodsp_pump_lock_release();
     if (released) {
         audiosample_check_for_deinit(&self->base);
     }

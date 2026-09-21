@@ -4,7 +4,7 @@ the channels.
 Unlike the rest of this package, `audioroute` is not a CircuitPython module.
 `Splitter` comes from micropython-vst3's `vstaudio` engine, where the effects
 library's exciters, Haas wideners and multiband splits are built on it.
-`MidSide` is audioif's own and has no ancestor anywhere: it turns a stereo
+`MidSide` is audiodsp's own and has no ancestor anywhere: it turns a stereo
 pair into its mono sum and its difference, scales the difference, and rebuilds
 the pair, which is how a stereo drive keeps its image and the only way this
 palette collapses a pair to mono or pushes its sides out.
@@ -25,20 +25,20 @@ from audiocore import (
     GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, _borrow, get_buffer,
     raise_deinited_error, reset_buffer,
 )
-import _audioif
+import _audiodsp
 
 
-#: The audioif this was built from, the same pair the native builds put
-#: on this module (src/cp_compat/audioif_build.h). audioif#55.
-__version__ = _audioif.__version__
-__revision__ = _audioif.__revision__
+#: The audiodsp this was built from, the same pair the native builds put
+#: on this module (src/cp_compat/audiodsp_build.h). audiodsp#55.
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
 MAX_TAPS = 4
-CHUNK_FRAMES = _audioif.SPLITTER_CHUNK_FRAMES
+CHUNK_FRAMES = _audiodsp.SPLITTER_CHUNK_FRAMES
 #: How many frames the shared ring holds. A source may hand back more
 #: than this in one go; the Splitter writes it in ring-sized pieces
-#: rather than lapping its own readers. audioif#87.
-RING_FRAMES = _audioif.SPLITTER_RING_FRAMES
+#: rather than lapping its own readers. audiodsp#87.
+RING_FRAMES = _audiodsp.SPLITTER_RING_FRAMES
 
 _SILENCE = bytes(CHUNK_FRAMES * 4)
 
@@ -98,7 +98,7 @@ class Splitter:
         self.channel_count = int(source.channel_count)
         if self.channel_count not in (1, 2):
             raise ValueError("source channel_count must be 1 or 2")
-        self._ring = _audioif.SplitterRing(
+        self._ring = _audiodsp.SplitterRing(
             taps=taps, channel_count=self.channel_count)
         self._tap_count = taps
         # Every tap exists from the start, whether or not anything asks for
@@ -109,7 +109,7 @@ class Splitter:
                            for index in range(taps))
         self._deinited = False
         #: What one pull from the source did not fit in the ring, offered
-        #: before the source is asked again. audioif#87.
+        #: before the source is asked again. audiodsp#87.
         self._pending = b""
 
     def tap(self, index):
@@ -156,7 +156,7 @@ class Splitter:
         # cursor including the one about to read, so the head is destroyed
         # unseen and the stream has a seam at 8192. `write` takes one ring's
         # worth and says how much; this holds the rest, and the source is not
-        # asked again until it is gone. audioif#87.
+        # asked again until it is gone. audiodsp#87.
         if not self._pending:
             result, data = get_buffer(self._source, False, 0)
             if result == GET_BUFFER_ERROR:
@@ -168,7 +168,7 @@ class Splitter:
         self._pending = self._pending[taken * 2 * self.channel_count:]
 
 
-MIDSIDE_FRAMES = _audioif.MIDSIDE_FRAMES
+MIDSIDE_FRAMES = _audiodsp.MIDSIDE_FRAMES
 
 
 class MidSide(_AudioSample):
@@ -246,7 +246,7 @@ class MidSide(_AudioSample):
                     break
                 self._pending = data[:len(data) // width * width]
             run = min(MIDSIDE_FRAMES - produced, len(self._pending) // width)
-            output += _audioif.midside_s16(
+            output += _audiodsp.midside_s16(
                 self._pending[:run * width], self._width, self.channel_count)
             self._pending = self._pending[run * width:]
             produced += run

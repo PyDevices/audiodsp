@@ -1,5 +1,5 @@
 // audioladder.Ladder for CircuitPython: the buffer plumbing around
-// shared/audioif_ladder.c. See Ladder.h.
+// shared/audiodsp_ladder.c. See Ladder.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -16,7 +16,7 @@ void audioladder_ladder_reset_buffer(audioladder_ladder_obj_t *self,
     // Like audioecho and unlike audiodynamics, everything goes: a
     // self-oscillating filter restarted with its integrators still charged
     // carries the previous take's tone into the new one.
-    audioif_ladder_reset(&self->state);
+    audiodsp_ladder_reset(&self->state);
 }
 
 audioio_get_buffer_result_t audioladder_ladder_get_buffer(
@@ -25,7 +25,7 @@ audioio_get_buffer_result_t audioladder_ladder_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_LADDER_FRAMES) {
+    while (produced < AUDIODSP_LADDER_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -41,11 +41,11 @@ audioio_get_buffer_result_t audioladder_ladder_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_LADDER_FRAMES - produced;
+        uint32_t run = AUDIODSP_LADDER_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_ladder_process_s16(&self->config, &self->state,
+        audiodsp_ladder_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -58,7 +58,7 @@ audioio_get_buffer_result_t audioladder_ladder_get_buffer(
     // repeats do -- the loop is only advanced by frames that arrive.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_LADDER_FRAMES;
+        produced = AUDIODSP_LADDER_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

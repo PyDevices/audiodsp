@@ -1,7 +1,7 @@
 # PR for adafruit/circuitpython: audiospeed rate rounding
 
 Branch: `fix-speedchanger-rate-rounding` (one commit, the patch beside this
-document). From audioif#92 and the draft in
+document). From audiodsp#92 and the draft in
 [speedchanger-rate-rounding.md](../../speedchanger-rate-rounding.md).
 
 Independent of the [phase-carry PR](../speedchanger-phase-carry/PR.md): they
@@ -108,7 +108,7 @@ resolved. It is why this PR carries no `tests/circuitpython` regression test.
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-speedchanger-rate-rounding
-git am /home/brad/gh/pydevices/audioif/docs/upstream-reports/prs/speedchanger-rate-rounding/0001-audiospeed-round-the-16.16-rate-instead-of-truncatin.patch
+git am /home/brad/gh/pydevices/audiodsp/docs/upstream-reports/prs/speedchanger-rate-rounding/0001-audiospeed-round-the-16.16-rate-instead-of-truncatin.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-speedchanger-rate-rounding

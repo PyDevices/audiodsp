@@ -1,7 +1,7 @@
 """Deterministic biquad PCM probes across every FilterMode.
 
 The rest of the parity suite only ever builds LOW_PASS filters, which is how
-the peaking-EQ sign error in `audioif_biquad.c` survived: no fixture reached
+the peaking-EQ sign error in `audiodsp_biquad.c` survived: no fixture reached
 mode 4. This probe walks all seven modes in mono and stereo, and then all seven
 again across the band, so the three deliberate deviations recorded in
 docs/upstream-diff.md ("Peaking EQ computed b2 with the wrong sign", "A stereo
@@ -20,15 +20,15 @@ signals. `(2 * hz * frame) % (2 * RATE) < RATE` is the same square wave stated
 exactly, identical on every target. It is not byte-identical to what the float
 expression produced on a double build -- the float form classified a handful of
 exact-zero and exact-half crossings the other way -- so `golden/
-biquad_component.json` was re-captured with it (audioif#80).
+biquad_component.json` was re-captured with it (audiodsp#80).
 
-Q and A go through `audioif_util.float32` for the same reason one layer up:
+Q and A go through `audiodsp_util.float32` for the same reason one layer up:
 0.4, 0.7079 and 1.4125 are not one number on a single-precision target.
 
 **What is left, and why it is not fixed here.** Four lines -- `biquad_qa
 high_pass` at Q 0.4 -- still diverge on a single-precision MicroPython, because
 `src/synthio/Biquad.c:79` derives W0 in `mp_float_t` where the CPython
-extension calls the shared `audioif_biquad_cp_w0()` in double. audioif#101 has
+extension calls the shared `audiodsp_biquad_cp_w0()` in double. audiodsp#101 has
 the measurement and the fix; it moves board digests, so it is its own change.
 """
 
@@ -37,7 +37,7 @@ from array import array
 import audiocore
 import audiofilters
 import synthio
-from audioif_util import float32
+from audiodsp_util import float32
 
 
 #: A and Q the shelf/peaking modes need. A is RBJ's amplitude parameter,
@@ -48,7 +48,7 @@ CENTER = 1200
 RATE = 8000
 
 #: Q and A were CONSTANT across all 182 fixtures, so three of the five
-#: arguments to audioif_biquad_configure could be hardcoded to the probe's own
+#: arguments to audiodsp_biquad_configure could be hardcoded to the probe's own
 #: value without moving the hash - two of them silently untested. Frequency was
 #: the one scalar that varied. These sweep them.
 Q_VALUES = (float32(0.4), 1.0, 4.0)
@@ -167,7 +167,7 @@ for name, mode in MODES:
 # --- synthio.Note.filter, which this gate has never exercised at all ----------
 # The probe only ever built audiofilters.Filter. `Note.filter` is a different
 # path - it accepts a Biquad or a tuple of up to four, applied per voice inside
-# the synthesizer - and it is audioif's own extension over the oracle. It could
+# the synthesizer - and it is audiodsp's own extension over the oracle. It could
 # be reduced to a total no-op and nothing here would notice. The cascade is the
 # part most worth pinning: a dropped fourth stage is exactly the defect a
 # level-based check misses, and the only other coverage
@@ -181,7 +181,7 @@ CASCADE_MODES = (synthio.FilterMode.LOW_PASS, synthio.FilterMode.HIGH_PASS,
 # single-stage case is common ground and runs everywhere, so the cascade cases
 # announce themselves and stop rather than killing the probe. That keeps this
 # file runnable on all three interpreters, which is what lets verify_dsp
-# compare them (audioif#77 -- graded against its own stored digest, this probe
+# compare them (audiodsp#77 -- graded against its own stored digest, this probe
 # could not see the two targets disagreeing with each other).
 for stages in (1, 2, 3, 4):
     synth = synthio.Synthesizer(sample_rate=RATE, channel_count=2)

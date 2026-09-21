@@ -325,7 +325,7 @@ def main():
         del args[index:index + 2]
     wanted = args or [name for name, _run in CASES]
 
-    print("audioif: the ring, the queue, the tap and the port   fault: %s"
+    print("audiodsp: the ring, the queue, the tap and the port   fault: %s"
           % fault)
     ok = True
     for name, run in CASES:

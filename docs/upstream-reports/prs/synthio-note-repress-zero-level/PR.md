@@ -184,7 +184,7 @@ instead):
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-note-repress-envelope-zero
-git am /path/to/audioif/docs/upstream-reports/prs/synthio-note-repress-zero-level/0001-Fix-synthio-dropping-a-note-re-pressed-after-its-env.patch
+git am /path/to/audiodsp/docs/upstream-reports/prs/synthio-note-repress-zero-level/0001-Fix-synthio-dropping-a-note-re-pressed-after-its-env.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-note-repress-envelope-zero
@@ -268,7 +268,7 @@ re-press). A maintainer running the test would have found it doing
 something other than what the body described. Body now states what the
 test actually does. The two-note asymmetry (one slot reaped and
 reallocated, the other hit at level 0) is why the original finding showed
-2 -> 0 -> 1, and is recorded in audioif#13 rather than the PR.
+2 -> 0 -> 1, and is recorded in audiodsp#13 rather than the PR.
 
 ## SUBMITTED
 

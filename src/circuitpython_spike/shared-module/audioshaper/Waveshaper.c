@@ -1,5 +1,5 @@
 // audioshaper.Waveshaper for CircuitPython: the buffer plumbing around
-// shared/audioif_shaper.c. See Waveshaper.h.
+// shared/audiodsp_shaper.c. See Waveshaper.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -13,7 +13,7 @@ void audioshaper_waveshaper_reset_buffer(audioshaper_waveshaper_obj_t *self,
     (void)channel;
     self->pending = NULL;
     self->pending_frames = 0;
-    audioif_shaper_reset(&self->state);
+    audiodsp_shaper_reset(&self->state);
 }
 
 audioio_get_buffer_result_t audioshaper_waveshaper_get_buffer(
@@ -22,7 +22,7 @@ audioio_get_buffer_result_t audioshaper_waveshaper_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_SHAPER_FRAMES) {
+    while (produced < AUDIODSP_SHAPER_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -38,11 +38,11 @@ audioio_get_buffer_result_t audioshaper_waveshaper_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_SHAPER_FRAMES - produced;
+        uint32_t run = AUDIODSP_SHAPER_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audioif_shaper_process_s16(&self->config, &self->state,
+        audiodsp_shaper_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count], self->pending,
             run);
         self->pending += run * self->base.channel_count;
@@ -55,7 +55,7 @@ audioio_get_buffer_result_t audioshaper_waveshaper_get_buffer(
     // really is silence out, once the half-bands have rung down.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_SHAPER_FRAMES;
+        produced = AUDIODSP_SHAPER_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

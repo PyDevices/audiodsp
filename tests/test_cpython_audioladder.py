@@ -241,7 +241,7 @@ if __name__ == "__main__":
 
 
 class UniversalTraitTest(unittest.TestCase):
-    """L11-L14 - the traits every audioif-own node carries."""
+    """L11-L14 - the traits every audiodsp-own node carries."""
 
     RATE = 12000
     CHANNELS = 2

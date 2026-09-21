@@ -1,8 +1,8 @@
 // audiomath.Multiply -- MicroPython bindings over the runtime-neutral
-// multiply in shared/audioif_multiply.c.
+// multiply in shared/audiodsp_multiply.c.
 //
-// Not a CircuitPython port and not from vstaudio: audioif adds this one. See
-// shared/audioif_multiply.h for why nothing already in the palette can do it,
+// Not a CircuitPython port and not from vstaudio: audiodsp adds this one. See
+// shared/audiodsp_multiply.h for why nothing already in the palette can do it,
 // and docs/upstream-diff.md for where it sits among the rest.
 //
 // SPDX-License-Identifier: MIT
@@ -13,7 +13,7 @@
 
 #include "audiocore/__init__.h"
 #include "py/obj.h"
-#include "shared/audioif_multiply.h"
+#include "shared/audiodsp_multiply.h"
 
 typedef struct {
     audiosample_base_t base;
@@ -23,8 +23,8 @@ typedef struct {
     // What to multiply it by. Pulled the same way, but with the opposite
     // failure: no modulator means the signal passes through untouched.
     mp_obj_t modulator;
-    audioif_multiply_config_t config;
-    int16_t buffer[AUDIOIF_MULTIPLY_FRAMES * 2];
+    audiodsp_multiply_config_t config;
+    int16_t buffer[AUDIODSP_MULTIPLY_FRAMES * 2];
     // Frames fetched from each input but not yet consumed, carried across
     // output blocks. The two inputs hand out different block lengths, so
     // neither cursor can be derived from the other.

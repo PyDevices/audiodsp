@@ -15,7 +15,7 @@
 //| The `audioconvolve` module applies a measured or synthesized impulse
 //| response to an audio stream, by uniform-partitioned overlap-save FFT
 //| convolution. It is not part of CircuitPython upstream; it comes from
-//| PyDevices' audioif.
+//| PyDevices' audiodsp.
 //|
 //| It is the one effect the rest of the palette cannot approximate.
 //| `audiofreeverb` is a network of delays that *sounds like* a room;
@@ -37,9 +37,9 @@ static const mp_rom_map_elem_t audioconvolve_module_globals_table[] = {
     // The block size and the ceiling, so Python-side code can size a
     // convolver in partitions without hard-coding either. The CPython
     // wrapper exports the same two names.
-    { MP_ROM_QSTR(MP_QSTR_FRAMES), MP_ROM_INT(AUDIOIF_CONVOLVE_FRAMES) },
+    { MP_ROM_QSTR(MP_QSTR_FRAMES), MP_ROM_INT(AUDIODSP_CONVOLVE_FRAMES) },
     { MP_ROM_QSTR(MP_QSTR_MAX_PARTITIONS),
-      MP_ROM_INT(AUDIOIF_CONVOLVE_MAX_PARTITIONS) },
+      MP_ROM_INT(AUDIODSP_CONVOLVE_MAX_PARTITIONS) },
 };
 
 static MP_DEFINE_CONST_DICT(audioconvolve_module_globals,

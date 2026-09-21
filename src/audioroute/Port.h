@@ -16,7 +16,7 @@
 //
 // What it costs is one function call per block and no bytes moved: the pull
 // returns the source's own pointer, length and result unchanged. It is
-// audioif's, in audioroute, because that is what this is -- routing decides
+// audiodsp's, in audioroute, because that is what this is -- routing decides
 // which signal reaches which consumer, and a port is the smallest possible
 // version of that decision. It is NOT in `audiocore`: that module is
 // CircuitPython's, a node added to our copy would not exist on a stock

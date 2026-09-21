@@ -1,4 +1,4 @@
-// Compat shim for audioif: CircuitPython's declarative property
+// Compat shim for audiodsp: CircuitPython's declarative property
 // macros (`MP_PROPERTY_GETTER`, `MP_PROPERTY_GETSET`), adapted from
 // CircuitPython's py/objproperty.h (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT) to mainline

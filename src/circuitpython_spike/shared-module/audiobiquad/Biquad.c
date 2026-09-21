@@ -1,5 +1,5 @@
 // audiobiquad.Biquad for CircuitPython: the buffer plumbing around
-// shared/audioif_filter_f32.c. See Biquad.h.
+// shared/audiodsp_filter_f32.c. See Biquad.h.
 //
 // SPDX-License-Identifier: MIT
 
@@ -8,17 +8,17 @@
 #include <string.h>
 
 void audiobiquad_biquad_refresh(audiobiquad_biquad_obj_t *self) {
-    audioif_biquad_f32_configure(&self->config,
-        AUDIOIF_BIQUAD_F32_OPT_FREQUENCY,
+    audiodsp_biquad_f32_configure(&self->config,
+        AUDIODSP_BIQUAD_F32_OPT_FREQUENCY,
         (float)synthio_block_slot_get(&self->frequency));
-    audioif_biquad_f32_configure(&self->config, AUDIOIF_BIQUAD_F32_OPT_Q,
+    audiodsp_biquad_f32_configure(&self->config, AUDIODSP_BIQUAD_F32_OPT_Q,
         (float)synthio_block_slot_get(&self->Q));
-    audioif_biquad_f32_configure(&self->config,
-        AUDIOIF_BIQUAD_F32_OPT_GAIN_DB,
+    audiodsp_biquad_f32_configure(&self->config,
+        AUDIODSP_BIQUAD_F32_OPT_GAIN_DB,
         (float)synthio_block_slot_get(&self->gain_db));
-    audioif_biquad_f32_configure(&self->config, AUDIOIF_BIQUAD_F32_OPT_MIX,
+    audiodsp_biquad_f32_configure(&self->config, AUDIODSP_BIQUAD_F32_OPT_MIX,
         (float)synthio_block_slot_get(&self->mix));
-    audioif_biquad_f32_config_finish(&self->config);
+    audiodsp_biquad_f32_config_finish(&self->config);
 }
 
 // One chunk of the block layer, then the values it produced.
@@ -37,7 +37,7 @@ void audiobiquad_biquad_reset_buffer(audiobiquad_biquad_obj_t *self,
     self->pending_frames = 0;
     // Everything goes. A filter's memory is audible: a chain restarted with
     // the previous take still in it plays that take's tail over the new one.
-    audioif_biquad_f32_reset(&self->state);
+    audiodsp_biquad_f32_reset(&self->state);
 }
 
 audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
@@ -46,7 +46,7 @@ audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIOIF_FILTER_F32_FRAMES) {
+    while (produced < AUDIODSP_FILTER_F32_FRAMES) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -63,12 +63,12 @@ audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIOIF_FILTER_F32_FRAMES - produced;
+        uint32_t run = AUDIODSP_FILTER_F32_FRAMES - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
         audiobiquad_biquad_apply_blocks(self, run);
-        audioif_biquad_f32_process_s16(&self->config, &self->state,
+        audiodsp_biquad_f32_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],
             self->pending, run);
         self->pending += run * self->base.channel_count;
@@ -80,7 +80,7 @@ audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
     // it does not tick the block layer on a starved block either.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIOIF_FILTER_F32_FRAMES;
+        produced = AUDIODSP_FILTER_F32_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

@@ -5,46 +5,46 @@
 # The runtime-neutral DSP is copied straight out of src/shared/ rather than
 # duplicated here, so a change to the MicroPython/CPython builds cannot leave
 # CircuitPython behind. It lands under CircuitPython's own top-level shared/,
-# where `-I$(TOP)` makes `#include "shared/audioif_dynamics.h"` resolve exactly
+# where `-I$(TOP)` makes `#include "shared/audiodsp_dynamics.h"` resolve exactly
 # as it does in this repo.
 
-# Included first by every src/shared/*.c that computes in float (audioif#79),
+# Included first by every src/shared/*.c that computes in float (audiodsp#79),
 # so it has to travel with them. If it does not, the CircuitPython build
 # fails to compile rather than quietly keeping its fused multiply-adds --
 # which is the right failure, and the reason this is an include and not a
 # flag somebody could forget to pass.
-src/shared/audioif_fp_contract.h	shared/audioif_fp_contract.h
+src/shared/audiodsp_fp_contract.h	shared/audiodsp_fp_contract.h
 
-src/shared/audioif_dynamics.h	shared/audioif_dynamics.h
-src/shared/audioif_dynamics.c	shared/audioif_dynamics.c
-src/shared/audioif_splitter.h	shared/audioif_splitter.h
-src/shared/audioif_splitter.c	shared/audioif_splitter.c
-src/shared/audioif_midside.h	shared/audioif_midside.h
-src/shared/audioif_midside.c	shared/audioif_midside.c
-src/shared/audioif_modal.h	shared/audioif_modal.h
-src/shared/audioif_modal.c	shared/audioif_modal.c
-src/shared/audioif_multiply.h	shared/audioif_multiply.h
-src/shared/audioif_multiply.c	shared/audioif_multiply.c
-src/shared/audioif_suboctave.h	shared/audioif_suboctave.h
-src/shared/audioif_suboctave.c	shared/audioif_suboctave.c
-src/shared/audioif_feedback_delay.h	shared/audioif_feedback_delay.h
-src/shared/audioif_feedback_delay.c	shared/audioif_feedback_delay.c
-src/shared/audioif_shaper.h	shared/audioif_shaper.h
-src/shared/audioif_shaper.c	shared/audioif_shaper.c
-src/shared/audioif_samplehold.h	shared/audioif_samplehold.h
-src/shared/audioif_samplehold.c	shared/audioif_samplehold.c
-src/shared/audioif_ladder.h	shared/audioif_ladder.h
-src/shared/audioif_ladder.c	shared/audioif_ladder.c
-src/shared/audioif_trig.h	shared/audioif_trig.h
-src/shared/audioif_trig.c	shared/audioif_trig.c
-src/shared/audioif_fft.h	shared/audioif_fft.h
-src/shared/audioif_fft.c	shared/audioif_fft.c
-src/shared/audioif_convolve.h	shared/audioif_convolve.h
-src/shared/audioif_convolve.c	shared/audioif_convolve.c
-src/shared/audioif_filter_f32.h	shared/audioif_filter_f32.h
-src/shared/audioif_filter_f32.c	shared/audioif_filter_f32.c
-src/shared/audioif_tank.h	shared/audioif_tank.h
-src/shared/audioif_tank.c	shared/audioif_tank.c
+src/shared/audiodsp_dynamics.h	shared/audiodsp_dynamics.h
+src/shared/audiodsp_dynamics.c	shared/audiodsp_dynamics.c
+src/shared/audiodsp_splitter.h	shared/audiodsp_splitter.h
+src/shared/audiodsp_splitter.c	shared/audiodsp_splitter.c
+src/shared/audiodsp_midside.h	shared/audiodsp_midside.h
+src/shared/audiodsp_midside.c	shared/audiodsp_midside.c
+src/shared/audiodsp_modal.h	shared/audiodsp_modal.h
+src/shared/audiodsp_modal.c	shared/audiodsp_modal.c
+src/shared/audiodsp_multiply.h	shared/audiodsp_multiply.h
+src/shared/audiodsp_multiply.c	shared/audiodsp_multiply.c
+src/shared/audiodsp_suboctave.h	shared/audiodsp_suboctave.h
+src/shared/audiodsp_suboctave.c	shared/audiodsp_suboctave.c
+src/shared/audiodsp_feedback_delay.h	shared/audiodsp_feedback_delay.h
+src/shared/audiodsp_feedback_delay.c	shared/audiodsp_feedback_delay.c
+src/shared/audiodsp_shaper.h	shared/audiodsp_shaper.h
+src/shared/audiodsp_shaper.c	shared/audiodsp_shaper.c
+src/shared/audiodsp_samplehold.h	shared/audiodsp_samplehold.h
+src/shared/audiodsp_samplehold.c	shared/audiodsp_samplehold.c
+src/shared/audiodsp_ladder.h	shared/audiodsp_ladder.h
+src/shared/audiodsp_ladder.c	shared/audiodsp_ladder.c
+src/shared/audiodsp_trig.h	shared/audiodsp_trig.h
+src/shared/audiodsp_trig.c	shared/audiodsp_trig.c
+src/shared/audiodsp_fft.h	shared/audiodsp_fft.h
+src/shared/audiodsp_fft.c	shared/audiodsp_fft.c
+src/shared/audiodsp_convolve.h	shared/audiodsp_convolve.h
+src/shared/audiodsp_convolve.c	shared/audiodsp_convolve.c
+src/shared/audiodsp_filter_f32.h	shared/audiodsp_filter_f32.h
+src/shared/audiodsp_filter_f32.c	shared/audiodsp_filter_f32.c
+src/shared/audiodsp_tank.h	shared/audiodsp_tank.h
+src/shared/audiodsp_tank.c	shared/audiodsp_tank.c
 
 src/circuitpython_spike/shared-bindings/audiodynamics/__init__.h	shared-bindings/audiodynamics/__init__.h
 src/circuitpython_spike/shared-bindings/audiodynamics/__init__.c	shared-bindings/audiodynamics/__init__.c

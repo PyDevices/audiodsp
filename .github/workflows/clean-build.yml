@@ -1,4 +1,4 @@
-# Scenario S1: a stranger builds audioif from this repository, upstream
+# Scenario S1: a stranger builds audiodsp from this repository, upstream
 # MicroPython, and the declared pinned dependencies -- no parent workspace
 # of any kind. This is the standalone contract's proof, run on every push.
 name: Clean standalone build
@@ -29,7 +29,7 @@ jobs:
         # This cell runs at the unix port's full -Werror, including
         # -Wfloat-conversion and -Wdouble-promotion, which MCU ports do not
         # enable. It used to downgrade those two to warnings, because
-        # audioif's sources carried double literals that narrowed under a
+        # audiodsp's sources carried double literals that narrowed under a
         # 32-bit mp_float_t; the four sites were cleaned in the commit that
         # removed the downgrades. Keeping them as errors is the point of the
         # cell: a real precision loss, or an accidental promotion to double
@@ -54,9 +54,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          path: audioif
+          path: audiodsp
       - name: Fetch pinned dependencies
-        working-directory: audioif
+        working-directory: audiodsp
         run: |
           ./scripts/fetch_deps.sh
           ./scripts/fetch_deps.sh --check
@@ -69,7 +69,7 @@ jobs:
           repository: micropython/micropython
           ref: v1.29.0
           path: micropython
-      - name: Build the unix port with the audioif usermod
+      - name: Build the unix port with the audiodsp usermod
         # USER_C_MODULES is the PARENT directory: py.mk globs
         # $(USER_C_MODULES)/*/micropython.mk exactly one level down.
         run: |
@@ -88,7 +88,7 @@ jobs:
           s = synthio.Synthesizer(sample_rate=8000); s.press(69)
           r, b = audiocore.get_buffer(s)
           assert r == 1 and len(b) == 512
-          print('standalone audioif OK:', len(b), 'bytes of synth output')"
+          print('standalone audiodsp OK:', len(b), 'bytes of synth output')"
       # The DSP nodes' real gate: every interpreter must render them
       # identically, which needs two interpreters, which is why it lives here
       # and not in test-cpython.yml. There is no stored digest to match - the
@@ -108,7 +108,7 @@ jobs:
       # tell you if you forget.
       - name: Every target renders the DSP nodes identically
         run: |
-          cd audioif
+          cd audiodsp
           python3 -m venv .ci-venv
           ./.ci-venv/bin/python -m pip install -q .
           ./.ci-venv/bin/python tests/parity/verify_dsp.py \
@@ -123,16 +123,16 @@ jobs:
       # never exercised is not a gate.
       - name: The deinit surface, and proof the probe can fail
         # Paths are workspace-root relative here, not repo-root: this job
-        # checks the repo out to `audioif/` and puts upstream MicroPython
+        # checks the repo out to `audiodsp/` and puts upstream MicroPython
         # beside it.
         run: |
           MP=./micropython/ports/unix/build-standard/micropython
-          PROBE=audioif/tests/parity/deinit_surface_probe.py
-          if MICROPYPATH=audioif "$MP" "$PROBE" --fault; then
+          PROBE=audiodsp/tests/parity/deinit_surface_probe.py
+          if MICROPYPATH=audiodsp "$MP" "$PROBE" --fault; then
             echo "the planted fault passed, so this probe proves nothing" >&2
             exit 1
           fi
-          MICROPYPATH=audioif "$MP" "$PROBE"
+          MICROPYPATH=audiodsp "$MP" "$PROBE"
 
       # The pump. Everything above proves the DSP nodes; these prove the
       # thing that pulls them, and they can only run here, because they
@@ -150,8 +150,8 @@ jobs:
         run: |
           MP=./micropython/ports/unix/build-standard/micropython
           run () {                       # run <probe> <args...>
-            MICROPYPATH=audioif PUMP_PROBE_TMP="${RUNNER_TEMP:-/tmp}" \
-              "$MP" -X heapsize=256M "audioif/tests/pump/$@"
+            MICROPYPATH=audiodsp PUMP_PROBE_TMP="${RUNNER_TEMP:-/tmp}" \
+              "$MP" -X heapsize=256M "audiodsp/tests/pump/$@"
           }
           for planted in "pump_probe.py identity --fault short" \
                          "pump_probe.py identity --fault reuse" \
@@ -173,7 +173,7 @@ jobs:
   # existed nothing in CI ran CMake at all - clean-build built through
   # micropython.mk only - so an edit to micropython.cmake, or to the README's
   # CMake recipe, could break the standalone CMake path exactly as it had been
-  # broken before, and every workflow would stay green (audioif#35).
+  # broken before, and every workflow would stay green (audiodsp#35).
   #
   # Configure only: no compiler, no firmware, seconds to run. The harness in
   # tests/cmake drives MicroPython's own py/usermod.cmake the way a port does
@@ -187,11 +187,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          path: audioif
+          path: audiodsp
       # ulab is not optional here: `usermod_ulab` is the target that had
       # actually broken once, so the harness treats its absence as a failure.
       - name: Fetch pinned dependencies
-        working-directory: audioif
+        working-directory: audiodsp
         run: |
           ./scripts/fetch_deps.sh
           ./scripts/fetch_deps.sh --check
@@ -203,6 +203,6 @@ jobs:
           path: micropython
       - name: Configure the usermod through CMake
         run: |
-          cmake -S audioif/tests/cmake -B cmake-build \
+          cmake -S audiodsp/tests/cmake -B cmake-build \
                 -DMICROPY_DIR="$GITHUB_WORKSPACE/micropython" \
-                -DUSER_C_MODULES="$GITHUB_WORKSPACE/audioif"
+                -DUSER_C_MODULES="$GITHUB_WORKSPACE/audiodsp"

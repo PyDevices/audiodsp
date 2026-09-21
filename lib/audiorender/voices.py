@@ -19,7 +19,7 @@ from .events import deliver
 
 
 class Puller:
-    """Frames from an audioif node, in whatever size the caller asks for.
+    """Frames from an audiodsp node, in whatever size the caller asks for.
 
     A node hands out buffers of its own choosing, so a render that wants a
     fixed block has to keep the remainder between calls.
@@ -76,7 +76,7 @@ class Clock:
 
 
 class PcmSource:
-    """A finite audioif source over interleaved stereo int16 `pcm`.
+    """A finite audiodsp source over interleaved stereo int16 `pcm`.
 
     An effect rack reads a track that has already been rendered, so the
     track goes back in as a source. Handed out in chunks rather than in one

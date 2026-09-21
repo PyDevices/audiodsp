@@ -1,7 +1,7 @@
 """An algorithmic reverberation tank whose topology comes from Python.
 
 Not a CircuitPython module, and not from micropython-vst3's engine either --
-audioif adds it. `audiofreeverb.Freeverb` is the only reverberator upstream
+audiodsp adds it. `audiofreeverb.Freeverb` is the only reverberator upstream
 has, and its line lengths are constants inside a CircuitPython-ported binding:
 one topology, no modulated taps, no dispersive input chain, nothing to re-cut
 per character. `audioverb.Tank` is Dattorro's plate network with the line
@@ -47,7 +47,7 @@ Every filter is off at zero -- `damping_hz`, `bandwidth_hz`, `low_cut_hz`,
 nodes has one meaning for the word.
 
 A new module rather than arguments on `Freeverb`, deliberately: an argument
-added to audioif's copy of a CircuitPython module would not exist on a stock
+added to audiodsp's copy of a CircuitPython module would not exist on a stock
 board, so an effect written against it would silently be a different effect
 there. This either installs whole or is absent and says so on import.
 """
@@ -55,22 +55,22 @@ there. This either installs whole or is absent and says so on import.
 from audiocore import (
     GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
 )
-import _audioif
+import _audiodsp
 
 
-#: The audioif this was built from, the same pair the native builds put
-#: on this module (src/cp_compat/audioif_build.h). audioif#55.
-__version__ = _audioif.__version__
-__revision__ = _audioif.__revision__
+#: The audiodsp this was built from, the same pair the native builds put
+#: on this module (src/cp_compat/audiodsp_build.h). audiodsp#55.
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
-FRAMES = _audioif.TANK_FRAMES
+FRAMES = _audiodsp.TANK_FRAMES
 #: Delay lines the network owns, and the length `delays` must have.
-LINES = _audioif.TANK_LINES
+LINES = _audiodsp.TANK_LINES
 #: Output taps the tap table may carry, four values each.
-MAX_TAPS = _audioif.TANK_MAX_TAPS
+MAX_TAPS = _audiodsp.TANK_MAX_TAPS
 
 #: Option name -> the native configure() slot. Kept in the order
-#: shared/audioif_tank.h declares, which is the order the MicroPython bindings
+#: shared/audiodsp_tank.h declares, which is the order the MicroPython bindings
 #: list them in too.
 _OPTIONS = {
     "decay": 0,
@@ -112,7 +112,7 @@ class Tank(_AudioSample):
         self._deinited = False
         self._source = None
         self._pending = b""
-        self._state = _audioif.TankState(
+        self._state = _audiodsp.TankState(
             sample_rate=self.sample_rate,
             max_predelay_ms=float(max_predelay_ms),
             channel_count=channel_count,

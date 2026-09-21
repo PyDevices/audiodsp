@@ -31,7 +31,7 @@ R7 is this module's form of the identity trait
 (`docs/correctness-standard.md`): an exact answer through the DSP rather than a
 bypass, which is where an arithmetic overflow shows and a range check does not.
 
-R12 is audioif#87, and it is a trait rather than a render case because no
+R12 is audiodsp#87, and it is a trait rather than a render case because no
 render would have caught it: the ring is 8192 frames and every probe here feeds
 blocks smaller than that. `get_buffer` takes no length, so a source hands back
 what it has -- a `RawSample` over a 9600-frame table returns all 9600 -- and
@@ -130,7 +130,7 @@ class SplitterTest(unittest.TestCase):
             self.assertEqual(bytes(data), bytes(audioroute.CHUNK_FRAMES * 4))
 
     def test_a_block_bigger_than_the_ring_survives_whole(self):
-        """R12, audioif#87. 9600 frames into an 8192-frame ring.
+        """R12, audiodsp#87. 9600 frames into an 8192-frame ring.
 
         Each frame carries its own index, so what this asserts is not "some
         audio came out" but that frame N out is frame N in, for all 9600.
@@ -163,7 +163,7 @@ class SplitterTest(unittest.TestCase):
             if got[index] != index - 15000:
                 self.fail(
                     "frame %d is source frame %d, not %d -- %d frames of the "
-                    "block were lost (audioif#87)"
+                    "block were lost (audiodsp#87)"
                     % (index, got[index] + 15000, index,
                        got[index] + 15000 - index))
 

@@ -1,5 +1,5 @@
 // audioroute.Splitter -- MicroPython bindings over the runtime-neutral ring in
-// shared/audioif_splitter.c.
+// shared/audiodsp_splitter.c.
 //
 // Not a CircuitPython port: this module comes from micropython-vst3's
 // `vstaudio` usermod, where the effects library's parallel branches (exciters,
@@ -15,18 +15,18 @@
 
 #include "audiocore/__init__.h"
 #include "py/obj.h"
-#include "shared/audioif_splitter.h"
+#include "shared/audiodsp_splitter.h"
 
 typedef struct {
     mp_obj_base_t obj_base;
     mp_obj_t source;
-    mp_obj_t taps[AUDIOIF_SPLITTER_MAX_TAPS];
-    audioif_splitter_state_t state;
-    int16_t silence[AUDIOIF_SPLITTER_CHUNK_FRAMES * 2];
+    mp_obj_t taps[AUDIODSP_SPLITTER_MAX_TAPS];
+    audiodsp_splitter_state_t state;
+    int16_t silence[AUDIODSP_SPLITTER_CHUNK_FRAMES * 2];
     // What one pull from the source did not fit in the ring, offered before
     // the source is asked again. Points into the source's own buffer, which
     // stays alive because `source` holds it, the same way MixerVoice keeps
-    // `remaining_buffer`. audioif#87.
+    // `remaining_buffer`. audiodsp#87.
     uint8_t *pending;
     uint32_t pending_frames;
     // This type carries no `audiosample_base_t` -- it is not a sample, it

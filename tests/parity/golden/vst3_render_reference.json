@@ -1,5 +1,5 @@
 {
-  "oracle": "micropython-vst3 tools/render_preview.py at aace838, rendering through audioif 3770b02 (DSP identical to v0.2.0 ec3c67f; only lib/ deletion between them) with audioinstruments/audioeffects from audiocomponents cc72fff (post af837de replay, tr808 fixes, all blessed by ear 2026-09-03); re-captured 2026-09-03 per audioif#28",
+  "oracle": "micropython-vst3 tools/render_preview.py at aace838, rendering through audiodsp 3770b02 (DSP identical to v0.2.0 ec3c67f; only lib/ deletion between them) with audioinstruments/audioeffects from audiocomponents cc72fff (post af837de replay, tr808 fixes, all blessed by ear 2026-09-03); re-captured 2026-09-03 per audiodsp#28",
   "pieces": {
     "AureliaOverture": {
       "levels": {

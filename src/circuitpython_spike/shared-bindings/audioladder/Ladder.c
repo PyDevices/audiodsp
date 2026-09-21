@@ -59,17 +59,17 @@
 // rather than from it, and keyword order stays irrelevant.
 typedef struct {
     qstr name;
-    audioif_ladder_option_t option;
+    audiodsp_ladder_option_t option;
 } ladder_option_name_t;
 
 static const ladder_option_name_t ladder_option_names[] = {
-    { MP_QSTR_cutoff_hz, AUDIOIF_LADDER_OPT_CUTOFF_HZ },
-    { MP_QSTR_resonance, AUDIOIF_LADDER_OPT_RESONANCE },
-    { MP_QSTR_drive, AUDIOIF_LADDER_OPT_DRIVE },
-    { MP_QSTR_poles, AUDIOIF_LADDER_OPT_POLES },
-    { MP_QSTR_passband_comp, AUDIOIF_LADDER_OPT_PASSBAND_COMP },
-    { MP_QSTR_oversample, AUDIOIF_LADDER_OPT_OVERSAMPLE },
-    { MP_QSTR_mix, AUDIOIF_LADDER_OPT_MIX },
+    { MP_QSTR_cutoff_hz, AUDIODSP_LADDER_OPT_CUTOFF_HZ },
+    { MP_QSTR_resonance, AUDIODSP_LADDER_OPT_RESONANCE },
+    { MP_QSTR_drive, AUDIODSP_LADDER_OPT_DRIVE },
+    { MP_QSTR_poles, AUDIODSP_LADDER_OPT_POLES },
+    { MP_QSTR_passband_comp, AUDIODSP_LADDER_OPT_PASSBAND_COMP },
+    { MP_QSTR_oversample, AUDIODSP_LADDER_OPT_OVERSAMPLE },
+    { MP_QSTR_mix, AUDIODSP_LADDER_OPT_MIX },
 };
 
 static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
@@ -87,7 +87,7 @@ static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(ladder_option_names); ++option) {
             if (ladder_option_names[option].name == name) {
-                audioif_ladder_configure(&self->config,
+                audiodsp_ladder_configure(&self->config,
                     ladder_option_names[option].option, value);
                 known = true;
                 break;
@@ -138,12 +138,12 @@ static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
     self->pending = NULL;
     self->pending_frames = 0;
 
-    audioif_ladder_config_init(&self->config, sample_rate);
-    audioif_ladder_set_channel_count(&self->config, channel_count);
-    audioif_ladder_state_init(&self->state);
+    audiodsp_ladder_config_init(&self->config, sample_rate);
+    audiodsp_ladder_set_channel_count(&self->config, channel_count);
+    audiodsp_ladder_state_init(&self->state);
 
     ladder_apply_kwargs(self, &kw_map);
-    audioif_ladder_config_finish(&self->config);
+    audiodsp_ladder_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -184,7 +184,7 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioladder_ladder_set_obj, 1,
 //|
 static mp_obj_t audioladder_ladder_clear(mp_obj_t self_in) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audioif_ladder_reset(&self->state);
+    audiodsp_ladder_reset(&self->state);
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioladder_ladder_clear_obj,
@@ -192,8 +192,8 @@ MP_DEFINE_CONST_FUN_OBJ_1(audioladder_ladder_clear_obj,
 
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. The MicroPython
-// binding of this same type gained it on 2026-09-09 (audioif#58, #60, #63) and
-// this copy did not, which is audioif#75: the two bindings are hand-written and
+// binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
+// this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
 static mp_obj_t audioladder_ladder_deinit(mp_obj_t self_in) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);

@@ -23,7 +23,7 @@ class SpeedChanger(_AudioSample):
         value = float(value)
         if not 0 <= value <= 1000: raise ValueError("rate must be from 0 to 1000")
         # Rounded, not truncated: upstream's cast loses a whole Q16 LSB for a
-        # float a hair under its neighbour. docs/upstream-diff.md, audioif#92.
+        # float a hair under its neighbour. docs/upstream-diff.md, audiodsp#92.
         self._rate_fp = int(value * 65536 + 0.5) & 0xffffffff
 
     def _release(self):
@@ -49,7 +49,7 @@ class SpeedChanger(_AudioSample):
             return False
         # Carry the accumulator across the boundary, rather than zeroing it:
         # what this buffer consumed is the frame count of the one before it.
-        # audioif#91, docs/upstream-diff.md.
+        # audiodsp#91, docs/upstream-diff.md.
         consumed = (len(self._source_data or b"") // self._frame_size()) << 16
         self._phase = self._phase - consumed if self._phase >= consumed else 0
         self._source_data = raw

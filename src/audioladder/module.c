@@ -5,7 +5,7 @@
 // extension of `audiofilters.Filter` but a filter of a different kind, whose
 // character is what a nonlinearity inside a feedback loop does and which a
 // cascade of linear biquads therefore cannot be. Adding it to `Filter` would
-// have made audioif's copy of a CircuitPython module diverge from the one on
+// have made audiodsp's copy of a CircuitPython module diverge from the one on
 // a stock board, which is the one thing apply_cp_patches.sh is built to
 // avoid.
 //
@@ -13,13 +13,13 @@
 
 #include "audioladder/Ladder.h"
 
-#include "cp_compat/audioif_build.h"
+#include "cp_compat/audiodsp_build.h"
 
 #include "py/obj.h"
 
 static const mp_rom_map_elem_t audioladder_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audioladder) },
-    AUDIOIF_BUILD_GLOBALS,
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_Ladder), MP_ROM_PTR(&audioladder_ladder_type) },
 };
 static MP_DEFINE_CONST_DICT(audioladder_module_globals,

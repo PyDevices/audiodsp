@@ -1,7 +1,7 @@
-// audiomath.SubOctave for CircuitPython. See audioif's
+// audiomath.SubOctave for CircuitPython. See audiodsp's
 // src/audiomath/SubOctave.h for the MicroPython twin; the DSP is the same
-// shared/audioif_suboctave.c in both, copied into this tree by
-// audioif/apply_cp_patches.sh.
+// shared/audiodsp_suboctave.c in both, copied into this tree by
+// audiodsp/apply_cp_patches.sh.
 //
 // SPDX-License-Identifier: MIT
 
@@ -13,7 +13,7 @@
 #include "py/obj.h"
 #include "shared-module/audiocore/__init__.h"
 
-#include "shared/audioif_suboctave.h"
+#include "shared/audiodsp_suboctave.h"
 
 typedef struct {
     audiosample_base_t base;
@@ -22,9 +22,9 @@ typedef struct {
     // a divider's clock comes from the signal itself, which is the whole
     // difference between it and audiomath.Multiply.
     mp_obj_t source;
-    audioif_suboctave_config_t config;
-    audioif_suboctave_state_t state;
-    int16_t buffer[AUDIOIF_SUBOCTAVE_FRAMES * 2];
+    audiodsp_suboctave_config_t config;
+    audiodsp_suboctave_state_t state;
+    int16_t buffer[AUDIODSP_SUBOCTAVE_FRAMES * 2];
     // Frames fetched from the source but not yet consumed, carried across
     // output blocks: the source hands out its own block length, not ours.
     const int16_t *pending;
