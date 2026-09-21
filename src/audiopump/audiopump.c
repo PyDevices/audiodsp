@@ -135,7 +135,18 @@ enum {
     STATUS_LOCK_CTRL_TAKES = 29,
     STATUS_FRAMES = 30,         // frames pulled since spawn(), what now() reads
     STATUS_EVENT_US_MAX = 31,   // worst single apply pass at a block boundary
+    // --- what the output ring's back-pressure cost --------------------------
+    STATUS_RING_WAITS = 32,     // times the pump waited for the drain
+    STATUS_RING_WAIT_US = 33,   // total time it spent waiting
 };
+
+// How long the pump sleeps in one go while it waits for the ring's consumer.
+// This is a CEILING and not a period: the drain wakes it (audiopump_drain
+// below calls thread_wake), so in the ordinary case the sleep ends in a
+// context switch and this number is never reached. It exists so that a driver
+// whose wake is lost -- or one whose park_spin is still the old yield -- costs
+// a bounded stall rather than a hung pump.
+#define AUDIOPUMP_RING_WAIT_US (20000)
 
 #define FNV_OFFSET (0xcbf29ce484222325ULL)
 #define FNV_PRIME  (0x100000001b3ULL)
@@ -193,6 +204,12 @@ typedef struct {
     volatile bool park_req;
     volatile bool parked;
     volatile bool finished;
+    // The pump is asleep waiting for room in the output ring. The DRAIN reads
+    // this, on the interpreter thread, and wakes the pump when it has given
+    // space back. A stale read either way costs nothing: a stale true is one
+    // wake nobody needed, and a stale false is bounded by
+    // AUDIOPUMP_RING_WAIT_US.
+    volatile bool ring_wait;
     bool to_sink;               // write every block to the driver's sink
     uint32_t sink_timeout_ms;
     // Hold each block until its wall-clock moment, so the desktop
@@ -230,6 +247,8 @@ typedef struct {
     uint64_t acc_sink_timeouts;
     uint64_t acc_parks;
     uint64_t acc_ring_ovf;
+    uint64_t acc_ring_waits;
+    uint64_t acc_ring_wait_us;
     uint64_t acc_event_us_max;
     uint64_t wall_start;
     audioif_buffer_result_t acc_result;
@@ -417,6 +436,8 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
     uint64_t sink_timeouts = ctx->acc_sink_timeouts;
     uint64_t parks = ctx->acc_parks;
     uint64_t ring_ovf = ctx->acc_ring_ovf;
+    uint64_t ring_waits = ctx->acc_ring_waits;
+    uint64_t ring_wait_us = ctx->acc_ring_wait_us;
     uint64_t event_us_max = ctx->acc_event_us_max;
     audioif_buffer_result_t result = ctx->acc_result;
     const uint64_t wall_start = ctx->wall_start;
@@ -425,16 +446,33 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
     // Resolved once per call rather than per block: this is the hot loop and
     // the binding cannot change under it.
     const audioif_port_ops_t *port = audioif_port();
+    // Can this build make the pump WAIT for the ring rather than drop into it?
+    // Three things have to be true and none of them changes inside the loop:
+    // there is a ring, there is a thread of our own to put to sleep, and the
+    // driver has a wait that a wake can end. A build missing any of them keeps
+    // the old drop-and-count behaviour, which is still the honest thing on a
+    // port that cannot sleep -- and STATUS_RING_OVF then means what it always
+    // meant.
+    const bool ring_waits_here = ctx->ring != NULL && !ctx->service_mode
+        && port->park_spin != NULL;
 
     while (blocks < ctx->blocks && !ctx->stop) {
         if (spent >= budget) {
             why = AUDIOPUMP_SERVICE_MORE;
             break;
         }
-        // wasm: the ring is the pace. A block that will not fit is not
-        // dropped and not overwritten -- the loop stops and the caller comes
-        // back when its drain has made room. On a threaded port the ring
-        // still drops, because a thread that stopped here would have to spin.
+        // The ring is the pace, on every port that has one. A block that will
+        // not fit is not dropped and not overwritten: the pull simply does not
+        // happen until the consumer has made room. That is what an I2S write
+        // does on a board, and it is why `ovf` is 0 by construction rather
+        // than by luck -- by the time a drop counter says a block was lost the
+        // block is gone, so there is no policy that can be built on top of it.
+        //
+        // The two ports differ only in who does the waiting. With no thread
+        // (wasm, and any build whose driver did not bind) the loop gives the
+        // thread back and the caller comes round again after its drain. With a
+        // thread the loop SLEEPS here, and a `stop` or a `park` still gets
+        // through on the next turn because both of them wake it.
         if (ctx->service_mode && ctx->ring != NULL) {
             const uint32_t level = ctx->ring_w - ctx->ring_r;
             const uint32_t room = ctx->ring_len - level;
@@ -442,6 +480,53 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
             if (room < need) {
                 why = AUDIOPUMP_SERVICE_FULL;
                 break;
+            }
+        } else if (ring_waits_here && !ctx->park_req && ctx->max_block_bytes
+                   && ctx->max_block_bytes <= ctx->ring_len) {
+            // `!park_req` is not belt and braces. Without it a park asked for
+            // while the ring is full is a LIVE LOCK: the wait below exits at
+            // once because park_req is set, `continue` goes back to the top,
+            // the ring is still full so it waits again, and the park branch
+            // below is never reached. Measured as park() returning False after
+            // 897 ms of a spinning core.
+            // The `need <= ring_len` guard is not defensive tidiness. A ring
+            // shorter than ONE block of this graph can never hold one -- an
+            // audiocore.RawSample hands back its whole buffer, so a half-second
+            // tone is a 96 kB block -- and waiting for room that cannot arrive
+            // would be a hang instead of a fault. That case falls through to
+            // the drop below, exactly as before, and STATUS_RING_OVF names it.
+            const uint32_t need = ctx->max_block_bytes;
+            if (ctx->ring_len - (ctx->ring_w - AUDIOPUMP_LOAD_ACQ(&ctx->ring_r))
+                < need) {
+                const uint64_t w0 = audiopump_now_us();
+                // Both published BEFORE the first sleep. The flag, because a
+                // drain that runs between the check and the sleep must still
+                // see a waiter and wake it. The COUNT, because a pump that is
+                // still inside the wait is exactly the state anything watching
+                // wants to know about -- publishing it on the way out instead
+                // made a stopped pump read as a pump that had never waited,
+                // and the gate for this change reported 0 waits while it was
+                // sitting in one.
+                ctx->ring_wait = true;
+                ring_waits++;
+                ctx->status[STATUS_RING_WAITS] = ring_waits;
+                while (!ctx->stop && !ctx->park_req) {
+                    if (ctx->ring_len
+                        - (ctx->ring_w - AUDIOPUMP_LOAD_ACQ(&ctx->ring_r))
+                        >= need) {
+                        break;
+                    }
+                    port->park_spin(AUDIOPUMP_RING_WAIT_US);
+                }
+                ctx->ring_wait = false;
+                ring_wait_us += audiopump_now_us() - w0;
+                ctx->status[STATUS_RING_WAIT_US] = ring_wait_us;
+                // Round again rather than falling through: `stop` ends the
+                // loop at the top, a park is handled below on the next turn,
+                // and a retarget that landed while we slept is read inside the
+                // lock as usual. Nothing here has advanced `spent`, so the
+                // budget test at the top cannot loop.
+                continue;
             }
         }
         // The park, at the block boundary and nowhere else. The control
@@ -476,11 +561,13 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
                     // it returns instead of hanging the only thread there is.
                     break;
                 }
-                // The driver's wait, and the three ports do it three ways for
-                // reasons of their own: a direct-to-task notify on esp32
-                // (vTaskDelay(1) is 10 ms at this tick and a parked pump would
-                // underrun), SwitchToThread on Windows rather than Sleep(0),
-                // sched_yield on unix. 100 ms is a ceiling, not a period.
+                // The driver's wait. It BLOCKS on all three ports -- a
+                // direct-to-task notify on esp32, an auto-reset event on
+                // Windows, a condvar on unix -- and the wake at the other end
+                // is what ends it. 100 ms is a ceiling, not a period. The two
+                // desktop branches used to yield here instead of waiting,
+                // which made this loop a tight spin on a whole core for as
+                // long as the pump was parked; see the driver's own note.
                 port->park_spin(100000);
             }
             ctx->parked = false;
@@ -490,6 +577,11 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
             if (ctx->stop) {
                 break;
             }
+            // Round again rather than pulling. The ring may have filled while
+            // this was parked -- an unpark is not a promise that there is
+            // room -- and pulling here would drop exactly the block the wait
+            // above exists to keep.
+            continue;
         }
         // The other end of the park above: park_req has gone, so charge the
         // time it lasted and let the block through.
@@ -522,6 +614,16 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
             ctx->retarget_req = false;
             ctx->sample_type = (const void *)
                 ((mp_obj_base_t *)MP_OBJ_TO_PTR(ctx->sample))->type;
+            // And what the NEW tail can hand back in one pull, because that is
+            // the number the ring reserves room for above. A retarget from a
+            // 512-byte Mixer to a 96 kB RawSample used to leave the reservation
+            // at 512 and the write would then drop the block it could not fit
+            // -- which on the service port was a stall and is now a drop the
+            // wait was supposed to have prevented. One word, read out of the
+            // base struct with no runtime call, inside the lock the swap used.
+            ctx->max_block_bytes = (uint32_t)
+                ((audiosample_base_t *)MP_OBJ_TO_PTR(ctx->sample))
+                ->max_buffer_length;
         }
         // The net under the finaliser, and it has to be INSIDE the lock and
         // AFTER the retarget: a retarget to a different class legitimately
@@ -608,10 +710,16 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         }
 
         // The ring, if there is one. Single producer (here), single consumer
-        // (audiopump.drain on the interpreter thread). Overrun drops the
-        // block rather than overwriting what the consumer has not taken, so
-        // "the interpreter could not keep up" is a counter rather than a
-        // corruption.
+        // (audiopump.drain on the interpreter thread).
+        //
+        // The room was reserved above and the pump waited for it, so on a
+        // threaded port with a driver that can sleep this branch cannot
+        // overflow and STATUS_RING_OVF is 0 by construction. It is still
+        // written, and it still counts, because two cases reach it: a ring
+        // shorter than one block of this graph (which no wait can fix), and a
+        // driver with no park_spin at all. Overrun drops the block rather than
+        // overwriting what the consumer has not taken, so either of those is a
+        // counter rather than a corruption.
         if (ctx->ring != NULL && length) {
             const uint32_t r = AUDIOPUMP_LOAD_ACQ(&ctx->ring_r);
             if (ctx->ring_w - r + length > ctx->ring_len) {
@@ -741,6 +849,8 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
     ctx->acc_sink_timeouts = sink_timeouts;
     ctx->acc_parks = parks;
     ctx->acc_ring_ovf = ring_ovf;
+    ctx->acc_ring_waits = ring_waits;
+    ctx->acc_ring_wait_us = ring_wait_us;
     ctx->acc_event_us_max = event_us_max;
     ctx->acc_result = result;
     return why;
@@ -1253,10 +1363,17 @@ bool audiopump_c_join(uint32_t timeout_ms) {
             return false;
         }
     } else {
-        uint32_t waited = 0;
-        while (!audiopump_ctx.finished && waited < timeout_ms) {
+        // Against the CLOCK, not against a count of how many sleeps were
+        // asked for. mp_hal_delay_ms(2) is Sleep(2) on Windows and the
+        // scheduler's tick there is 15.6 ms, so a hundred of them is a second
+        // and a half: join(200) measured 1 166 547 us on that port and 200 156
+        // on unix, off the same line of code. A caller who asked for 200 ms
+        // and waited for 1.2 s has been given the wrong answer to the only
+        // question join() answers.
+        const uint64_t deadline = audiopump_now_us()
+            + (uint64_t)timeout_ms * 1000ULL;
+        while (!audiopump_ctx.finished && audiopump_now_us() < deadline) {
             mp_hal_delay_ms(2);
-            waited += 2;
         }
         if (!audiopump_ctx.finished) {
             return false;
@@ -1344,6 +1461,16 @@ bool audiopump_c_park(uint32_t timeout_us) {
         return true;
     }
     audiopump_ctx.park_req = true;
+    // Wake it, because it may be asleep on a full output ring and nothing else
+    // is going to drain that ring while this call is waiting for it to park.
+    // Without this, park() on a back-pressured pump waits its whole timeout
+    // and then reports failure -- which is every retarget and every teardown.
+    {
+        const audioif_port_ops_t *port = audioif_port();
+        if (port->thread_wake != NULL) {
+            port->thread_wake();
+        }
+    }
     if (audiopump_ctx.service_mode) {
         // The loop is not running -- this call IS the only thread -- so the
         // pump is already at a block boundary by construction and park() is a
@@ -1417,6 +1544,23 @@ static mp_obj_t audiopump_threaded(void) {
     return mp_obj_new_bool(audioif_port_threaded());
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_threaded_obj, audiopump_threaded);
+
+// True where a full output ring makes the pump WAIT rather than drop the
+// block. The question a desktop driver has to ask before it decides whether to
+// park the pump between ticks: with back-pressure the ring is the pace and
+// parking is pure cost, and without it a free-running pump loses audio.
+//
+// True on a threaded port whose driver has a wait a wake can end, and true in
+// service mode, where the loop hands the thread back on a full ring and the
+// caller's next service() is the wake. False only on a threaded build with no
+// park_spin -- which is a driver that is not finished, and now says so.
+static mp_obj_t audiopump_backpressure(void) {
+    const audioif_port_ops_t *port = audioif_port();
+    return mp_obj_new_bool(port->thread_start == NULL
+        || port->park_spin != NULL);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_backpressure_obj,
+    audiopump_backpressure);
 
 // WHICH driver bound: "esp32", "pthread", "win32" or "none". The one line that
 // makes the split checkable from Python -- a build that should have a thread
@@ -1510,6 +1654,17 @@ static mp_obj_t audiopump_drain(mp_obj_t out_in) {
     AUDIOPUMP_STORE_REL(&ctx->ring_r, ctx->ring_r + take);
     ctx->status[STATUS_RING_R] = ctx->ring_r_total;
     ctx->status[STATUS_DRAIN_DIGEST] = digest;
+    // And this is the other half of the back-pressure: the pump is asleep
+    // because this ring was full, and the space has just been given back.
+    // AFTER the release store, so the pump cannot wake, look, and find the
+    // room still missing. Guarded on the flag rather than done unconditionally
+    // because a drain runs every tick and a wake is a syscall.
+    if (ctx->ring_wait) {
+        const audioif_port_ops_t *port = audioif_port();
+        if (port->thread_wake != NULL) {
+            port->thread_wake();
+        }
+    }
     return mp_obj_new_int_from_uint(take);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiopump_drain_obj, audiopump_drain);
@@ -1642,6 +1797,8 @@ static const mp_rom_map_elem_t audiopump_globals_table[] = {
     // whether it has to call service() itself. Both exist on every port.
     { MP_ROM_QSTR(MP_QSTR_service), MP_ROM_PTR(&audiopump_service_obj) },
     { MP_ROM_QSTR(MP_QSTR_threaded), MP_ROM_PTR(&audiopump_threaded_obj) },
+    { MP_ROM_QSTR(MP_QSTR_backpressure),
+      MP_ROM_PTR(&audiopump_backpressure_obj) },
     { MP_ROM_QSTR(MP_QSTR_SERVICE_MORE), MP_ROM_INT(AUDIOPUMP_SERVICE_MORE) },
     { MP_ROM_QSTR(MP_QSTR_SERVICE_FULL), MP_ROM_INT(AUDIOPUMP_SERVICE_FULL) },
     { MP_ROM_QSTR(MP_QSTR_SERVICE_PARKED),
