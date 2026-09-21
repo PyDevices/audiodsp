@@ -251,14 +251,15 @@ def port(fault):
     plain_words = pull(plain, blocks)
     transparent = bare_words[2] == plain_words[2]
 
-    # The source has to RUN OUT inside the pull window, or the loop is
-    # never traversed and the guard never has anything to catch: a
-    # RawSample hands back its whole buffer in one call, so with a longer
-    # one the mixer never re-enters the port and this reads as green.
     # Two loops, told apart by WHEN they fault rather than by the code they
     # set, which is the same for either. Reaching the end of this at all is
     # half the check: unguarded, either one is a stack overflow here and a
     # pump thread that never returns on a board.
+    #
+    # The source also has to RUN OUT inside the pull window, or the loop is
+    # never traversed and the guard never has anything to catch -- a
+    # RawSample hands back its whole buffer in one call, and a longer one
+    # let the first draft of this read as green.
     doors = {}
 
     # A ring of ports and nothing else: the first pull walks straight into
