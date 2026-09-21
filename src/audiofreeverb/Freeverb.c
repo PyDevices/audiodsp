@@ -412,13 +412,19 @@ static mp_obj_t audiofreeverb_freeverb_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiofreeverb_freeverb_deinit_obj, audiofreeverb_freeverb_deinit);
 
 static void check_for_deinit(audiofreeverb_freeverb_obj_t *self) {
-    // The whole body. mark_deinit is not the damage; the pointer
-    // nulling AFTER it is -- the funnel's guard has already let a
-    // pull in by then, and the pull writes into a buffer that has
-    // just become NULL. Detach under the lock, free afterwards.
+    // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
+    // contract is that nothing which can longjmp runs while it is held
+    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // release, so the mutex is left owned by a thread that has gone back to
+    // the interpreter, and the pump blocks on it for ever. This is the guard
+    // on every Python-facing method of this class, so it is the most reached
+    // statement in the file.
     audioif_pump_lock_acquire();
-    audiosample_check_for_deinit(&self->base);
+    const bool released = audiosample_deinited(&self->base);
     audioif_pump_lock_release();
+    if (released) {
+        audiosample_check_for_deinit(&self->base);
+    }
 }
 
 static mp_obj_t audiofreeverb_freeverb_obj_get_roomsize(mp_obj_t self_in) {

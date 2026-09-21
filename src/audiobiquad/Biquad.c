@@ -273,7 +273,13 @@ static void audiobiquad_biquad_reset_buffer(mp_obj_t self_in,
     // Everything goes. A filter's memory is audible: a chain restarted with
     // the previous take still in it plays that take's tail over the new one.
     audioif_biquad_f32_reset(&self->state);
-    audioif_pump_lock_release();
+    // No unlock here, and there never was a lock to match it. reset_buffer is
+    // reached through audiocore's funnel, which holds the pump lock across the
+    // whole call -- so this body is already protected, and the release that
+    // used to close it was DROPPING THE FUNNEL'S HOLD. Windows does not check
+    // who is unlocking a CRITICAL_SECTION: each stray one takes its
+    // RecursionCount further below zero until the section is one nobody can
+    // enter, and the next control call never returns.
 }
 
 // `deinit()` releases what this binding holds and marks the node
@@ -291,8 +297,8 @@ static void audiobiquad_biquad_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audiobiquad_biquad_deinit(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audiosample_mark_deinit(&self->base);
     audioif_pump_lock_acquire();
+    audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;

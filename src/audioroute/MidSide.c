@@ -169,8 +169,8 @@ static void audioroute_midside_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioroute_midside_deinit(mp_obj_t self_in) {
     audioroute_midside_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audiosample_mark_deinit(&self->base);
     audioif_pump_lock_acquire();
+    audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;

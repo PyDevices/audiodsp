@@ -171,6 +171,82 @@ typedef struct {
 const audioif_pump_lock_stats_t *audioif_pump_lock_stats(void);
 void audioif_pump_lock_stats_reset(void);
 
+// --- the ledger, for a hang that has to name its holder --------------------
+//
+// Off unless a build asks for it (-DAUDIOIF_PUMP_LOCK_LEDGER=1), and it costs
+// nothing at all when it is off: every call below compiles to nothing and the
+// counters do not exist.
+//
+// What it is for: a lock that never comes back tells you nothing from the
+// outside. WHO holds it, how deep, who is waiting behind them, and what the
+// last few takes and gives were -- that is the difference between "a hang" and
+// a cause. The Windows driver's watchdog prints this when nothing has moved
+// for a few seconds.
+
+#ifndef AUDIOIF_PUMP_LOCK_LEDGER
+#define AUDIOIF_PUMP_LOCK_LEDGER (0)
+#endif
+
+// Where in the pump's block the loop is, when it is the pump that is stuck.
+enum {
+    AUDIOIF_PUMP_PHASE_IDLE = 0,
+    AUDIOIF_PUMP_PHASE_TOP = 1,
+    AUDIOIF_PUMP_PHASE_RING_WAIT = 2,
+    AUDIOIF_PUMP_PHASE_PARK = 3,
+    AUDIOIF_PUMP_PHASE_LOCK = 4,
+    AUDIOIF_PUMP_PHASE_PULL = 5,
+    AUDIOIF_PUMP_PHASE_DIGEST = 6,
+    AUDIOIF_PUMP_PHASE_SINK = 7,
+    AUDIOIF_PUMP_PHASE_PACE = 8,
+    AUDIOIF_PUMP_PHASE_RESET = 9,
+    AUDIOIF_PUMP_PHASE_END = 10,
+};
+
+#if AUDIOIF_PUMP_LOCK_LEDGER
+
+#define AUDIOIF_PUMP_LOCK_LEDGER_SLOTS (256)
+
+typedef struct {
+    uint64_t us;
+    uintptr_t tid;
+    void *ra;           // the caller of the acquire/release, for a symbol
+    uint8_t site;       // 0 ctrl, 1 pump, 2 nested
+    uint8_t what;       // 0 want, 1 got, 2 gave
+    int16_t depth;      // after the event
+    int32_t waiters;
+} audioif_pump_lock_event_t;
+
+typedef struct {
+    uintptr_t owner;
+    int32_t depth;
+    int32_t waiters;
+    uint64_t takes;
+    uint64_t gives;
+    uint32_t phase;
+    uint32_t next;      // where the ring will write next
+    // The oldest acquire that has not come back, and who is inside it. This
+    // is the one a hang is made of: a lock whose counters are RACING while
+    // one thread has been queued behind them for seconds.
+    uint64_t want_us;
+    uintptr_t want_tid;
+    uint8_t want_site;
+    uint64_t bad_gives;     // releases that took the recursion count below 0
+    uint8_t bad_site;       // and where the first one came from
+    uintptr_t bad_tid;
+    void *bad_ra;
+    const audioif_pump_lock_event_t *events;
+} audioif_pump_lock_ledger_t;
+
+void audioif_pump_lock_ledger_read(audioif_pump_lock_ledger_t *out);
+void audioif_pump_lock_phase_set(uint32_t phase);
+#define AUDIOIF_PUMP_PHASE(p) audioif_pump_lock_phase_set(p)
+
+#else
+
+#define AUDIOIF_PUMP_PHASE(p) ((void)0)
+
+#endif
+
 #ifdef __cplusplus
 }
 #endif

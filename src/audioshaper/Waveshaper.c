@@ -247,8 +247,8 @@ static void audioshaper_waveshaper_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioshaper_waveshaper_deinit(mp_obj_t self_in) {
     audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audiosample_mark_deinit(&self->base);
     audioif_pump_lock_acquire();
+    audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
