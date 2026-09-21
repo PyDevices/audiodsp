@@ -181,6 +181,14 @@ typedef struct {
     uint32_t block_frames;
     mp_obj_t events;            // an Events queue, or MP_OBJ_NULL
     mp_obj_t tap;               // a Tap, or MP_OBJ_NULL
+    // The format conversion, when the source is not already signed 16-bit
+    // stereo. NULL when it is, which is every graph audioif builds -- this
+    // costs nothing to carry and one branch a block to skip.
+    uint8_t *conv;
+    uint32_t conv_len;
+    uint8_t conv_bits;
+    uint8_t conv_channels;
+    bool conv_signed;
     volatile bool stop;
     volatile bool park_req;
     volatile bool parked;
@@ -313,6 +321,49 @@ static const audioif_sample_ops_t audiopump_ops = {
     .reset_buffer = audiopump_reset,
     .get_buffer = audiopump_get,
 };
+
+// One pulled block, converted into the scratch: signed 16-bit stereo,
+// always, which is what CircuitPython's own output produces ("Mono samples
+// will be converted to stereo by copying value to both the left channel and
+// the right channel"). Returns the converted length in bytes.
+//
+// It is here rather than in the interpreter for the reason the header gives,
+// and it obeys the middle loop's rule exactly: no mp_* call, no allocation,
+// nothing that takes a lock. `audiosample_convert_*` are audiocore's own,
+// the same functions CircuitPython's outputs call.
+static uint32_t audiopump_convert_block(audiopump_ctx_t *ctx,
+    const uint8_t *in, uint32_t length) {
+    const uint32_t in_frame = (uint32_t)ctx->conv_channels
+        * (uint32_t)(ctx->conv_bits / 8);
+    uint32_t frames = in_frame ? length / in_frame : 0;
+    // Never past the end of the scratch, whatever a node claimed its block
+    // size was: a short write is audible, a long one is somebody else's heap.
+    if (frames > ctx->conv_len / 4) {
+        frames = ctx->conv_len / 4;
+    }
+    int16_t *out = (int16_t *)(void *)ctx->conv;
+    if (ctx->conv_bits == 16 && ctx->conv_signed) {
+        // Signed 16-bit reaches here only as MONO: a stereo one needs no
+        // conversion at all and a mono one on a stereo channel does.
+        audiosample_convert_s16m_s16s(out,
+            (const int16_t *)(const void *)in, frames);
+    } else if (ctx->conv_bits == 16 && ctx->conv_channels == 2) {
+        audiosample_convert_u16s_s16s(out,
+            (const uint16_t *)(const void *)in, frames);
+    } else if (ctx->conv_bits == 16) {
+        audiosample_convert_u16m_s16s(out,
+            (const uint16_t *)(const void *)in, frames);
+    } else if (ctx->conv_signed && ctx->conv_channels == 2) {
+        audiosample_convert_s8s_s16s(out, (const int8_t *)in, frames);
+    } else if (ctx->conv_signed) {
+        audiosample_convert_s8m_s16s(out, (const int8_t *)in, frames);
+    } else if (ctx->conv_channels == 2) {
+        audiosample_convert_u8s_s16s(out, in, frames);
+    } else {
+        audiosample_convert_u8m_s16s(out, in, frames);
+    }
+    return frames * 4;
+}
 
 // The loop, in three pieces: what it publishes before the first block, the
 // blocks themselves, and what it publishes after the last one. A threaded port
@@ -543,6 +594,14 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         if (ctx->stop) {
             break;
         }
+        // The conversion, before anything looks at the block: the digest,
+        // the ring, the tap and the sink all see what will be clocked, not
+        // what the source happened to store. One branch when there is
+        // nothing to convert, which is every graph audioif builds.
+        if (ctx->conv != NULL && length) {
+            length = audiopump_convert_block(ctx, buffer, length);
+            buffer = ctx->conv;
+        }
         for (uint32_t i = 0; i < length; i++) {
             digest ^= buffer[i];
             digest *= FNV_PRIME;
@@ -703,7 +762,11 @@ static void audiopump_run(audiopump_ctx_t *ctx) {
 // 4 is the event queue and 5 the tap: the pump holds a raw pointer to each,
 // and a queue holding a Note nobody else references any more is exactly the
 // case the collector would otherwise be right about.
-MP_REGISTER_ROOT_POINTER(mp_obj_t audiopump_held[6]);
+// 6 is the conversion scratch: the loop holds a raw pointer into it and the
+// only other reference is a field of a C object, so it is rooted here beside
+// the ring for the same reason the ring is.
+MP_REGISTER_ROOT_POINTER(mp_obj_t audiopump_held[7]);
+#define AUDIOPUMP_HELD_CONVERT (6)
 #define AUDIOPUMP_HELD_EVENTS (4)
 #define AUDIOPUMP_HELD_TAP (5)
 
@@ -934,6 +997,7 @@ static void audiopump_teardown(bool release_guard) {
     MP_STATE_VM(audiopump_held)[0] = MP_OBJ_NULL;
     MP_STATE_VM(audiopump_held)[1] = MP_OBJ_NULL;
     MP_STATE_VM(audiopump_held)[2] = MP_OBJ_NULL;
+    MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_CONVERT] = MP_OBJ_NULL;
     // The queue and the tap go with everything else. A queue holds Notes and
     // samples out of a heap that is about to be re-inited, and holding it
     // past a soft reset would be the same bug as holding the graph.
@@ -1117,7 +1181,8 @@ static int audiopump_launch(int core, int prio, int stack, bool psram) {
 }
 
 int audiopump_c_spawn(mp_obj_t sample, mp_obj_t status, uint64_t blocks,
-    mp_obj_t sink, bool loop, bool pace, int core, uint32_t timeout_ms) {
+    mp_obj_t sink, bool loop, bool pace, int core, uint32_t timeout_ms,
+    const audiopump_convert_t *convert) {
     if (audiopump_live) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "a pump is already spawned; call audiopump.shutdown() first"));
@@ -1134,6 +1199,34 @@ int audiopump_c_spawn(mp_obj_t sample, mp_obj_t status, uint64_t blocks,
     audiopump_prepare(sample, mp_obj_new_int((mp_int_t)blocks), status,
         MP_OBJ_NULL, &audiopump_ctx);
     audiopump_ctx.sink_timeout_ms = timeout_ms;
+    // The conversion, if the caller asked for one. AFTER prepare(), which
+    // memsets the context, and before the thread exists -- sizing the
+    // scratch and taking its pointer are both interpreter-thread work.
+    if (convert != NULL && convert->scratch != MP_OBJ_NULL
+        && convert->scratch != mp_const_none) {
+        mp_buffer_info_t scratch;
+        mp_get_buffer_raise(convert->scratch, &scratch, MP_BUFFER_WRITE);
+        const uint32_t in_frame = (uint32_t)convert->channels
+            * (uint32_t)(convert->bits / 8);
+        const uint32_t frames = in_frame
+            ? audiopump_ctx.max_block_bytes / in_frame : 0;
+        if (in_frame == 0 || frames == 0 || scratch.len < (size_t)frames * 4) {
+            mp_raise_ValueError(MP_ERROR_TEXT(
+                "convert scratch too small for one block"));
+        }
+        audiopump_ctx.conv = scratch.buf;
+        audiopump_ctx.conv_len = (uint32_t)scratch.len;
+        audiopump_ctx.conv_bits = convert->bits;
+        audiopump_ctx.conv_channels = convert->channels;
+        audiopump_ctx.conv_signed = convert->is_signed;
+        // The clock counts what LEAVES, not what arrived: an 8-bit mono
+        // frame is one byte on the way in and four on the way out, and
+        // audiopump.now() names output frames. Same for the service loop's
+        // idea of how much room one block needs.
+        audiopump_ctx.frame_bytes = 4;
+        audiopump_ctx.max_block_bytes = frames * 4;
+        MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_CONVERT] = convert->scratch;
+    }
     audioif_pump_lock_stats_reset();
     audioif_pump_set_active(true);
     audiopump_ctx.loop = loop;
@@ -1187,6 +1280,7 @@ bool audiopump_c_join(uint32_t timeout_ms) {
     MP_STATE_VM(audiopump_held)[0] = MP_OBJ_NULL;
     MP_STATE_VM(audiopump_held)[1] = MP_OBJ_NULL;
     MP_STATE_VM(audiopump_held)[2] = MP_OBJ_NULL;
+    MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_CONVERT] = MP_OBJ_NULL;
     return true;
 }
 

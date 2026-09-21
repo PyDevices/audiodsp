@@ -44,8 +44,30 @@ bool audiopump_is_running(void);
 //
 // Every one of them runs on the interpreter thread. `audiopump_c_spawn`
 // raises, so it needs an nlr handler above it like any other call that can.
+// A source that is not already what the sink wants has to be CONVERTED, and
+// the conversion belongs on the PUMP's thread: it is a few integer
+// operations a sample, and the interpreter cannot be relied on to arrive in
+// time. When it was the interpreter's job -- a ring topped up from a
+// scheduler node -- CircuitPython's own `I2SOut` docstring example, whose
+// sine is unsigned, starved 67 blocks in 2 s on the P4.
+//
+// Hand spawn() one of these and every block is converted into `scratch`
+// between the pull and the sink, as signed 16-bit stereo. NULL means the
+// source already is that and nothing is copied.
+//
+// `scratch` must be writable and must outlive the pump -- the loop holds the
+// raw pointer, so spawn roots it -- with room for one pulled block expanded
+// to stereo signed 16-bit: `max_buffer_length / in_frame * 4` bytes.
+typedef struct _audiopump_convert_t {
+    mp_obj_t scratch;
+    uint8_t bits;      // source bits per sample: 8 or 16
+    uint8_t channels;  // source channel count: 1 or 2
+    bool is_signed;    // source samples signed
+} audiopump_convert_t;
+
 int audiopump_c_spawn(mp_obj_t sample, mp_obj_t status, uint64_t blocks,
-    mp_obj_t sink, bool loop, bool pace, int core, uint32_t timeout_ms);
+    mp_obj_t sink, bool loop, bool pace, int core, uint32_t timeout_ms,
+    const audiopump_convert_t *convert);
 void audiopump_c_stop(void);
 bool audiopump_c_join(uint32_t timeout_ms);
 bool audiopump_c_park(uint32_t timeout_us);
