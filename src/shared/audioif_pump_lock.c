@@ -56,6 +56,23 @@ static uint64_t audioif_pump_lock_now_us(void) {
 #define AUDIOIF_LOCK_GET(p)    (*(p))
 #endif
 
+// Where a take or a give was called from, for the ledger. A compiler builtin
+// on GCC and Clang, an intrinsic on MSVC -- declared here rather than pulled in
+// through <intrin.h>, so this file still includes nothing that is not ISO C.
+// The CPython wheel is built with MSVC on Windows, which is the one compiler
+// in the matrix that does not have `__builtin_return_address`: every local
+// build (GCC, MinGW, emscripten, the two ESP32 toolchains) had it, and the
+// first CI run on windows-latest failed at link with an unresolved external.
+#if defined(_MSC_VER) && !defined(__clang__)
+void *_ReturnAddress(void);
+#pragma intrinsic(_ReturnAddress)
+#define AUDIOIF_LOCK_CALLER() _ReturnAddress()
+#elif defined(__GNUC__) || defined(__clang__)
+#define AUDIOIF_LOCK_CALLER() __builtin_return_address(0)
+#else
+#define AUDIOIF_LOCK_CALLER() ((void *)0)
+#endif
+
 // --- the mutex itself -----------------------------------------------------
 //
 // Whatever the driver gave us, or nothing. "Nothing" is the honest answer
@@ -222,7 +239,7 @@ static void audioif_pump_lock_give_at(uint8_t site, void *ra) {
 void audioif_pump_lock_acquire(void) {
     #if AUDIOIF_PUMP_LOCK_STATS
     const uint64_t t0 = audioif_pump_lock_now_us();
-    audioif_pump_lock_take(__builtin_return_address(0));
+    audioif_pump_lock_take(AUDIOIF_LOCK_CALLER());
     const uint64_t t1 = audioif_pump_lock_now_us();
     const uint64_t waited = t1 - t0;
     audioif_pump_lock_counters.ctrl_takes++;
@@ -232,7 +249,7 @@ void audioif_pump_lock_acquire(void) {
     }
     audioif_pump_lock_taken_us = t1;
     #else
-    audioif_pump_lock_take(__builtin_return_address(0));
+    audioif_pump_lock_take(AUDIOIF_LOCK_CALLER());
     #endif
 }
 
@@ -243,7 +260,7 @@ void audioif_pump_lock_release(void) {
         audioif_pump_lock_counters.ctrl_held_us_max = held;
     }
     #endif
-    audioif_pump_lock_give(__builtin_return_address(0));
+    audioif_pump_lock_give(AUDIOIF_LOCK_CALLER());
 }
 
 void audioif_pump_lock_acquire_pump(void) {
@@ -254,7 +271,7 @@ void audioif_pump_lock_acquire_pump(void) {
     }
     #if AUDIOIF_PUMP_LOCK_STATS
     const uint64_t t0 = audioif_pump_lock_now_us();
-    audioif_pump_lock_take_at(1, __builtin_return_address(0));
+    audioif_pump_lock_take_at(1, AUDIOIF_LOCK_CALLER());
     const uint64_t waited = audioif_pump_lock_now_us() - t0;
     audioif_pump_lock_counters.pump_takes++;
     audioif_pump_lock_counters.pump_wait_us += waited;
@@ -262,20 +279,20 @@ void audioif_pump_lock_acquire_pump(void) {
         audioif_pump_lock_counters.pump_wait_us_max = waited;
     }
     #else
-    audioif_pump_lock_take_at(1, __builtin_return_address(0));
+    audioif_pump_lock_take_at(1, AUDIOIF_LOCK_CALLER());
     #endif
 }
 
 void audioif_pump_lock_release_pump(void) {
-    audioif_pump_lock_give_at(1, __builtin_return_address(0));
+    audioif_pump_lock_give_at(1, AUDIOIF_LOCK_CALLER());
 }
 
 void audioif_pump_lock_acquire_nested(void) {
-    audioif_pump_lock_take_at(2, __builtin_return_address(0));
+    audioif_pump_lock_take_at(2, AUDIOIF_LOCK_CALLER());
 }
 
 void audioif_pump_lock_release_nested(void) {
-    audioif_pump_lock_give_at(2, __builtin_return_address(0));
+    audioif_pump_lock_give_at(2, AUDIOIF_LOCK_CALLER());
 }
 
 // --- the rest -------------------------------------------------------------
