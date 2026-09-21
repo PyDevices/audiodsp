@@ -74,11 +74,14 @@ jobs:
       # audiorender needs numpy and renders a whole composition in memory,
       # which is a desktop's job. The instrument and effect libraries this
       # profile used to carry publish from PyDevices/audiocomponents now.
-      # 21 as of publishing-v7: the org desktop matrix gained
-      # macos-latest, and this repo's cibuildwheel config produces
-      # cp310–cp314 macosx_arm64 (proven by the non-publishing
-      # macos-wheels CI job). 16 linux/windows + 5 macOS.
-      expected-wheel-count: 21
+      # 18: twelve desktop wheels (cp311-cp314 on manylinux x86_64, win_amd64
+      # and macosx_arm64), four Android (cp313, cp314 on arm64_v8a and x86_64)
+      # and two wasm (cp313, cp314). It was 21 until Python 3.10 was dropped
+      # on 2026-09-10 (5bdd3e9): cibuildwheel filters its selector by
+      # requires-python, so the three cp310 wheels stopped being built, and
+      # this number did not follow. The first release afterwards, v0.5.0,
+      # tagged and then published nothing (#122).
+      expected-wheel-count: 18
       wheel-filename-prefix: pydevices_audiodsp
       release-ref: ${{ inputs.release-ref }}
     secrets: inherit

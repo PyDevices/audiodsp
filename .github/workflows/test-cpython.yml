@@ -77,7 +77,7 @@ jobs:
   # Non-publishing proof of the macOS wheel claim: run the same cibuildwheel
   # the release path uses (pypa/cibuildwheel, [tool.cibuildwheel] in
   # pyproject.toml) on macos-latest, compiling the native extension for
-  # cp310–cp314 arm64 and running the configured import/smoke test-command
+  # cp311–cp314 arm64 and running the configured import/smoke test-command
   # in each wheel. Nothing is uploaded anywhere. Release wheels still come
   # from the org reusable workflow; this job proves they would build.
   macos-wheels:
