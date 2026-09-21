@@ -465,6 +465,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         && port->park_spin != NULL;
 
     while (blocks < ctx->blocks && !ctx->stop) {
+        AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_TOP);
         if (spent >= budget) {
             why = AUDIOPUMP_SERVICE_MORE;
             break;
@@ -515,6 +516,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
                 // made a stopped pump read as a pump that had never waited,
                 // and the gate for this change reported 0 waits while it was
                 // sitting in one.
+                AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_RING_WAIT);
                 ctx->ring_wait = true;
                 ring_waits++;
                 ctx->status[STATUS_RING_WAITS] = ring_waits;
@@ -557,6 +559,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
                 why = AUDIOPUMP_SERVICE_PARKED;
                 break;
             }
+            AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_PARK);
             const uint64_t park_start = audiopump_now_us();
             parks++;
             ctx->parked = true;
@@ -613,7 +616,9 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         // NOT held across the sink write below: that blocks for up to a DMA
         // block, and holding it there would make every knob wait for the
         // speaker instead of for the arithmetic.
+        AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_LOCK);
         audioif_pump_lock_acquire_pump();
+        AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_PULL);
         // Re-read the tail INSIDE the lock. A retarget that swapped it is
         // holding this lock while it does, so either we see the whole swap or
         // none of it -- the registry entry the handoff page designs, which is
@@ -672,6 +677,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         audioif_status_t status = audioif_sample_get(&ctx->source, false, 0,
             &buffer, &length, &result);
         audioif_pump_lock_release_pump();
+        AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_DIGEST);
         const uint64_t dt = audiopump_now_us() - t0;
         pull_us += dt;
         if (dt > max_pull_us) {
@@ -779,6 +785,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
         // which -- a write(2) and an i2s_channel_write are the same shape and
         // the difference between them was never the pump's business.
         if (ctx->to_sink && length && port->sink_write != NULL) {
+            AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_SINK);
             bool timed_out = false;
             const uint64_t s0 = audiopump_now_us();
             const uint32_t written = port->sink_write(buffer, length,
@@ -801,6 +808,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
                 + (uint64_t)ctx->frames * 1000000ULL / ctx->pace_rate;
             const uint64_t at = audiopump_now_us();
             if (due > at) {
+                AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_PACE);
                 port->sleep_us(due - at);
             }
         }
@@ -844,6 +852,7 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
             // so it never enters the runtime. A RawSample with one buffer
             // says DONE on every pull, which is why a looped RawSample is
             // this branch every single block and has to be this cheap.
+            AUDIOIF_PUMP_PHASE(AUDIOIF_PUMP_PHASE_RESET);
             (void)audioif_sample_reset(&ctx->source, false, 0);
             result = AUDIOIF_BUFFER_MORE_DATA;
         }

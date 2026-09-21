@@ -303,7 +303,9 @@ static void audiodynamics_dynamics_reset_buffer(mp_obj_t self_in,
     self->key_pending = NULL;
     self->key_pending_frames = 0;
     audioif_dynamics_reset(&self->state);
-    audioif_pump_lock_release();
+    // No unlock here; see audiobiquad/Biquad.c's reset_buffer for the whole
+    // note. The funnel holds the lock across this call, and the release that
+    // used to close the body was giving away a lock this thread had not taken.
 }
 
 // `deinit()` releases what this binding holds and marks the node
@@ -321,8 +323,8 @@ static void audiodynamics_dynamics_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audiodynamics_dynamics_deinit(mp_obj_t self_in) {
     audiodynamics_dynamics_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audiosample_mark_deinit(&self->base);
     audioif_pump_lock_acquire();
+    audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;

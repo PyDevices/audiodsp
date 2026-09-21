@@ -240,8 +240,8 @@ static void audioshaper_samplehold_reset_buffer(mp_obj_t self_in,
 // and the borrowed pointer into the source's buffer, so nothing dangles.
 static mp_obj_t audioshaper_samplehold_deinit(mp_obj_t self_in) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audiosample_mark_deinit(&self->base);
     audioif_pump_lock_acquire();
+    audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
