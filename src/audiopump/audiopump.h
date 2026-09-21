@@ -51,10 +51,17 @@ bool audiopump_c_join(uint32_t timeout_ms);
 bool audiopump_c_park(uint32_t timeout_us);
 void audiopump_c_unpark(void);
 bool audiopump_c_parked(void);
-// Layout of the status bytearray: 32 x uint64_t, little endian, written by
+// Layout of the status bytearray: 34 x uint64_t, little endian, written by
 // the loop and read by Python with struct.unpack_from. Here as well as in
 // audiopump.c because a C caller has to size the buffer and name a word.
-#define AUDIOPUMP_STATUS_WORDS (32)
+//
+// It was 32 until the output ring learned to block the pump; 32 and 33 are
+// what that wait cost. Nothing hard-codes the width -- every caller in this
+// workspace sizes its buffer with `bytearray(audiopump.STATUS_BYTES)` and
+// unpacks `"<%dQ" % audiopump.STATUS_WORDS` -- and audiopump_prepare refuses
+// a buffer that is too small, so a stale caller fails loudly rather than
+// reading a word that is not there.
+#define AUDIOPUMP_STATUS_WORDS (34)
 #define AUDIOPUMP_STATUS_BYTES (AUDIOPUMP_STATUS_WORDS * 8)
 
 enum {
