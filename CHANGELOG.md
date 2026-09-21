@@ -1,5 +1,98 @@
 ## Unreleased
 
+- **`audiopump`: the audio pull, off the interpreter thread.** A new module
+  runs the block pull in C on a thread the interpreter is not on — a task
+  pinned to the other core on esp32, a native thread on unix and Windows, the
+  calling thread through `service()` where there are none — so a graph keeps
+  an exact clock while a screen redraws and a USB stack runs. `spawn`,
+  `pull`, `service`, `retarget`, `park`/`unpark`, `shutdown` and a status
+  `bytearray` of counters; `Ring` (an audiosample node Python pushes PCM
+  into), `Events` (frame-stamped presses the pump applies at block
+  boundaries), `Tap` (read what is going out without being in the path) and
+  `now()`. The pull never raises: it publishes a fault code and stops,
+  because there is no interpreter on that thread to raise on.
+
+  It is in **every MicroPython port** — unix, Windows, WebAssembly, esp32 —
+  and in **neither the CPython wheel nor CircuitPython**. The wheel excludes
+  it rather than stubbing it, because it is a MicroPython C module
+  (`MP_REGISTER_MODULE`, `mp_obj_t`, a VM root array) and a desktop Python
+  program has threads of its own; CircuitPython's playback layer already
+  pulls natively from its own audio thread, so a second loop would be a
+  second owner of the same graph. Both still take the lock and the hook
+  table on default hooks, which cost a load and a branch, and `nm -u` on the
+  wheel finds **no pthread symbol at all** where the old lock had a real
+  recursive mutex.
+
+  The platform half is not here. The thread, the mutex, the clock and the
+  sink arrive through sixteen hooks in `src/shared/audioif_port.h`, every one
+  of which may be NULL — a table of nothing but NULLs is a complete
+  one-thread port. `audiopump.driver()` says at run time which driver bound
+  (`esp32`, `pthread`, `win32`, `none`), so a build whose driver silently did
+  not link says so out loud. Writing one: `docs/pump-ports.md`.
+
+  `tools/check_portable.py` keeps this repository's C free of platform
+  includes and platform calls, and is armed rather than merely quiet: clean
+  across 280 files, three hits with a `<pthread.h>` and a `clock_gettime()`
+  planted in the lock. It found one real hit — `src/audiomp3/MP3Decoder.c`
+  had carried `#include <unistd.h>` all along for `SEEK_SET`, which is ISO C
+  and is `<stdio.h>` now.
+
+- **`audioroute.Port`: a component's output stops changing identity.** A
+  zero-copy pass-through whose `get_buffer` hands back its source's own
+  pointer, length and result, and whose `play(source)` re-points it against a
+  pull in flight — the lookup, the deinit check and the format match on the
+  calling thread where raising is free, then the lock for three stores. A
+  consumer takes it once and keeps it.
+
+  What it fixes, in one line each: build an effect with Mix at 0, wire it to
+  a mixer voice and turn Mix up — before, nothing happens; after, the effect
+  is heard. Move a Phaser's Stages — before, the consumer goes silent; after,
+  it phases. About twenty classes replace their output node after
+  construction and no consumer was ever told.
+
+  Eleven classes across the families render the same digest with the port in
+  the path as without it, on MicroPython and on CircuitPython. Cost is about
+  **20 ns a block on x86-64** (the slope of 0, 25, 50 and 100 stacked ports);
+  on an ESP32-P4 it is unmeasured, and the estimate from four classes timed
+  on both is about 700 ns. `Port` has no `stop()` — it always has a source —
+  and a port pulled while already inside itself publishes a loop fault and
+  returns an error in 17 us rather than recursing until the stack is gone.
+
+- **The pull is a critical section, and nothing in it raises.** One
+  recursive, priority-inheriting mutex (`src/shared/audioif_pump_lock.{c,h}`)
+  is held by the pump for one block pull and by a control path around its
+  final swap only — never across an allocation, never across anything that
+  can raise. So a knob moves, a patch changes and a note is pressed with no
+  ceremony at all from the caller. A swap holds the audio for **1 us median
+  and 1.1 ms worst** against a 5333 us block on x86-64, and 180 storms over
+  45 classes — 4.4 M control moves against 16.7 M blocks — found no crash and
+  no bad digest, where five runs out of five crash with the lock compiled
+  out.
+
+  The two funnel sites in `audiosample_get_buffer`/`reset_buffer` — the
+  protocol lookup and the deinit check — return `GET_BUFFER_ERROR` and leave
+  a code in a fault register instead of raising. Every node in the palette
+  already turns that into silence, so a torn graph is a quiet block rather
+  than a core dump. **`audiocore.get_buffer()` and `reset_buffer()` still
+  raise** — the two checks moved up into `audiocore_check()` in
+  `src/audiocore/module.c`, where there is a thread to raise on, so the
+  promise made to a script is kept on the same call with the same exception.
+  The fault is published only from the pump's own thread: a control
+  thread legitimately pulls released nodes (a rack's `deinit()` stops each
+  child in turn), and publishing there took the audio down on the first patch
+  change on an ESP32-P4.
+
+- **`synthio.Synthesizer` pulls its free-running blocks without re-entering
+  the interpreter.** `get_buffer` walked `synth.blocks` with
+  `mp_getiter`/`mp_iternext` on every block. `mp_iternext` calls
+  `mp_cstack_check()`, which reads the calling thread's registered stack
+  limits — and a C pump thread has none, so it read garbage and segfaulted
+  before anything else could go wrong. It walks the list directly now.
+  `blocks` is created as a list and exposed read-only, so the traversal is
+  identical with no runtime in it; anything that is not a list is skipped
+  rather than iterated, because a custom iterable's `__next__` is Python and
+  Python cannot run on that thread at all.
+
 - **A mixer voice mixes its source's buffer as it stands at mix time, on the
   CPython twin too.** `common_hal_audiomixer_mixervoice_play` keeps what
   `audiosample_get_buffer` handed back, and what it hands back is a pointer
