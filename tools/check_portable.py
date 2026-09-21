@@ -90,15 +90,34 @@ BANNED_CALLS = (
 CALL_RE = re.compile("|".join(BANNED_CALLS))
 
 
+#: An include whose header is in double quotes. Its quotes are NOT a string
+#: literal, and blanking them left `#include "esp_log.h"` invisible to the
+#: whole checker -- a hole the --self-test plant found.
+QUOTED_INCLUDE_RE = re.compile(
+    r"^[ \t]*#[ \t]*include[ \t]*\"[^\"\n]+\"", re.MULTILINE)
+
+
 def strip_noise(text: str) -> str:
     """Blank out comments and string literals, keeping line numbers intact.
 
     A file is allowed to say *why* it must not call clock_gettime.
+
+    An `#include "..."` is left alone: the quotes there are part of the
+    directive, not a literal, and a checker that blanks them reads a
+    quoted IDF header as an empty line.
     """
+    keep = {}
+    for match in QUOTED_INCLUDE_RE.finditer(text):
+        keep[match.start()] = match.end()
+
     out = []
     i = 0
     n = len(text)
     while i < n:
+        if i in keep:
+            out.append(text[i:keep[i]])
+            i = keep[i]
+            continue
         ch = text[i]
         if ch == "/" and i + 1 < n and text[i + 1] == "/":
             j = text.find("\n", i)
@@ -173,13 +192,72 @@ def check(path: Path) -> list[tuple[int, str]]:
     return sorted(set(hits))
 
 
+def self_test() -> int:
+    """Plant each banned shape in a throwaway file and require a catch.
+
+    A checker nobody has seen fail is a checker nobody knows is wired up --
+    and this one is a single regex away from matching nothing at all and
+    reporting "no platform code" for ever. So CI runs this first.
+
+    Every plant is also read back through `strip_noise`: the same include
+    inside a comment and inside a string must NOT be reported, because the
+    rule is written down in the very files it applies to.
+    """
+    import tempfile
+
+    planted = (
+        ("#include <pthread.h>\n", "a POSIX thread header"),
+        ("#include \"freertos/FreeRTOS.h\"\n", "an IDF header"),
+        ("#include <esp_timer.h>\n", "an esp_ header"),
+        ("#include <driver/i2s_std.h>\n", "an IDF driver header"),
+        ("#include <windows.h>\n", "a Win32 header"),
+        ("#include <unistd.h>\n", "a unix header"),
+        ("#include <sys/time.h>\n", "a wall clock"),
+    )
+    exempt = (
+        "// A file may explain the rule: #include <pthread.h> is banned.\n",
+        "static const char *why = \"#include <windows.h> belongs in the "
+        "driver\";\n",
+    )
+
+    failures = 0
+    with tempfile.TemporaryDirectory() as tmp:
+        for index, (line, what) in enumerate(planted):
+            path = Path(tmp) / ("planted_%d.c" % index)
+            path.write_text("#include \"py/obj.h\"\n" + line)
+            if not check(path):
+                print("SELF-TEST FAILED: %s got past the checker (%s)"
+                      % (what, line.strip()))
+                failures += 1
+        for index, line in enumerate(exempt):
+            path = Path(tmp) / ("exempt_%d.c" % index)
+            path.write_text("#include \"py/obj.h\"\n" + line)
+            hits = check(path)
+            if hits:
+                print("SELF-TEST FAILED: a mention in a comment or a string "
+                      "was reported: %s" % (hits,))
+                failures += 1
+    if failures:
+        print("\n%d self-test failure(s): this checker cannot be trusted."
+              % failures)
+        return 1
+    print("self-test: %d planted headers caught, %d mentions left alone."
+          % (len(planted), len(exempt)))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*",
         help="files or directories to check (default: src/)")
     parser.add_argument("-q", "--quiet", action="store_true",
         help="say nothing when clean")
+    parser.add_argument("--self-test", action="store_true",
+        help="prove the checker can fail, then check nothing")
     args = parser.parse_args()
+
+    if args.self_test:
+        return self_test()
 
     files = sources(args.paths)
     problems = 0
