@@ -1,3 +1,14 @@
+## Unreleased
+
+- **v0.5.0 was tagged and published nothing.** Its release run built every
+  wheel this tree builds — eighteen — and then stopped at a gate that still
+  expected twenty-one: Python 3.10 had been dropped on 2026-09-10, so the three
+  cp310 wheels were no longer built, and the expected count in the publish
+  workflow had not followed. The count is 18 now, the dead `cp310-*` selector is
+  gone, and the README and the wheel-building notes say 3.11. The tag cannot be
+  reused, so the first published release of `pydevices-audiodsp` is the next
+  one (#122).
+
 ## v0.5.0 (2026-09-21)
 
 - audioif is audiodsp: every identifier, header, build knob and package name (#119)

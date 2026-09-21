@@ -13,7 +13,7 @@ workflow (the pin is the `@publishing-v8` ref in
 `.github/workflows/publish-release-packages.yml`) with
 `build-kind: native-and-wasm`. It builds and validates exactly **21** wheels:
 
-- CPython 3.10–3.14, manylinux_2_28 x86_64, Windows AMD64, and
+- CPython 3.11–3.14, manylinux_2_28 x86_64, Windows AMD64, and
   macosx_arm64 — 15.
 - CPython 3.13–3.14, Android API 21 arm64_v8a/x86_64 and Pyodide wasm32 — 6.
 
@@ -30,7 +30,7 @@ everything for macOS that CI can prove" — see the organization
 installs, and runs the full unit/contract/parity suite and
 `tools/validate_api.py` on `macos-latest`, and its `macos-wheels` job
 runs the same cibuildwheel the release path uses — compiling the native
-extension for CPython 3.10–3.14 and running the import smoke test in
+extension for CPython 3.11–3.14 and running the import smoke test in
 each wheel — on every push, publishing nothing. Hardware audio output
 on a real Mac remains **community-verified**: no Mac is on our bench,
 and a field report is what promotes that claim.
@@ -67,7 +67,7 @@ correct everywhere and an ARM release cell needs no config change at all.
 (`ubuntu-24.04-arm`) rather than under QEMU:
 
 - the full matrix — build, install, unit/contract tests, `validate_api`,
-  and all four parity verifiers — runs on aarch64 for CPython 3.10–3.14;
+  and all four parity verifiers — runs on aarch64 for CPython 3.11–3.14;
 - a `linux-arm-wheels` job runs the same cibuildwheel the release path
   uses, compiling the extension and executing each wheel's import smoke
   test. Nothing is published.

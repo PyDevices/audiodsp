@@ -61,7 +61,7 @@ repository; `synthtools`' `import ulab.numpy` then fails at runtime, which
 is the trade the flag buys. See [docs/porting-plan.md](docs/porting-plan.md)
 for the architecture, module tiers, phased plan, and testing strategy.
 
-**CPython 3.10+** installs from TestPyPI:
+**CPython 3.11+** installs from TestPyPI:
 
 ```sh
 python -m pip install --index-url https://test.pypi.org/simple/ pydevices-audiodsp
