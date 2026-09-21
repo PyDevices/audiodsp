@@ -233,6 +233,7 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiodynamics/module.c
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audioroute/MidSide.c \
+    $(MPAUDIO_SRC_DIR)/audioroute/Port.c \
     $(MPAUDIO_SRC_DIR)/audioroute/Splitter.c \
     $(MPAUDIO_SRC_DIR)/audioroute/SplitterTap.c \
     $(MPAUDIO_SRC_DIR)/audioroute/module.c

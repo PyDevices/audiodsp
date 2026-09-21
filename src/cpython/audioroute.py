@@ -22,8 +22,8 @@ drags it forward: that branch skips ahead rather than stalling the graph.
 """
 
 from audiocore import (
-    GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
-    raise_deinited_error,
+    GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, _borrow, get_buffer,
+    raise_deinited_error, reset_buffer,
 )
 import _audioif
 
@@ -259,4 +259,87 @@ class MidSide(_AudioSample):
         return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
-__all__ = ("MidSide", "Splitter", "SplitterTap")
+class Port(_AudioSample):
+    """A wire whose identity never changes.
+
+    Everything downstream of an effect takes its output once -- a rack when
+    it builds its chain, a mixer voice when it is told to play, a C pump when
+    it adopts a tail -- and about twenty classes in `audioeffects` replace
+    the node they handed out when a Mix macro reaches 0 or leaves it. So a
+    component ends in a Port and hands THAT out; re-pointing it with `play()`
+    is how the component changes what it plays, and the object the consumer
+    is holding is the same object forever.
+
+    It moves no bytes: the pull hands back the source's own buffer, length
+    and result unchanged.
+    """
+
+    def __init__(self, source):
+        if source is None:
+            raise ValueError("a Port needs a source")
+        self._deinited = False
+        self._source = source
+        self._adopt(source)
+
+    def _adopt(self, sample):
+        # The port hands back the SOURCE's buffer rather than one of its own,
+        # so `max_buffer_length` has to be the source's. `play()` refuses a
+        # source whose rate, depth, channel count or signedness differ, so the
+        # other four move only here, at construction.
+        self.sample_rate = int(sample.sample_rate)
+        self.bits_per_sample = int(sample.bits_per_sample)
+        self.channel_count = int(sample.channel_count)
+        self.samples_signed = bool(sample.samples_signed)
+        self.single_buffer = bool(getattr(sample, "single_buffer", False))
+        self.max_buffer_length = int(getattr(sample, "max_buffer_length", 0))
+
+    @property
+    def source(self):
+        """What the port is playing.
+
+        For a caller that needs to tell "pointed at the component's own tail"
+        from "pointed straight at the borrowed source" -- a rack's `reset()`
+        is the one in the tree that does.
+        """
+        self._check()
+        return self._source
+
+    def play(self, sample, *, loop=False):
+        """Re-point the port. On the native build this is the swap the pump
+        lock protects; here there is no pump, so it is one store."""
+        self._check()
+        if sample is None:
+            raise ValueError("a Port needs a source")
+        for field in ("sample_rate", "bits_per_sample", "channel_count",
+                      "samples_signed"):
+            if getattr(sample, field) != getattr(self, field):
+                raise ValueError("The sample's %s does not match" % field)
+        self._source = sample
+        self.single_buffer = bool(getattr(sample, "single_buffer", False))
+        self.max_buffer_length = int(getattr(sample, "max_buffer_length", 0))
+
+    def _release(self):
+        # Releasing a port releases the reference, not the graph: the nodes
+        # behind it belong to the class that built them.
+        self._source = None
+
+    def _reset_buffer(self, single_channel_output=False, audio_channel=0):
+        self._check()
+        # Forwarded, and it has to be: before the port a consumer held the
+        # tail node itself and `MixerVoice.play()` rewound THAT, so a port
+        # that swallowed the rewind would start a playback with the last take
+        # still in the delay lines -- the one thing a pass-through may not do.
+        if self._source is not None:
+            reset_buffer(self._source, single_channel_output, audio_channel)
+
+    def _get_buffer(self, single_channel_output=False, audio_channel=0):
+        self._check()
+        if self._source is None:
+            return GET_BUFFER_ERROR, memoryview(b"")
+        # `_borrow`, not `get_buffer`: the native hands back the source's own
+        # pointer, so a copy here would make this target's borrowers see a
+        # snapshot the native ones do not. See `audiocore._AudioSample._publish`.
+        return _borrow(self._source, single_channel_output, audio_channel)
+
+
+__all__ = ("MidSide", "Port", "Splitter", "SplitterTap")

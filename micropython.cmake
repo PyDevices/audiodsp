@@ -89,6 +89,7 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/audiodynamics/Dynamics.c
     ${MPAUDIO_SRC_DIR}/audiodynamics/module.c
     ${MPAUDIO_SRC_DIR}/audioroute/MidSide.c
+    ${MPAUDIO_SRC_DIR}/audioroute/Port.c
     ${MPAUDIO_SRC_DIR}/audioroute/Splitter.c
     ${MPAUDIO_SRC_DIR}/audioroute/SplitterTap.c
     ${MPAUDIO_SRC_DIR}/audioroute/module.c

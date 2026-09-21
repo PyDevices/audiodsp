@@ -8,9 +8,14 @@
 // because it is routing: it decides which signal reaches which channel,
 // where Splitter decides which branch reaches which chain.
 //
+// Port is the third: it decides which signal reaches which CONSUMER, and it
+// is the only one of the three a consumer is meant to hold forever. See
+// Port.h.
+//
 // SPDX-License-Identifier: MIT
 
 #include "audioroute/MidSide.h"
+#include "audioroute/Port.h"
 #include "audioroute/Splitter.h"
 #include "audioroute/SplitterTap.h"
 
@@ -22,6 +27,7 @@ static const mp_rom_map_elem_t audioroute_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audioroute) },
     AUDIOIF_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_MidSide), MP_ROM_PTR(&audioroute_midside_type) },
+    { MP_ROM_QSTR(MP_QSTR_Port), MP_ROM_PTR(&audioroute_port_type) },
     { MP_ROM_QSTR(MP_QSTR_Splitter), MP_ROM_PTR(&audioroute_splitter_type) },
     { MP_ROM_QSTR(MP_QSTR_SplitterTap),
       MP_ROM_PTR(&audioroute_splitter_tap_type) },
