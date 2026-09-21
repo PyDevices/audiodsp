@@ -46,37 +46,27 @@
 // Mutex gives that), because the pump runs above the interpreter and an
 // interpreter holding the swap must be lifted to finish it.
 //
-// Where there is no pump there is no mutex: the no-op backend compiles the
-// calls away, which is what WebAssembly and any single-threaded host get.
+// Where there is no pump there is no mutex: with no driver bound the calls
+// cost a load and a branch, which is what WebAssembly, CircuitPython and the
+// CPython wheel get.
+//
+// There is no #if chain in here choosing a backend any more, and that is the
+// point of the split: the mutex, the clock and the thread identity arrive
+// through shared/audioif_port.h, whose default table is all NULLs. Which
+// driver bound is a RUN-TIME question -- `audiopump.driver()` -- rather than
+// a macro nobody can see from the build log. The trap that cost the spike a
+// whole firmware (ESP_PLATFORM is not defined for a user C module, so the
+// POSIX branch compiled and LINKED on esp32 because IDF's newlib has
+// pthread.h) cannot be spelled in this file at all now.
 
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-// --- which backend --------------------------------------------------------
-//
-// ESP_PLATFORM is NOT defined for a user C module by the IDF -- it is a CMake
-// variable and a definition inside IDF components, and the POSIX branch below
-// LINKS on esp32 anyway because IDF's newlib has pthread.h. That trap already
-// cost the spike a whole firmware (see the notes, "the trap that nearly ate
-// the run"), so audioif's micropython.cmake defines
-// AUDIOIF_PUMP_LOCK_FREERTOS itself when IDF_TARGET is set, and this file
-// keys off that first.
-#if defined(AUDIOIF_PUMP_LOCK_FREERTOS) || defined(ESP_PLATFORM)
-#define AUDIOIF_PUMP_LOCK_BACKEND_FREERTOS (1)
-#elif defined(AUDIOIF_PUMP_LOCK_NONE) || defined(__EMSCRIPTEN__)
-#define AUDIOIF_PUMP_LOCK_BACKEND_NONE (1)
-#elif defined(_WIN32)
-#define AUDIOIF_PUMP_LOCK_BACKEND_WIN32 (1)
-#elif defined(__unix__) || defined(__APPLE__)
-#define AUDIOIF_PUMP_LOCK_BACKEND_PTHREAD (1)
-#else
-#define AUDIOIF_PUMP_LOCK_BACKEND_NONE (1)
 #endif
 
 // --- the lock -------------------------------------------------------------
@@ -154,6 +144,7 @@ enum {
     AUDIOIF_PUMP_FAULT_DEINITED = 2,    // audiosample_check_for_deinit's case
     AUDIOIF_PUMP_FAULT_UNPUMPABLE = 3,  // a file-backed source in a pulled graph
     AUDIOIF_PUMP_FAULT_IO = 4,          // a seek or read that would have raised
+    AUDIOIF_PUMP_FAULT_LOOP = 5,        // a port pulled while already inside itself
 };
 
 // First fault wins: the first thing that went wrong is the cause, and

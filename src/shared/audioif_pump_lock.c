@@ -1,19 +1,17 @@
 // The pump lock. See audioif_pump_lock.h for the contract.
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: Copyright (c) 2026 PyDevices
+//
+// There are no platform branches in this file any more. It had three --
+// FreeRTOS, pthread, Win32 -- and they were the only reason this repo's C
+// included freertos/semphr.h, pthread.h and windows.h. The mutex, the clock
+// and the thread identity now arrive through shared/audioif_port.h, and a
+// port that supplies none of them gets exactly what WebAssembly always got:
+// calls that do nothing, because there is no second thread to keep out.
 
 #include "shared/audioif_pump_lock.h"
 
-#if AUDIOIF_PUMP_LOCK_BACKEND_FREERTOS
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-#include "esp_timer.h"
-#elif AUDIOIF_PUMP_LOCK_BACKEND_PTHREAD
-#include <pthread.h>
-#include <time.h>
-#elif AUDIOIF_PUMP_LOCK_BACKEND_WIN32
-#include <windows.h>
-#endif
+#include "shared/audioif_port.h"
 
 // Measuring costs two clock reads per acquire. A block is thousands of
 // microseconds and an acquire is tens of nanoseconds, so this is never the
@@ -28,23 +26,11 @@ static volatile bool audioif_pump_is_active;
 static volatile uint32_t audioif_pump_fault;
 
 // Who is pulling. Stamped by acquire_pump, which runs on the pump's own
-// thread; cleared when the pump goes away.
-#if AUDIOIF_PUMP_LOCK_BACKEND_FREERTOS
-static TaskHandle_t audioif_pump_thread;
-#define AUDIOIF_PUMP_SELF() xTaskGetCurrentTaskHandle()
-#define AUDIOIF_PUMP_NOBODY (NULL)
-#define AUDIOIF_PUMP_SAME(a, b) ((a) == (b))
-#elif AUDIOIF_PUMP_LOCK_BACKEND_PTHREAD
-static pthread_t audioif_pump_thread;
+// thread; cleared when the pump goes away. One word, whatever the port's
+// thread handle really is -- the only question asked of it is "the same one
+// again?", so a value that is stable per thread is all it has to be.
+static volatile uintptr_t audioif_pump_thread;
 static volatile bool audioif_pump_thread_set;
-#define AUDIOIF_PUMP_SELF() pthread_self()
-#define AUDIOIF_PUMP_SAME(a, b) pthread_equal((a), (b))
-#elif AUDIOIF_PUMP_LOCK_BACKEND_WIN32
-static volatile DWORD audioif_pump_thread;
-#define AUDIOIF_PUMP_SELF() GetCurrentThreadId()
-#define AUDIOIF_PUMP_NOBODY (0)
-#define AUDIOIF_PUMP_SAME(a, b) ((a) == (b))
-#endif
 
 // Set while the lock is held by ANY holder, with the microsecond it was taken.
 // Only read by the releaser, which is the holder, so it needs no protection of
@@ -53,144 +39,33 @@ static uint64_t audioif_pump_lock_taken_us;
 
 #if AUDIOIF_PUMP_LOCK_STATS
 static uint64_t audioif_pump_lock_now_us(void) {
-    #if AUDIOIF_PUMP_LOCK_BACKEND_FREERTOS
-    return (uint64_t)esp_timer_get_time();
-    #elif AUDIOIF_PUMP_LOCK_BACKEND_PTHREAD
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)(ts.tv_nsec / 1000);
-    #elif AUDIOIF_PUMP_LOCK_BACKEND_WIN32
-    LARGE_INTEGER freq, now;
-    QueryPerformanceFrequency(&freq);
-    QueryPerformanceCounter(&now);
-    return (uint64_t)((now.QuadPart * 1000000LL) / freq.QuadPart);
-    #else
-    return 0;
-    #endif
+    const audioif_port_ops_t *port = audioif_port();
+    return port->now_us != NULL ? port->now_us() : 0;
 }
 #else
 #define audioif_pump_lock_now_us() (0ULL)
 #endif
 
 // --- the mutex itself -----------------------------------------------------
-
-#if AUDIOIF_PUMP_LOCK_BACKEND_FREERTOS
-
-// A recursive mutex, not a binary semaphore: this one both nests and carries
-// priority inheritance, and the pump runs above the interpreter, so an
-// interpreter holding a swap has to be lifted to finish it or the pump waits
-// on a thread nothing is scheduling.
 //
-// STATIC, and built under a one-shot compare-exchange. Two reasons, both
-// learned rather than guessed:
-//
-//   The lazy `if (m == NULL) m = create()` this started as is a race between
-//   two cores the moment a pump exists. In practice the interpreter builds a
-//   graph -- and takes this lock -- long before spawn() creates the task, so
-//   it would probably never have fired; "probably never" is not what a lock
-//   is for.
-//
-//   xSemaphoreCreateRecursiveMutex() calls malloc. The first taker of this
-//   lock may be the pump thread, mid-block, and an allocation there is the
-//   one thing the contract in the header forbids. The static form allocates
-//   nothing, so first-take costs the same as every other take.
-static SemaphoreHandle_t audioif_pump_mutex;
-static StaticSemaphore_t audioif_pump_mutex_storage;
-static volatile uint32_t audioif_pump_mutex_state;  // 0 none, 1 building, 2 ready
-
-static void audioif_pump_lock_ensure(void) {
-    if (__atomic_load_n(&audioif_pump_mutex_state, __ATOMIC_ACQUIRE) == 2) {
-        return;
-    }
-    uint32_t expected = 0;
-    if (__atomic_compare_exchange_n(&audioif_pump_mutex_state, &expected, 1,
-        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-        audioif_pump_mutex =
-            xSemaphoreCreateRecursiveMutexStatic(&audioif_pump_mutex_storage);
-        __atomic_store_n(&audioif_pump_mutex_state, 2, __ATOMIC_RELEASE);
-        return;
-    }
-    // Somebody else is building it. Microseconds at most, once per boot.
-    while (__atomic_load_n(&audioif_pump_mutex_state, __ATOMIC_ACQUIRE) != 2) {
-        portYIELD();
-    }
-}
+// Whatever the driver gave us, or nothing. "Nothing" is the honest answer
+// where there is no pump: the calls stay in the source of every node -- there
+// is exactly one control-path shape in the palette and it does not fork per
+// port -- and on a single-threaded build they cost a load and a branch.
 
 static void audioif_pump_lock_take(void) {
-    audioif_pump_lock_ensure();
-    if (audioif_pump_mutex != NULL) {
-        xSemaphoreTakeRecursive(audioif_pump_mutex, portMAX_DELAY);
+    const audioif_port_ops_t *port = audioif_port();
+    if (port->lock_take != NULL) {
+        port->lock_take();
     }
 }
 
 static void audioif_pump_lock_give(void) {
-    if (audioif_pump_mutex != NULL) {
-        xSemaphoreGiveRecursive(audioif_pump_mutex);
+    const audioif_port_ops_t *port = audioif_port();
+    if (port->lock_give != NULL) {
+        port->lock_give();
     }
 }
-
-#elif AUDIOIF_PUMP_LOCK_BACKEND_PTHREAD
-
-// PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP exists on glibc and nowhere
-// portably, so the attribute route and a pthread_once. It runs exactly once
-// and never on the audio path after that.
-static pthread_mutex_t audioif_pump_mutex;
-static pthread_once_t audioif_pump_mutex_once = PTHREAD_ONCE_INIT;
-
-static void audioif_pump_lock_make(void) {
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&audioif_pump_mutex, &attr);
-    pthread_mutexattr_destroy(&attr);
-}
-
-static void audioif_pump_lock_take(void) {
-    pthread_once(&audioif_pump_mutex_once, audioif_pump_lock_make);
-    pthread_mutex_lock(&audioif_pump_mutex);
-}
-
-static void audioif_pump_lock_give(void) {
-    pthread_mutex_unlock(&audioif_pump_mutex);
-}
-
-#elif AUDIOIF_PUMP_LOCK_BACKEND_WIN32
-
-// A CRITICAL_SECTION is recursive by definition, and InitializeCriticalSection
-// on a static is safe to do under a one-shot interlocked flag.
-static CRITICAL_SECTION audioif_pump_cs;
-static LONG audioif_pump_cs_state;  // 0 none, 1 building, 2 ready
-
-static void audioif_pump_lock_ensure(void) {
-    if (InterlockedCompareExchange(&audioif_pump_cs_state, 1, 0) == 0) {
-        InitializeCriticalSection(&audioif_pump_cs);
-        InterlockedExchange(&audioif_pump_cs_state, 2);
-    }
-    while (InterlockedCompareExchange(&audioif_pump_cs_state, 2, 2) != 2) {
-        Sleep(0);
-    }
-}
-
-static void audioif_pump_lock_take(void) {
-    audioif_pump_lock_ensure();
-    EnterCriticalSection(&audioif_pump_cs);
-}
-
-static void audioif_pump_lock_give(void) {
-    LeaveCriticalSection(&audioif_pump_cs);
-}
-
-#else
-
-// No threads, so no pump, so no lock. The calls stay in the source of every
-// node -- there is exactly one control-path shape in the palette and it does
-// not fork per port.
-static void audioif_pump_lock_take(void) {
-}
-static void audioif_pump_lock_give(void) {
-}
-
-#endif
 
 // --- the two sides --------------------------------------------------------
 
@@ -222,12 +97,11 @@ void audioif_pump_lock_release(void) {
 }
 
 void audioif_pump_lock_acquire_pump(void) {
-    #if AUDIOIF_PUMP_LOCK_BACKEND_PTHREAD
-    audioif_pump_thread = AUDIOIF_PUMP_SELF();
-    audioif_pump_thread_set = true;
-    #elif defined(AUDIOIF_PUMP_SELF)
-    audioif_pump_thread = AUDIOIF_PUMP_SELF();
-    #endif
+    const audioif_port_ops_t *port = audioif_port();
+    if (port->self_id != NULL) {
+        audioif_pump_thread = port->self_id();
+        audioif_pump_thread_set = true;
+    }
     #if AUDIOIF_PUMP_LOCK_STATS
     const uint64_t t0 = audioif_pump_lock_now_us();
     audioif_pump_lock_take();
@@ -259,11 +133,8 @@ void audioif_pump_lock_release_nested(void) {
 void audioif_pump_set_active(bool active) {
     audioif_pump_is_active = active;
     if (!active) {
-        #if AUDIOIF_PUMP_LOCK_BACKEND_PTHREAD
         audioif_pump_thread_set = false;
-        #elif defined(AUDIOIF_PUMP_NOBODY)
-        audioif_pump_thread = AUDIOIF_PUMP_NOBODY;
-        #endif
+        audioif_pump_thread = 0;
     }
 }
 
@@ -272,18 +143,14 @@ bool audioif_pump_active(void) {
 }
 
 bool audioif_pump_on_pump_thread(void) {
-    if (!audioif_pump_is_active) {
+    if (!audioif_pump_is_active || !audioif_pump_thread_set) {
         return false;
     }
-    #if AUDIOIF_PUMP_LOCK_BACKEND_PTHREAD
-    return audioif_pump_thread_set
-           && AUDIOIF_PUMP_SAME(audioif_pump_thread, AUDIOIF_PUMP_SELF());
-    #elif defined(AUDIOIF_PUMP_SELF)
-    return audioif_pump_thread != AUDIOIF_PUMP_NOBODY
-           && AUDIOIF_PUMP_SAME(audioif_pump_thread, AUDIOIF_PUMP_SELF());
-    #else
-    return false;
-    #endif
+    const audioif_port_ops_t *port = audioif_port();
+    if (port->self_id == NULL) {
+        return false;
+    }
+    return audioif_pump_thread == port->self_id();
 }
 
 void audioif_pump_fault_set(uint32_t code) {

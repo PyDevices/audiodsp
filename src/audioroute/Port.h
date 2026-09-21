@@ -40,6 +40,13 @@ typedef struct {
     //: reads the whole old source or the whole new one -- and `play()` takes
     //: the pump lock anyway, because the format words beside it move with it.
     mp_obj_t source;
+    //: Set while a pull is INSIDE this port. A Component that wraps its own
+    //: output (`self._output = Wrap(self._output)`) makes a loop through the
+    //: port, and on a board that loop is the pump thread never returning --
+    //: the Python guard cannot see it, because the nodes in the ring are
+    //: native. One byte, read and written on whichever thread is pulling,
+    //: under the lock the funnel already holds.
+    bool in_pull;
 } audioroute_port_obj_t;
 
 extern const mp_obj_type_t audioroute_port_type;

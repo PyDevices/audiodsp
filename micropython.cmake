@@ -24,7 +24,12 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/cp_compat/objproperty.c
     ${MPAUDIO_SRC_DIR}/cp_compat/namedtuple.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_sample.c
+    ${MPAUDIO_SRC_DIR}/shared/audioif_port.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_pump_lock.c
+    ${MPAUDIO_SRC_DIR}/audiopump/audiopump.c
+    ${MPAUDIO_SRC_DIR}/audiopump/audiopump_ring.c
+    ${MPAUDIO_SRC_DIR}/audiopump/audiopump_events.c
+    ${MPAUDIO_SRC_DIR}/audiopump/audiopump_tap.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_rawsample.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_synth_dsp.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_envelope.c
@@ -118,17 +123,13 @@ target_include_directories(usermod_mpaudio INTERFACE ${MPAUDIO_SRC_DIR})
 
 # --- which pump lock ------------------------------------------------------
 #
-# src/shared/audioif_pump_lock.c picks its backend from a macro, and the one
-# that would look obvious -- ESP_PLATFORM -- is NOT defined for a user C
-# module: it is a CMake variable and a definition inside IDF components.
-# Worse, the POSIX branch compiles and links on esp32 anyway, because IDF's
-# newlib has pthread.h. The spike lost a whole firmware to exactly that with
-# audiopump (see the notes, "the trap that nearly ate the run"), so say it
-# here, explicitly, from the thing that does know.
-if(DEFINED IDF_TARGET)
-    target_compile_definitions(usermod_mpaudio INTERFACE
-        AUDIOIF_PUMP_LOCK_FREERTOS=1)
-endif()
+# Nothing to say any more, and that is the change. This used to define
+# AUDIOIF_PUMP_LOCK_FREERTOS here because the macro that would look obvious --
+# ESP_PLATFORM -- is NOT defined for a user C module, and the POSIX branch
+# compiled and LINKED on esp32 anyway (IDF's newlib has pthread.h). The spike
+# lost a whole firmware to exactly that. There is no branch to choose now: the
+# lock takes whatever mutex the bound driver hands it, and which driver bound
+# is a run-time answer -- audiopump.driver().
 
 # --- tier 5: audiomp3 (MP3Decoder) ---
 #

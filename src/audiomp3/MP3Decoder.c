@@ -26,6 +26,14 @@
 // on unix or windows; emscripten's libc does not, and the wasm build
 // (phase 8d) failed with "use of undeclared identifier 'EINVAL'" without it.
 //
+// Deviation from upstream, 2026-09-21: `<unistd.h>` replaced by `<stdio.h>`.
+// Nothing in here calls a POSIX function -- the reads and seeks all go
+// through `py/stream.h` -- and what the header was actually supplying is
+// `SEEK_SET`/`SEEK_CUR`, which are ISO C and live in `<stdio.h>`. `off_t`
+// and `ssize_t` come from `<sys/types.h>`, which is still here.
+// tools/check_portable.py fails on `<unistd.h>` anywhere in src/, and this
+// was the one place in the repo that had it.
+//
 // SPDX-License-Identifier: MIT
 //
 // SPDX-FileCopyrightText: Copyright (c) 2018 Scott Shawcroft
@@ -39,8 +47,8 @@
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #include "py/builtin.h"
 #include "py/mperrno.h"

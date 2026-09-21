@@ -48,6 +48,9 @@ static mp_obj_t audioroute_port_make_new(const mp_obj_type_t *type,
     audioroute_port_obj_t *self = mp_obj_malloc(audioroute_port_obj_t, type);
     audioroute_port_adopt_format(self, sample);
     self->source = args[ARG_source].u_obj;
+    // mp_obj_malloc does not zero, and a garbage byte here would be a port
+    // that refuses its first pull for no reason anybody could reproduce.
+    self->in_pull = false;
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -106,12 +109,36 @@ static audioio_get_buffer_result_t audioroute_port_get_buffer(
         *buffer_length = 0;
         return GET_BUFFER_ERROR;
     }
+    // The loop guard. See reset_buffer below for the other door into it --
+    // and the two share one flag, because a port cannot legitimately be
+    // inside itself by either route.
+    //
+    // Refusing costs one byte and one branch. What comes back is
+    // GET_BUFFER_ERROR with no buffer, which every node in the palette
+    // already turns into zeros -- so the loop falls silent at the port, the
+    // fault register says why, and the pump stops on the next block with a
+    // reason instead of dying in the middle of one.
+    //
+    // Published unconditionally, unlike the deinit fault in audiocore's
+    // funnel, which publishes only from the pump's own thread. The
+    // distinction is real: the control path legitimately pulls a released
+    // node (a Rack's deinit stops each child in turn), and it never
+    // legitimately closes a loop.
+    if (self->in_pull) {
+        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_LOOP);
+        *buffer = NULL;
+        *buffer_length = 0;
+        return GET_BUFFER_ERROR;
+    }
     // Through the funnel, not through the protocol directly: the funnel is
     // where the deinit guard and the fault register live, so a class that
     // releases the node behind its port stops the pump with a published
     // reason instead of reading freed buffers.
-    return audiosample_get_buffer(source, single_channel_output, channel,
-        buffer, buffer_length);
+    self->in_pull = true;
+    const audioio_get_buffer_result_t got = audiosample_get_buffer(source,
+        single_channel_output, channel, buffer, buffer_length);
+    self->in_pull = false;
+    return got;
 }
 
 // Forwarded, and it has to be.
@@ -132,7 +159,22 @@ static void audioroute_port_reset_buffer(mp_obj_t self_in,
     if (source == mp_const_none) {
         return;
     }
+    // The loop guard, again, and THIS is the door the common mistake comes
+    // through. `self._output = Wrap(self._output)` reads like "put a wrapper
+    // on the end"; what it builds is a port whose source leads back to the
+    // port. The pull finds it only when a node in the ring runs out of
+    // buffer, but a LOOPING mixer voice rewinds its source first -- so
+    // `Mixer -> port -> Mixer` recurses through reset_buffer four blocks
+    // before get_buffer ever sees it, and that recursion is the crash: on a
+    // desktop a stack overflow, on a board the pump thread never returning.
+    // Guarding only the pull leaves that one in place.
+    if (self->in_pull) {
+        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_LOOP);
+        return;
+    }
+    self->in_pull = true;
     audiosample_reset_buffer(source, single_channel_output, channel);
+    self->in_pull = false;
 }
 
 // What the port is playing, for a caller that needs to tell "pointed at the
