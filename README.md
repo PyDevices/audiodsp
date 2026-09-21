@@ -412,19 +412,19 @@ threads at all. A graph pulled that way keeps an exact clock while a screen
 redraws, a USB stack runs and Python does whatever it likes.
 
 ```python
-import audiopump, audioeffects
+import audiopump, audiomixer, synthio
 
-fx = audioeffects.create("Overdrive", source, 48000)
+synth = synthio.Synthesizer(sample_rate=48000, channel_count=2)
+mixer = audiomixer.Mixer(voice_count=1, sample_rate=48000,
+                         channel_count=2, buffer_size=2048)
+mixer.voice[0].play(synth)
+
 status = bytearray(audiopump.STATUS_BYTES)
-audiopump.spawn(fx.output, 0x7FFFFFFF, status, sink=True)
+audiopump.spawn(mixer, 0x7FFFFFFF, status, sink=True)
 
-fx.set_macro(0, 96)                  # while it plays; no parking, no ceremony
-
-q = audiopump.Events(capacity=64)
-audiopump.events(q)
-q.at(audiopump.now() + 24000, audiopump.PRESS, synth, note)
-
-audiopump.shutdown()                 # and a soft reset does this for you
+synth.press(60)                # while it plays; no parking, no ceremony
+mixer.voice[0].level = 0.6
+audiopump.shutdown()           # and a soft reset does this for you
 ```
 
 `spawn(sample, blocks, status, …)` starts it; `pull()` runs the same loop on
