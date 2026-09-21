@@ -5,12 +5,31 @@
   pinned to the other core on esp32, a native thread on unix and Windows, the
   calling thread through `service()` where there are none — so a graph keeps
   an exact clock while a screen redraws and a USB stack runs. `spawn`,
-  `pull`, `service`, `retarget`, `park`/`unpark`, `shutdown` and a status
-  `bytearray` of counters; `Ring` (an audiosample node Python pushes PCM
-  into), `Events` (frame-stamped presses the pump applies at block
+  `pull`, `service`, `retarget(sample, loop=…)`, `park`/`unpark`, `shutdown`
+  and a status `bytearray` of counters; `Ring` (an audiosample node Python
+  pushes PCM into), `Events` (frame-stamped presses the pump applies at block
   boundaries), `Tap` (read what is going out without being in the path) and
   `now()`. The pull never raises: it publishes a fault code and stops,
   because there is no interpreter on that thread to raise on.
+
+  **A full output ring makes the pump wait rather than drop the block**, and
+  `audiopump.backpressure()` is the new public question a driver asks before
+  deciding whether to park the pump between ticks. It is True on a threaded
+  port whose driver fills in `park_spin` and True in service mode, where the
+  loop hands the thread back on a full ring; False only on a threaded build
+  with no `park_spin`, which is a driver that is not finished. On the
+  **desktop unix build**, with an app doing 3.5 ms of work a tick, the
+  interpreter spends **52 ms per 10 s on audio against 862 ms on the old
+  interpreter-thread path** — a parked pump cost 923 ms and spun 94 % of a
+  core, and now sleeps at 1 %. With no app work the two are level (758 ms
+  against 713). A WAV plays back byte-identically 10 times out of 10 with
+  all eight cores of that box busy, overflow count 0 by construction; with
+  the drop planted back, 0 of 10.
+
+  `retarget`'s `loop=` travels **with** the swap rather than being stored
+  when it is called, because the old tail is pulled until the next block
+  boundary; lowering the flag early kills the pump one block before the new
+  tail runs. Omitted, it leaves the flag as `spawn()` set it.
 
   It is in **every MicroPython port** — unix, Windows, WebAssembly, esp32 —
   and in **neither the CPython wheel nor CircuitPython**. The wheel excludes

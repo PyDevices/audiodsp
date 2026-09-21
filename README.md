@@ -430,12 +430,47 @@ audiopump.shutdown()           # and a soft reset does this for you
 `spawn(sample, blocks, status, …)` starts it; `pull()` runs the same loop on
 the calling thread, so `micropython.heap_lock()` around it is a real gate on
 "the pull does not allocate"; `service()` advances it where there is no
-thread; `retarget()` points it at a different tail; `shutdown()` stops it.
-`status` is a `bytearray` of counters — blocks, bytes, a digest of everything
-pulled, the worst block, what the sink clocked, the error and the fault —
-read back with `struct.unpack`. Everything that can refuse happens on the
-calling thread. The pull itself never raises, because there is no interpreter
-on that thread to raise on, so it publishes a fault code and stops.
+thread; `retarget(sample, loop=…)` points it at a different tail;
+`shutdown()` stops it. `status` is a `bytearray` of counters — blocks, bytes,
+a digest of everything pulled, the worst block, what the sink clocked, the
+error and the fault — read back with `struct.unpack`. Everything that can
+refuse happens on the calling thread. The pull itself never raises, because
+there is no interpreter on that thread to raise on, so it publishes a fault
+code and stops.
+
+`retarget`'s `loop=` travels **with** the swap rather than being stored when
+you call it: the old tail is pulled until the next block boundary, so setting
+the flag early ends the pump one block before the new tail ever runs. Leave it
+out and the flag stays as `spawn()` set it, which is what every caller before
+the argument existed wanted. Get it wrong the other way and a looping client
+left alone on a live pump stops at the end of its lap.
+
+### `backpressure()` — whether a full ring makes the pump wait
+
+```python
+>>> audiopump.backpressure()
+True
+```
+
+True where a full output ring makes the pump **wait** for room instead of
+dropping the block; False where a free-running pump would lose audio. It is
+the question a driver asks before it decides whether to park the pump between
+ticks, and it is True in two different ways: on a threaded port whose driver
+fills in `park_spin`, where a wake ends the wait, and in service mode, where
+the loop hands the thread back on a full ring and the caller's next
+`service()` is the wake. It is False only on a threaded build with no
+`park_spin` — a driver that is not finished, which now says so rather than
+quietly losing blocks.
+
+It is worth asking because parking costs the caller. On the **desktop unix
+build**, ten seconds of a synth through an Overdrive and a TapeDelay with an
+app doing 3.5 ms of work a tick: the interpreter spends **52 ms per 10 s on
+audio against 862 ms on the old interpreter-thread path**, where a parked pump
+cost 923 ms. With no app work at all the two are level (758 ms against 713).
+A parked pump used to spin 94 % of one core and now sleeps at 1 %. A WAV
+plays back byte-identically ten times out of ten with all eight cores of that
+box in a busy loop, overflow count 0 by construction; with the drop put back,
+0 of 10.
 
 Three kinds of source feed it and they are all the same kind of thing to it:
 a graph; `audiopump.Ring`, an audiosample node Python writes PCM into, so a

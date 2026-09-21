@@ -82,6 +82,15 @@ itself; without it, `spawn()` returns `-2` and the loop is service-mode only.
 `thread_wake()` is called, and it may return early — a spin is a legal
 implementation, a sleep that misses a wake is not.
 
+**Fill it in even if your port never parks.** It is also the wait the loop
+takes when the output ring is full, so it is what makes `backpressure()` True
+— and a driver that starts a thread and leaves `park_spin` NULL gets a
+free-running pump that drops blocks instead of waiting for room. That is the
+one hook whose absence is reported to Python: `audiopump.backpressure()` is
+True on a threaded port that has it and True in service mode, where the loop
+hands the thread back on a full ring and the caller's next `service()` is the
+wake, and False only in that unfinished case.
+
 `sleep_us` is the control side's wait: pacing, and the bounded waits in
 teardown. It **must not raise**, because one of its callers is a finaliser.
 
@@ -145,12 +154,18 @@ build. Four of the six are proven by running them:
 | unix, driver not linked | `none` | False | −2, `service()` drives | run |
 | windows | `win32` | True | −1 | run |
 | webassembly | `none` | False | −2 | run |
-| ESP32-P4 | — | — | — | link map |
+| ESP32-P4 | `esp32` | — | — | run, at an earlier commit |
 | ESP32-S3 | — | — | — | link map |
 
-The two images have not been run on a board. There the check is the link map:
-the weak `.text.audioif_port_driver` from `audioif_port.c.obj` is in the
-**discarded** sections and the symbol resolves to the driver's object on both.
+On the **Waveshare ESP32-P4 panel**, an earlier commit of this engine did bind
+on silicon: `audiopump.driver()` said `esp32`, the five storm digests came
+back as that board's published values to the byte, and the mutex was real — a
+control call waited 2171 µs with the pump running and 0 µs without.
+
+**No image of the current line has been flashed, on either chip.** Both
+compile and link, and there the check is the link map: the weak
+`.text.audioif_port_driver` from `audioif_port.c.obj` is in the **discarded**
+sections and the symbol resolves to the driver's object on both.
 
 One more thing worth knowing before you key your driver off a macro. A user C
 module is compiled without `ESP_PLATFORM`, and a POSIX branch *links* on
