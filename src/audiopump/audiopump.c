@@ -1270,10 +1270,17 @@ bool audiopump_c_join(uint32_t timeout_ms) {
             return false;
         }
     } else {
-        uint32_t waited = 0;
-        while (!audiopump_ctx.finished && waited < timeout_ms) {
+        // Against the CLOCK, not against a count of how many sleeps were
+        // asked for. mp_hal_delay_ms(2) is Sleep(2) on Windows and the
+        // scheduler's tick there is 15.6 ms, so a hundred of them is a second
+        // and a half: join(200) measured 1 166 547 us on that port and 200 156
+        // on unix, off the same line of code. A caller who asked for 200 ms
+        // and waited for 1.2 s has been given the wrong answer to the only
+        // question join() answers.
+        const uint64_t deadline = audiopump_now_us()
+            + (uint64_t)timeout_ms * 1000ULL;
+        while (!audiopump_ctx.finished && audiopump_now_us() < deadline) {
             mp_hal_delay_ms(2);
-            waited += 2;
         }
         if (!audiopump_ctx.finished) {
             return false;
