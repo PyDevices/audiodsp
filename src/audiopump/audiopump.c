@@ -95,13 +95,12 @@ static inline uint64_t audiopump_now_us(void) {
 
 // --- the runtime-neutral part ---------------------------------------------
 
-// Layout of the caller's status bytearray: 24 x uint64_t, little endian,
+// Layout of the caller's status bytearray: 32 x uint64_t, little endian,
 // written by the loop and read by Python with struct.unpack_from. A
 // bytearray rather than an array() so the width is not a typecode argument;
 // MicroPython's GC blocks are 16-byte aligned, so the 64-bit stores are too.
-#define AUDIOPUMP_STATUS_WORDS (32)
-#define AUDIOPUMP_STATUS_BYTES (AUDIOPUMP_STATUS_WORDS * 8)
-
+// The width and the handful of words a C caller reads are in
+// audiopump/audiopump.h; the rest are private to this file.
 enum {
     STATUS_BLOCKS = 0,      // blocks pulled
     STATUS_BYTES = 1,       // bytes seen
@@ -196,6 +195,13 @@ typedef struct {
     // sink is the pace.
     bool paced;
     uint32_t pace_rate;
+    // Rewind the tail instead of ending when it says DONE. This is where
+    // CircuitPython puts it too: `I2SOut.play(sample, loop=True)` loops in the
+    // OUTPUT -- `audiosample_reset_buffer` from inside the DMA fill -- because
+    // a RawSample has no idea it is being looped. Here the pump IS the output,
+    // so the flag is the pump's. It is a plain bool and only the loop reads
+    // it; a caller who wants to stop a loop calls stop().
+    bool loop;
     volatile bool retarget_req; // re-read `sample` at the next block boundary
     // --- what the loop accumulates -------------------------------------
     //
@@ -644,8 +650,23 @@ static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
             ctx->status[STATUS_RX_BYTES] = port->sink_rx_bytes();
         }
         if (result == AUDIOIF_BUFFER_DONE) {
-            error = 3;
-            break;
+            if (!ctx->loop) {
+                error = 3;
+                break;
+            }
+            // The block that came back WITH the DONE has already been
+            // digested, ringed, tapped and written above -- so the last block
+            // of the sample is played, and only then is the tail rewound.
+            // CircuitPython's i2s_fill_buffer does exactly this and in this
+            // order; getting it the other way round clips the final block of
+            // every lap.
+            //
+            // reset goes through the same resolved ops table the pull does,
+            // so it never enters the runtime. A RawSample with one buffer
+            // says DONE on every pull, which is why a looped RawSample is
+            // this branch every single block and has to be this cheap.
+            (void)audioif_sample_reset(&ctx->source, false, 0);
+            result = AUDIOIF_BUFFER_MORE_DATA;
         }
     }
 
@@ -995,10 +1016,12 @@ static void audiopump_refuse_unpumpable(mp_obj_t sample) {
     }
 }
 
+static int audiopump_launch(int core, int prio, int stack, bool psram);
+
 static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
     mp_map_t *kw_args) {
     enum { ARG_sample, ARG_blocks, ARG_status, ARG_sink, ARG_ring, ARG_core,
-           ARG_prio, ARG_stack, ARG_psram, ARG_timeout_ms, ARG_pace };
+           ARG_prio, ARG_stack, ARG_psram, ARG_timeout_ms, ARG_pace, ARG_loop };
     static const mp_arg_t allowed[] = {
         { MP_QSTR_sample,     MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = MP_OBJ_NULL } },
         { MP_QSTR_blocks,     MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = MP_OBJ_NULL } },
@@ -1012,6 +1035,9 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
         { MP_QSTR_timeout_ms, MP_ARG_INT,  { .u_int = 200 } },
         // unix only; see `paced` in the context struct.
         { MP_QSTR_pace,       MP_ARG_BOOL, { .u_bool = false } },
+        // Rewind the tail rather than end when it says DONE -- what
+        // audiobusio.I2SOut(...).play(sample, loop=True) means.
+        { MP_QSTR_loop,       MP_ARG_BOOL, { .u_bool = false } },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed),
@@ -1038,6 +1064,7 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
     audioif_pump_lock_stats_reset();
     audioif_pump_set_active(true);
 
+    audiopump_ctx.loop = args[ARG_loop].u_bool;
     audiopump_open_sink(args[ARG_sink].u_obj);
     if (args[ARG_pace].u_bool) {
         audiopump_ctx.paced = true;
@@ -1046,6 +1073,16 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
             ->sample_rate;
     }
 
+    return mp_obj_new_int(audiopump_launch(args[ARG_core].u_int,
+        args[ARG_prio].u_int, args[ARG_stack].u_int, args[ARG_psram].u_bool));
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(audiopump_spawn_obj, 3, audiopump_spawn);
+
+// Everything after the context is filled in: the one place the thread is
+// started and the one place service mode is decided. Both spawn() and
+// audiopump_c_spawn() end here, so a device binding cannot drift from the
+// Python surface.
+static int audiopump_launch(int core, int prio, int stack, bool psram) {
     const audioif_port_ops_t *port = audioif_port();
     if (port->thread_start == NULL) {
         // The shape a port with no thread gets -- and, just as usefully, the
@@ -1061,14 +1098,14 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
         audiopump_ctx.service_mode = true;
         audiopump_live = true;
         audiopump_run_begin(&audiopump_ctx);
-        return mp_obj_new_int(-2);
+        return -2;
     }
 
     const audioif_port_thread_cfg_t cfg = {
-        .core = args[ARG_core].u_int,
-        .prio = args[ARG_prio].u_int,
-        .stack = args[ARG_stack].u_int,
-        .psram = args[ARG_psram].u_bool,
+        .core = core,
+        .prio = prio,
+        .stack = stack,
+        .psram = psram,
     };
     int where = -1;
     if (!port->thread_start(audiopump_entry, &audiopump_ctx, &cfg, &where)) {
@@ -1076,14 +1113,42 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
         mp_raise_OSError(MP_ENOMEM);
     }
     audiopump_live = true;
-    return mp_obj_new_int(where);
+    return where;
 }
-static MP_DEFINE_CONST_FUN_OBJ_KW(audiopump_spawn_obj, 3, audiopump_spawn);
 
-static mp_obj_t audiopump_join(size_t n_args, const mp_obj_t *args) {
-    uint32_t timeout_ms = n_args > 0 ? (uint32_t)mp_obj_get_int(args[0]) : 30000;
+int audiopump_c_spawn(mp_obj_t sample, mp_obj_t status, uint64_t blocks,
+    mp_obj_t sink, bool loop, bool pace, int core, uint32_t timeout_ms) {
+    if (audiopump_live) {
+        mp_raise_ValueError(MP_ERROR_TEXT(
+            "a pump is already spawned; call audiopump.shutdown() first"));
+    }
+    audiopump_refuse_unpumpable(sample);
+    audiopump_arm_guard();
+    // Clamped, not promoted: audiopump_prepare reads this with
+    // mp_obj_get_int, which is 31 bits on every 32-bit target we ship, and a
+    // "play for ever" caller passing UINT64_MAX would get OverflowError
+    // instead of audio. 2^30 blocks is 68 years at a 5.3 ms block.
+    if (blocks > 0x3FFFFFFFULL) {
+        blocks = 0x3FFFFFFFULL;
+    }
+    audiopump_prepare(sample, mp_obj_new_int((mp_int_t)blocks), status,
+        MP_OBJ_NULL, &audiopump_ctx);
+    audiopump_ctx.sink_timeout_ms = timeout_ms;
+    audioif_pump_lock_stats_reset();
+    audioif_pump_set_active(true);
+    audiopump_ctx.loop = loop;
+    audiopump_open_sink(sink);
+    if (pace) {
+        audiopump_ctx.paced = true;
+        audiopump_ctx.pace_rate =
+            ((audiosample_base_t *)MP_OBJ_TO_PTR(sample))->sample_rate;
+    }
+    return audiopump_launch(core, 4, 16384, false);
+}
+
+bool audiopump_c_join(uint32_t timeout_ms) {
     if (!audiopump_live) {
-        return mp_const_true;
+        return true;
     }
     if (audiopump_ctx.service_mode) {
         // There is no thread to wait for and join() must not quietly become
@@ -1092,7 +1157,7 @@ static mp_obj_t audiopump_join(size_t n_args, const mp_obj_t *args) {
         // measurement of join(). So it reports, and the caller keeps calling
         // service().
         if (!audiopump_ctx.finished) {
-            return mp_const_false;
+            return false;
         }
     } else {
         uint32_t waited = 0;
@@ -1101,7 +1166,7 @@ static mp_obj_t audiopump_join(size_t n_args, const mp_obj_t *args) {
             waited += 2;
         }
         if (!audiopump_ctx.finished) {
-            return mp_const_false;
+            return false;
         }
         // On a board the task is parked in vTaskSuspend by now and deleting
         // it from here is the supported direction; on a desktop this is the
@@ -1122,21 +1187,42 @@ static mp_obj_t audiopump_join(size_t n_args, const mp_obj_t *args) {
     MP_STATE_VM(audiopump_held)[0] = MP_OBJ_NULL;
     MP_STATE_VM(audiopump_held)[1] = MP_OBJ_NULL;
     MP_STATE_VM(audiopump_held)[2] = MP_OBJ_NULL;
-    return mp_const_true;
+    return true;
+}
+
+static mp_obj_t audiopump_join(size_t n_args, const mp_obj_t *args) {
+    const uint32_t timeout_ms = n_args > 0
+        ? (uint32_t)mp_obj_get_int(args[0]) : 30000;
+    return mp_obj_new_bool(audiopump_c_join(timeout_ms));
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiopump_join_obj, 0, 1,
     audiopump_join);
 
-static mp_obj_t audiopump_stop(void) {
+void audiopump_c_stop(void) {
     audiopump_ctx.stop = true;
     audiopump_ctx.park_req = false;
     const audioif_port_ops_t *port = audioif_port();
     if (port->thread_wake != NULL) {
         port->thread_wake();
     }
+}
+
+static mp_obj_t audiopump_stop(void) {
+    audiopump_c_stop();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_stop_obj, audiopump_stop);
+
+uint64_t audiopump_c_status(unsigned index) {
+    if (audiopump_ctx.status == NULL || index >= AUDIOPUMP_STATUS_WORDS) {
+        return 0;
+    }
+    return audiopump_ctx.status[index];
+}
+
+bool audiopump_c_parked(void) {
+    return audiopump_ctx.parked;
+}
 
 // --- the park protocol ----------------------------------------------------
 //
@@ -1144,11 +1230,9 @@ static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_stop_obj, audiopump_stop);
 // not touch the graph again until unpark(). Everything the handoff page
 // calls a rewire goes between the two.
 
-static mp_obj_t audiopump_park(size_t n_args, const mp_obj_t *args) {
-    const uint32_t timeout_us = n_args > 0
-        ? (uint32_t)mp_obj_get_int(args[0]) : 100000;
+bool audiopump_c_park(uint32_t timeout_us) {
     if (!audiopump_live || audiopump_ctx.finished) {
-        return mp_const_true;
+        return true;
     }
     audiopump_ctx.park_req = true;
     if (audiopump_ctx.service_mode) {
@@ -1157,7 +1241,7 @@ static mp_obj_t audiopump_park(size_t n_args, const mp_obj_t *args) {
         // store. The wait below would spin until the timeout and then report
         // success anyway; saying so straight is the same answer without the
         // 200 ms.
-        return mp_const_true;
+        return true;
     }
     uint32_t waited = 0;
     while (!audiopump_ctx.parked && !audiopump_ctx.finished
@@ -1165,8 +1249,13 @@ static mp_obj_t audiopump_park(size_t n_args, const mp_obj_t *args) {
         mp_hal_delay_us(20);
         waited += 20;
     }
-    return (audiopump_ctx.parked || audiopump_ctx.finished)
-        ? mp_const_true : mp_const_false;
+    return audiopump_ctx.parked || audiopump_ctx.finished;
+}
+
+static mp_obj_t audiopump_park(size_t n_args, const mp_obj_t *args) {
+    const uint32_t timeout_us = n_args > 0
+        ? (uint32_t)mp_obj_get_int(args[0]) : 100000;
+    return mp_obj_new_bool(audiopump_c_park(timeout_us));
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiopump_park_obj, 0, 1,
     audiopump_park);
@@ -1261,12 +1350,16 @@ static mp_obj_t audiopump_retarget(mp_obj_t sample) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiopump_retarget_obj, audiopump_retarget);
 
-static mp_obj_t audiopump_unpark(void) {
+void audiopump_c_unpark(void) {
     audiopump_ctx.park_req = false;
     const audioif_port_ops_t *port = audioif_port();
     if (port->thread_wake != NULL) {
         port->thread_wake();
     }
+}
+
+static mp_obj_t audiopump_unpark(void) {
+    audiopump_c_unpark();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_unpark_obj, audiopump_unpark);
