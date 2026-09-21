@@ -365,6 +365,145 @@ for a recirculating fixed-point network's limit cycles. See
 [docs/upstream-diff.md](docs/upstream-diff.md) for the measurement, the cost
 and the memory the default table needs.
 
+### `audioroute.Port` — the wire a consumer holds
+
+A zero-copy pass-through you can re-point while it is playing. Its
+`get_buffer` hands back its source's own pointer, length and result; its
+`play(source)` swaps that source atomically against a pull in flight. Hold a
+port, wire it into a mixer voice or a rack, and change what is behind it as
+often as you like — the object the consumer took never changes.
+
+```python
+import audioroute
+
+port = audioroute.Port(overdrive)
+mixer.voice[0].play(port)       # take it once
+
+port.play(bitcrusher)           # heard on the next block; nothing rewires
+port.source                     # what it is playing right now
+```
+
+That is the problem it was built for. About twenty effect classes rebuild
+part of their graph when a knob crosses a threshold and hand out a new node
+afterwards — and a consumer holding the old one goes on playing the graph the
+class has finished with, or goes silent. A port turns that into a re-point.
+`play()` does the protocol lookup, the deinit check and the format match
+first, on the calling thread where raising is free, then takes the pump lock
+for three stores, so a pull in flight sees the whole old source or the whole
+new one and nothing in between.
+
+It costs about **20 ns a block on x86-64**, measured as the slope of 0, 25, 50
+and 100 stacked ports over the same 2000-block probe; against a 256-frame
+block at 48 kHz that is four ten-thousandths of one per cent. On an ESP32-P4
+it has not been measured; the estimate from four classes timed on both
+machines (a 32–35x ratio) is about 700 ns.
+
+`Port` has no `stop()`, deliberately — a port always has a source. A port
+pulled while it is already inside itself, which is what a component wrapping
+its own output builds, publishes a loop fault and hands back an error in
+17 us instead of recursing until the stack is gone.
+
+## `audiopump` — the audio pull, off the interpreter thread
+
+`audiopump` runs the same pull a player runs, in C, on a thread the
+interpreter is not on: a task pinned to the other core on esp32, a native
+thread on unix and Windows, and the calling thread on a port that has no
+threads at all. A graph pulled that way keeps an exact clock while a screen
+redraws, a USB stack runs and Python does whatever it likes.
+
+```python
+import audiopump, audiomixer, synthio
+
+synth = synthio.Synthesizer(sample_rate=48000, channel_count=2)
+mixer = audiomixer.Mixer(voice_count=1, sample_rate=48000,
+                         channel_count=2, buffer_size=2048)
+mixer.voice[0].play(synth)
+
+status = bytearray(audiopump.STATUS_BYTES)
+audiopump.spawn(mixer, 0x7FFFFFFF, status, sink=True)
+
+synth.press(60)                # while it plays; no parking, no ceremony
+mixer.voice[0].level = 0.6
+audiopump.shutdown()           # and a soft reset does this for you
+```
+
+`spawn(sample, blocks, status, …)` starts it; `pull()` runs the same loop on
+the calling thread, so `micropython.heap_lock()` around it is a real gate on
+"the pull does not allocate"; `service()` advances it where there is no
+thread; `retarget(sample, loop=…)` points it at a different tail;
+`shutdown()` stops it. `status` is a `bytearray` of counters — blocks, bytes,
+a digest of everything pulled, the worst block, what the sink clocked, the
+error and the fault — read back with `struct.unpack`. Everything that can
+refuse happens on the calling thread. The pull itself never raises, because
+there is no interpreter on that thread to raise on, so it publishes a fault
+code and stops.
+
+`retarget`'s `loop=` travels **with** the swap rather than being stored when
+you call it: the old tail is pulled until the next block boundary, so setting
+the flag early ends the pump one block before the new tail ever runs. Leave it
+out and the flag stays as `spawn()` set it, which is what every caller before
+the argument existed wanted. Get it wrong the other way and a looping client
+left alone on a live pump stops at the end of its lap.
+
+### `backpressure()` — whether a full ring makes the pump wait
+
+```python
+>>> audiopump.backpressure()
+True
+```
+
+True where a full output ring makes the pump **wait** for room instead of
+dropping the block; False where a free-running pump would lose audio. It is
+the question a driver asks before it decides whether to park the pump between
+ticks, and it is True in two different ways: on a threaded port whose driver
+fills in `park_spin`, where a wake ends the wait, and in service mode, where
+the loop hands the thread back on a full ring and the caller's next
+`service()` is the wake. It is False only on a threaded build with no
+`park_spin` — a driver that is not finished, which now says so rather than
+quietly losing blocks.
+
+It is worth asking because parking costs the caller. On the **desktop unix
+build**, ten seconds of a synth through an Overdrive and a TapeDelay with an
+app doing 3.5 ms of work a tick: the interpreter spends **52 ms per 10 s on
+audio against 862 ms on the old interpreter-thread path**, where a parked pump
+cost 923 ms. With no app work at all the two are level (758 ms against 713).
+A parked pump used to spin 94 % of one core and now sleeps at 1 %. A WAV
+plays back byte-identically ten times out of ten with all eight cores of that
+box in a busy loop, overflow count 0 by construction; with the drop put back,
+0 of 10.
+
+Three kinds of source feed it and they are all the same kind of thing to it:
+a graph; `audiopump.Ring`, an audiosample node Python writes PCM into, so a
+pushed stream can sit behind a Mixer with effects on it like anything else;
+and `audiopump.Events`, a queue of frame-stamped presses, plays and levels
+the pump applies at block boundaries, which is what puts a sequenced bar on
+the audio's clock instead of the interpreter's. `audiopump.Tap` reads what is
+going out, for a meter or a scope, without being in the path.
+
+**Which builds carry it.** Every MicroPython port: unix, Windows,
+WebAssembly and esp32. The **CPython wheel does not** — it is a MicroPython C
+module through and through (`MP_REGISTER_MODULE`, `mp_obj_t`, a VM root
+array), so it is excluded from the wheel rather than stubbed, and a desktop
+Python program has threads of its own. **CircuitPython does not either**: its
+playback layer already pulls natively from its own audio thread, and a second
+pull loop would be a second owner of the same graph. What both of those still
+take is the lock and the hook table, on default hooks, which cost a load and
+a branch.
+
+The hardware — the channel a board writes into, and a live microphone as a
+source — is not here. It arrives as a separate module, `_audioif`, from a
+platform driver, and `audiopump.driver()` tells you which one bound:
+
+```python
+>>> audiopump.driver()
+'esp32'          # or 'pthread', 'win32', 'none'
+```
+
+`'none'` is a real answer rather than a failure: the default hook table is
+all NULLs, which means one thread and no hardware, and that is exactly how
+the WebAssembly build runs. Writing a driver for a platform that has none yet
+is [docs/pump-ports.md](docs/pump-ports.md).
+
 ## Status
 
 **MicroPython:** all module tiers ported and oracle-diffed byte-for-byte

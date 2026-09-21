@@ -9,6 +9,7 @@
 
 #include "shared-bindings/audioroute/__init__.h"
 #include "shared-bindings/audioroute/MidSide.h"
+#include "shared-bindings/audioroute/Port.h"
 #include "shared-bindings/audioroute/Splitter.h"
 #include "shared-bindings/audioroute/SplitterTap.h"
 
@@ -20,13 +21,16 @@
 //| stereo pair's channels so a drive can work on the middle of an image
 //| without smearing its sides. It is not part of CircuitPython upstream; it
 //| comes from PyDevices' audioif, which in turn took `Splitter` from
-//| micropython-vst3's audio engine. `MidSide` is audioif's own.
+//| micropython-vst3's audio engine. `MidSide` is audioif's own, and so is
+//| `Port` - the wire an effect hands out so the thing holding its output
+//| never has to be told the graph behind it changed.
 //|
 //| """
 
 static const mp_rom_map_elem_t audioroute_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audioroute) },
     { MP_ROM_QSTR(MP_QSTR_MidSide), MP_ROM_PTR(&audioroute_midside_type) },
+    { MP_ROM_QSTR(MP_QSTR_Port), MP_ROM_PTR(&audioroute_port_type) },
     { MP_ROM_QSTR(MP_QSTR_Splitter), MP_ROM_PTR(&audioroute_splitter_type) },
     { MP_ROM_QSTR(MP_QSTR_SplitterTap),
       MP_ROM_PTR(&audioroute_splitter_tap_type) },

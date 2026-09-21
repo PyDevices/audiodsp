@@ -7,6 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 // The options `Waveshaper(...)` and `set(...)` accept, paired with the shared
 // DSP's enum. `sample_rate`, `channel_count`, `oversample` and `curve` are
@@ -144,9 +145,11 @@ static mp_obj_t audioshaper_waveshaper_play(mp_obj_t self_in,
     mp_obj_t sample) {
     audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioshaper_waveshaper_play_obj,
@@ -164,7 +167,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioshaper_waveshaper_set_obj, 1,
 
 static mp_obj_t audioshaper_waveshaper_clear(mp_obj_t self_in) {
     audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audioif_shaper_reset(&self->state);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_waveshaper_clear_obj,
@@ -242,11 +247,13 @@ static void audioshaper_waveshaper_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioshaper_waveshaper_deinit(mp_obj_t self_in) {
     audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
     self->curve = NULL;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_waveshaper_deinit_obj, audioshaper_waveshaper_deinit);

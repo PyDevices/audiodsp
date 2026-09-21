@@ -26,6 +26,14 @@
 // on unix or windows; emscripten's libc does not, and the wasm build
 // (phase 8d) failed with "use of undeclared identifier 'EINVAL'" without it.
 //
+// Deviation from upstream, 2026-09-21: `<unistd.h>` replaced by `<stdio.h>`.
+// Nothing in here calls a POSIX function -- the reads and seeks all go
+// through `py/stream.h` -- and what the header was actually supplying is
+// `SEEK_SET`/`SEEK_CUR`, which are ISO C and live in `<stdio.h>`. `off_t`
+// and `ssize_t` come from `<sys/types.h>`, which is still here.
+// tools/check_portable.py fails on `<unistd.h>` anywhere in src/, and this
+// was the one place in the repo that had it.
+//
 // SPDX-License-Identifier: MIT
 //
 // SPDX-FileCopyrightText: Copyright (c) 2018 Scott Shawcroft
@@ -39,8 +47,8 @@
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #include "py/builtin.h"
 #include "py/mperrno.h"
@@ -52,6 +60,7 @@
 #include "cp_compat/background_callback.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "cp_compat/objproperty.h"
+#include "shared/audioif_pump_lock.h"
 
 #include "coder.h"
 #include "mp3common.h"
@@ -437,6 +446,11 @@ void common_hal_audiomp3_mp3file_set_file(audiomp3_mp3file_obj_t *self, mp_obj_t
 }
 
 void common_hal_audiomp3_mp3file_deinit(audiomp3_mp3file_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     if (self->decoder) {
         MP3FreeDecoder(self->decoder);
@@ -448,11 +462,23 @@ void common_hal_audiomp3_mp3file_deinit(audiomp3_mp3file_obj_t *self) {
     self->stream = mp_const_none;
     self->settimeout_args[0] = MP_OBJ_NULL;
     self->samples_decoded = 0;
+    audioif_pump_lock_release();
 }
 
+// audiomp3 is the one module in the palette that cannot be made pump-safe,
+// and should not be. It reads its stream from inside get_buffer, raises
+// OSError there (mp3file_update_inbuf_always), and calls a Python method on
+// the stream object to set its timeout (stream_set_blocking -> mp_call_method
+// _n_kw). Re-entering the interpreter from the pump thread is not a thing that
+// can be guarded; it is a thing that must not be reached. An MP3 source
+// belongs behind a buffer the interpreter fills.
 void audiomp3_mp3file_reset_buffer(audiomp3_mp3file_obj_t *self,
     bool single_channel_output,
     uint8_t channel) {
+    if (audioif_pump_on_pump_thread()) {
+        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_UNPUMPABLE);
+        return;
+    }
     if (single_channel_output && channel == 1) {
         return;
     }
@@ -475,6 +501,12 @@ audioio_get_buffer_result_t audiomp3_mp3file_get_buffer(audiomp3_mp3file_obj_t *
     uint8_t channel,
     uint8_t **bufptr,
     uint32_t *buffer_length) {
+    if (audioif_pump_on_pump_thread()) {
+        audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_UNPUMPABLE);
+        *bufptr = NULL;
+        *buffer_length = 0;
+        return GET_BUFFER_ERROR;
+    }
     if (!self->inbuf.buf) {
         *buffer_length = 0;
         if (DO_DEBUG) {
@@ -604,7 +636,19 @@ static mp_obj_t audiomp3_mp3file_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomp3_mp3file_deinit_obj, audiomp3_mp3file_deinit);
 
 static void check_for_deinit(audiomp3_mp3file_obj_t *self) {
-    audiosample_check_for_deinit(&self->base);
+    // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
+    // contract is that nothing which can longjmp runs while it is held
+    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // release, so the mutex is left owned by a thread that has gone back to
+    // the interpreter, and the pump blocks on it for ever. This is the guard
+    // on every Python-facing method of this class, so it is the most reached
+    // statement in the file.
+    audioif_pump_lock_acquire();
+    const bool released = audiosample_deinited(&self->base);
+    audioif_pump_lock_release();
+    if (released) {
+        audiosample_check_for_deinit(&self->base);
+    }
 }
 
 static mp_obj_t audiomp3_mp3file_obj_get_file(mp_obj_t self_in) {

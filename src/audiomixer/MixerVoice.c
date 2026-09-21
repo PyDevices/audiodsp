@@ -21,6 +21,7 @@
 #include "cp_compat/objproperty.h"
 
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 static mp_obj_t audiomixer_mixervoice_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     mp_arg_check_num(n_args, n_kw, 0, 0, false);
@@ -69,10 +70,26 @@ void common_hal_audiomixer_mixervoice_play(audiomixer_mixervoice_obj_t *self, mp
     audiosample_must_match(&self->parent->base, sample_in, true);
     // cast is safe, checked by must_match
     audiosample_base_t *sample = MP_OBJ_TO_PTR(sample_in);
+
+    // ONE act, priming pull and all. Publishing `sample` ahead of
+    // `remaining_buffer`/`buffer_length` leaves mix_down_one_voice reading the
+    // OLD sample's buffer pointer with the NEW sample installed, and that is a
+    // segfault at Mixer.c's `uint32_t word = src[i]` -- caught by the storm
+    // after the funnel lock had already fixed the coarser version of it.
+    //
+    // The pull inside reset() re-takes the same lock, which the recursive
+    // mutex allows, and the raise below is outside it.
+    audioif_pump_lock_acquire();
     self->sample = sample;
     self->loop = loop;
-
     common_hal_audiomixer_mixervoice_reset(self);
+    const bool refuse = loop && self->buffer_length == 0 && !self->more_data;
+    if (refuse) {
+        // A refused play() leaves the voice stopped, not half-started.
+        self->sample = NULL;
+        self->loop = false;
+    }
+    audioif_pump_lock_release();
 
     // A LOOPING SOURCE THAT CANNOT FILL ONE PACKED WORD NEVER ENDS. A voice's
     // buffer is tracked in WORDS -- `buffer_length /= sizeof(uint32_t)` just
@@ -102,10 +119,7 @@ void common_hal_audiomixer_mixervoice_play(audiomixer_mixervoice_obj_t *self, mp
     // is no honest way to tell that case from this one at that moment. The
     // mix-down backstop in Mixer.c covers it -- the voice stops rather than
     // spinning -- which is what the CPython twin has done since audioif#24.
-    if (loop && self->buffer_length == 0 && !self->more_data) {
-        // A refused play() leaves the voice stopped, not half-started.
-        self->sample = NULL;
-        self->loop = false;
+    if (refuse) {
         mp_raise_ValueError(MP_ERROR_TEXT("A looped sample must fill at least one 32-bit word"));
     }
 }
@@ -125,11 +139,16 @@ void common_hal_audiomixer_mixervoice_reset(audiomixer_mixervoice_obj_t *self) {
     if (self->sample == NULL) {
         return;
     }
+    // Three of the voice's five words, written here. play() already holds the
+    // lock when it calls this; a standalone reset() needs its own, and the
+    // recursive mutex means neither has to know which case it is.
+    audioif_pump_lock_acquire();
     audiosample_reset_buffer(self->sample, false, 0);
     audioio_get_buffer_result_t result = audiosample_get_buffer(self->sample, false, 0, (uint8_t **)&self->remaining_buffer, &self->buffer_length);
     // Track length in terms of words.
     self->buffer_length /= sizeof(uint32_t);
     self->more_data = result == GET_BUFFER_MORE_DATA;
+    audioif_pump_lock_release();
 }
 
 void common_hal_audiomixer_mixervoice_end(audiomixer_mixervoice_obj_t *self) {

@@ -39,6 +39,7 @@
 #include "py/mperrno.h"
 #include "py/runtime.h"
 #include "py/stream.h"
+#include "shared/audioif_pump_lock.h"
 
 #define MP_PI MICROPY_FLOAT_CONST(3.14159265358979323846)
 
@@ -69,10 +70,21 @@ mp_float_t common_hal_synthio_voct_to_hz_float(mp_float_t octave) {
     return notes[0] * MICROPY_FLOAT_C_FUN(pow)(2., octave - 7);
 }
 
+// Five fields -- attack_step, decay_step, release_step, attack_level,
+// sustain_level -- that synthio_envelope_step reads together every block for
+// every sounding channel. Half old and half new is an envelope that is not
+// any envelope. The float reads and the type check happen first, outside the
+// lock, because both can raise; then the five writes are one act.
+//
+// Reached from three places (the Synthesizer's envelope setter, Note's, and
+// synthio_note_start on the PULL path) -- which is why the mutex is
+// recursive: the pump is already holding it when the third one calls.
 void synthio_envelope_definition_set(synthio_envelope_definition_t *envelope, mp_obj_t obj, uint32_t sample_rate) {
     if (obj == mp_const_none) {
+        audioif_pump_lock_acquire();
         audioif_envelope_definition_init(envelope, sample_rate, false,
             0, 0, 0, 1, 1);
+        audioif_pump_lock_release();
         return;
     }
     mp_arg_validate_type(obj, (mp_obj_type_t *)&synthio_envelope_type_obj, MP_QSTR_envelope);
@@ -81,10 +93,15 @@ void synthio_envelope_definition_set(synthio_envelope_definition_t *envelope, mp
     mp_obj_t *fields;
     mp_obj_tuple_get(obj, &len, &fields);
 
+    const mp_float_t a = mp_obj_get_float(fields[0]);
+    const mp_float_t d = mp_obj_get_float(fields[1]);
+    const mp_float_t r = mp_obj_get_float(fields[2]);
+    const mp_float_t al = mp_obj_get_float(fields[3]);
+    const mp_float_t sl = mp_obj_get_float(fields[4]);
+    audioif_pump_lock_acquire();
     audioif_envelope_definition_init(envelope, sample_rate, true,
-        mp_obj_get_float(fields[0]), mp_obj_get_float(fields[1]),
-        mp_obj_get_float(fields[2]), mp_obj_get_float(fields[3]),
-        mp_obj_get_float(fields[4]));
+        a, d, r, al, sl);
+    audioif_pump_lock_release();
 }
 
 static void synthio_envelope_state_step(synthio_envelope_state_t *state, synthio_envelope_definition_t *def, size_t n_steps) {
@@ -307,13 +324,21 @@ void synthio_synth_reset_buffer(synthio_synth_t *synth, bool single_channel_outp
 }
 
 void synthio_synth_deinit(synthio_synth_t *synth) {
+    // synthio_synthesizer_get_buffer checks deinited FIRST, so without this
+    // the two NULLs land after the check has let a pull through, and
+    // synthio_synth_synthesize returns buffers[buffer_index] -- NULL -- and
+    // writes into it. Shared with MidiTrack, which is the other caller.
+    audioif_pump_lock_acquire();
     synth->buffers[0] = NULL;
     synth->buffers[1] = NULL;
     audiosample_mark_deinit(&synth->base);
+    audioif_pump_lock_release();
 }
 
 void synthio_synth_envelope_set(synthio_synth_t *synth, mp_obj_t envelope_obj) {
     synthio_envelope_definition_set(&synth->global_envelope_definition, envelope_obj, synth->base.sample_rate);
+    // One word, and the definition it names is already published, so the pull
+    // can only see the pair agree or the old pair.
     synth->envelope_obj = envelope_obj;
 }
 
@@ -381,6 +406,18 @@ static int find_channel_with_note(synthio_synth_t *synth, mp_obj_t note) {
 }
 
 bool synthio_span_change_note(synthio_synth_t *synth, mp_obj_t old_note, mp_obj_t new_note) {
+    // The whole body, because it is the choke point under press(),
+    // release(), change(), release_all() and release_all_then_press(),
+    // and it writes envelope_state[chan].{level,substep,state}, accum[chan]
+    // and span.note_obj[chan] -- which synthio_synth_synthesize reads
+    // together on every block. Pure C over the span arrays: it allocates
+    // nothing and raises nothing, so it is the final swap by itself.
+    //
+    // One note is atomic. A press of an ITERABLE of notes is one call per
+    // note, so a block can land between two notes of a chord -- a
+    // millisecond of arpeggio, not a fault. The timestamped event queue is
+    // what makes a chord one act.
+    audioif_pump_lock_acquire();
     int channel;
     if (new_note != SYNTHIO_SILENCE && (channel = find_channel_with_note(synth, new_note)) != -1) {
         // Re-pressing a note that still holds its slot. Upstream sets ATTACK
@@ -409,6 +446,7 @@ bool synthio_span_change_note(synthio_synth_t *synth, mp_obj_t old_note, mp_obj_
         } else {
             synth->envelope_state[channel].state = SYNTHIO_ENVELOPE_STATE_ATTACK;
         }
+        audioif_pump_lock_release();
         return true;
     }
     channel = find_channel_with_note(synth, old_note);
@@ -420,8 +458,10 @@ bool synthio_span_change_note(synthio_synth_t *synth, mp_obj_t old_note, mp_obj_
             synthio_envelope_state_init(&synth->envelope_state[channel], synthio_synth_get_note_envelope(synth, new_note));
             synth->accum[channel] = 0;
         }
+        audioif_pump_lock_release();
         return true;
     }
+    audioif_pump_lock_release();
     return false;
 }
 

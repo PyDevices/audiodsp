@@ -91,20 +91,25 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
     def test_the_tables_are_found_at_all(self):
         """A control, because the failure mode of this file is a regex that
         matches nothing and then agrees with itself. Both sides must yield the
-        fifteen types.
+        sixteen types.
 
         The count is deliberately a literal rather than a comparison of the two
         sides against each other: a node added to one binding and not the other
         would make both sides agree on thirteen and this test is what says how
         many there are meant to be. It went from fourteen to fifteen when
-        `audioshaper.SampleHold` landed (audioif#97)."""
+        `audioshaper.SampleHold` landed (audioif#97), and to sixteen with
+        `audioroute.Port` -- which is the first node the live-audio-path
+        spike added, and the first one whose two bindings differ on
+        purpose: the MicroPython copy takes the pump lock around `play()`
+        and `deinit()` and the CircuitPython copy has no lock to take.
+        The surface is the same, which is all this file compares."""
         micropython = {}
         circuitpython = {}
         for module in MODULES:
             micropython.update(micropython_surfaces(module))
             circuitpython.update(circuitpython_surfaces(module))
-        self.assertEqual(len(micropython), 15, sorted(micropython))
-        self.assertEqual(len(circuitpython), 15, sorted(circuitpython))
+        self.assertEqual(len(micropython), 16, sorted(micropython))
+        self.assertEqual(len(circuitpython), 16, sorted(circuitpython))
 
     def test_every_type_exists_on_both_sides(self):
         for module in MODULES:
@@ -227,14 +232,21 @@ class EveryModuleSaysWhichAudioifItIs(unittest.TestCase):
             self.skipTest("not a git checkout, so no revision is knowable")
         if not described:
             self.skipTest("git described nothing")
-        # Built in place, or installed from a wheel elsewhere?
+        # Built in place, or installed from a wheel elsewhere? "Elsewhere" is
+        # not the same as "outside the checkout": `.gitignore` blesses a venv
+        # per worktree (`.venv-*/`) and clean-build.yml makes a `.ci-venv` in
+        # the checkout, so an INSTALLED wheel routinely lands under ROOT and
+        # `is_relative_to(ROOT)` alone called it an in-place build. An
+        # extension inside site-packages is installed however deep in the tree
+        # that site-packages happens to sit.
+        built = pathlib.Path(_audioif.__file__).resolve()
+        installed = any(part in ("site-packages", "dist-packages")
+                        for part in built.parts)
         try:
-            in_tree = pathlib.Path(_audioif.__file__).resolve().is_relative_to(
-                ROOT.resolve())
+            in_tree = built.is_relative_to(ROOT.resolve())
         except AttributeError:                      # Python < 3.9
-            in_tree = str(ROOT.resolve()) in str(
-                pathlib.Path(_audioif.__file__).resolve())
-        if not in_tree:
+            in_tree = str(ROOT.resolve()) in str(built)
+        if not in_tree or installed:
             self.skipTest("_audioif was installed, not built from this tree; "
                           "`unknown` is correct for a wheel")
         # NOT an equality check against `described`. The revision is compiled in,

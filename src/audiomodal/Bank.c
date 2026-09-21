@@ -7,6 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 // The options `Bank(...)` and `set(...)` accept, paired with the shared DSP's
 // enum. `modes`, `sample_rate` and `channel_count` are deliberately absent:
@@ -111,9 +112,11 @@ static mp_obj_t audiomodal_bank_make_new(const mp_obj_type_t *type,
 static mp_obj_t audiomodal_bank_play(mp_obj_t self_in, mp_obj_t sample) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiomodal_bank_play_obj,
@@ -188,7 +191,9 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiomodal_bank_set_modes_obj,
 
 static mp_obj_t audiomodal_bank_clear(mp_obj_t self_in) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audioif_modal_reset(&self->state);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_clear_obj,
@@ -291,10 +296,12 @@ static void audiomodal_bank_reset_buffer(mp_obj_t self_in,
 // nothing dangles.
 static mp_obj_t audiomodal_bank_deinit(mp_obj_t self_in) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_deinit_obj,

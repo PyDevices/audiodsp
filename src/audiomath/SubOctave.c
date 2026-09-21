@@ -7,6 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 //: Keyword -> the DSP's option slot, in the order
 //: shared/audioif_suboctave.h declares them.
@@ -99,9 +100,11 @@ static mp_obj_t audiomath_suboctave_play(mp_obj_t self_in, mp_obj_t sample) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source channel_count does not match SubOctave"));
     }
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiomath_suboctave_play_obj,
@@ -134,7 +137,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audiomath_suboctave_set_obj, 1,
 
 static mp_obj_t audiomath_suboctave_clear(mp_obj_t self_in) {
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audioif_suboctave_reset(&self->state);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomath_suboctave_clear_obj,
@@ -213,10 +218,12 @@ static void audiomath_suboctave_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audiomath_suboctave_deinit(mp_obj_t self_in) {
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomath_suboctave_deinit_obj, audiomath_suboctave_deinit);

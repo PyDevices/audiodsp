@@ -3408,3 +3408,176 @@ The two halves were planted separately. With the caller's remainder removed but
 the kernel cap left in, R12 reports `frame 8192 is source frame 0` — the tail is
 dropped instead of the head and the block repeats. With both removed it reports
 `frame 0 is source frame 1408`, which is the defect as it was found.
+
+## `audioroute.Port`: a wire whose identity never changes (live-audio-path)
+
+CircuitPython has no `audioroute` at all, so this is a new node rather than a
+deviation — the same standing as `Splitter` and `MidSide` above. What is
+recorded here is the constraint set that picked the design, because there was
+only one answer to it and the next person to want a pass-through node should
+not have to rediscover why.
+
+`Port(source)` hands back its source's own pointer, length and result from
+`get_buffer`, forwards one step in `reset_buffer`, and re-points in
+`play(source)`. It has no `stop()`: a port always has a source, and nothing
+has yet needed a muted component. If something does, that is a design
+decision rather than an omission to fill in quietly.
+
+**It must be pullable from a thread with no interpreter on it.** A raise there
+dies inside `gc_alloc` building the exception object, one frame before the
+longjmp, so a Python pass-through — which would re-enter the interpreter on
+every block — is out. Hence C.
+
+**The re-point must be atomic against a pull.** A rewire is not one pointer
+write; the spike found that with a file and a line (`AllPass.stop()` writes
+`{source, pending, pending_frames}` as three words, and a pull reading two of
+them hands the DSP a length as a pointer — same statement, same faulting
+value `0x400`, on x86-64 and RISC-V alike). `play()` is therefore the pump
+lock's contract verbatim: the protocol lookup, the deinit check and the format
+match happen first, on the calling thread where raising is free; then the
+lock, three stores, unlock. A pull in flight sees the whole old source or the
+whole new one.
+
+**It must not move a byte.** A port that copied would cost a kilobyte of
+memmove per block on every class in the palette and would need a buffer sized
+for the biggest source anyone ever pointed it at.
+
+It lives in `audioroute` because that is what the module is: `MidSide` decides
+which signal reaches which channel, `Splitter` which branch reaches which
+chain, a `Port` which signal reaches which **consumer**. It is deliberately
+not in `audiocore`, which is CircuitPython's: a node added to our copy would
+not exist on a stock board, and a class written against it would quietly be a
+different class there. Same rule that kept `SampleHold` out of `audiospeed`.
+
+**CircuitPython gets it too.** `apply_cp_patches.sh` adds the node's two
+CircuitPython halves the way it adds every other module of ours, and eleven
+classes across the families render the same digests on both builds, to the
+byte. What a CircuitPython build does **not** get is the lock underneath it
+(next section), so the three stores there are three stores with nothing
+excluded — which is correct, because a stock CircuitPython board has no second
+thread pulling the graph.
+
+One consequence worth stating, because it reaches a user rather than an
+implementer: on an interpreter with no `audioroute` at all — a stock
+CircuitPython board — a component's output is the node at the end of its
+graph, exactly as it was before this existed, and it changes identity when the
+component re-points it. The class does not *need* `audioroute`; it degrades.
+
+## The pull is a critical section, and the funnel stopped raising (live-audio-path)
+
+What a CircuitPython user would notice: **nothing**. That is the whole claim
+of this section, and the rest of it is why.
+
+Upstream's `audiosample_get_buffer` and `audiosample_reset_buffer` raise on
+two conditions — the object does not implement the audiosample protocol, and
+the object has been deinitialized. Here both return `GET_BUFFER_ERROR` and
+leave a code in a fault register the pull loop publishes. Every node in the
+palette already turns a `GET_BUFFER_ERROR` into silence, so a torn graph is a
+quiet block rather than a core dump.
+
+The promise is kept where it was made: **`audiocore.get_buffer()` and
+`audiocore.reset_buffer()` in `src/audiocore/module.c` still raise**. The two
+checks the funnel used to do happen there instead, in `audiocore_check()`,
+because those two are the script-facing calls and a script has a thread to
+raise on. CircuitPython code that catches a released sample still catches it,
+with the same exception, on the same call.
+
+"Cannot fire on a stable graph" is a property, not a guarantee, and a torn
+graph fired both. The crash that found it came from `MixerVoice.play()`
+pulling its new source while the pump pulled the same node — which locking the
+setters could never have caught, because **a pull is a critical section, not
+just a swap**. That is the finding the lock is built around:
+
+- `src/shared/audioif_pump_lock.{c,h}` is one recursive,
+  priority-inheriting mutex. The pump holds it for one block pull; a control
+  path holds it around its final swap only, never across an allocation and
+  never across anything that can raise. Validate, allocate and compute first;
+  then lock, store, unlock.
+- Recursive on purpose: a node's pull legitimately re-enters helpers that
+  lock, and a control entry legitimately calls another locked helper.
+- Priority-inheriting where the OS has it, because the pump runs above the
+  interpreter on a board and an interpreter holding a swap has to be lifted to
+  finish it.
+
+**CircuitPython does not compile any of it.** `copy_manifest.txt` names
+neither `audioif_pump_lock.c` nor `audioif_port.c`, so neither is copied,
+compiled or referenced in a CircuitPython tree — its funnel is its own, and
+its playback layer pulls from its own audio thread with no second owner to
+exclude. The CPython wheel takes both files on default hooks, where they cost
+a load and a branch; `nm -u` on `pydevices_audioif-0.4.0-cp312` finds no
+pthread symbol at all, where the old lock had a real recursive mutex.
+
+The fault register is published **only from the pump's own thread**, and that
+distinction is not fastidiousness. A control thread pulls released nodes
+legitimately — a rack's `deinit()` stops each child in turn, and a `stop()`
+resets its source's buffer — and publishing from there killed the audio on the
+first patch change of a live GUI on the ESP32-P4, `err=5 fault=deinited`, with
+nothing whatever wrong with the graph the pump was playing.
+
+Measured on x86-64: a swap holds the audio for **1 us median and 1.1 ms
+worst** against a 5333 us block, and the pull costs 1.06x its idle cost under
+a storm of macro moves. 180 storms over 45 classes — 4.4 M control moves
+against 16.7 M blocks — gave no crash and no bad digest; five runs out of five
+crash with the lock compiled out.
+
+## `Synthesizer` walks its free-running blocks as a list, not as an iterable
+
+Upstream's `synthio_synthesizer_get_buffer` iterates `self->blocks` with
+`mp_getiter`/`mp_iternext` to tick the free-running LFOs and `Math` blocks.
+Here the same traversal is `mp_obj_list_get` and a `for` loop.
+
+The reason is the one this whole area is about: `mp_iternext` re-enters the
+interpreter. It calls `mp_cstack_check()`, which reads the calling thread's
+registered stack limits — and a C pull thread has none, so it reads garbage
+and segfaults before anything else can go wrong:
+
+```
+mp_cstack_usage            py/cstack.c:46    <-- SIGSEGV
+mp_iternext                py/runtime.c:1392
+synthio_synthesizer_get_buffer
+```
+
+Found by a storm on `Tremolo`, whose LFO is a `Synthesizer` behind a
+`Multiply`.
+
+`blocks` is created as a list in `make_new` and exposed read-only, so it is
+always a list and the walk is the same traversal with no runtime in it. The
+type check in front of it is the honest guard rather than an assumption:
+anything that is not a list is **skipped** rather than iterated, because a
+custom iterable's `__next__` is Python code and Python code cannot run on that
+thread at all. A user who replaced `blocks` with their own iterable would
+therefore see those blocks stop ticking — which cannot happen through the
+public surface, and is written down here rather than assumed away.
+
+## `audiopump`: a module CircuitPython does not get, and why
+
+`audiopump` is not a port of anything. CircuitPython has no equivalent and
+does not need one: its playback layer already pulls the graph natively, from
+its own audio thread, so a second pull loop would be a second owner of the
+same nodes. The module is therefore **absent from a CircuitPython build** —
+`copy_manifest.txt` names none of `src/audiopump/` — and absent from the
+**CPython wheel**, which excludes it rather than stubbing it, because it is a
+MicroPython C module through and through (`MP_REGISTER_MODULE`, `mp_obj_t`, a
+VM root pointer array) and a desktop Python program has threads of its own.
+
+What both of those do take is the lock and the hook table, on the default
+hooks described above.
+
+The deviation worth recording is what the module implies about the rest of
+this repository, because it reaches files that have nothing to do with the
+pump:
+
+- **A pull may not raise.** The two funnel sites are the previous section.
+  `WaveFile` and `MP3Decoder` refuse the pump thread rather than reading a
+  file from it, and `Synthesizer` stopped re-entering the interpreter. Those
+  are behaviours a CircuitPython user cannot reach, because on CircuitPython
+  there is no thread to be on.
+- **No platform header, ever.** `tools/check_portable.py` fails the build on
+  `freertos/`, `esp_*`, `driver/`, `pthread.h`, `windows.h`, `unistd.h`,
+  `sys/time.h` and the calls those headers bring, with comments and string
+  literals stripped first so a file may explain the rule without breaking it.
+  It is armed rather than quiet: three hits with a `<pthread.h>` and a
+  `clock_gettime()` planted in the lock, clean across 280 files otherwise. It
+  found one pre-existing offender, `src/audiomp3/MP3Decoder.c`, which had
+  carried `#include <unistd.h>` all along for `SEEK_SET` — that is ISO C and
+  is `<stdio.h>` now.

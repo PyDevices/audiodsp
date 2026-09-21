@@ -7,6 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 // The options `FeedbackDelay(...)` and `set(...)` accept, paired with the
 // shared DSP's enum. `sample_rate` and `max_delay_ms` are deliberately
@@ -158,9 +159,11 @@ static mp_obj_t audioecho_feedback_delay_play(mp_obj_t self_in,
     mp_obj_t sample) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioecho_feedback_delay_play_obj,
@@ -178,7 +181,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioecho_feedback_delay_set_obj, 1,
 
 static mp_obj_t audioecho_feedback_delay_clear(mp_obj_t self_in) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audioif_feedback_delay_reset(&self->state, &self->config);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioecho_feedback_delay_clear_obj,
@@ -269,11 +274,13 @@ static void audioecho_feedback_delay_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioecho_feedback_delay_deinit(mp_obj_t self_in) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->wow_shape = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioecho_feedback_delay_deinit_obj, audioecho_feedback_delay_deinit);

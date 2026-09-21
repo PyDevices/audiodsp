@@ -44,6 +44,8 @@ SRC_USERMOD_C += \
 # --- runtime-neutral sample protocol/state shared with the CPython wheel
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/shared/audioif_sample.c \
+    $(MPAUDIO_SRC_DIR)/shared/audioif_port.c \
+    $(MPAUDIO_SRC_DIR)/shared/audioif_pump_lock.c \
     $(MPAUDIO_SRC_DIR)/shared/audioif_rawsample.c \
     $(MPAUDIO_SRC_DIR)/shared/audioif_synth_dsp.c \
     $(MPAUDIO_SRC_DIR)/shared/audioif_envelope.c \
@@ -73,6 +75,20 @@ SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_fft.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_convolve.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_tank.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audioif_modal.c
+
+# --- the pump engine: the portable half of the live audio path --------------
+#
+# The pull loop, service(), the push ring, the event queue, the tap, the output
+# ring, the status words, the fault register, retarget/park and the finaliser
+# guard that makes the pump die with the VM. No thread, no mutex, no clock and
+# no sink in any of it -- those arrive through shared/audioif_port.h from a
+# driver that may or may not be linked. With none linked this is the
+# WebAssembly shape: one thread, audiopump.service() drives the loop.
+SRC_USERMOD_C += \
+    $(MPAUDIO_SRC_DIR)/audiopump/audiopump.c \
+    $(MPAUDIO_SRC_DIR)/audiopump/audiopump_ring.c \
+    $(MPAUDIO_SRC_DIR)/audiopump/audiopump_events.c \
+    $(MPAUDIO_SRC_DIR)/audiopump/audiopump_tap.c
 
 # --- ulab (numpy-alike): cloned sibling dependency, pinned to match this
 #     workspace's CircuitPython checkout (see docs/porting-plan.md). Its own
@@ -232,6 +248,7 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiodynamics/module.c
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audioroute/MidSide.c \
+    $(MPAUDIO_SRC_DIR)/audioroute/Port.c \
     $(MPAUDIO_SRC_DIR)/audioroute/Splitter.c \
     $(MPAUDIO_SRC_DIR)/audioroute/SplitterTap.c \
     $(MPAUDIO_SRC_DIR)/audioroute/module.c

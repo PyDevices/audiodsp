@@ -7,6 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 // The options `Tank(...)` and `set(...)` accept, paired with the shared DSP's
 // enum. `sample_rate`, `channel_count`, `max_predelay_ms`, `delays` and `taps`
@@ -186,9 +187,11 @@ static mp_obj_t audioverb_tank_make_new(const mp_obj_type_t *type,
 static mp_obj_t audioverb_tank_play(mp_obj_t self_in, mp_obj_t sample) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioverb_tank_play_obj, audioverb_tank_play);
@@ -208,7 +211,9 @@ static mp_obj_t audioverb_tank_set(size_t n_args, const mp_obj_t *args,
         }
     }
     tank_apply_kwargs(self, kw_args);
+    audioif_pump_lock_acquire();
     audioif_tank_config_finish(&self->config);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioverb_tank_set_obj, 1,
@@ -216,7 +221,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioverb_tank_set_obj, 1,
 
 static mp_obj_t audioverb_tank_clear(mp_obj_t self_in) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audioif_tank_reset(&self->state, &self->config);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_clear_obj,
@@ -299,10 +306,12 @@ static void audioverb_tank_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioverb_tank_deinit(mp_obj_t self_in) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_deinit_obj, audioverb_tank_deinit);

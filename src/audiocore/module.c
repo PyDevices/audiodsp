@@ -24,7 +24,16 @@
 #include "py/obj.h"
 #include "py/runtime.h"
 
+// The funnel below these two stopped raising: a pull may not, because the
+// raise dies inside gc_alloc on a thread with no interpreter to allocate
+// from. So the two checks it used to do happen HERE instead, where raising is
+// free, and these two keep the exceptions they have always promised.
+static void audiocore_check(mp_obj_t sample_in) {
+    audiosample_check_for_deinit(audiosample_check(sample_in));
+}
+
 static mp_obj_t audiocore_get_buffer(mp_obj_t sample_in) {
+    audiocore_check(sample_in);
     uint8_t *buffer = NULL;
     uint32_t buffer_length = 0;
     audioio_get_buffer_result_t gbr = audiosample_get_buffer(sample_in, false, 0, &buffer, &buffer_length);
@@ -67,6 +76,7 @@ static mp_obj_t audiocore_get_structure(mp_obj_t sample_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiocore_get_structure_obj, audiocore_get_structure);
 
 static mp_obj_t audiocore_reset_buffer(mp_obj_t sample_in) {
+    audiocore_check(sample_in);
     audiosample_reset_buffer(sample_in, false, 0);
     return mp_const_none;
 }

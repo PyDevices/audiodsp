@@ -24,6 +24,12 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/cp_compat/objproperty.c
     ${MPAUDIO_SRC_DIR}/cp_compat/namedtuple.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_sample.c
+    ${MPAUDIO_SRC_DIR}/shared/audioif_port.c
+    ${MPAUDIO_SRC_DIR}/shared/audioif_pump_lock.c
+    ${MPAUDIO_SRC_DIR}/audiopump/audiopump.c
+    ${MPAUDIO_SRC_DIR}/audiopump/audiopump_ring.c
+    ${MPAUDIO_SRC_DIR}/audiopump/audiopump_events.c
+    ${MPAUDIO_SRC_DIR}/audiopump/audiopump_tap.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_rawsample.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_synth_dsp.c
     ${MPAUDIO_SRC_DIR}/shared/audioif_envelope.c
@@ -88,6 +94,7 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/audiodynamics/Dynamics.c
     ${MPAUDIO_SRC_DIR}/audiodynamics/module.c
     ${MPAUDIO_SRC_DIR}/audioroute/MidSide.c
+    ${MPAUDIO_SRC_DIR}/audioroute/Port.c
     ${MPAUDIO_SRC_DIR}/audioroute/Splitter.c
     ${MPAUDIO_SRC_DIR}/audioroute/SplitterTap.c
     ${MPAUDIO_SRC_DIR}/audioroute/module.c
@@ -113,6 +120,16 @@ target_sources(usermod_mpaudio INTERFACE
 )
 
 target_include_directories(usermod_mpaudio INTERFACE ${MPAUDIO_SRC_DIR})
+
+# --- which pump lock ------------------------------------------------------
+#
+# Nothing to say any more, and that is the change. This used to define
+# AUDIOIF_PUMP_LOCK_FREERTOS here because the macro that would look obvious --
+# ESP_PLATFORM -- is NOT defined for a user C module, and the POSIX branch
+# compiled and LINKED on esp32 anyway (IDF's newlib has pthread.h). The spike
+# lost a whole firmware to exactly that. There is no branch to choose now: the
+# lock takes whatever mutex the bound driver hands it, and which driver bound
+# is a run-time answer -- audiopump.driver().
 
 # --- tier 5: audiomp3 (MP3Decoder) ---
 #

@@ -23,3 +23,21 @@ jobs:
       # ported from. Nothing caught 45 of them until a manual sweep.
       - name: Ported sources name their upstream authors
         run: python3 scripts/check_attribution.py
+
+      # The rule you cannot see: nothing in src/ may know what a thread, a
+      # mutex, a clock or an I2S channel is. Those arrive through
+      # shared/audioif_port.h from a driver in another repository. A single
+      # #include <pthread.h> compiles happily on the box you are working on
+      # and only bites the next port, so it is checked rather than
+      # remembered.
+      #
+      # The self-test runs FIRST and plants every banned shape in a
+      # throwaway file: a checker built out of regexes is one bad pattern
+      # away from matching nothing and reporting "no platform code" for
+      # ever. It found exactly that on its first run -- a double-quoted
+      # `#include "esp_log.h"` was being blanked as a string literal before
+      # the checker ever saw it.
+      - name: The portability rule, and proof the checker can fail
+        run: |
+          python3 tools/check_portable.py --self-test
+          python3 tools/check_portable.py

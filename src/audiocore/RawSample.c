@@ -21,6 +21,7 @@
 
 #include "py/binary.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 // --- from shared-module/audiocore/RawSample.c ---------------------------
 
@@ -45,8 +46,14 @@ void common_hal_audioio_rawsample_construct(audioio_rawsample_obj_t *self,
 }
 
 void common_hal_audioio_rawsample_deinit(audioio_rawsample_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audioif_rawsample_deinit(&self->shared_state);
     audiosample_mark_deinit(&self->base);
+    audioif_pump_lock_release();
 }
 
 void audioio_rawsample_reset_buffer(audioio_rawsample_obj_t *self,

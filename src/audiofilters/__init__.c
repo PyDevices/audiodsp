@@ -16,6 +16,7 @@
 
 #include "py/objtuple.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 void audiofilters_assign_filter_chain(audiofilters_filter_chain_t *self, mp_obj_t filter_in, uint8_t channel_count) {
     size_t n_items;
@@ -48,13 +49,35 @@ void audiofilters_assign_filter_chain(audiofilters_filter_chain_t *self, mp_obj_
         items = &self->obj;
     }
 
-    self->obj = filter_in;
-    self->states = m_renew(biquad_filter_state,
+    // The allocation happens first and lands in a local, because m_renew can
+    // collect and the lock may not be held across a collection. Then one
+    // locked store publishes {states, objs, objs_len} together: the pull
+    // indexes states[j * channel_count + channel] with objs_len as its bound,
+    // so a pointer published ahead of its length is a read off the end of a
+    // shrunken array. Eight control-path entries reach this one function
+    // (Filter.filter, Echo.filter, Freeverb.pre_filter and .post_filter, and
+    // the four deinits below), so it is fixed once here rather than in each.
+    biquad_filter_state *states = m_renew(biquad_filter_state,
         self->states,
         self->objs_len * channel_count,
         n_items * channel_count);
+    if (items == &self->obj) {
+        // The single-filter case borrows the address of self->obj itself, so
+        // the pointer has to be taken after the store, not before.
+        audioif_pump_lock_acquire();
+        self->obj = filter_in;
+        self->states = states;
+        self->objs = &self->obj;
+        self->objs_len = n_items;
+        audioif_pump_lock_release();
+        return;
+    }
+    audioif_pump_lock_acquire();
+    self->obj = filter_in;
+    self->states = states;
     self->objs = items;
     self->objs_len = n_items;
+    audioif_pump_lock_release();
 }
 
 void audiofilters_reset_filter_chain(audiofilters_filter_chain_t *self, uint8_t channel_count) {
@@ -80,8 +103,13 @@ int32_t audiofilters_process_filter_chain(audiofilters_filter_chain_t *self, uin
 }
 
 void audiofilters_deinit_filter_chain(audiofilters_filter_chain_t *self) {
+    // objs_len first would leave the pull looping over a NULL objs; objs
+    // first would leave it looping the old count over NULL. Neither, under
+    // the lock.
+    audioif_pump_lock_acquire();
     self->obj = mp_const_none;
     self->objs = NULL;
     self->objs_len = 0;
     self->states = NULL;
+    audioif_pump_lock_release();
 }

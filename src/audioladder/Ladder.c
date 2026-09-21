@@ -7,6 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 // The options `Ladder(...)` and `set(...)` accept, paired with the shared
 // DSP's enum. `sample_rate` and `channel_count` are deliberately absent: they
@@ -105,9 +106,11 @@ static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
 static mp_obj_t audioladder_ladder_play(mp_obj_t self_in, mp_obj_t sample) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioladder_ladder_play_obj,
@@ -125,7 +128,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioladder_ladder_set_obj, 1,
 
 static mp_obj_t audioladder_ladder_clear(mp_obj_t self_in) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audioif_ladder_reset(&self->state);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioladder_ladder_clear_obj,
@@ -206,10 +211,12 @@ static void audioladder_ladder_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audioladder_ladder_deinit(mp_obj_t self_in) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioladder_ladder_deinit_obj, audioladder_ladder_deinit);

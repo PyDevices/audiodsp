@@ -8,6 +8,7 @@
 #include "cp_compat/objproperty.h"
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 static mp_obj_t audiobiquad_allpass_make_new(const mp_obj_type_t *type,
     size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
@@ -98,9 +99,11 @@ static void allpass_apply_blocks(audiobiquad_allpass_obj_t *self,
 static mp_obj_t audiobiquad_allpass_play(mp_obj_t self_in, mp_obj_t sample) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
     (void)audiosample_check(sample);
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiobiquad_allpass_play_obj,
@@ -108,9 +111,11 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiobiquad_allpass_play_obj,
 
 static mp_obj_t audiobiquad_allpass_stop(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_stop_obj,
@@ -118,7 +123,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_stop_obj,
 
 static mp_obj_t audiobiquad_allpass_clear(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audioif_allpass_f32_reset(&self->state);
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_clear_obj,
@@ -249,10 +256,12 @@ static void audiobiquad_allpass_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audiobiquad_allpass_deinit(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_deinit_obj, audiobiquad_allpass_deinit);

@@ -24,6 +24,7 @@
 
 #include "py/runtime.h"
 #include "shared/audioif_flanger.h"
+#include "shared/audioif_pump_lock.h"
 
 // --- shared-module (DSP engine) -------------------------------------------
 
@@ -98,10 +99,16 @@ bool common_hal_audiodelays_flanger_deinited(audiodelays_flanger_obj_t *self) {
 }
 
 void common_hal_audiodelays_flanger_deinit(audiodelays_flanger_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->delay_buffer = NULL;
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
+    audioif_pump_lock_release();
 }
 
 mp_obj_t common_hal_audiodelays_flanger_get_min_delay_ms(audiodelays_flanger_obj_t *self) {
@@ -177,14 +184,26 @@ bool common_hal_audiodelays_flanger_get_playing(audiodelays_flanger_obj_t *self)
 void common_hal_audiodelays_flanger_play(audiodelays_flanger_obj_t *self, mp_obj_t sample, bool loop) {
     audiosample_must_match(&self->base, sample, false);
 
+    // Prime the new source into locals FIRST, outside the lock. This pull can
+    // read a file through the VFS, and holding the pump's lock across a disk
+    // is the one thing the contract forbids -- the audio would stand still
+    // for it. Then one locked store publishes all five words together, which
+    // is what get_buffer reads, so a pull sees the whole new source or the
+    // whole old one and never three words of each.
+    uint8_t *primed = NULL;
+    uint32_t primed_length = 0;
+    audiosample_reset_buffer(sample, false, 0);
+    audioio_get_buffer_result_t result = audiosample_get_buffer(sample, false,
+        0, &primed, &primed_length);
+    primed_length /= (self->base.bits_per_sample / 8);
+
+    audioif_pump_lock_acquire();
     self->sample = sample;
     self->loop = loop;
-
-    audiosample_reset_buffer(self->sample, false, 0);
-    audioio_get_buffer_result_t result = audiosample_get_buffer(self->sample, false, 0, (uint8_t **)&self->sample_remaining_buffer, &self->sample_buffer_length);
-
-    self->sample_buffer_length /= (self->base.bits_per_sample / 8);
+    self->sample_remaining_buffer = (void *)primed;
+    self->sample_buffer_length = primed_length;
     self->more_data = result == GET_BUFFER_MORE_DATA;
+    audioif_pump_lock_release();
 }
 
 void common_hal_audiodelays_flanger_stop(audiodelays_flanger_obj_t *self) {
@@ -360,7 +379,19 @@ static mp_obj_t audiodelays_flanger_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiodelays_flanger_deinit_obj, audiodelays_flanger_deinit);
 
 static void check_for_deinit(audiodelays_flanger_obj_t *self) {
-    audiosample_check_for_deinit(&self->base);
+    // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
+    // contract is that nothing which can longjmp runs while it is held
+    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // release, so the mutex is left owned by a thread that has gone back to
+    // the interpreter, and the pump blocks on it for ever. This is the guard
+    // on every Python-facing method of this class, so it is the most reached
+    // statement in the file.
+    audioif_pump_lock_acquire();
+    const bool released = audiosample_deinited(&self->base);
+    audioif_pump_lock_release();
+    if (released) {
+        audiosample_check_for_deinit(&self->base);
+    }
 }
 
 static mp_obj_t audiodelays_flanger_obj___exit__(size_t n_args, const mp_obj_t *args) {

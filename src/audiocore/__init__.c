@@ -25,6 +25,7 @@
 #include "cp_compat/argcheck.h"
 #include "cp_compat/objproperty.h"
 #include "cp_compat/util.h"
+#include "shared/audioif_pump_lock.h"
 #include "shared/audioif_sample.h"
 
 #include "py/obj.h"
@@ -62,17 +63,34 @@ static const audioif_sample_ops_t micropython_sample_ops = {
     .get_buffer = micropython_sample_get,
 };
 
-static audioif_sample_source_t micropython_sample_source(mp_obj_t sample_obj,
-    micropython_sample_adapter_t *adapter) {
+// Non-raising. This is the half of the funnel that used to call
+// mp_proto_get_or_throw, and the reason it may not is that the raise dies one
+// frame EARLIER than the longjmp -- inside gc_alloc, building the exception
+// object, on a thread with no interpreter state to allocate from. The spike
+// has the stack (docs/spikes/live-audio-path-notes.md, "a raise on the pump
+// thread dies allocating the exception"). So it returns false and leaves a
+// code in the fault register; the pull stops and the next control call
+// reports it, and the Python-facing entry points below raise from the fault
+// exactly as they always did.
+static bool micropython_sample_source(mp_obj_t sample_obj,
+    micropython_sample_adapter_t *adapter, audioif_sample_source_t *source) {
+    const audiosample_p_t *protocol = mp_proto_get(
+        MP_QSTR_protocol_audiosample, sample_obj);
+    if (protocol == NULL) {
+        // Pump thread only: the fault register is what the pump stops on, and
+        // a control-path pull must not stop the audio. See the deinit guards
+        // below.
+        if (audioif_pump_on_pump_thread()) {
+            audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_NO_PROTOCOL);
+        }
+        return false;
+    }
     adapter->object = sample_obj;
-    adapter->protocol = mp_proto_get_or_throw(MP_QSTR_protocol_audiosample,
-        sample_obj);
-    audioif_sample_source_t source = {
-        .ops = &micropython_sample_ops,
-        .context = adapter,
-        .info = NULL,
-    };
-    return source;
+    adapter->protocol = protocol;
+    source->ops = &micropython_sample_ops;
+    source->context = adapter;
+    source->info = NULL;
+    return true;
 }
 
 // The deinitialised guard sits on these two functions and not only on each
@@ -89,11 +107,42 @@ static audioif_sample_source_t micropython_sample_source(mp_obj_t sample_obj,
 // implements the audiosample protocol, and every type that does begins with
 // an `audiosample_base_t` -- synthio's two through `synthio_synth_t` -- so
 // the cast below is sound and needs no second protocol lookup.
+//
+// Neither of these raises any more. Both used to, on every pull of every node
+// in the palette -- the protocol lookup and the deinit check were the two
+// funnel sites the exception audit found, and "cannot fire on a stable graph"
+// is a property, not a guarantee. A torn graph fired both. Now a failure here
+// is a fault code and a GET_BUFFER_ERROR, which every node in the palette
+// already handles by producing silence, so a bug in the handoff is a quiet
+// block instead of a core dump.
+//
+// The promise to Python is kept where it was made: `audiocore.get_buffer()`
+// and `audiocore.reset_buffer()` in module.c raise from the fault register.
 void audiosample_reset_buffer(mp_obj_t sample_obj, bool single_channel_output, uint8_t audio_channel) {
     micropython_sample_adapter_t adapter;
-    audioif_sample_source_t source = micropython_sample_source(sample_obj, &adapter);
-    audiosample_check_for_deinit(MP_OBJ_TO_PTR(sample_obj));
+    audioif_sample_source_t source;
+    if (!micropython_sample_source(sample_obj, &adapter, &source)) {
+        return;
+    }
+    if (audiosample_deinited(MP_OBJ_TO_PTR(sample_obj))) {
+        // ONLY from the pump's own thread. The fault register is the pump's
+        // "why did I stop", and the pump stops on it -- so a control-thread
+        // pull of a released node would take the audio down with it, and the
+        // control path does pull released nodes legitimately: a Rack's
+        // deinit() stops each child in turn, and a stop() resets its source's
+        // buffer. On the board that killed the audio on the first patch
+        // change in rack_gui, err=5 fault=deinited, with nothing at all wrong
+        // with the graph the pump was playing. The caller still gets its
+        // GET_BUFFER_ERROR here, and audiocore.get_buffer() still raises,
+        // because module.c does its own check.
+        if (audioif_pump_on_pump_thread()) {
+            audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_DEINITED);
+        }
+        return;
+    }
+    audioif_pump_lock_acquire_nested();
     (void)audioif_sample_reset(&source, single_channel_output, audio_channel);
+    audioif_pump_lock_release_nested();
 }
 
 audioio_get_buffer_result_t audiosample_get_buffer(mp_obj_t sample_obj,
@@ -101,12 +150,30 @@ audioio_get_buffer_result_t audiosample_get_buffer(mp_obj_t sample_obj,
     uint8_t channel,
     uint8_t **buffer, uint32_t *buffer_length) {
     micropython_sample_adapter_t adapter;
-    audioif_sample_source_t source = micropython_sample_source(sample_obj, &adapter);
-    audiosample_check_for_deinit(MP_OBJ_TO_PTR(sample_obj));
+    audioif_sample_source_t source;
+    *buffer = NULL;
+    *buffer_length = 0;
+    if (!micropython_sample_source(sample_obj, &adapter, &source)) {
+        return GET_BUFFER_ERROR;
+    }
+    if (audiosample_deinited(MP_OBJ_TO_PTR(sample_obj))) {
+        // This is audioif#59's case: a released Mixer whose voice buffers are
+        // freed, read by audiomixer_mixer_get_buffer. The guard still stops
+        // the read; what changes is that it now stops it without allocating.
+        // Published to the pump's fault register only from the pump's own
+        // thread -- see reset_buffer above for what a control-thread deinit
+        // did to the audio before that distinction existed.
+        if (audioif_pump_on_pump_thread()) {
+            audioif_pump_fault_set(AUDIOIF_PUMP_FAULT_DEINITED);
+        }
+        return GET_BUFFER_ERROR;
+    }
     const uint8_t *shared_buffer = NULL;
     audioif_buffer_result_t result = AUDIOIF_BUFFER_ERROR;
+    audioif_pump_lock_acquire_nested();
     audioif_status_t status = audioif_sample_get(&source, single_channel_output,
         channel, &shared_buffer, buffer_length, &result);
+    audioif_pump_lock_release_nested();
     if (status != AUDIOIF_STATUS_OK) {
         *buffer = NULL;
         *buffer_length = 0;
@@ -325,6 +392,10 @@ void audiosample_check_for_deinit(const audiosample_base_t *self) {
     }
 }
 
+// One aligned word, so it cannot tear and it takes no lock. The damage in a
+// deinit() is never this line -- it is the pointer nulling that follows it,
+// after the funnel's guard has already let a pull in. Each deinit() body
+// holds the lock over the lot.
 void audiosample_mark_deinit(audiosample_base_t *self) {
     self->channel_count = 0;
 }

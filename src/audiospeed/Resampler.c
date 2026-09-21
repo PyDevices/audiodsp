@@ -7,6 +7,7 @@
 #include "cp_compat/objproperty.h"
 #include "cp_compat/util.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 void audiospeed_resampler_set_sample_rate(audiospeed_resampler_obj_t *self,
     uint32_t sample_rate) {
@@ -52,9 +53,15 @@ static mp_obj_t audiospeed_resampler_make_new(const mp_obj_type_t *type,
 }
 
 static mp_obj_t audiospeed_resampler_deinit(mp_obj_t self_in) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiospeed_resampler_obj_t *self = MP_OBJ_TO_PTR(self_in);
     common_hal_audiospeed_speedchanger_deinit(&self->speed);
     self->destination_rate = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiospeed_resampler_deinit_obj,

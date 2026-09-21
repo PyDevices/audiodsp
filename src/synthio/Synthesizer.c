@@ -25,6 +25,8 @@
 #include "synthio/__init__.h"
 
 #include "py/runtime.h"
+#include "py/objlist.h"
+#include "shared/audioif_pump_lock.h"
 
 // --- from shared-module/synthio/Synthesizer.c -----------------------------
 
@@ -37,7 +39,13 @@ void common_hal_synthio_synthesizer_construct(synthio_synthesizer_obj_t *self,
 }
 
 void common_hal_synthio_synthesizer_deinit(synthio_synthesizer_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     synthio_synth_deinit(&self->synth);
+    audioif_pump_lock_release();
 }
 
 void synthio_synthesizer_reset_buffer(synthio_synthesizer_obj_t *self,
@@ -56,16 +64,35 @@ audioio_get_buffer_result_t synthio_synthesizer_get_buffer(synthio_synthesizer_o
 
     synthio_synth_synthesize(&self->synth, buffer, buffer_length, single_channel_output ? channel : 0);
 
-    // free-running LFOs
-    mp_obj_iter_buf_t iter_buf;
-    mp_obj_t iterable = mp_getiter(self->blocks, &iter_buf);
-    mp_obj_t item;
-    while ((item = mp_iternext(iterable)) != MP_OBJ_STOP_ITERATION) {
-        if (!synthio_obj_is_block(item)) {
-            continue;
+    // Free-running LFOs. Walked as a LIST, not with mp_getiter/mp_iternext.
+    //
+    // This is a pull, and mp_iternext re-enters the interpreter: it calls
+    // mp_cstack_check(), which reads this thread's registered stack limits --
+    // and a C pump thread has none, so it reads garbage and segfaults before
+    // anything else can go wrong. Found by the storm on Tremolo, whose LFO
+    // is a Synthesizer behind a Multiply:
+    //
+    //     mp_cstack_usage            py/cstack.c:46    <-- SIGSEGV
+    //     mp_iternext                py/runtime.c:1392
+    //     synthio_synthesizer_get_buffer
+    //
+    // `blocks` is created as a list here (make_new above) and exposed
+    // read-only, so it is always a list and the walk below is exactly the
+    // same traversal with no runtime in it. The type check is the honest
+    // guard rather than an assumption: anything else is skipped rather than
+    // iterated, because a custom iterable's __next__ is Python code and
+    // Python code cannot run on this thread at all.
+    if (mp_obj_is_type(self->blocks, &mp_type_list)) {
+        size_t len = 0;
+        mp_obj_t *items = NULL;
+        mp_obj_list_get(self->blocks, &len, &items);
+        for (size_t i = 0; i < len; i++) {
+            if (!synthio_obj_is_block(items[i])) {
+                continue;
+            }
+            synthio_block_slot_t slot = { items[i] };
+            (void)synthio_block_slot_get(&slot);
         }
-        synthio_block_slot_t slot = { item };
-        (void)synthio_block_slot_get(&slot);
     }
     return GET_BUFFER_MORE_DATA;
 }
@@ -202,7 +229,19 @@ static mp_obj_t synthio_synthesizer_make_new(const mp_obj_type_t *type, size_t n
 }
 
 static void check_for_deinit(synthio_synthesizer_obj_t *self) {
-    audiosample_check_for_deinit(&self->synth.base);
+    // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
+    // contract is that nothing which can longjmp runs while it is held
+    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // release, so the mutex is left owned by a thread that has gone back to
+    // the interpreter, and the pump blocks on it for ever. This is the guard
+    // on every Python-facing method of this class, so it is the most reached
+    // statement in the file.
+    audioif_pump_lock_acquire();
+    const bool released = audiosample_deinited(&self->synth.base);
+    audioif_pump_lock_release();
+    if (released) {
+        audiosample_check_for_deinit(&self->synth.base);
+    }
 }
 
 static mp_obj_t synthio_synthesizer_press(mp_obj_t self_in, mp_obj_t press) {

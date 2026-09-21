@@ -31,6 +31,7 @@
 
 #include "py/binary.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 static mp_obj_t audiomixer_mixer_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum { ARG_voice_count, ARG_buffer_size, ARG_channel_count, ARG_bits_per_sample, ARG_samples_signed, ARG_sample_rate };
@@ -96,9 +97,15 @@ void common_hal_audiomixer_mixer_construct(audiomixer_mixer_obj_t *self,
 }
 
 void common_hal_audiomixer_mixer_deinit(audiomixer_mixer_obj_t *self) {
+    // The whole body. mark_deinit is not the damage; the pointer
+    // nulling AFTER it is -- the funnel's guard has already let a
+    // pull in by then, and the pull writes into a buffer that has
+    // just become NULL. Detach under the lock, free afterwards.
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->first_buffer = NULL;
     self->second_buffer = NULL;
+    audioif_pump_lock_release();
 }
 
 static mp_obj_t audiomixer_mixer_deinit(mp_obj_t self_in) {
@@ -109,7 +116,19 @@ static mp_obj_t audiomixer_mixer_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_deinit_obj, audiomixer_mixer_deinit);
 
 static void check_for_deinit(audiomixer_mixer_obj_t *self) {
-    audiosample_check_for_deinit(&self->base);
+    // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
+    // contract is that nothing which can longjmp runs while it is held
+    // (shared/audioif_pump_lock.h): a raise from in here never reaches the
+    // release, so the mutex is left owned by a thread that has gone back to
+    // the interpreter, and the pump blocks on it for ever. This is the guard
+    // on every Python-facing method of this class, so it is the most reached
+    // statement in the file.
+    audioif_pump_lock_acquire();
+    const bool released = audiosample_deinited(&self->base);
+    audioif_pump_lock_release();
+    if (released) {
+        audiosample_check_for_deinit(&self->base);
+    }
 }
 
 bool common_hal_audiomixer_mixer_get_playing(audiomixer_mixer_obj_t *self) {

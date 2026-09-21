@@ -134,6 +134,41 @@ jobs:
           fi
           MICROPYPATH=audioif "$MP" "$PROBE"
 
+      # The pump. Everything above proves the DSP nodes; these prove the
+      # thing that pulls them, and they can only run here, because they
+      # need a MicroPython build and this is the job that makes one.
+      #
+      # No platform driver is needed. `audiopump` the engine ships with this
+      # repository on every port; the driver is a separate repo, and without
+      # one `threaded()` is False and the same loop runs on the
+      # interpreter's own thread -- which is what the `driver` case checks.
+      #
+      # Every fault is run FIRST and must fail. A probe whose failing mode
+      # is never exercised is not a gate, which is the same rule the deinit
+      # surface above is run under.
+      - name: The pump's gates, and proof each one can fail
+        run: |
+          MP=./micropython/ports/unix/build-standard/micropython
+          run () {                       # run <probe> <args...>
+            MICROPYPATH=audioif PUMP_PROBE_TMP="${RUNNER_TEMP:-/tmp}" \
+              "$MP" -X heapsize=256M "audioif/tests/pump/$@"
+          }
+          for planted in "pump_probe.py identity --fault short" \
+                         "pump_probe.py identity --fault reuse" \
+                         "pump_probe.py alloc --fault alloc" \
+                         "pump_probe.py storm --fault stall" \
+                         "route_probe.py ring --fault flip" \
+                         "route_probe.py events --fault drop" \
+                         "route_probe.py tap --fault short" \
+                         "route_probe.py port --fault latch"; do
+            if run $planted > /dev/null; then
+              echo "the planted fault passed: $planted" >&2
+              exit 1
+            fi
+          done
+          run pump_probe.py
+          run route_probe.py
+
   # Scenario S2: the *CMake* half of the standalone contract. Until this job
   # existed nothing in CI ran CMake at all - clean-build built through
   # micropython.mk only - so an edit to micropython.cmake, or to the README's

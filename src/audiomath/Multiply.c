@@ -7,6 +7,7 @@
 
 #include "cp_compat/context_manager_helpers.h"
 #include "py/runtime.h"
+#include "shared/audioif_pump_lock.h"
 
 static mp_obj_t audiomath_multiply_make_new(const mp_obj_type_t *type,
     size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
@@ -76,9 +77,11 @@ static mp_obj_t audiomath_multiply_play(mp_obj_t self_in, mp_obj_t sample) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "source channel_count does not match Multiply"));
     }
+    audioif_pump_lock_acquire();
     self->source = sample;
     self->pending_source = NULL;
     self->pending_source_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiomath_multiply_play_obj,
@@ -92,9 +95,11 @@ static mp_obj_t audiomath_multiply_modulate(mp_obj_t self_in,
         mp_raise_ValueError(MP_ERROR_TEXT(
             "modulator channel_count does not match Multiply"));
     }
+    audioif_pump_lock_acquire();
     self->modulator = sample;
     self->pending_modulator = NULL;
     self->pending_modulator_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiomath_multiply_modulate_obj,
@@ -224,6 +229,7 @@ static void audiomath_multiply_reset_buffer(mp_obj_t self_in,
 // into a source's buffer, so nothing dangles.
 static mp_obj_t audiomath_multiply_deinit(mp_obj_t self_in) {
     audiomath_multiply_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audioif_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->modulator = mp_const_none;
@@ -231,6 +237,7 @@ static mp_obj_t audiomath_multiply_deinit(mp_obj_t self_in) {
     self->pending_source_frames = 0;
     self->pending_modulator = NULL;
     self->pending_modulator_frames = 0;
+    audioif_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomath_multiply_deinit_obj, audiomath_multiply_deinit);
