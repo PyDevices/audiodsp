@@ -1,3 +1,38 @@
+## v0.5.0 (2026-09-21)
+
+- audioif is audiodsp: every identifier, header, build knob and package name (#119)
+- The audio pull runs off the interpreter thread, and a component's output stops changing identity (#107)
+- A mixer voice borrows its source's buffer; the twin copied it
+- The oracle is rebuilt with SampleHold in it, and re-pinned
+- Parenthesise the Flanger's int32 alternative so it reads as the shift it is
+- Prepare three CircuitPython PRs: the SpeedChanger rate and phase, and the Flanger overflow (audioif#94, audioif#76)
+- A setting derived in Python gets rounded the way a board would (audioif#80)
+- The soundtrack render gate points at mpvst again (audioif#88)
+- audioshaper: name the Waveshaper's own headroom ceiling, CLIP_HEADROOM (audioif#99)
+- Write down the hold: what it is, and why it is not a SpeedChanger rate
+- The hold's gates: three-way agreement, and traits that measure exactness
+- audioshaper.SampleHold: a hold that counts instead of drifting
+- CIRCUITPYTHON_ORACLE declares the 10.3.0 tag the tree has been at since 2026-09-09
+- The oracle moves to a path no build script writes, and is re-pinned at 977ef26 (#89)
+- A SpeedChanger carries its phase across a source buffer instead of restarting
+- A SpeedChanger's rate rounds to its Q16 step instead of falling short of it
+- The CircuitPython copy manifest carries audiomodal's shared kernel
+- A Splitter writes a block bigger than its ring in pieces, not over itself
+- A mixer voice will not loop a sample too short to fill one word
+- aarch64 reproduces the effects oracle now, so its allowance goes
+- No fused multiply-add anywhere in the shared kernel, not just in dynamics
+- The mixer twin scales a voice in float32, because the kernel does
+- Record audiomodal's measured cost on the P4
+- audiomodal: muting a mode must not stop it, and M12 says so
+- Record audiomodal in upstream-diff, README and the module lists
+- audiomodal: the CircuitPython half, the gates, and the limit cycle M7 found
+- audiomodal: a resonator bank, because a chain of biquads cannot be one
+- Add remix_s16 so a stereo push path can feed a mono wire (#81)
+- The float cell diverges on six probes, not three
+- Drop Python 3.10
+- verify_dsp: narrow the float cell to the divergences already filed
+- The revision test skips where a build cannot know its revision
+
 ## Unreleased
 
 - **This repository is `audiodsp` now.** It was named `audioif` until
