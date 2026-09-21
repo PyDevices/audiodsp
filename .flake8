@@ -16,8 +16,15 @@
 select = F,E9,W6
 
 # tests/vendor is third-party code kept as it was published.
+# .venv-* as well as .venv: .gitignore has blessed per-worktree venvs
+# (`.venv-*/`) since the CircuitPython half landed, and clean-build.yml makes
+# a `.ci-venv` in the checkout. Without the glob, `python -m flake8` in any
+# worktree that followed that convention lints site-packages and drowns in
+# third-party F401s.
 extend-exclude =
     .venv,
+    .venv-*,
+    .ci-venv,
     .deps,
     build,
     dist,

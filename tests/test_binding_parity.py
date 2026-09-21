@@ -232,14 +232,21 @@ class EveryModuleSaysWhichAudioifItIs(unittest.TestCase):
             self.skipTest("not a git checkout, so no revision is knowable")
         if not described:
             self.skipTest("git described nothing")
-        # Built in place, or installed from a wheel elsewhere?
+        # Built in place, or installed from a wheel elsewhere? "Elsewhere" is
+        # not the same as "outside the checkout": `.gitignore` blesses a venv
+        # per worktree (`.venv-*/`) and clean-build.yml makes a `.ci-venv` in
+        # the checkout, so an INSTALLED wheel routinely lands under ROOT and
+        # `is_relative_to(ROOT)` alone called it an in-place build. An
+        # extension inside site-packages is installed however deep in the tree
+        # that site-packages happens to sit.
+        built = pathlib.Path(_audioif.__file__).resolve()
+        installed = any(part in ("site-packages", "dist-packages")
+                        for part in built.parts)
         try:
-            in_tree = pathlib.Path(_audioif.__file__).resolve().is_relative_to(
-                ROOT.resolve())
+            in_tree = built.is_relative_to(ROOT.resolve())
         except AttributeError:                      # Python < 3.9
-            in_tree = str(ROOT.resolve()) in str(
-                pathlib.Path(_audioif.__file__).resolve())
-        if not in_tree:
+            in_tree = str(ROOT.resolve()) in str(built)
+        if not in_tree or installed:
             self.skipTest("_audioif was installed, not built from this tree; "
                           "`unknown` is correct for a wheel")
         # NOT an equality check against `described`. The revision is compiled in,
