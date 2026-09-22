@@ -397,11 +397,18 @@ first, on the calling thread where raising is free, then takes the pump lock
 for three stores, so a pull in flight sees the whole old source or the whole
 new one and nothing in between.
 
-It costs about **20 ns a block on x86-64**, measured as the slope of 0, 25, 50
-and 100 stacked ports over the same 2000-block probe; against a 256-frame
-block at 48 kHz that is four ten-thousandths of one per cent. On an ESP32-P4
-it has not been measured; the estimate from four classes timed on both
-machines (a 32–35x ratio) is about 700 ns.
+It costs about **20 ns a block on x86-64** and **1.27 µs a block on an
+ESP32-P4**, both measured as the slope of 0, 25, 50 and 100 stacked ports over
+the same 2000-block probe; against a 256-frame block at 48 kHz that is four
+ten-thousandths of one per cent on the desktop and about two hundredths of one
+per cent on the board.
+
+The board figure replaces an estimate of 700 ns that was extrapolated from
+four effect classes timed on both machines, and the estimate was low by 1.8x.
+The real ratio here is **64x**, not the 32–35x those classes gave: a port's
+work is a protocol lookup and three stores with almost no arithmetic, so it
+does not scale the way a DSP node does. That is an argument against
+extrapolating a per-class cost at all ([#113](https://github.com/PyDevices/audiodsp/issues/113)).
 
 `Port` has no `stop()`, deliberately — a port always has a source. A port
 pulled while it is already inside itself, which is what a component wrapping
