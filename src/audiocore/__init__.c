@@ -118,6 +118,52 @@ static bool micropython_sample_source(mp_obj_t sample_obj,
 //
 // The promise to Python is kept where it was made: `audiocore.get_buffer()`
 // and `audiocore.reset_buffer()` in module.c raise from the fault register.
+// --- the loop guard -------------------------------------------------------
+//
+// `audioroute.Port` has carried a re-entrancy flag since it was written, and
+// a ring entered AT the Port faults in 17 us. A ring entered anywhere else
+// did not: pulling the Mixer of a Mixer -> Port -> Mixer ring recursed until
+// the C stack ran out -- a core dump on a desktop, a board that never came
+// back. A Component that wraps its own output builds exactly that ring, and
+// the Python-side guard in audiocomponents cannot see native nodes.
+// audiodsp#110.
+//
+// One counter here rather than a flag in each of thirty node types, because
+// this is the funnel: every node in the palette pulls its own source through
+// these two functions, which is what makes them the place the deinit guard
+// and the fault register already live. A node that reaches its source some
+// other way is outside this guard, and outside the other two as well.
+//
+// It is touched only while the pump lock is held, and the lock is recursive,
+// so the whole nest -- however deep -- belongs to one thread. That is why a
+// plain int is enough and no atomic is needed.
+//
+// The cap is a DEPTH, not a node count: a Mixer with sixteen voices five
+// nodes deep is a depth of six. Sixty-four is far past any graph anyone has
+// built here and far short of the C stack on the smallest port, which is the
+// only pair of numbers that matters.
+#define AUDIOSAMPLE_MAX_PULL_DEPTH (64)
+
+static int audiosample_pull_depth;
+
+// True when the caller may proceed. False means the nest is too deep to be
+// anything but a ring, and the fault is already published.
+static bool audiosample_enter_pull(void) {
+    if (audiosample_pull_depth >= AUDIOSAMPLE_MAX_PULL_DEPTH) {
+        // Unconditionally, unlike the deinit fault below, and for the reason
+        // Port gives: the control path legitimately pulls a released node,
+        // and it never legitimately closes a loop.
+        audiodsp_pump_fault_set(AUDIODSP_PUMP_FAULT_LOOP);
+        return false;
+    }
+    audiosample_pull_depth++;
+    return true;
+}
+
+static void audiosample_exit_pull(void) {
+    audiosample_pull_depth--;
+}
+
 void audiosample_reset_buffer(mp_obj_t sample_obj, bool single_channel_output, uint8_t audio_channel) {
     micropython_sample_adapter_t adapter;
     audiodsp_sample_source_t source;
@@ -141,7 +187,11 @@ void audiosample_reset_buffer(mp_obj_t sample_obj, bool single_channel_output, u
         return;
     }
     audiodsp_pump_lock_acquire_nested();
-    (void)audiodsp_sample_reset(&source, single_channel_output, audio_channel);
+    if (audiosample_enter_pull()) {
+        (void)audiodsp_sample_reset(&source, single_channel_output,
+            audio_channel);
+        audiosample_exit_pull();
+    }
     audiodsp_pump_lock_release_nested();
 }
 
@@ -171,8 +221,13 @@ audioio_get_buffer_result_t audiosample_get_buffer(mp_obj_t sample_obj,
     const uint8_t *shared_buffer = NULL;
     audiodsp_buffer_result_t result = AUDIODSP_BUFFER_ERROR;
     audiodsp_pump_lock_acquire_nested();
+    if (!audiosample_enter_pull()) {
+        audiodsp_pump_lock_release_nested();
+        return GET_BUFFER_ERROR;
+    }
     audiodsp_status_t status = audiodsp_sample_get(&source, single_channel_output,
         channel, &shared_buffer, buffer_length, &result);
+    audiosample_exit_pull();
     audiodsp_pump_lock_release_nested();
     if (status != AUDIODSP_STATUS_OK) {
         *buffer = NULL;

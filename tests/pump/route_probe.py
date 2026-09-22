@@ -312,8 +312,61 @@ def port(fault):
                   doors["rewind"][0], doors["rewind"][1], recovered))
 
 
+def deep_loop(fault):
+    """audiodsp#110. A ring entered at a node that is NOT the Port.
+
+    `audioroute.Port` has carried its own re-entrancy flag since it was
+    written, so the `port` case above -- which pulls the Port -- always
+    faulted. Pulling the **Mixer** of a Mixer -> Port -> Mixer ring did not:
+    it recursed until the C stack ran out, a core dump on a desktop and a
+    board that never came back. A Component that wraps its own output builds
+    exactly that ring.
+
+    The guard is a depth counter in audiocore's funnel, which every node in
+    the palette pulls its source through, so it covers the thirty node types
+    without a flag in each.
+
+    Two rows, and the second is why the first means anything: a ring must
+    fault, and a legitimately DEEP chain must not. A guard that simply
+    faulted every time would pass the first row for the wrong reason.
+
+    `--fault deeper` builds the second chain PAST the cap -- 80 Ports against
+    AUDIOSAMPLE_MAX_PULL_DEPTH's 64 -- and still asserts it comes back clean.
+    That must fail, and failing is what proves the cap is a real number
+    rather than one the guard never reaches.
+    """
+    audiopump.lock_reset()
+
+    # The ring, entered at the Mixer. mixer -> port -> mixer.
+    port = audioroute.Port(sample())
+    mixer = mixer_on(port)
+    port.play(mixer)
+    got = pull(mixer, LOOP_BLOCKS)
+    rang = got[24] == FAULT_LOOP and got[5] != 0
+    ok = say("deep loop", rang,
+             "a Mixer -> Port -> Mixer ring pulled AT THE MIXER: fault=%d "
+             "err=%d at block %d" % (got[24], got[5], got[0]))
+
+    # The control: a chain deeper than anything real, with no ring in it.
+    # AUDIOSAMPLE_MAX_PULL_DEPTH is 64, so 40 nodes leaves an honest graph
+    # room -- which is the claim. 80 is past it, and the fault run asserts
+    # the same clean result there so that the cap has to be reachable.
+    audiopump.lock_reset()
+    stages = 80 if fault == "deeper" else 40
+    chain = sample()
+    for _stage in range(stages):
+        chain = audioroute.Port(chain)
+    got = pull(chain, 4)
+    clean = got[24] == 0 and got[5] == 0 and got[0] == 4
+    ok = say("deep chain", clean,
+             "%d Ports with no ring in them: fault=%d err=%d blocks=%d"
+             % (stages, got[24], got[5], got[0])) and ok
+    return ok
+
+
 CASES = (("ring", ring), ("granular", ring_granularity),
-         ("events", events), ("tap", tap), ("port", port))
+         ("events", events), ("tap", tap), ("port", port),
+         ("deep_loop", deep_loop))
 
 
 def main():
