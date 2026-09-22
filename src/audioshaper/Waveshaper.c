@@ -110,12 +110,16 @@ static mp_obj_t audioshaper_waveshaper_make_new(const mp_obj_type_t *type,
     if (channel_count < 1u || channel_count > 2u) {
         mp_raise_ValueError(MP_ERROR_TEXT("channel_count must be 1 or 2"));
     }
-    // Powers of two only, and no higher than 8: the state is a fixed number
-    // of half-band stages, and rounding a stray 3 down to 2 would be a
-    // different effect than the caller asked for, quietly.
-    if (oversample != 1u && oversample != 2u && oversample != 4u &&
-        oversample != 8u) {
-        mp_raise_ValueError(MP_ERROR_TEXT("oversample must be 1, 2, 4 or 8"));
+    // Powers of two only, and no higher than the state carries: rounding a
+    // stray 3 down to 2 would be a different effect than the caller asked
+    // for, quietly. The ceiling follows AUDIODSP_SHAPER_MAX_STAGES rather
+    // than a list written out here, so a port that lowers it gets a check
+    // that agrees with its own state.
+    if (oversample < 1u || oversample > AUDIODSP_SHAPER_MAX_OVERSAMPLE ||
+        (oversample & (oversample - 1u)) != 0u) {
+        mp_raise_msg_varg(&mp_type_ValueError,
+            MP_ERROR_TEXT("oversample must be a power of two, 1 to %d"),
+            (int)AUDIODSP_SHAPER_MAX_OVERSAMPLE);
     }
     if (curve == MP_OBJ_NULL) {
         mp_raise_ValueError(MP_ERROR_TEXT("curve is required"));

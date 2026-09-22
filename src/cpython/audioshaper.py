@@ -35,7 +35,8 @@ curve rebuilt on every knob move. `bias` moves the operating point. A bias
 that has to move *per sample* is a second stream summed in front of this
 node -- `audiomixer.Mixer` adds sample by sample -- not an argument here.
 
-`oversample` (1, 2, 4 or 8) is how far above the sample rate the shaping
+`oversample` (a power of two up to `_audiodsp.SHAPER_MAX_OVERSAMPLE`,
+16 by default) is how far above the sample rate the shaping
 happens, between a matched pair of polyphase all-pass half-bands. It is the
 whole reason this module exists: a nonlinearity makes harmonics above
 Nyquist and they fold back onto the signal, and nothing else in audiodsp
@@ -128,12 +129,15 @@ class Waveshaper(_AudioSample):
         channel_count = int(options.pop("channel_count", 2))
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
-        # Powers of two only, and no higher than 8: the state is a fixed
-        # number of half-band stages, and rounding a stray 3 down to 2 would
-        # be a different effect than the caller asked for, quietly.
+        # Powers of two only, and no higher than the state carries: rounding
+        # a stray 3 down to 2 would be a different effect than the caller
+        # asked for, quietly. The extension range-checks against its own
+        # AUDIODSP_SHAPER_MAX_OVERSAMPLE and raises the same message, so a
+        # port that lowered the ceiling is not contradicted here.
         oversample = int(options.pop("oversample", oversample))
-        if oversample not in (1, 2, 4, 8):
-            raise ValueError("oversample must be 1, 2, 4 or 8")
+        if oversample < 1 or oversample & (oversample - 1):
+            raise ValueError("oversample must be a power of two, 1 to %d"
+                             % (_audiodsp.SHAPER_MAX_OVERSAMPLE,))
         curve = options.pop("curve", curve)
         if curve is None:
             raise ValueError("curve is required")
