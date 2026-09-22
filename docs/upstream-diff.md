@@ -1780,6 +1780,58 @@ workaround moved them up out of the worst of it by accident.
   a CP board still cannot filter below a few hundred hertz. See the effects
   README, "A note on filters off a stock CircuitPython board".
 
+## `audiofilters.Phaser` holds a DC constant forever (audiodsp#36, kept verbatim)
+
+A decaying tail through `Phaser` does not reach zero. It settles, within
+about 20 blocks, on a constant non-zero sample and stays there for as long as
+it is pulled.
+
+Re-measured 2026-09-21 on the CPython twin — 0.09 s of 1 kHz at −6 dBFS then
+digital silence, pulled to 600 blocks, `stages=6`, `feedback=0.7`, `mix=1.0`,
+and the set of distinct sample values taken over blocks 60..599:
+
+| rate | channels | held value |
+|---|---|---|
+| 48000 | 1 and 2 | −8 |
+| 44100 | 2 | −9 |
+| 22050 | 1 and 2 | −5 |
+| 8000 | 1 | 0 |
+
+**The number in the issue is stale.** It records −4 at 48 kHz stereo and
+*exact zero* at 22.05 kHz mono; both have moved. The warning it attaches to
+them has not: the rate and the channel count change the answer, so a
+re-measurement that does not state them says nothing.
+
+**The mechanism, traced.** It is a fixed point of the integer recursion, not
+a slow decay. At 48 kHz the coefficient is 30145 and the feedback word 22936,
+and the state lands on `allpass_words = [−17, −17, −17, −18, −18, −20]` per
+channel with `feedback_words = −9`. One stage at `word = −9`:
+
+```
+sat16(−9 * −30145, 15) =  8     8 + (−17) = −9     -> the stage output
+sat16(−9 *  30145, 15) = −8    −8 +  (−9) = −17    -> the state, unchanged
+```
+
+so the state reproduces itself exactly, and the output word reproduces the
+input to the feedback. `allpass_words[]` and `feedback_words[]` are plain
+`int16_t` in sample units with **no fractional bits at all**
+(`src/shared/audiodsp_phaser.c`), so there is nothing below the LSB for the
+value to decay into, no dither and no leak term.
+
+**Not the fixed-point biquad (audiodsp#23).** `audiodsp_phaser.c` never calls
+`audiodsp_biquad`. #23's cause is that kernel's `STATE_SHIFT 12` recursion;
+these are different kernels with different state formats, and fixing one will
+not move the other by a bit.
+
+**Kept verbatim, and not fixed.** The Phaser is a CircuitPython-ported kernel
+and is never modified — the standing rule, and Brad's hold of 2026-09-03 on
+#23. What is recorded here is the consequence for anything built on it: a
+class asserting "a decaying tail reaches exact zero" cannot hold that
+invariant through a `Phaser` at any rate where the fixed point is non-zero,
+and should assert a bounded floor instead. The oracle comparison is owed —
+the kernel is a faithful port, so CircuitPython is expected to hold the same
+constant, but that has been argued from the source and not measured.
+
 ## `Distortion` ignores `drive` in OVERDRIVE mode (upstream, worked around)
 
 `shared-module/audiofilters/Distortion.c` never reads `drive` in the
