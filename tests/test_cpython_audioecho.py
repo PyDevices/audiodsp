@@ -20,6 +20,8 @@ its own output.
 | E5 | A mono render of a short source has no gaps in it | exact, 0 zero samples |
 | E6 | `audiodelays.Echo` with no filter is a bit-exact identity with `filter=None` | exact, 0 LSB |
 | E7 | `Echo.filter` in the feedback loop changes the delay line | at least 1 sample differs |
+| E8 | A setting moved on a live node lands on the render | the response moves to the new setting |
+| E9 | `set()` needs no second call to finish the config | exact, every option |
 
 **E1 is this module's form of the identity trait** that
 `docs/correctness-standard.md` asks of every own node - an exact answer through
@@ -259,6 +261,113 @@ class EchoFilterTest(unittest.TestCase):
         node.play(alternating())
         rendered = words(node, 6)
         self.assertNotEqual(rendered, alternating_words(len(rendered)))
+
+
+class LiveSettingTest(unittest.TestCase):
+    """E8 and E9 - audiodsp#106.
+
+    The issue was filed on a reading: `set()` never calls `config_finish`, so
+    the words derived from a setting were said to stay stale. They do not.
+    Every case of `audiodsp_feedback_delay_configure` derives its own words,
+    so a setting lands the moment it is written, and a `finish()` after a
+    `set()` recomputes the same numbers from the same stored values. E9 is
+    what keeps that true: an option added later that derives nothing of its
+    own fails here rather than in a caller's ears.
+
+    E8 is the trait the issue's second half asked for and nothing had: move a
+    setting on a *live* node - one that has already rendered - and read the
+    response, rather than trusting that the write arrived.
+    """
+
+    #: One value per option, each far enough from the baseline below that the
+    #: render cannot help but move.
+    OPTIONS = {
+        "delay_ms": 18.0, "feedback": 0.4, "mix": 0.7, "damping_hz": 900.0,
+        "cut_hz": 600.0, "wow_hz": 6.0, "wow_depth_ms": 3.0,
+        "cross_feed": 1.0, "loop_drive": 1.0, "input_pan": -1.0,
+        "delay_slew": 8.0, "wow_am_depth": 0.9, "loop_semitones": -12.0,
+        "loop_window_ms": 11.0,
+    }
+
+    #: `shift_window_finish` clamps the shift window to a quarter of the
+    #: delay line, which is 12.5 ms at this rate and this `max_delay_ms`.
+    #: Both values above have to sit under that or the clamp makes them the
+    #: same number and the option reads as inert.
+
+    #: A loop that is actually running, so an option that only acts inside it
+    #: has something to act on. At feedback 0 most of the table is inert.
+    BASELINE = dict(delay_ms=10.0, feedback=0.75, mix=2.0, damping_hz=3000.0,
+                    cut_hz=100.0, wow_hz=2.0, wow_depth_ms=1.0,
+                    cross_feed=0.5, loop_drive=0.4, input_pan=0.3,
+                    delay_slew=1.0, wow_am_depth=0.2, loop_semitones=3.0,
+                    loop_window_ms=4.0)
+
+    def _live(self, **changed):
+        """A node that has already rendered four blocks, then changed."""
+        node = delay(**self.BASELINE)
+        node.play(alternating())
+        words(node, 4)
+        if changed:
+            node.set(**changed)
+        return node
+
+    def test_a_delay_moved_on_a_live_node_moves_the_echo(self):
+        """E8, the delay. A burst, then the tap it comes back on."""
+        for delay_ms in (12.0, 30.0):
+            with self.subTest(delay_ms=delay_ms):
+                node = delay(max_delay_ms=50, delay_ms=45.0, feedback=0.0,
+                             mix=2.0)
+                node.play(silence(64))
+                words(node, 2)                    # live, and the line is clear
+                node.set(delay_ms=delay_ms)
+                burst = array("h", [0] * (4096 * CHANNELS))
+                for index in range(8 * CHANNELS):
+                    burst[index] = 20000
+                node.play(audiocore.RawSample(burst, sample_rate=SAMPLE_RATE,
+                                              channel_count=CHANNELS))
+                rendered = words(node, 8)
+                left = rendered[0::CHANNELS]
+                peak = max(range(len(left)), key=lambda i: abs(left[i]))
+                self.assertAlmostEqual(peak / SAMPLE_RATE * 1000.0, delay_ms,
+                                       delta=1.0)
+
+    def test_a_feedback_moved_on_a_live_node_moves_the_tail(self):
+        """E8, the feedback. More feedback is a louder tail, measured."""
+        energy = []
+        for feedback in (0.1, 0.9):
+            node = delay(max_delay_ms=50, delay_ms=10.0, feedback=0.0,
+                         mix=2.0)
+            node.play(alternating(256))
+            words(node, 2)
+            node.set(feedback=feedback)
+            node.play(silence(8192))
+            tail = words(node, 12)
+            energy.append(sum(abs(value) for value in tail))
+        self.assertGreater(energy[1], energy[0] * 2)
+
+    def test_every_option_lands_without_a_second_finish(self):
+        """E9. `set(option)` then `finish()` renders what `set(option)`
+        renders, for every option the node takes."""
+        for name, value in self.OPTIONS.items():
+            with self.subTest(option=name):
+                plain = self._live(**{name: value})
+                finished = self._live(**{name: value})
+                finished._state.finish()
+                self.assertEqual(words(plain, 12), words(finished, 12))
+
+    def test_every_option_moves_the_render(self):
+        """The control for E9: an option that changed nothing would pass E9
+        for the wrong reason. `delay_slew` is excluded and named - it governs
+        how fast a *moving* delay glides, so it is inert while the delay is
+        held."""
+        unchanged = self._live()
+        reference = words(unchanged, 12)
+        for name, value in self.OPTIONS.items():
+            if name == "delay_slew":
+                continue
+            with self.subTest(option=name):
+                self.assertNotEqual(words(self._live(**{name: value}), 12),
+                                    reference)
 
 
 if __name__ == "__main__":
