@@ -370,11 +370,51 @@ def deep_loop(fault):
              "%d Ports with no ring in them: fault=%d err=%d blocks=%d"
              % (stages, got[24], got[5], got[0])) and ok
     return ok
+def refused(fault):
+    """audiodsp#127, and audiocomponents#96. A SCHEDULED press that finds no
+    free channel is counted, not lost.
+
+    The live path was never the whole story: `audiopump_apply_press` throws
+    away what `synthio_span_change_note` returns, so a press applied from the
+    queue with every channel held left no trace at all. An 8-step gate over
+    8-note chords lost 488 presses on juno106 and 1976 on solina before
+    anything could say so.
+
+    One counter answers for both paths, because both come through
+    `change_note`. This schedules more presses than there are channels,
+    without releasing any, and reads `synth.refused`.
+
+    `--fault deaf` asserts the counter stays at zero, which must fail.
+    """
+    synth = synthio.Synthesizer(sample_rate=RATE, channel_count=CHANNELS)
+    ceiling = synth.max_polyphony
+    over = 9
+    queue = audiopump.Events(capacity=ceiling + over + 4)
+    audiopump.events(queue)
+    notes = [synthio.Note(frequency=110.0 + step)
+             for step in range(ceiling + over)]
+    for index, note in enumerate(notes):
+        # All at frame 0 and never released, so the last `over` of them
+        # arrive at a synthesizer with every channel held.
+        queue.at(0, audiopump.PRESS, synth, note)
+    audiopump.pull(synth, 4, status())
+    stats = queue.stats()
+    audiopump.events(None)
+
+    counted = 0 if fault == "deaf" else synth.refused
+    # The queue applied every event: a refused press is an event that landed
+    # perfectly and had nowhere to put its note, which is a different number
+    # from the queue's own `refused`.
+    applied = stats[1]
+    return say("refused", counted == over and applied == len(notes),
+               "%d scheduled presses into %d channels: synth.refused=%d "
+               "(want %d), queue applied %d of %d"
+               % (len(notes), ceiling, counted, over, applied, len(notes)))
 
 
 CASES = (("ring", ring), ("granular", ring_granularity),
          ("events", events), ("tap", tap), ("port", port),
-         ("deep_loop", deep_loop))
+         ("deep_loop", deep_loop), ("refused", refused))
 
 
 def main():

@@ -120,6 +120,19 @@ static void audiopump_apply_press(audiopump_event_t *e, bool release,
     }
     // Pure C over the span arrays; it takes the pump lock itself, which the
     // recursive mutex allows from in here.
+    //
+    // The answer is discarded HERE and counted THERE. A press that found no
+    // free channel increments `synth->refused` inside change_note, which is
+    // the choke point both a live press and this one come through, so one
+    // counter answers for both paths and an instrument reads the same number
+    // whichever way its notes arrive. audiodsp#127, and audiocomponents#96,
+    // where an 8-step gate over 8-note chords lost 488 presses without
+    // anything being able to say so.
+    //
+    // NOT the same number as this queue's own `refused`, which counts events
+    // that could not be applied AT ALL -- a deinited target, a voice with no
+    // Mixer. A refused press is an event that applied perfectly and had
+    // nowhere to put the note.
     if (release) {
         (void)synthio_span_change_note(&synth->synth, e->arg, SYNTHIO_SILENCE);
     } else {

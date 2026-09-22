@@ -342,6 +342,12 @@ MP_PROPERTY_GETTER(synthio_synthesizer_pressed_obj,
 //|     instrument that wants to steal a channel can decide that for itself
 //|     once it can see the number.
 //|
+//|     Counts a press that arrived any way at all: a live ``press()``, and
+//|     a press applied from an ``audiopump.Events`` queue, which comes
+//|     through the same place. Not to be confused with
+//|     ``Events.stats()``'s own refused count, which is events that could
+//|     not be applied at all -- a deinited target, a voice with no Mixer.
+//|
 //|     Monotonic from construction, and not reset by ``release_all()``."""
 static mp_obj_t synthio_synthesizer_obj_get_refused(mp_obj_t self_in) {
     synthio_synthesizer_obj_t *self = MP_OBJ_TO_PTR(self_in);
