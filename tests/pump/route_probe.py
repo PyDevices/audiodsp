@@ -455,13 +455,19 @@ def strike(fault):
     for partial in range(modes):
         table.extend((220.0 * (partial + 1), 0.45, 0.35))
 
-    at = 0 if fault == "early" else 4 * BLOCK_FRAMES
+    # The excitation is fixed; only WHEN the strike is scheduled moves. Under
+    # --fault early the strike lands at frame 0, so the first click rings and
+    # the "before" window stops being silent -- which is the row failing. Tie
+    # the clicks to `at` instead and the two coincide at 0, the window before
+    # them is empty, and the row passes for want of anything to measure.
+    click_at = 4 * BLOCK_FRAMES
+    at = 0 if fault == "early" else click_at
 
     def fresh():
         node = audiomodal.Bank(modes=modes, sample_rate=RATE,
                                channel_count=CHANNELS, mix=1.0, gain=1.0)
         node.set_modes([(220.0 * (p + 1), 0.45, 0.0) for p in range(modes)])
-        node.play(excitation(at))
+        node.play(excitation(click_at))
         return node
 
     digests = []
@@ -478,22 +484,31 @@ def strike(fault):
              "two runs of one schedule: %016x / %016x"
              % (digests[0], digests[1]))
 
-    window = bytearray(2 * BLOCK_BYTES)
+    # One pull, one window spanning the strike: `audiopump.pull()` restarts
+    # the frame clock, so two pulls would put the strike's frame in both of
+    # them and measure nothing.
+    blocks = 8
     bank = fresh()
     queue = audiopump.Events(capacity=8)
     audiopump.events(queue)
     queue.at(at, audiopump.STRIKE, bank, table)
-    probe = audiopump.Tap(frames=2 * BLOCK_FRAMES)
+    probe = audiopump.Tap(frames=blocks * BLOCK_FRAMES)
     audiopump.tap(probe)
-    audiopump.pull(bank, 3, status())          # the first click has passed
-    before = _tap_peak(probe, window)
-    audiopump.pull(bank, 5, status())          # now past the strike
-    after = _tap_peak(probe, window)
+    audiopump.pull(bank, blocks, status())
+    window = bytearray(blocks * BLOCK_BYTES)
+    got = probe.readinto(window)
     audiopump.tap(None)
     audiopump.events(None)
-    ok = say("strike late", before == 0 and after > 0,
-             "peak through the click before its frame=%d, after the "
-             "strike=%d" % (before, after)) and ok
+
+    half = (click_at // BLOCK_FRAMES) * BLOCK_BYTES
+    before = max((abs(struct.unpack_from("<h", window, i)[0])
+                  for i in range(0, min(half, got), 2)), default=0)
+    after = max((abs(struct.unpack_from("<h", window, i)[0])
+                 for i in range(half, got, 2)), default=0)
+    ok = say("strike late", got > 0 and before == 0 and after > 0,
+             "peak over the %d block(s) before its frame=%d, over the %d "
+             "after=%d" % (half // BLOCK_BYTES, before,
+                           (got - half) // BLOCK_BYTES, after)) and ok
 
     # The choke. Strike at once, let it ring out with nothing more feeding
     # it, then empty it.
