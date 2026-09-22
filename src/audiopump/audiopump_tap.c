@@ -51,6 +51,11 @@ typedef struct {
     uint32_t blocks;     // writer
     uint32_t reads;      // reader
     uint32_t torn;       // reader: the writer lapped it twice running
+    //: `w` as it stood at the end of the last successful readinto(). The
+    //: reader owns it. audiodsp#120: without it, a tap answers with history
+    //: for ever once the output stops, and a caller cannot tell the last
+    //: window it captured from the one going out now.
+    uint32_t last_read;
 } audiopump_tap_obj_t;
 
 void audiopump_tap_write(mp_obj_t tap, const uint8_t *buffer,
@@ -80,7 +85,26 @@ void audiopump_tap_write(mp_obj_t tap, const uint8_t *buffer,
     AUDIOPUMP_TAP_STORE_REL(&self->w, w + length);
 }
 
-// The most recent whole frames that fit in `buf`. Returns bytes written.
+// The most recent whole frames that fit in `buf`, IF any have been captured
+// since the last call. Returns bytes written, and 0 means "nothing new".
+//
+// audiodsp#120. It used to hand back the last window it had, for ever: after
+// `I2SOut.stop()` nothing is going out and `readinto()` still returned a full
+// window of the tone that used to be. That is history presented as the
+// present, and it cost two wrong verdicts in one afternoon -- a check written
+// as "stopped means the wire is silent" read the stale tone and failed, and
+// the same check written the other way round would have passed on nothing.
+//
+// A frame stamp was the other candidate and it cannot work: the pump's frame
+// clock stops when the pump does, so `now() - stamp` stays small across a
+// stop and says "fresh" about a window minutes old. What distinguishes the
+// two states is whether anything has ARRIVED, which is what this compares.
+//
+// The cost is that a reader polling faster than the block rate sees 0 between
+// blocks. That is the honest answer -- nothing new has gone out -- and a
+// meter keeps its previous value rather than redrawing the same window. The
+// mark is per TAP and not per reader, so two readers sharing one tap take
+// turns; a reader that wants its own view wants its own tap.
 static mp_obj_t audiopump_tap_readinto(mp_obj_t self_in, mp_obj_t buf_in) {
     audiopump_tap_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_buffer_info_t out;
@@ -97,6 +121,11 @@ static mp_obj_t audiopump_tap_readinto(mp_obj_t self_in, mp_obj_t buf_in) {
 
     for (int attempt = 0; attempt < 2; attempt++) {
         const uint32_t w = AUDIOPUMP_TAP_LOAD_ACQ(&self->w);
+        if (w == self->last_read) {
+            // Nothing has gone out since the last read. Not an error and not
+            // a tear -- there is simply no new audio to describe.
+            return MP_OBJ_NEW_SMALL_INT(0);
+        }
         if (w < want) {
             // Not enough has ever gone out. Give what there is, from 0.
             want = w - (w % self->frame);
@@ -118,6 +147,7 @@ static mp_obj_t audiopump_tap_readinto(mp_obj_t self_in, mp_obj_t buf_in) {
         const uint32_t after = AUDIOPUMP_TAP_LOAD_ACQ(&self->w);
         if (after - start <= self->cap) {
             self->reads++;
+            self->last_read = w;
             return mp_obj_new_int_from_uint(want);
         }
     }
@@ -177,6 +207,7 @@ static mp_obj_t audiopump_tap_make_new(const mp_obj_type_t *type,
     self->blocks = 0;
     self->reads = 0;
     self->torn = 0;
+    self->last_read = 0;
     return MP_OBJ_FROM_PTR(self);
 }
 
