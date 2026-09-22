@@ -101,6 +101,48 @@ static inline uint64_t audiopump_now_us(void) {
 // MicroPython's GC blocks are 16-byte aligned, so the 64-bit stores are too.
 // The width and the handful of words a C caller reads are in
 // audiopump/audiopump.h; the rest are private to this file.
+//
+// --- 64 bits, read across threads: why that is allowed HERE ---------------
+//
+// audiodsp#111 asked whether the output ring's cross-thread positions are
+// 64-bit, which on RV32 (the P4) and Xtensa LX7 (the S3) would be two stores
+// with a window between them. They are not: `ring_w`, `ring_r`, `ring_wpos`
+// and `ring_rpos` are uint32 with acquire/release, `ring_w_total` is the
+// pump's alone and `ring_r_total`/`drain_digest` the interpreter's, and
+// `now()` reads the 32-bit `frames` and not a status word. The ring's
+// protocol has no 64-bit cross-thread word in it. The rework the issue
+// remembered did land.
+//
+// This array is the one 64-bit surface that IS read across threads, and the
+// loop writes it while the interpreter reads it -- deliberately, so a
+// watching caller sees progress. A word can only show a torn value if its
+// HIGH half ever changes, so the list splits in two and the split is the
+// whole of the argument:
+//
+//   Cannot tear. The high half is always zero, so the two stores publish one
+//   changing word. RUNNING, PARKED, ERROR, LAST_RESULT, TID, FAULT,
+//   STACK_FREE, BLOCKS, RING_OVF, PARKS, SINK_TIMEOUTS, IN_TIMEOUTS,
+//   RING_WAITS, EVENT_US_MAX, the five LOCK_* words, and FRAMES -- which is
+//   widened from the uint32 `frames` and so is bounded by construction.
+//   Every word a caller BRANCHES on at run time is in this half, and that is
+//   not an accident: `now()` reads `frames`, and `running`/`parked`/`fault`
+//   are 0, 1 or a small enum.
+//
+//   Can tear, and the tear is cosmetic. DIGEST and DRAIN_DIGEST are FNV-1a
+//   64 and use the full range from the first block, so a concurrent read of
+//   either is garbage -- but a running hash has no meaning mid-run, and the
+//   probes that compare them do it after the pump has stopped. BYTES,
+//   RING_W, RING_R, SINK_BYTES, DMA_BYTES and RX_BYTES cross 2^32 after
+//   6.2 hours at 48 kHz stereo; PULL_US, SINK_US, WALL_US, PARK_US and
+//   RING_WAIT_US after 71 minutes. All eleven are statistics, and a torn
+//   read of a monotonic counter is one sample low by about 2^32 -- visible
+//   in a number on a screen, not in a decision.
+//
+// So the 64-bit width stays, and what keeps it safe is the first list, not
+// the store. If a word is ever added that a caller branches on AND whose
+// high half moves, it needs a 32-bit protocol word of its own or a
+// generation counter around the batch -- and not a wider store, because
+// there is no wider store on these chips.
 enum {
     STATUS_BLOCKS = 0,      // blocks pulled
     STATUS_BYTES = 1,       // bytes seen
