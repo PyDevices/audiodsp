@@ -166,6 +166,7 @@ jobs:
                          "route_probe.py ring --fault flip" \
                          "route_probe.py events --fault drop" \
                          "route_probe.py tap --fault short" \
+                         "route_probe.py tap --fault stale" \
                          "route_probe.py port --fault latch" \
                          "route_probe.py deep_loop --fault deeper"; do
             if run $planted > /dev/null; then
