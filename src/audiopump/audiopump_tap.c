@@ -32,6 +32,8 @@
 #include "py/obj.h"
 #include "py/runtime.h"
 
+#include "shared/audiodsp_hot.h"
+
 #include "audiopump/audiopump_tap.h"
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -58,7 +60,7 @@ typedef struct {
     uint32_t last_read;
 } audiopump_tap_obj_t;
 
-void audiopump_tap_write(mp_obj_t tap, const uint8_t *buffer,
+void AUDIODSP_HOT audiopump_tap_write(mp_obj_t tap, const uint8_t *buffer,
     uint32_t length) {
     audiopump_tap_obj_t *self = MP_OBJ_TO_PTR(tap);
     if (length == 0) {

@@ -82,7 +82,7 @@
 // MicroPython's portable HAL otherwise, which is what WebAssembly gets. Never
 // clock_gettime from this file: this file does not get to know what a clock is
 // made of.
-static inline uint64_t audiopump_now_us(void) {
+static inline uint64_t AUDIODSP_HOT audiopump_now_us(void) {
     const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->now_us != NULL) {
         return port->now_us();
@@ -400,7 +400,7 @@ static const audiodsp_sample_ops_t audiopump_ops = {
 // and it obeys the middle loop's rule exactly: no mp_* call, no allocation,
 // nothing that takes a lock. `audiosample_convert_*` are audiocore's own,
 // the same functions CircuitPython's outputs call.
-static uint32_t audiopump_convert_block(audiopump_ctx_t *ctx,
+static uint32_t AUDIODSP_HOT audiopump_convert_block(audiopump_ctx_t *ctx,
     const uint8_t *in, uint32_t length) {
     const uint32_t in_frame = (uint32_t)ctx->conv_channels
         * (uint32_t)(ctx->conv_bits / 8);
@@ -473,7 +473,8 @@ static void audiopump_run_end(audiopump_ctx_t *ctx) {
 
 // Pull at most `budget` blocks. Returns one of AUDIOPUMP_SERVICE_*; a threaded
 // caller passes UINT64_MAX and only ever gets DONE.
-static int audiopump_run_blocks(audiopump_ctx_t *ctx, uint64_t budget) {
+static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
+    uint64_t budget) {
     uint64_t digest = ctx->acc_digest;
     uint64_t blocks = ctx->acc_blocks;
     uint64_t bytes = ctx->acc_bytes;

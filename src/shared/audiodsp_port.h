@@ -34,6 +34,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "shared/audiodsp_hot.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
