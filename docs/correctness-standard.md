@@ -272,6 +272,55 @@ outlasts one render — is a borrowed pointer in the C and still a copy in the
 twin. Nothing has been measured to depend on it; it is named here so the next
 divergence of this shape is recognised rather than re-derived.
 
+## The fourth way: `mp_float_t` inside the kernel, which no rule can round away
+
+The two ways above have fixes. A compiler choosing contraction is forbidden by
+a pragma; a number derived in Python is put through `audiodsp_util.float32`
+before it reaches a node. This one has neither, and **that is a decision rather
+than an omission** (Brad, 2026-09-22, decision 4 of the housekeeping sweep:
+accept and document, do not fix).
+
+The shape is always the same. A binding computes something in `mp_float_t` and
+hands it to a kernel declared in `double`. `mp_float_t` is a double on a
+desktop and a **single** on every board we ship, so the number that arrives has
+already been rounded differently before any kernel runs, and nothing downstream
+can recover it. Six issues, one mechanism:
+
+| issue | where | the value |
+|---|---|---|
+| [#101](https://github.com/PyDevices/audiodsp/issues/101) | `synthio/Biquad.c` derives `W0 = frequency * synthio_global_W_scale` | the biquad's centre frequency |
+| [#102](https://github.com/PyDevices/audiodsp/issues/102) | `audiodelays/Echo.c` computes `echo * decay + sample` | a filtered echo's feedback sum |
+| [#103](https://github.com/PyDevices/audiodsp/issues/103) | `audiofilters/Distortion.c`'s `db_to_linear` | a dB setting's linear gain, and on a board a different libm |
+| [#105](https://github.com/PyDevices/audiodsp/issues/105) | `audiodynamics.Dynamics` on an ESP32 | the compressor's detector, from settings that are bit-identical |
+| [#115](https://github.com/PyDevices/audiodsp/issues/115) | `Compressor` and `TransientShaper`, Windows against unix | single-precision libm, same C |
+| [#55](https://github.com/PyDevices/audiodsp/issues/55) | `Dynamics` and `Filter`, board against desktop | a second cause beside FMA, never identified |
+
+**The two widths are 24 bits of significand and 53.** The difference each one
+produces is the same size every time: a sample or a few per render, each one or
+two LSB, which is 90 dB or more below full scale and inaudible by a wide
+margin. #101 and #102 are the two the gate actually sees, as
+`biquad_component_probe.py` and `echo_filter_probe.py` on the
+single-precision leg.
+
+**Why it is left.** Fixing it means one of two things and neither is worth its
+price. Deriving at `double` in the bindings puts a software double on every
+board that has no hardware for one, in code that runs per block, to move a
+value 90 dB down. Deriving at `float` everywhere makes the desktop targets
+wrong instead of the boards and breaks every stored digest in the repository.
+The third option -- a shared derivation helper at a fixed width, which is what
+`audiodsp_biquad_cp_w0` already is for the CPython leg -- is the right answer
+*for a node being written now*, and is how new shared code should do it; it is
+not worth retrofitting through six call sites and the goldens they move.
+
+**What the gate does instead.** `verify_dsp.py`'s `--known-divergent` takes a
+bound: `PROBE:SAMPLES:LSB`. A listed probe may differ, by at most that many
+samples and at most that many LSB, and the run fails if the divergence grows,
+if a probe stops diverging, or if any other probe diverges at all. A bare
+`PROBE` with no bound is an *exemption* rather than a tolerance; the gate
+still accepts it, prints the size it measured and names the bound that should
+replace it. That distinction is the whole point: an accepted difference that
+nobody has measured is indistinguishable from a new defect.
+
 ## The one thing this page does not cover
 
 Nothing establishes that a node of ours *sounds right*, or that its algorithm is
