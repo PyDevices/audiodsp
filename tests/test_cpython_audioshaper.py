@@ -17,6 +17,7 @@ from array import array
 
 import audiocore
 import audioshaper
+import _audiodsp
 
 SAMPLE_RATE = 48000
 POINTS = 1024
@@ -178,11 +179,26 @@ class SurfaceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             audioshaper.Waveshaper(sample_rate=SAMPLE_RATE)
 
-    def test_oversample_is_a_power_of_two_up_to_eight(self):
-        for factor in (0, 3, 5, 16):
-            with self.assertRaises(ValueError):
-                audioshaper.Waveshaper(sample_rate=SAMPLE_RATE, curve=CUBIC,
-                                       oversample=factor)
+    def test_oversample_is_a_power_of_two_up_to_the_ceiling(self):
+        """audiodsp#104 raised the ceiling from 8 to 16, and made it a
+        build-time knob. The check follows `AUDIODSP_SHAPER_MAX_STAGES`, so a
+        port that lowers it gets a check that agrees with its own state -- and
+        this test follows the same number rather than a written-down list."""
+        ceiling = _audiodsp.SHAPER_MAX_OVERSAMPLE
+        self.assertEqual(ceiling & (ceiling - 1), 0,
+                         "the ceiling is meant to be a power of two")
+        for factor in (0, 3, 5, ceiling * 2, ceiling + 1):
+            with self.subTest(oversample=factor):
+                with self.assertRaises(ValueError):
+                    audioshaper.Waveshaper(sample_rate=SAMPLE_RATE,
+                                           curve=CUBIC, oversample=factor)
+        factor = 1
+        while factor <= ceiling:
+            with self.subTest(oversample=factor):
+                node = audioshaper.Waveshaper(sample_rate=SAMPLE_RATE,
+                                              curve=CUBIC, oversample=factor)
+                self.assertEqual(node.oversample, factor)
+            factor *= 2
 
     def test_an_unknown_option_is_refused(self):
         with self.assertRaises(TypeError):
@@ -218,11 +234,99 @@ class AliasFloorTest(unittest.TestCase):
                         "x2 bought less than 10 dB over x1: %r" % (floors,))
         self.assertLess(floors[2], floors[0] - 15.0,
                         "x4 bought less than 15 dB over x1: %r" % (floors,))
-        # x8 is where this curve's floor bottoms out -- what is left is the
-        # shaping's own in-band aliasing and the int16 output's quantisation,
-        # neither of which another doubling touches. It must not get worse.
+        # x8 is where this curve's TOTAL floor bottoms out -- see
+        # LastStageTransitionTest below for what is left and why another
+        # doubling does not touch it. It must not get worse.
         self.assertLess(floors[3], floors[2] + 0.5,
                         "x8 was worse than x4: %r" % (floors,))
+
+
+class LastStageTransitionTest(unittest.TestCase):
+    """audiodsp#104: what a bigger factor buys, and what it cannot buy.
+
+    The issue asked for the ceiling to be raised because a rate under 24 kHz
+    cannot reach a 192 kHz internal rate at x8. The ceiling is raised, and it
+    does buy rejection -- but not where the issue expected, and the
+    distinction is the answer to its open question.
+
+    Every decimation stage is the same half-band, and the **last** one always
+    runs at twice the base rate. Its shape is fixed in normalised frequency
+    (passband to 0.4167*pi, stopband from 0.5833*pi, designed in
+    `tools/design_halfband.py`), so its transition band scales with the base
+    rate: 20..28 kHz at a 48 kHz base, where nothing audible lives, and
+    9.2..12.9 kHz at 22.05 kHz, which is inside the band. Adding a factor adds
+    stages *before* that one and changes nothing about it.
+
+    So: below the last stage's passband edge, more oversampling keeps
+    lowering the floor, and x16 is worth having. At and above that edge the
+    residue is flat at every factor, and at a low base rate that residue is
+    what sets the total. Measured at 22.05 kHz with a hard clip and a 1009 Hz
+    tone, non-harmonic energy relative to the fundamental:
+
+    | factor | below 4594 Hz | 4594 Hz..Nyquist |
+    |---|---|---|
+    | x4 | -53.7 dB | -25.1 dB |
+    | x8 | -61.1 dB | -25.1 dB |
+    | x16 | -65.8 dB | -25.1 dB |
+
+    A class wanting a -60 dB floor at 22.05 kHz needs a deeper last stage,
+    not a bigger factor.
+    """
+
+    #: Measured at SAMPLE_RATE (48000), so the edge is 10001 Hz.
+    EDGE_FRACTION = 0.4167
+
+    def _bands(self, factor, cycles=173, frames=8192, level=16000):
+        """Non-harmonic energy below and above the last stage's passband
+        edge, in dB relative to the fundamental."""
+        settle = frames
+        values = array("h")
+        for index in range(settle + frames):
+            sample = clamp15(int(round(level * math.sin(
+                2.0 * math.pi * cycles * index / frames))))
+            values.append(sample)
+            values.append(sample)
+        rendered = render(values, curve=HARD_CLIP, oversample=factor,
+                          pre_gain=6.0, post_gain=0.4)
+        left = [float(rendered[index * 2])
+                for index in range(settle, settle + frames)]
+        mean = sum(left) / len(left)
+        left = [value - mean for value in left]
+        fundamental = 2.0 * bin_energy(left, cycles, frames) / frames
+        harmonics = {h * cycles for h in range(1, frames // 2 // cycles + 1)}
+        edge_bin = self.EDGE_FRACTION * (frames // 2)
+        below = above = 0.0
+        for index in range(1, frames // 2):
+            if index in harmonics:
+                continue
+            power = 2.0 * bin_energy(left, index, frames) / frames
+            if index < edge_bin:
+                below += power
+            else:
+                above += power
+        return tuple(10.0 * math.log10(max(value, 1e-15) / fundamental)
+                     for value in (below, above))
+
+    def test_a_bigger_factor_lowers_the_floor_below_the_edge(self):
+        """What x16 buys. Not a tautology: the row above it is flat."""
+        below_8, _above_8 = self._bands(8)
+        below_16, _above_16 = self._bands(16)
+        self.assertLess(below_16, below_8 - 2.0,
+                        "x16 bought less than 2 dB below the edge over x8: "
+                        "%.2f vs %.2f" % (below_16, below_8))
+
+    def test_a_bigger_factor_buys_nothing_above_the_edge(self):
+        """Why the total floor stops falling, and the reason a low base rate
+        cannot be rescued by another doubling."""
+        _below_4, above_4 = self._bands(4)
+        _below_8, above_8 = self._bands(8)
+        _below_16, above_16 = self._bands(16)
+        self.assertLess(abs(above_8 - above_4), 1.0,
+                        "x8 moved the above-edge residue: %.2f vs %.2f"
+                        % (above_8, above_4))
+        self.assertLess(abs(above_16 - above_8), 1.0,
+                        "x16 moved the above-edge residue: %.2f vs %.2f"
+                        % (above_16, above_8))
 
 
 class HeadroomTest(unittest.TestCase):
