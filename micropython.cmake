@@ -289,6 +289,38 @@ target_compile_definitions(usermod_mpaudio INTERFACE
 
 target_compile_definitions(usermod_mpaudio INTERFACE CIRCUITPY_SYNTHIO_MAX_CHANNELS=64)
 
+# --- AUDIODSP_PUMP_IRAM: the pump's block loop out of flash ----------------
+#
+# audiodsp#142. The block loop runs from flash through the cache, and an
+# ESP-IDF flash write disables that cache -- measured on an ESP32-P4 at 48 kHz
+# stereo, one 64 ms open/write/flush/close of 4 kB cost the speaker ~6 ms of
+# audio, permanently, because the wire paces the pump and it can never catch
+# the time back.
+#
+# The expansion is passed IN rather than written in the C, because this
+# repository's sources are not allowed to know what platform they are on and
+# `tools/check_portable.py` bans `IRAM_ATTR` by name -- the header it comes
+# from is an IDF header. A plain section attribute needs no header and is what
+# `IRAM_ATTR` expands to, minus the `__COUNTER__` suffix the IDF uses to give
+# each function its own section; the IDF's linker fragments glob `.iram1*`, so
+# a fixed name lands in the same place.
+#
+# OFF BY DEFAULT and opt-in per build:
+#
+#     idf.py -DAUDIODSP_PUMP_IRAM=1 build      (or set it in the board cmake)
+#
+# because IRAM is a few hundred kB shared with every driver that wants some,
+# and nobody has paid for the answer yet. What this covers is the pump's OWN
+# per-block path -- the loop, the ring, the tap, the event apply. It does NOT
+# cover the graph the loop pulls, which is every DSP node in the tree and far
+# too much to place; so the honest expectation is a REDUCTION in the 6 ms
+# rather than a zero, and the board measurement is what says which.
+if(AUDIODSP_PUMP_IRAM AND (CONFIG_IDF_TARGET_ARCH_RISCV OR CONFIG_IDF_TARGET_ARCH_XTENSA))
+    target_compile_definitions(usermod_mpaudio INTERFACE
+        "AUDIODSP_HOT=__attribute__((section(\".iram1.audiodsp\")))")
+    message(STATUS "audiodsp: pump block loop in IRAM (AUDIODSP_PUMP_IRAM=1)")
+endif()
+
 target_link_libraries(usermod INTERFACE usermod_mpaudio)
 
 # --- ulab (numpy-alike): a cloned dependency (see docs/porting-plan.md), not

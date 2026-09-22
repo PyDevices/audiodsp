@@ -50,6 +50,8 @@
 #include "py/obj.h"
 #include "py/runtime.h"
 
+#include "shared/audiodsp_hot.h"
+
 #include "audiocore/__init__.h"
 #include "audiomixer/Mixer.h"
 #include "audiomixer/MixerVoice.h"
@@ -208,7 +210,7 @@ static void audiopump_apply_strike(audiopump_event_t *e) {
     }
 }
 
-uint32_t audiopump_events_apply(mp_obj_t queue, uint32_t now,
+uint32_t AUDIODSP_HOT audiopump_events_apply(mp_obj_t queue, uint32_t now,
     uint32_t block_frames) {
     audiopump_events_obj_t *q = MP_OBJ_TO_PTR(queue);
     if (q->count == 0) {

@@ -64,6 +64,8 @@
 #include "py/obj.h"
 #include "py/runtime.h"
 
+#include "shared/audiodsp_hot.h"
+
 #include "audiocore/__init__.h"
 #include "shared/audiodsp_pump_lock.h"
 
@@ -138,7 +140,7 @@ static void audiopump_ring_reset_buffer(audiopump_ring_obj_t *self,
     self->which = 0;
 }
 
-static audioio_get_buffer_result_t audiopump_ring_get_buffer(
+static audioio_get_buffer_result_t AUDIODSP_HOT audiopump_ring_get_buffer(
     audiopump_ring_obj_t *self, bool single_channel_output, uint8_t channel,
     uint8_t **buffer, uint32_t *buffer_length) {
     // Interleaved only, like Input: the pump pulls (false, 0) and the
@@ -189,7 +191,8 @@ static audioio_get_buffer_result_t audiopump_ring_get_buffer(
 
 // --- the producer side: this runs on the interpreter thread ---------------
 
-static mp_obj_t audiopump_ring_write(mp_obj_t self_in, mp_obj_t buf_in) {
+static mp_obj_t AUDIODSP_HOT audiopump_ring_write(mp_obj_t self_in,
+    mp_obj_t buf_in) {
     audiopump_ring_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_check_for_deinit(&self->base);
 
