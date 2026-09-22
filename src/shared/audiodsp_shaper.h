@@ -67,10 +67,24 @@
 //: size.
 #define AUDIODSP_SHAPER_FRAMES 256u
 
-//: The largest oversampling factor, and the number of half-band stages it
-//: takes to reach it (log2). 8x is three doublings.
-#define AUDIODSP_SHAPER_MAX_OVERSAMPLE 8u
-#define AUDIODSP_SHAPER_MAX_STAGES 3u
+//: The number of half-band stages the state carries, and the largest
+//: oversampling factor that follows from it (2^stages). Four stages is 16x.
+//:
+//: 16x exists for a rate *under* 24 kHz. The clip stage wants to run at
+//: 192 kHz or better; 48 kHz reaches that at 4x and 22.05 kHz cannot reach it
+//: at 8x (176.4 kHz), so the factor a low-rate port needs is the one that was
+//: missing. audiodsp#104.
+//:
+//: One knob, and it is a build-time one: a port that cannot spare the state
+//: may define AUDIODSP_SHAPER_MAX_STAGES down on the build line and the
+//: bindings' range check follows it, so nothing has to be kept in step by
+//: hand. Each stage costs 2 channels x 2 directions x sizeof(halfband_t)
+//: (36 bytes) = 144 bytes of per-node state, plus 2 x 4 bytes of stack in the
+//: per-frame scratch arrays.
+#ifndef AUDIODSP_SHAPER_MAX_STAGES
+#define AUDIODSP_SHAPER_MAX_STAGES 4u
+#endif
+#define AUDIODSP_SHAPER_MAX_OVERSAMPLE (1u << AUDIODSP_SHAPER_MAX_STAGES)
 
 //: All-pass sections in each of the two polyphase branches. Four coefficients
 //: in total; see audiodsp_shaper.c for the design and the measured stopband.
@@ -96,10 +110,11 @@ typedef enum {
 typedef struct {
     uint32_t sample_rate;
     uint32_t channel_count;
-    //: 1, 2, 4 or 8. Fixed at construction: it decides how many half-band
-    //: stages carry state, and changing it mid-stream would step.
+    //: A power of two up to AUDIODSP_SHAPER_MAX_OVERSAMPLE. Fixed at
+    //: construction: it decides how many half-band stages carry state, and
+    //: changing it mid-stream would step.
     uint32_t oversample;
-    //: log2(oversample): 0, 1, 2 or 3.
+    //: log2(oversample), 0..AUDIODSP_SHAPER_MAX_STAGES.
     uint32_t stages;
     //: The curve, Q15, `curve_points` entries spanning -1..+1 of input. The
     //: bindings own the memory; this struct only borrows the pointer.

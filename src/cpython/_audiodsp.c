@@ -1424,9 +1424,11 @@ static int waveshaper_state_init(audiodsp_shaper_object_t *self,
         PyErr_SetString(PyExc_ValueError, "sample_rate must be at least 1");
         return -1;
     }
-    if (oversample != 1 && oversample != 2 && oversample != 4 &&
-        oversample != 8) {
-        PyErr_SetString(PyExc_ValueError, "oversample must be 1, 2, 4 or 8");
+    if (oversample < 1 || oversample > (int)AUDIODSP_SHAPER_MAX_OVERSAMPLE ||
+        (oversample & (oversample - 1)) != 0) {
+        PyErr_Format(PyExc_ValueError,
+            "oversample must be a power of two, 1 to %d",
+            (int)AUDIODSP_SHAPER_MAX_OVERSAMPLE);
         return -1;
     }
     if (channel_count < 1 || channel_count > 2) {
