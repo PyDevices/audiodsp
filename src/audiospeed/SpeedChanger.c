@@ -270,10 +270,19 @@ static const mp_rom_map_elem_t audiospeed_speedchanger_locals_dict_table[] = {
 };
 static MP_DEFINE_CONST_DICT(audiospeed_speedchanger_locals_dict, audiospeed_speedchanger_locals_dict_table);
 
+// What is behind this node, for audiosample_find_type()'s walk.
+// audiodsp#112: the pump refuses a file-backed source at handover,
+// and the protocol had no way to look past the tail.
+mp_obj_t audiospeed_speedchanger_sources(mp_obj_t self_in, uint8_t index) {
+    return index == 0 ? ((audiospeed_speedchanger_obj_t *)MP_OBJ_TO_PTR(self_in))->source
+                      : MP_OBJ_NULL;
+}
+
 static const audiosample_p_t audiospeed_speedchanger_proto = {
     MP_PROTO_IMPLEMENT(MP_QSTR_protocol_audiosample)
     .reset_buffer = (audiosample_reset_buffer_fun)audiospeed_speedchanger_reset_buffer,
     .get_buffer = (audiosample_get_buffer_fun)audiospeed_speedchanger_get_buffer,
+    .sources = audiospeed_speedchanger_sources,
 };
 
 MP_DEFINE_CONST_OBJ_TYPE(

@@ -350,10 +350,25 @@ static const mp_rom_map_elem_t audiodynamics_dynamics_locals_table[] = {
 static MP_DEFINE_CONST_DICT(audiodynamics_dynamics_locals,
     audiodynamics_dynamics_locals_table);
 
+// What is behind this node, for audiosample_find_type()'s walk.
+// audiodsp#112: the pump refuses a file-backed source at handover,
+// and the protocol had no way to look past the tail.
+static mp_obj_t audiodynamics_dynamics_sources(mp_obj_t self_in, uint8_t index) {
+    audiodynamics_dynamics_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    switch (index) {
+        case 0: return self->source == MP_OBJ_NULL ? mp_const_none
+                                          : self->source;
+        case 1: return self->key_source == MP_OBJ_NULL ? mp_const_none
+                                          : self->key_source;
+        default: return MP_OBJ_NULL;
+    }
+}
+
 static const audiosample_p_t audiodynamics_dynamics_proto = {
     MP_PROTO_IMPLEMENT(MP_QSTR_protocol_audiosample)
     .reset_buffer = audiodynamics_dynamics_reset_buffer,
     .get_buffer = audiodynamics_dynamics_get_buffer,
+    .sources = audiodynamics_dynamics_sources,
 };
 
 MP_DEFINE_CONST_OBJ_TYPE(

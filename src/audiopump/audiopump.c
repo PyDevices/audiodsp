@@ -1198,16 +1198,31 @@ static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_shutdown_obj, audiopump_shutdown);
 // door, with a sentence, instead of playing silence and leaving a number to
 // be looked up.
 //
-// This catches the tail only. A file source sits at the HEAD of a graph, and
-// the audiosample protocol has no "what is behind you" accessor to walk, so a
-// deep one is caught at the first block instead of at the door. That is the
-// honest limit of this check and it is written down in the notes.
+// It used to catch the tail only, because a file source sits at the HEAD of a
+// graph and the protocol had no "what is behind you" accessor to walk -- so a
+// WaveFile behind a Mixer was found by the pump, as a fault and silence,
+// rather than at the door. The protocol has `sources` now (audiodsp#112), so
+// the whole graph is walked here instead.
+//
+// The walk stops at any node that does not implement `sources`, and reports
+// clean for what it could not see. That is the honest direction: a node from
+// outside this repository is not assumed to be hiding a file, and the file
+// sources' own in-pull refusal is still underneath as the backstop it always
+// was. What changes is that every graph audiodsp itself can build is now
+// refused at the door with a sentence.
+static const qstr audiopump_unpumpable_names[] = {
+    MP_QSTR_WaveFile, MP_QSTR_MP3Decoder,
+};
+
 static void audiopump_refuse_unpumpable(mp_obj_t sample) {
-    const qstr name = mp_obj_get_type(sample)->name;
-    if (name == MP_QSTR_WaveFile || name == MP_QSTR_MP3Decoder) {
-        mp_raise_ValueError(MP_ERROR_TEXT(
+    mp_obj_t found = audiosample_find_type(sample,
+        audiopump_unpumpable_names,
+        MP_ARRAY_SIZE(audiopump_unpumpable_names));
+    if (found != MP_OBJ_NULL) {
+        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT(
             "a file-backed source cannot be pumped; it reads through the VFS "
-            "inside the pull. Fill a ring from the interpreter instead."));
+            "inside the pull. Fill a ring from the interpreter instead. "
+            "(found a %q in the graph)"), mp_obj_get_type(found)->name);
     }
 }
 

@@ -47,6 +47,7 @@ What each case is for
 """
 
 import gc
+import os
 import struct
 import sys
 
@@ -363,8 +364,102 @@ def driver(fault):
                "driver()=%r threaded()=%s" % (name, threads))
 
 
+# --- unpumpable ------------------------------------------------------------
+
+
+#: Same convention route_probe.py uses: CI points this at the runner's temp
+#: directory so a probe never writes into the checkout.
+_TMP = os.getenv("PUMP_PROBE_TMP", "/tmp")
+
+
+def _wave_file(path=None, frames=2048):
+    """A real RIFF/WAVE on the filesystem, because `WaveFile` parses one."""
+    path = path or (_TMP + "/audiodsp_probe.wav")
+    data = bytearray()
+    for frame in range(frames):
+        value = (frame * 97) % 20000 - 10000
+        data += bytes((value & 0xFF, (value >> 8) & 0xFF))
+    header = (b"RIFF" + (36 + len(data)).to_bytes(4, "little") + b"WAVEfmt "
+              + (16).to_bytes(4, "little") + (1).to_bytes(2, "little")
+              + (1).to_bytes(2, "little") + (8000).to_bytes(4, "little")
+              + (16000).to_bytes(4, "little") + (2).to_bytes(2, "little")
+              + (16).to_bytes(2, "little")
+              + b"data" + len(data).to_bytes(4, "little"))
+    with open(path, "wb") as handle:
+        handle.write(header + bytes(data))
+    return path
+
+
+def _refused(tail):
+    """Did `spawn()` say no, with the sentence rather than a fault number?"""
+    block = status()
+    try:
+        audiopump.spawn(sample=tail, blocks=4, status=block)
+    except ValueError as error:
+        return "file-backed" in str(error)
+    audiopump.shutdown()
+    return False
+
+
+def unpumpable(fault):
+    """audiodsp#112. A file-backed source is refused at HANDOVER, however deep
+    in the graph it sits -- not found by the pump at the first block, as a
+    fault and silence.
+
+    The depth is the whole point: a `WaveFile` as the tail was always caught,
+    because the old check read one type name. Behind a Filter, or behind a
+    Mixer's second voice, it was not.
+
+    `--fault unpumpable` asserts the *negative* control instead: a graph with
+    no file in it must NOT be refused, so a check that simply raised every
+    time would fail here.
+    """
+    import audiocore
+    import audiofilters
+    import audiomixer
+
+    path = _wave_file()
+    keep = []
+    ok = True
+
+    if fault == "unpumpable":
+        # The control: nothing file-backed anywhere, so spawn() must accept.
+        tail = raw()
+        refused = _refused(tail)
+        if not refused:
+            audiopump.shutdown()
+        return say("unpumpable", refused,
+                   "a clean graph was accepted, so the check does not just "
+                   "raise -- inverted by --fault, and this must FAIL")
+
+    wave = audiocore.WaveFile(open(path, "rb"))
+    keep.append(wave)
+    ok = say("tail", _refused(wave), "a WaveFile handed over directly") and ok
+
+    wave = audiocore.WaveFile(open(path, "rb"))
+    deep = audiofilters.Filter(sample_rate=8000, channel_count=1,
+                               buffer_size=512)
+    deep.play(wave)
+    keep.extend((wave, deep))
+    ok = say("one deep", _refused(deep), "a WaveFile behind a Filter") and ok
+
+    wave = audiocore.WaveFile(open(path, "rb"))
+    mixer = audiomixer.Mixer(voice_count=2, sample_rate=8000, channel_count=1,
+                             bits_per_sample=16, samples_signed=True,
+                             buffer_size=512)
+    # Voice 0 deliberately left silent: an empty slot must not end the walk.
+    mixer.voice[1].play(wave)
+    keep.extend((wave, mixer))
+    ok = say("behind mix", _refused(mixer),
+             "a WaveFile on a Mixer's SECOND voice, first voice silent") and ok
+
+    ok = say("clean", not _refused(raw()),
+             "a graph with no file in it is still accepted") and ok
+    return ok
+
+
 CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
-         ("driver", driver))
+         ("driver", driver), ("unpumpable", unpumpable))
 
 
 def main():

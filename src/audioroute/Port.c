@@ -217,10 +217,19 @@ static const mp_rom_map_elem_t audioroute_port_locals_table[] = {
 static MP_DEFINE_CONST_DICT(audioroute_port_locals,
     audioroute_port_locals_table);
 
+// What is behind this node, for audiosample_find_type()'s walk.
+// audiodsp#112: the pump refuses a file-backed source at handover,
+// and the protocol had no way to look past the tail.
+static mp_obj_t audioroute_port_sources(mp_obj_t self_in, uint8_t index) {
+    return index == 0 ? ((audioroute_port_obj_t *)MP_OBJ_TO_PTR(self_in))->source
+                      : MP_OBJ_NULL;
+}
+
 static const audiosample_p_t audioroute_port_proto = {
     MP_PROTO_IMPLEMENT(MP_QSTR_protocol_audiosample)
     .reset_buffer = audioroute_port_reset_buffer,
     .get_buffer = audioroute_port_get_buffer,
+    .sources = audioroute_port_sources,
 };
 
 MP_DEFINE_CONST_OBJ_TYPE(

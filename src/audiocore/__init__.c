@@ -442,3 +442,59 @@ MP_DEFINE_CONST_FUN_OBJ_2(audiosample_set_sample_rate_obj, audiosample_obj_set_s
 MP_PROPERTY_GETSET(audiosample_sample_rate_obj,
     (mp_obj_t)&audiosample_get_sample_rate_obj,
     (mp_obj_t)&audiosample_set_sample_rate_obj);
+
+// The graph walk audiopump.spawn() refuses an unpumpable source with.
+//
+// Bounded by AUDIOSAMPLE_WALK_DEPTH rather than by a visited set: a cycle is
+// already refused at attach time (audioroute's loop guard), the depth is a
+// backstop for a graph built some other way, and a set would need an
+// allocation on a path that must not allocate. Depth-first and iterative for
+// the same reason -- the interpreter's C stack is not this file's to spend.
+#define AUDIOSAMPLE_WALK_DEPTH (32)
+
+mp_obj_t audiosample_find_type(mp_obj_t sample, const qstr *names,
+    size_t name_count) {
+    mp_obj_t stack[AUDIOSAMPLE_WALK_DEPTH];
+    size_t depth = 0;
+    if (sample == MP_OBJ_NULL || sample == mp_const_none) {
+        return MP_OBJ_NULL;
+    }
+    stack[depth++] = sample;
+    while (depth > 0) {
+        mp_obj_t node = stack[--depth];
+        const mp_obj_type_t *type = mp_obj_get_type(node);
+        for (size_t i = 0; i < name_count; i++) {
+            if (type->name == names[i]) {
+                return node;
+            }
+        }
+        const audiosample_p_t *proto = (const audiosample_p_t *)mp_proto_get(
+            MP_QSTR_protocol_audiosample, node);
+        // No protocol, or a protocol that will not say: stop here. Reporting
+        // "clean" for a subtree we cannot see is the honest answer, and it is
+        // the safe direction -- the node's own in-pull refusal is still under
+        // it.
+        if (proto == NULL || proto->sources == NULL) {
+            continue;
+        }
+        // mp_const_none is an EMPTY SLOT and the walk keeps asking;
+        // MP_OBJ_NULL is PAST THE LAST and it stops. Without that split, a
+        // node whose first slot happens to be empty -- a Mixer with a silent
+        // voice 0, a Multiply with no modulator yet -- would hide everything
+        // in its later ones.
+        for (uint8_t index = 0; ; index++) {
+            mp_obj_t source = proto->sources(node, index);
+            if (source == MP_OBJ_NULL) {
+                break;
+            }
+            if (source == mp_const_none) {
+                continue;
+            }
+            if (depth == AUDIOSAMPLE_WALK_DEPTH) {
+                return MP_OBJ_NULL;
+            }
+            stack[depth++] = source;
+        }
+    }
+    return MP_OBJ_NULL;
+}

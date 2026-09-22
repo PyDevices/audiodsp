@@ -92,10 +92,27 @@ static const mp_rom_map_elem_t audioroute_splitter_tap_locals_table[] = {
 static MP_DEFINE_CONST_DICT(audioroute_splitter_tap_locals,
     audioroute_splitter_tap_locals_table);
 
+// What is behind this node, for audiosample_find_type()'s walk. A tap's
+// `owner` is the Splitter, which does not implement the audiosample protocol
+// itself -- only its taps are pullable -- so the walk would stop dead there.
+// Hop over it and hand back what the Splitter is reading. audiodsp#112.
+static mp_obj_t audioroute_splitter_tap_sources(mp_obj_t self_in,
+    uint8_t index) {
+    audioroute_splitter_tap_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (index != 0 || self->owner == MP_OBJ_NULL
+        || self->owner == mp_const_none) {
+        return MP_OBJ_NULL;
+    }
+    audioroute_splitter_obj_t *splitter = MP_OBJ_TO_PTR(self->owner);
+    return splitter->source == MP_OBJ_NULL ? mp_const_none
+                                           : splitter->source;
+}
+
 static const audiosample_p_t audioroute_splitter_tap_proto = {
     MP_PROTO_IMPLEMENT(MP_QSTR_protocol_audiosample)
     .reset_buffer = audioroute_splitter_tap_reset_buffer,
     .get_buffer = audioroute_splitter_tap_get_buffer,
+    .sources = audioroute_splitter_tap_sources,
 };
 
 MP_DEFINE_CONST_OBJ_TYPE(

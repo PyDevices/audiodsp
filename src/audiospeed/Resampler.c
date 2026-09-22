@@ -99,6 +99,9 @@ static const audiosample_p_t audiospeed_resampler_proto = {
         audiospeed_speedchanger_reset_buffer,
     .get_buffer = (audiosample_get_buffer_fun)
         audiospeed_speedchanger_get_buffer,
+    // A Resampler's first member IS a SpeedChanger, which is what lets it
+    // share the three protocol functions. audiodsp#112.
+    .sources = audiospeed_speedchanger_sources,
 };
 
 MP_DEFINE_CONST_OBJ_TYPE(
