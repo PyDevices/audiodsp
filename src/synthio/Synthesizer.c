@@ -333,6 +333,27 @@ MP_DEFINE_CONST_FUN_OBJ_1(synthio_synthesizer_get_pressed_obj, synthio_synthesiz
 MP_PROPERTY_GETTER(synthio_synthesizer_pressed_obj,
     (mp_obj_t)&synthio_synthesizer_get_pressed_obj);
 
+//|     refused: int
+//|     """How many presses have been dropped because every channel was held.
+//|
+//|     A refused press is the one failure nobody can hear go wrong: the note
+//|     simply never sounds. This is the count, and nothing more -- there is
+//|     no stealing policy here and ``max_polyphony`` has not moved. An
+//|     instrument that wants to steal a channel can decide that for itself
+//|     once it can see the number.
+//|
+//|     Monotonic from construction, and not reset by ``release_all()``."""
+static mp_obj_t synthio_synthesizer_obj_get_refused(mp_obj_t self_in) {
+    synthio_synthesizer_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    check_for_deinit(self);
+    return mp_obj_new_int_from_uint(self->synth.refused);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(synthio_synthesizer_get_refused_obj,
+    synthio_synthesizer_obj_get_refused);
+
+MP_PROPERTY_GETTER(synthio_synthesizer_refused_obj,
+    (mp_obj_t)&synthio_synthesizer_get_refused_obj);
+
 static mp_obj_t synthio_synthesizer_obj_note_info(mp_obj_t self_in, mp_obj_t note) {
     synthio_synthesizer_obj_t *self = MP_OBJ_TO_PTR(self_in);
     check_for_deinit(self);
@@ -369,6 +390,7 @@ static const mp_rom_map_elem_t synthio_synthesizer_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_envelope), MP_ROM_PTR(&synthio_synthesizer_envelope_obj) },
     { MP_ROM_QSTR(MP_QSTR_max_polyphony), MP_ROM_INT(CIRCUITPY_SYNTHIO_MAX_CHANNELS) },
     { MP_ROM_QSTR(MP_QSTR_pressed), MP_ROM_PTR(&synthio_synthesizer_pressed_obj) },
+    { MP_ROM_QSTR(MP_QSTR_refused), MP_ROM_PTR(&synthio_synthesizer_refused_obj) },
     { MP_ROM_QSTR(MP_QSTR_note_info), MP_ROM_PTR(&synthio_synthesizer_note_info_obj) },
     { MP_ROM_QSTR(MP_QSTR_blocks), MP_ROM_PTR(&synthio_synthesizer_blocks_obj) },
     AUDIOSAMPLE_FIELDS,

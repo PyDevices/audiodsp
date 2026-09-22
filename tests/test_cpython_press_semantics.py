@@ -7,7 +7,8 @@ built oracle before landing (issues #8 and #9):
 - a note already playing re-enters ATTACK from its CURRENT level with its
   oscillator phase intact (and its filter reset);
 - a fresh press claims a free channel starting at phase zero;
-- a press with no free channel is REFUSED - never evicted;
+- a press with no free channel is REFUSED - never evicted, and since
+  audiodsp#127 it is COUNTED, so a refusal can be seen from outside;
 - an at-cap re-press of a member changes nothing about the others.
 """
 
@@ -134,6 +135,53 @@ class FilterCascade(unittest.TestCase):
         with self.assertRaises(TypeError):
             synthio.Note(100.0, filter=(b, "nope"))
         synthio.Note(100.0, filter=(b, b, b, b))  # four stages: fine
+
+
+class RefusedCountTest(unittest.TestCase):
+    """audiodsp#127. A refused press is the one failure nobody can hear go
+    wrong: the note never sounds, and until this counter nothing inside or
+    outside could see it happen -- audiocomponents#26 had to wrap `press`
+    with its own predicate to count 86 of them over the parity sequence.
+
+    The counter, and nothing else: no stealing policy, and `max_polyphony`
+    has not moved (Brad, 2026-09-22).
+    """
+
+    def _synth(self):
+        return synthio.Synthesizer(sample_rate=8000, channel_count=1)
+
+    def test_it_starts_at_zero_and_stays_there_while_there_is_room(self):
+        synth = self._synth()
+        self.assertEqual(synth.refused, 0)
+        synth.press([synthio.Note(frequency=110.0 + step)
+                     for step in range(synth.max_polyphony)])
+        self.assertEqual(synth.refused, 0,
+                         "a press that fits must not count as refused")
+
+    def test_it_counts_exactly_the_presses_that_had_nowhere_to_go(self):
+        synth = self._synth()
+        over = 12
+        notes = [synthio.Note(frequency=110.0 + step)
+                 for step in range(synth.max_polyphony + over)]
+        synth.press(notes)
+        self.assertEqual(synth.refused, over)
+
+    def test_a_release_that_finds_nothing_is_not_a_refusal(self):
+        """The same code path returns False for a release of a note that is
+        not held. That is not a note which never sounded, and counting it
+        would make the number mean two things."""
+        synth = self._synth()
+        synth.release([synthio.Note(frequency=440.0)])
+        self.assertEqual(synth.refused, 0)
+
+    def test_it_is_monotonic_across_a_release_all(self):
+        synth = self._synth()
+        synth.press([synthio.Note(frequency=110.0 + step)
+                     for step in range(synth.max_polyphony + 3)])
+        before = synth.refused
+        synth.release_all()
+        self.assertEqual(synth.refused, before)
+        self.assertEqual(before, 3)
 
 
 if __name__ == "__main__":

@@ -362,6 +362,8 @@ void synthio_synth_init(synthio_synth_t *synth, uint32_t sample_rate, int channe
     synth->base.max_buffer_length = synth->buffer_length;
     synthio_synth_envelope_set(synth, envelope_obj);
 
+    synth->refused = 0;
+
     for (size_t i = 0; i < CIRCUITPY_SYNTHIO_MAX_CHANNELS; i++) {
         synth->span.note_obj[i] = SYNTHIO_SILENCE;
     }
@@ -460,6 +462,12 @@ bool synthio_span_change_note(synthio_synth_t *synth, mp_obj_t old_note, mp_obj_
         }
         audiodsp_pump_lock_release();
         return true;
+    }
+    // Nothing took it. For a press that is a note that will never sound, and
+    // the count is the only trace it leaves -- see `refused` in the header.
+    // A release that found no held note lands here too and is not counted.
+    if (new_note != SYNTHIO_SILENCE) {
+        synth->refused++;
     }
     audiodsp_pump_lock_release();
     return false;
