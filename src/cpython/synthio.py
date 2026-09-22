@@ -284,6 +284,13 @@ class Synthesizer(_AudioSample):
         self.bits_per_sample, self.samples_signed = 16, True
         self.waveform, self.envelope = waveform, envelope
         self.blocks = []
+        # Presses dropped because every channel was held. A refused press is
+        # the one failure nobody can hear go wrong: the note simply never
+        # sounds. No stealing policy and no ceiling change hang off it -- an
+        # instrument that wants to steal decides that for itself once it can
+        # see the number. Monotonic, and `release_all()` does not reset it.
+        # audiodsp#127.
+        self.refused = 0
         self._notes = []
         # The loudness each voice slot last actually rendered at. CircuitPython
         # keys this to the channel (`synth->active_loudness[chan]`), not to the
@@ -425,6 +432,11 @@ class Synthesizer(_AudioSample):
                     if quietest is None or level < quietest:
                         victim, quietest = other, level
                 if victim is None:
+                    # Every channel genuinely held: the press is dropped and
+                    # the note will never sound. Counted rather than silent
+                    # (audiodsp#127) -- the C side does the same, in
+                    # `synthio_span_change_note`'s falling-through return.
+                    self.refused += 1
                     continue
                 self._notes.remove(victim)
             self._start_note(note)

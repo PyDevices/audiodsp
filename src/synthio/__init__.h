@@ -153,6 +153,16 @@ typedef audiodsp_envelope_state_t synthio_envelope_state_t;
 struct synthio_synth {
     audiosample_base_t base;
     uint32_t total_envelope;
+    //: Presses dropped because every channel was held. A refused press is
+    //: the one failure nobody can hear go wrong -- the note simply never
+    //: sounds -- and until audiodsp#127 nothing inside or outside could see
+    //: it happen. Counts presses only: a release of a note that is not held
+    //: takes the same path and is not a refusal.
+    //:
+    //: Deliberately NOT a stealing policy and NOT a ceiling change (Brad,
+    //: 2026-09-22). An instrument that wants to steal can decide that for
+    //: itself once it can see the number.
+    uint32_t refused;
     int16_t *buffers[2];
     uint16_t buffer_length;
     uint16_t last_buffer_length;
