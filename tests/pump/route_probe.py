@@ -330,8 +330,8 @@ def deep_loop(fault):
     fault, and a legitimately DEEP chain must not. A guard that simply
     faulted every time would pass the first row for the wrong reason.
 
-    `--fault deeper` builds the second chain PAST the cap -- 80 Ports against
-    AUDIOSAMPLE_MAX_PULL_DEPTH's 64 -- and still asserts it comes back clean.
+    `--fault deeper` builds the second chain PAST the cap -- 40 Ports against
+    AUDIOSAMPLE_MAX_PULL_DEPTH's 32 -- and still asserts it comes back clean.
     That must fail, and failing is what proves the cap is a real number
     rather than one the guard never reaches.
     """
@@ -348,11 +348,16 @@ def deep_loop(fault):
              "err=%d at block %d" % (got[24], got[5], got[0]))
 
     # The control: a chain deeper than anything real, with no ring in it.
-    # AUDIOSAMPLE_MAX_PULL_DEPTH is 64, so 40 nodes leaves an honest graph
-    # room -- which is the claim. 80 is past it, and the fault run asserts
+    # AUDIOSAMPLE_MAX_PULL_DEPTH is 32, so 20 nodes leaves an honest graph
+    # room -- which is the claim. 40 is past it, and the fault run asserts
     # the same clean result there so that the cap has to be reachable.
+    #
+    # The numbers are not arbitrary and the first attempt got them wrong: at
+    # a cap of 64 the fault chain of 80 segfaulted before the guard fired,
+    # because the C stack ran out first. That is the measurement the cap is
+    # set from.
     audiopump.lock_reset()
-    stages = 80 if fault == "deeper" else 40
+    stages = 40 if fault == "deeper" else 20
     chain = sample()
     for _stage in range(stages):
         chain = audioroute.Port(chain)

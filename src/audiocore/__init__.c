@@ -139,10 +139,19 @@ static bool micropython_sample_source(mp_obj_t sample_obj,
 // plain int is enough and no atomic is needed.
 //
 // The cap is a DEPTH, not a node count: a Mixer with sixteen voices five
-// nodes deep is a depth of six. Sixty-four is far past any graph anyone has
-// built here and far short of the C stack on the smallest port, which is the
-// only pair of numbers that matters.
-#define AUDIOSAMPLE_MAX_PULL_DEPTH (64)
+// nodes deep is a depth of six. It has to sit above any graph anyone builds
+// and BELOW the depth at which the C stack runs out, and the second half is
+// the one that was measured rather than assumed: a chain of 80 Ports pulled
+// on the unix build segfaulted with the cap at 64, because each nest costs a
+// funnel frame (an adapter and a source struct) plus the node's own. So the
+// cap is 32, which is deeper than anything in the palette or in
+// audiocomponents' racks and shallow enough that the guard fires with stack
+// to spare.
+//
+// A graph legitimately deeper than this is a real thing to want and not one
+// anyone has wanted yet; raising the number means measuring the stack again
+// on the smallest port, not editing this line.
+#define AUDIOSAMPLE_MAX_PULL_DEPTH (32)
 
 static int audiosample_pull_depth;
 
