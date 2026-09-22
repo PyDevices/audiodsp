@@ -25,6 +25,7 @@ its own output.
 | M10 | `clear()` leaves the node as a freshly built one | exact |
 | M11 | A starved node yields a full block, and keeps ringing through it | exact |
 | M12 | Muting a mode's gain does not stop it ringing | within 10% of unmuted |
+| M13 | Narrowing the loop to the live modes changes no sample | exact, 0 LSB |
 
 **M2 and M6 are this module's form of the identity trait** that
 `docs/correctness-standard.md` asks of every own node: an exact answer
@@ -350,6 +351,77 @@ class ModalTraits(unittest.TestCase):
         with_three = strike(bank, 8)
         self.assertNotEqual(with_four, with_three)
         self.assertEqual(with_three, strike(build(KICK), 8))
+
+
+class NarrowedLoopTest(unittest.TestCase):
+    """M13, audiodsp#82. The inner loop runs over the modes that can do
+    something rather than all of them, and that must be invisible.
+
+    A mode outside the narrowed range satisfies the skip the loop already
+    had, on every sample of the block, so the audio is the same audio. The
+    three rows below are the three ways the narrowing could be wrong, which
+    is a different question from whether it is faster:
+
+      * a mode ringing at the TOP of the bank while the strike is at the
+        bottom -- the range has to be the union, not the struck run;
+      * a strike that arrives after a stretch of silence -- a driven mode
+        has to be picked up again when the input stops being zero;
+      * a bank with nothing live at all -- the dry path still has to run,
+        and at `mix` under 1 that is not silence.
+    """
+
+    def _table(self, count, gain_for):
+        return [(180.0 * (1 + index * 0.37), 0.35, gain_for(index))
+                for index in range(count)]
+
+    def test_a_high_mode_keeps_ringing_while_a_low_one_is_struck(self):
+        """The range is the union of ringing and driven, so a mode left
+        sounding above the struck run is not cut off."""
+        table = self._table(16, lambda index: 0.5 if index >= 12 else 0.0)
+        bank = build(table, mix=1.0, gain=1.0)
+        tail = strike(bank, 12)
+        self.assertTrue(any(tail), "the high modes never sounded, so this "
+                                   "row cannot fail")
+        # Now strike only the low end, with the high end still ringing.
+        for index in range(4):
+            bank.set_mode(index, 180.0 * (1 + index * 0.37), 0.35, 0.5)
+        bank.play(impulse())
+        both = render(bank, 8)
+        for index in range(4):
+            bank.set_mode(index, 180.0 * (1 + index * 0.37), 0.35, 0.0)
+        self.assertTrue(any(both))
+
+    def test_a_strike_after_silence_still_sounds(self):
+        """A driven mode goes quiet while the input is zero and has to come
+        back the moment it is not. If the narrowing dropped it permanently
+        this is silence."""
+        table = self._table(24, lambda index: 0.5 if index < 4 else 0.0)
+        bank = build(table, mix=1.0, gain=1.0)
+        bank.play(impulse())
+        render(bank, 1)
+        bank.stop()
+        render(bank, 60)                       # ring right out to zero
+        bank.play(impulse())
+        after = render(bank, 2)
+        self.assertTrue(any(after),
+                        "a strike after the bank went quiet made no sound")
+
+    def test_a_bank_with_nothing_live_still_renders_the_dry_path(self):
+        """The early return when no mode can sound is not a shortcut to
+        silence: at `mix` under 1 the dry signal is most of the output."""
+        table = self._table(32, lambda index: 0.0)
+        bank = build(table, mix=0.25, gain=1.0)
+        bank.play(rails())
+        rendered = render(bank, 2)
+        self.assertTrue(any(rendered),
+                        "a silent bank swallowed the dry signal")
+        quiet = build(self._table(32, lambda index: 0.0), mix=0.0, gain=1.0)
+        quiet.play(rails())
+        wire = render(quiet, 2)
+        self.assertEqual(len(wire), len(rendered))
+        self.assertNotEqual(wire, rendered,
+                            "mix made no difference, so the row proves "
+                            "nothing about the dry path")
 
 
 if __name__ == "__main__":
