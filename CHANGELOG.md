@@ -1,17 +1,14 @@
 ## v0.5.1 (2026-09-22)
 
 - The release gate expects the 18 wheels this tree builds, not the 21 it built with Python 3.10 (#123)
-
-## Unreleased
-
 - **v0.5.0 was tagged and published nothing.** Its release run built every
   wheel this tree builds — eighteen — and then stopped at a gate that still
   expected twenty-one: Python 3.10 had been dropped on 2026-09-10, so the three
   cp310 wheels were no longer built, and the expected count in the publish
   workflow had not followed. The count is 18 now, the dead `cp310-*` selector is
   gone, and the README and the wheel-building notes say 3.11. The tag cannot be
-  reused, so the first published release of `pydevices-audiodsp` is the next
-  one (#122).
+  reused, so the first published release of `pydevices-audiodsp` is this one
+  (#122).
 
 ## v0.5.0 (2026-09-21)
 
@@ -47,9 +44,6 @@
 - Drop Python 3.10
 - verify_dsp: narrow the float cell to the divergences already filed
 - The revision test skips where a build cannot know its revision
-
-## Unreleased
-
 - **This repository is `audiodsp` now.** It was named `audioif` until
   2026-09-21; that name now belongs to the audio hardware layer (the pump's
   platform drivers), which lines audio up with `displayif` and `usbif`. What
