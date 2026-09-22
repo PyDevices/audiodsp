@@ -59,12 +59,20 @@
 // SYNTHIO_MIX_DOWN_SCALE(2) mirroring upstream CircuitPython's own
 // two-channel default. A literal 2 that stays 2.
 //
-// The pinned oracle stays at 14, so material that crosses this ceiling is
-// non-parity by construction. tests/parity/verify_mixdown_knee.py is that
-// material, which is why its above-knee half is enforced against this port
-// rather than against the oracle. The deviation is NOT yet recorded in
-// docs/upstream-diff.md; writing it there needs Brad's word (open
-// 2026-09-06).
+// The pinned oracle is built at this SAME ceiling (64) and has been since
+// 2026-09-09 -- `cmods/build_interpreters.sh --only cp-oracle`, pinned by
+// hash in tests/test_voice_ceiling_consistency.py, which is the file to read
+// for why an oracle at a different configuration cannot answer the only
+// question worth asking. This comment said the oracle stays at 14 and that
+// material crossing the ceiling is non-parity by construction; both stopped
+// being true when the oracle moved, and the deviation that went with them is
+// retired in docs/upstream-diff.md ("The ceiling deviation is RETIRED",
+// audiodsp#31).
+//
+// tests/parity/verify_mixdown_knee.py is still the only committed gate whose
+// material crosses the mix-down limiter's +/-28000 knee, so it is still the
+// only one that can see a ceiling change at all -- but it sees it as a
+// comparison the oracle takes part in, not as an exemption from one.
 //
 // Override via CFLAGS_EXTRA=-DCIRCUITPY_SYNTHIO_MAX_CHANNELS=N for a board
 // that needs fewer voices; on CMake ports that must be an environment
