@@ -233,10 +233,19 @@ static const mp_rom_map_elem_t audioladder_ladder_locals_table[] = {
 static MP_DEFINE_CONST_DICT(audioladder_ladder_locals,
     audioladder_ladder_locals_table);
 
+// What is behind this node, for audiosample_find_type()'s walk.
+// audiodsp#112: the pump refuses a file-backed source at handover,
+// and the protocol had no way to look past the tail.
+static mp_obj_t audioladder_ladder_sources(mp_obj_t self_in, uint8_t index) {
+    return index == 0 ? ((audioladder_ladder_obj_t *)MP_OBJ_TO_PTR(self_in))->source
+                      : MP_OBJ_NULL;
+}
+
 static const audiosample_p_t audioladder_ladder_proto = {
     MP_PROTO_IMPLEMENT(MP_QSTR_protocol_audiosample)
     .reset_buffer = audioladder_ladder_reset_buffer,
     .get_buffer = audioladder_ladder_get_buffer,
+    .sources = audioladder_ladder_sources,
 };
 
 MP_DEFINE_CONST_OBJ_TYPE(

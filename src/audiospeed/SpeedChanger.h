@@ -36,6 +36,10 @@ typedef struct {
 
 extern const mp_obj_type_t audiospeed_speedchanger_type;
 
+// Shared with Resampler, whose first member is a SpeedChanger.
+mp_obj_t audiospeed_speedchanger_sources(mp_obj_t self_in,
+    uint8_t index);
+
 void common_hal_audiospeed_speedchanger_construct(audiospeed_speedchanger_obj_t *self,
     mp_obj_t source, uint32_t rate_fp);
 void common_hal_audiospeed_speedchanger_deinit(audiospeed_speedchanger_obj_t *self);

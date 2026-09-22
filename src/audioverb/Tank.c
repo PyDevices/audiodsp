@@ -327,10 +327,19 @@ static const mp_rom_map_elem_t audioverb_tank_locals_table[] = {
 };
 static MP_DEFINE_CONST_DICT(audioverb_tank_locals, audioverb_tank_locals_table);
 
+// What is behind this node, for audiosample_find_type()'s walk.
+// audiodsp#112: the pump refuses a file-backed source at handover,
+// and the protocol had no way to look past the tail.
+static mp_obj_t audioverb_tank_sources(mp_obj_t self_in, uint8_t index) {
+    return index == 0 ? ((audioverb_tank_obj_t *)MP_OBJ_TO_PTR(self_in))->source
+                      : MP_OBJ_NULL;
+}
+
 static const audiosample_p_t audioverb_tank_proto = {
     MP_PROTO_IMPLEMENT(MP_QSTR_protocol_audiosample)
     .reset_buffer = audioverb_tank_reset_buffer,
     .get_buffer = audioverb_tank_get_buffer,
+    .sources = audioverb_tank_sources,
 };
 
 MP_DEFINE_CONST_OBJ_TYPE(
