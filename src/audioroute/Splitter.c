@@ -132,14 +132,22 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audioroute_splitter_tap_obj,
 // audio.
 static mp_obj_t audioroute_splitter_deinit(mp_obj_t self_in) {
     audioroute_splitter_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    if (self->deinited) {
-        return mp_const_none;
-    }
     // Up to sixteen words, and every one of them is read by a pull: the
     // splitter's own, and each tap's. One lock over the lot -- it is a dozen
     // stores of constants, which is a shorter stop than the arithmetic of a
     // single block.
+    //
+    // The idempotency check is inside it too. It reads the same word this
+    // body writes, so reading it outside was the one place a second deinit()
+    // could see a half-finished first one; the audit's rule is that a
+    // deinit() holds the lock over its whole body, and "only the interpreter
+    // thread calls deinit()" is an argument rather than a guarantee.
+    // audiodsp#116.
     audiodsp_pump_lock_acquire();
+    if (self->deinited) {
+        audiodsp_pump_lock_release();
+        return mp_const_none;
+    }
     self->deinited = true;
     for (uint32_t index = 0; index < AUDIODSP_SPLITTER_MAX_TAPS; ++index) {
         if (self->taps[index] != MP_OBJ_NULL) {

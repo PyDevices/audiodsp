@@ -41,3 +41,21 @@ jobs:
         run: |
           python3 tools/check_portable.py --self-test
           python3 tools/check_portable.py
+
+      # The live-audio-path audit's rule: a deinit() needs the lock over its
+      # WHOLE body, not over the part someone argued was the dangerous one.
+      # Three bodies were left doing work outside it because each was argued
+      # safe rather than shown safe (audiodsp#116), and an argument is not a
+      # guarantee -- so the shape is checked rather than remembered.
+      #
+      # Same self-test-first discipline as the portability checker, for the
+      # same reason: every banned shape is planted in a throwaway file and
+      # must be caught, and a clean body is planted beside them so a checker
+      # that says "no" to everything fails too. `check_for_deinit` raises
+      # OUTSIDE the lock on purpose and is excluded by name; without that,
+      # fourteen correct helpers would be reported and the gate would be
+      # switched off inside a week.
+      - name: A deinit() holds its lock over its whole body
+        run: |
+          python3 tools/check_lock_shape.py --self-test
+          python3 tools/check_lock_shape.py
