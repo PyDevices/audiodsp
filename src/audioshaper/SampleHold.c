@@ -246,8 +246,11 @@ static mp_obj_t audioshaper_samplehold_deinit(mp_obj_t self_in) {
     self->pending = NULL;
     self->pending_frames = 0;
     self->source_exhausted = true;
-    audiodsp_pump_lock_release();
+    // Inside the lock with the rest: the reset writes the running state a
+    // pull reads, and the audit's rule is that a deinit() holds the lock
+    // over its whole body. audiodsp#116.
     audiodsp_samplehold_reset(&self->state, &self->config);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_samplehold_deinit_obj,
