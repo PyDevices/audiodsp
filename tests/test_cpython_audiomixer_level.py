@@ -13,7 +13,9 @@ sits within a float32 rounding of one -- a whole LSB apart, not a rounding.
 
 | what it checks | bar |
 |---|---|
-| the twin's multiplier is the float32 one | `_mod_mul(level)` is bit-equal to `(float)level / 32767.0f` for every Q15 level 0..32768 |
+| the twin's multiplier is the float32 one | `_mod_mul(level)` is bit-equal to `(float)level / 32767.0f` for every Q15 level 0..32767 |
+| unity is the one exception, and is exact | `_mod_mul(32768)` is 1.0, not 32768/32767 -- audiodsp#95 |
+| a level-1.0 voice is a wire at the rails | every int16 value renders back unchanged, mono and stereo |
 | the flipping values are enumerated, not sampled | at level 100/127 exactly 56 of the 65536 int16 values flip -- 28 on the left scale (Q15 25800), 28 on the right (25801), sharing none |
 | the twin renders the float32 answer | all 56, both channels, through a real `Mixer` block |
 | the old float64 twin would fail this | the float64 formula differs on every one of the 56 |
@@ -80,14 +82,60 @@ def _flips(scale):
 class MixerLevelIsSinglePrecision(unittest.TestCase):
 
     def test_the_multiplier_is_the_float32_quotient(self):
-        """Every Q15 level a voice can carry, not a sampled few."""
-        for level in range(0, 32769):
+        """Every Q15 level a voice can carry, not a sampled few.
+
+        Unity is excluded and tested on its own below: audiodsp#95 made
+        32768 mean 1.0 exactly, where the quotient would be 1.0000305.
+        """
+        for level in range(0, 32768):
             expected = struct.unpack(
                 "f", struct.pack("f", level / 32767.0))[0]
             self.assertEqual(
                 struct.pack("f", _mod_mul(level)),
                 struct.pack("f", expected),
                 "level %d" % level)
+
+    def test_unity_is_exactly_one(self):
+        """audiodsp#95. A voice level of 1.0 becomes Q15 32768, and upstream
+        then scales by 32768/32767 = 1.0000305 -- which lifts every sample at
+        |value| >= 32736 by one LSB. Here 32768 is unity, exactly."""
+        self.assertEqual(_mod_mul(32768), 1.0)
+        self.assertNotEqual(
+            struct.pack("f", _mod_mul(32768)),
+            struct.pack("f", struct.unpack("f", struct.pack(
+                "f", 32768 / 32767.0))[0]),
+            "the deviation this pins has vanished")
+
+    def test_a_level_one_voice_is_a_wire_at_the_rails(self):
+        """audiodsp#95, measured rather than argued: every int16 value, once,
+        through a level-1.0 voice, comes back as itself.
+
+        The leading block of silence opens the level gate -- without it the
+        ramp renders at level 0 until its own zero crossing, and the
+        comparison would be measuring the gate.
+        """
+        for channels in (1, 2):
+            with self.subTest(channels=channels):
+                values = array.array("h", [0] * (512 * channels))
+                for value in range(-32768, 32768):
+                    for _channel in range(channels):
+                        values.append(value)
+                mixer = audiomixer.Mixer(
+                    voice_count=1, sample_rate=SAMPLE_RATE,
+                    channel_count=channels, bits_per_sample=16,
+                    samples_signed=True, buffer_size=BUFFER_SIZE)
+                mixer.voice[0].level = 1.0
+                mixer.play(audiocore.RawSample(
+                    array.array("h", values), sample_rate=SAMPLE_RATE,
+                    channel_count=channels))
+                rendered = array.array("h")
+                while len(rendered) < len(values):
+                    block = array.array("h")
+                    block.frombytes(bytes(audiocore.get_buffer(mixer)[1]))
+                    rendered.extend(block)
+                head = 512 * channels
+                self.assertEqual(list(rendered[head:len(values)]),
+                                 list(values[head:]))
 
     def test_the_flipping_values_are_exactly_these(self):
         """The enumeration is the test: a sampled probe would miss them.

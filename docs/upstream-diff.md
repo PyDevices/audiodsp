@@ -1341,6 +1341,61 @@ a Mixer — `MultibandCompressor`, `Harmonizer`, `Octaver`, `StereoWidener`,
 there, but not the middle of one. (`ParametricEQ` was on that list until the
 peaking-EQ fix below let it drop the Mixer entirely.)
 
+## A voice at level 1.0 is a wire (audiodsp#95)
+
+Upstream maps a voice level of 1.0 to Q15 **32768**:
+
+```c
+uint16_t level = (uint16_t)(synthio_block_slot_get_limited(
+    &voice->level, 0.0, 1.0) * (1 << 15));
+```
+
+and then scales by `level / 32767.0f` in `mult16signed`. So "unity" is really
+**1.0000305**, and every sample whose magnitude reaches 32736 comes out one
+LSB larger — away from zero — with 32767 clamping. A voice at level 1.0 is
+not a wire, and never was.
+
+Measured here on the full int16 range, once per value, through a one-voice
+Mixer with the level gate opened on a leading block of silence:
+
+```
+channels=1: 63 samples differ, |value| >= 32736, deltas [-1, 1], channel index [0]
+channels=2: 63 samples differ, |value| >= 32736, deltas [-1, 1], channel index [1]
+```
+
+Stereo differs on the right channel only, because a voice at panning 0 gets
+`32767 - panning` on the left and a flat `32768` on the right: the left
+scale's quotient is 32767/32767, which is exactly one, and only the right
+carries the lifted multiplier. Mono takes the right-hand path on both.
+
+**The deviation.** A multiplier of exactly `1 << 15` means unity and passes
+the sample through, in `mult16signed` (`src/audiomixer/Mixer.c`) and in
+`_mod_mul` (`src/cpython/audiomixer.py`). Every other level is upstream's
+arithmetic bit for bit — the single-precision quotient and product that
+audiodsp#84 pinned, which `tests/test_cpython_audiomixer_level.py` still
+enumerates over Q15 0..32767.
+
+**Why deviate rather than route around it.** Answer (1) on the issue — a
+class claiming a wire at Mix 0 routes through no mixer — is what the shipped
+effect classes took, and five of them were rewired for it. That fixed the
+classes; it did not fix `audiomixer`, and the next class to put a full-scale
+signal through a level-1.0 voice would have found it again. The scale is one
+number in one kernel and the fix is one compare, so the module now means what
+it says.
+
+**What moved.** Nothing any committed gate covers: `verify_acceptance`,
+`verify_effects`, `verify_streaming`, `verify_biquad` and
+`verify_mixdown_knee` all match their recorded hashes unchanged, because none
+of their material carries a full-scale sample through a level-1.0 voice. What
+does move is any render that does — by one LSB, on samples at |value| >= 32736
+only, and toward the sample's own value rather than away from it.
+
+**Not applied to the CircuitPython target,** per the standing rule: the oracle
+keeps upstream's arithmetic, so this is one of the enumerated places where our
+targets and the oracle disagree by design. A parity script that renders
+full-scale material through a level-1.0 voice will see it, and should expect
+it.
+
 ## Peaking EQ computed `b2` with the wrong sign (effects-extension tier)
 
 `audiodsp_biquad_configure_w0()` builds a peaking bell (mode 4) from the RBJ
