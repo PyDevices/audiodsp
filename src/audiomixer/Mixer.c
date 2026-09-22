@@ -661,10 +661,24 @@ audioio_get_buffer_result_t audiomixer_mixer_get_buffer(audiomixer_mixer_obj_t *
     return GET_BUFFER_MORE_DATA;
 }
 
+// What is behind this node, for audiosample_find_type()'s walk. A Mixer has
+// one slot per voice; a voice with nothing playing is an EMPTY slot rather
+// than the end of the list, or a silent voice 0 would hide the rest.
+// audiodsp#112.
+static mp_obj_t audiomixer_mixer_sources(mp_obj_t self_in, uint8_t index) {
+    audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (index >= self->voice_count) {
+        return MP_OBJ_NULL;
+    }
+    audiomixer_mixervoice_obj_t *voice = MP_OBJ_TO_PTR(self->voice[index]);
+    return voice->sample == MP_OBJ_NULL ? mp_const_none : voice->sample;
+}
+
 static const audiosample_p_t audiomixer_mixer_proto = {
     MP_PROTO_IMPLEMENT(MP_QSTR_protocol_audiosample)
     .reset_buffer = (audiosample_reset_buffer_fun)audiomixer_mixer_reset_buffer,
     .get_buffer = (audiosample_get_buffer_fun)audiomixer_mixer_get_buffer,
+    .sources = audiomixer_mixer_sources,
 };
 
 // Deviation from upstream: adds `attr, cp_compat_attr` -- see

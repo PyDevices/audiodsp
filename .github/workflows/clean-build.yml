@@ -157,6 +157,7 @@ jobs:
                          "pump_probe.py identity --fault reuse" \
                          "pump_probe.py alloc --fault alloc" \
                          "pump_probe.py storm --fault stall" \
+                         "pump_probe.py unpumpable --fault unpumpable" \
                          "route_probe.py ring --fault flip" \
                          "route_probe.py events --fault drop" \
                          "route_probe.py tap --fault short" \

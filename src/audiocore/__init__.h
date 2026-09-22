@@ -50,11 +50,31 @@ typedef audioio_get_buffer_result_t (*audiosample_get_buffer_fun)(mp_obj_t,
     bool single_channel_output, uint8_t channel, uint8_t **buffer,
     uint32_t *buffer_length);
 
+//: One of the sources a node pulls from, counting from 0. `mp_const_none`
+//: is a slot that exists and is empty; MP_OBJ_NULL is past the last slot,
+//: and is the only thing that ends the walk. Deviation from upstream,
+//: additive: CircuitPython's protocol has no way to ask a node what is
+//: behind it, so a graph can only be inspected from the outside by pulling
+//: it. audiodsp#112.
+typedef mp_obj_t (*audiosample_sources_fun)(mp_obj_t self, uint8_t index);
+
 typedef struct _audiosample_p_t {
     MP_PROTOCOL_HEAD // MP_QSTR_protocol_audiosample
     audiosample_reset_buffer_fun reset_buffer;
     audiosample_get_buffer_fun get_buffer;
+    //: Optional, and NULL means "I cannot tell you" rather than "I have
+    //: none" -- a walk stops at a node that does not answer instead of
+    //: concluding the graph ends there. Every node in this repository that
+    //: holds a source answers; a node from somewhere else need not.
+    audiosample_sources_fun sources;
 } audiosample_p_t;
+
+//: Walk a graph from `sample` and return the first node whose type name is
+//: in `names`, or MP_OBJ_NULL. Depth-first, bounded, and it stops at any
+//: node that does not implement `sources` -- so a false answer is always
+//: "did not find one", never "found one that is not there".
+mp_obj_t audiosample_find_type(mp_obj_t sample, const qstr *names,
+    size_t name_count);
 
 static inline uint32_t audiosample_get_bits_per_sample(audiosample_base_t *self) {
     return self->bits_per_sample;
