@@ -53,6 +53,7 @@
 #include "audiocore/__init__.h"
 #include "audiomixer/Mixer.h"
 #include "audiomixer/MixerVoice.h"
+#include "audiomodal/Bank.h"
 #include "shared/audiodsp_pump_lock.h"
 #include "synthio/Note.h"
 #include "synthio/Synthesizer.h"
@@ -63,8 +64,9 @@
 typedef struct {
     uint32_t frame;      // wrapping, absolute, in frames since spawn()
     uint32_t token;      // what cancel() names
-    mp_obj_t target;     // Synthesizer or MixerVoice
-    mp_obj_t arg;        // Note / small-int note / sample / boxed level
+    mp_obj_t target;     // Synthesizer, MixerVoice or Bank
+    mp_obj_t arg;        // Note / small-int note / sample / boxed level /
+                         // a strike's flattened mode table
     uint8_t op;
     uint8_t loop;
 } audiopump_event_t;
@@ -163,6 +165,36 @@ static void audiopump_apply_play(audiopump_event_t *e, uint32_t *refused) {
     }
 }
 
+// A strike: the whole mode table, written into a bank that is already
+// running. Three floats a mode, flattened and range-checked when the event
+// was scheduled, so this is a loop of stores over a float buffer -- no
+// allocation, no raise, no type lookup. Rows the table does not reach are
+// silenced, which is `set_modes()`'s rule: a shorter table is a smaller drum
+// and not a chord of two.
+//
+// `audiodsp_modal_config_finish` is not called here because `get_buffer`
+// already calls it at the top of every block, so the coefficients derived
+// from these numbers are recomputed before the first sample that uses them.
+static void audiopump_apply_strike(audiopump_event_t *e) {
+    audiomodal_bank_obj_t *bank = MP_OBJ_TO_PTR(e->target);
+    mp_buffer_info_t table;
+    if (!mp_get_buffer(e->arg, &table, MP_BUFFER_READ)) {
+        return;
+    }
+    const float *rows = (const float *)table.buf;
+    const uint32_t count =
+        (uint32_t)(table.len / sizeof(float)) / 3u;
+    uint32_t index = 0;
+    for (; index < count && index < bank->config.mode_count; ++index) {
+        audiodsp_modal_set_mode(&bank->config, index, rows[index * 3u],
+            rows[index * 3u + 1u], rows[index * 3u + 2u]);
+    }
+    for (; index < bank->config.mode_count; ++index) {
+        audiodsp_modal_set_mode(&bank->config, index, 0.0f,
+            AUDIODSP_MODAL_MIN_DECAY, 0.0f);
+    }
+}
+
 uint32_t audiopump_events_apply(mp_obj_t queue, uint32_t now,
     uint32_t block_frames) {
     audiopump_events_obj_t *q = MP_OBJ_TO_PTR(queue);
@@ -201,6 +233,14 @@ uint32_t audiopump_events_apply(mp_obj_t queue, uint32_t now,
                 // synthio_block_assign_slot calls mp_obj_new_float.
                 ((audiomixer_mixervoice_obj_t *)MP_OBJ_TO_PTR(e->target))
                 ->level.obj = e->arg;
+                break;
+            case AUDIOPUMP_OP_STRIKE:
+                audiopump_apply_strike(e);
+                break;
+            case AUDIOPUMP_OP_CHOKE:
+                audiodsp_modal_reset(
+                    &((audiomodal_bank_obj_t *)MP_OBJ_TO_PTR(e->target))
+                    ->state);
                 break;
             default:
                 break;
@@ -290,6 +330,46 @@ static void audiopump_events_validate(audiopump_events_obj_t *q, uint32_t op,
                 synthio_block_assign_slot(arg, &slot, MP_QSTR_level);
                 out->arg = slot.obj;
             }
+            break;
+        }
+        case AUDIOPUMP_OP_STRIKE:
+        case AUDIOPUMP_OP_CHOKE: {
+            if (!mp_obj_is_type(target, &audiomodal_bank_type)) {
+                mp_raise_TypeError(MP_ERROR_TEXT(
+                    "strike/choke want an audiomodal.Bank"));
+            }
+            audiomodal_bank_obj_t *bank = MP_OBJ_TO_PTR(target);
+            audiosample_check_for_deinit(&bank->base);
+            if (op == AUDIOPUMP_OP_CHOKE) {
+                out->arg = mp_const_none;
+                break;
+            }
+            // Everything that can refuse happens HERE. The apply half reads
+            // a float buffer and stores, and a table that reached it in the
+            // wrong shape would have to raise on the pump thread, which is
+            // the one thing the queue exists to make impossible.
+            mp_buffer_info_t table;
+            if (!mp_get_buffer(arg, &table, MP_BUFFER_READ)
+                || table.typecode != 'f') {
+                mp_raise_TypeError(MP_ERROR_TEXT(
+                    "a strike's table is an array('f') of "
+                    "frequency, decay, gain per mode"));
+            }
+            const size_t floats = table.len / sizeof(float);
+            if (floats == 0 || floats % 3u != 0) {
+                mp_raise_ValueError(MP_ERROR_TEXT(
+                    "a strike's table needs three floats a mode"));
+            }
+            if (floats / 3u > bank->config.mode_count) {
+                mp_raise_msg_varg(&mp_type_ValueError,
+                    MP_ERROR_TEXT("table has %d modes, bank holds %d"),
+                    (int)(floats / 3u), (int)bank->config.mode_count);
+            }
+            // The buffer OBJECT is what the event holds, so the collector
+            // keeps the floats alive until the strike lands. A caller that
+            // rewrites the array before then changes the strike, which is
+            // the same contract a scheduled Note already has.
+            out->arg = arg;
             break;
         }
         default:

@@ -24,6 +24,7 @@ from array import array
 
 import audiocore
 import audiomixer
+import audiomodal
 import audiopump
 import audioroute
 import synthio
@@ -312,8 +313,115 @@ def port(fault):
                   doors["rewind"][0], doors["rewind"][1], recovered))
 
 
+def silence(frames=BLOCK_FRAMES * 64):
+    """A silent source, so anything the tap hears is the bank's own ring."""
+    return audiocore.RawSample(array("h", bytes(frames * CHANNELS * 2)),
+                               sample_rate=RATE, channel_count=CHANNELS)
+
+
+def _tap_energy(probe, window):
+    """Peak magnitude in the tap's window, 0 if it had nothing new."""
+    got = probe.readinto(window)
+    if got == 0:
+        return -1
+    peak = 0
+    for at in range(0, got, 2):
+        value = window[at] | (window[at + 1] << 8)
+        if value >= 32768:
+            value -= 65536
+        if abs(value) > peak:
+            peak = abs(value)
+    return peak
+
+
+def strike(fault):
+    """audiocomponents#94. A strike on a modal bank can be held to a frame.
+
+    A strike there is a retune of a node that is already running -- writing
+    the mode gains injects the energy on the spot -- so it is a C state
+    change and not a press, and no queue could hold it back until it had a
+    frame of its own. `acoustickit` is `schedulable=False` for that reason
+    and no other.
+
+    Three claims, in the order they matter:
+
+      same    two runs of one schedule render the same bytes, which is what
+              "scheduled" has to mean at all;
+      late    the bank is SILENT before the strike's frame and ringing after
+              it, so the queue is really holding the strike back;
+      choke   a CHOKE empties a ringing bank, which is what a closing
+              hi-hat does to the open one.
+
+    `--fault early` moves the strike to frame 0 and still asserts the lead-in
+    is silent. That must fail -- without it, a bank that struck immediately
+    would pass the determinism claim on its own and prove nothing about when.
+    """
+    modes = 4
+    table = array("f")
+    for partial in range(modes):
+        table.extend((220.0 * (partial + 1), 0.4, 0.25))
+
+    def bank_on_silence():
+        node = audiomodal.Bank(modes=modes, sample_rate=RATE,
+                               channel_count=CHANNELS, mix=1.0, gain=1.0)
+        node.play(silence())
+        return node
+
+    at = 0 if fault == "early" else 4 * BLOCK_FRAMES
+
+    digests = []
+    for _run in range(2):
+        bank = bank_on_silence()
+        queue = audiopump.Events(capacity=8)
+        audiopump.events(queue)
+        queue.at(at, audiopump.STRIKE, bank, table)
+        block = status()
+        audiopump.pull(bank, 16, block)
+        audiopump.events(None)
+        digests.append(words(block)[2])
+    ok = say("strike", digests[0] == digests[1],
+             "two runs of one schedule: %016x / %016x"
+             % (digests[0], digests[1]))
+
+    window = bytearray(2 * BLOCK_BYTES)
+    bank = bank_on_silence()
+    queue = audiopump.Events(capacity=8)
+    audiopump.events(queue)
+    queue.at(at, audiopump.STRIKE, bank, table)
+    probe = audiopump.Tap(frames=2 * BLOCK_FRAMES)
+    audiopump.tap(probe)
+    audiopump.pull(bank, 3, status())          # strike is at block 4
+    before = _tap_energy(probe, window)
+    audiopump.pull(bank, 6, status())          # now well past it
+    after = _tap_energy(probe, window)
+    audiopump.tap(None)
+    audiopump.events(None)
+    ok = say("strike late", before == 0 and after > 0,
+             "peak before its frame=%d, after=%d" % (before, after)) and ok
+
+    # The choke. Strike at once, let it ring, then empty it.
+    bank = bank_on_silence()
+    queue = audiopump.Events(capacity=8)
+    audiopump.events(queue)
+    queue.at(0, audiopump.STRIKE, bank, table)
+    probe = audiopump.Tap(frames=2 * BLOCK_FRAMES)
+    audiopump.tap(probe)
+    audiopump.pull(bank, 4, status())
+    ringing = _tap_energy(probe, window)
+    queue.at(0, audiopump.CHOKE, bank)
+    audiopump.pull(bank, 4, status())
+    silenced = _tap_energy(probe, window)
+    audiopump.tap(None)
+    audiopump.events(None)
+    ok = say("strike choke", ringing > 0 and silenced == 0,
+             "ringing peak=%d, after a scheduled CHOKE=%d"
+             % (ringing, silenced)) and ok
+    return ok
+
+
 CASES = (("ring", ring), ("granular", ring_granularity),
-         ("events", events), ("tap", tap), ("port", port))
+         ("events", events), ("tap", tap), ("port", port),
+         ("strike", strike))
 
 
 def main():

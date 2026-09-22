@@ -19,6 +19,17 @@ enum {
     AUDIOPUMP_OP_PLAY = 4,        // MixerVoice, a sample that is already built
     AUDIOPUMP_OP_STOP = 5,        // MixerVoice
     AUDIOPUMP_OP_LEVEL = 6,       // MixerVoice, a level boxed at schedule time
+    // audiomodal.Bank, a mode table validated and flattened at schedule
+    // time. A strike on a modal bank is a retune of a node that is already
+    // running -- it injects its energy the moment the gains are written --
+    // so it is a C state change rather than a press, and nothing could hold
+    // it back until it had a frame on it. audiocomponents#94.
+    AUDIOPUMP_OP_STRIKE = 7,
+    // audiomodal.Bank, no argument. The frame-stamped half of `clear()`:
+    // what a closing hi-hat does to the open one it silences. Scheduled at
+    // the same frame as a STRIKE and before it, because events at one frame
+    // apply in schedule order.
+    AUDIOPUMP_OP_CHOKE = 8,
 };
 
 // Called by the pump at the top of a block, INSIDE the pump's own lock.
