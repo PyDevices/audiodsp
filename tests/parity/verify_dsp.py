@@ -212,6 +212,55 @@ def first_difference(left, right):
     return None
 
 
+def divergence_size(left, right):
+    """How far apart two renders are, as (samples, worst LSB).
+
+    Byte equality is the gate; this is what a *known* divergence is measured
+    against, so an accepted one cannot quietly grow. The renders are int16
+    little-endian PCM, which is what every probe prints. A length mismatch is
+    not a tolerance question at all and comes back as None.
+
+    audiodsp#101/#102/#103/#105/#115/#55 -- the float family. Their cause is
+    `mp_float_t` arithmetic inside a kernel whose width IS the target, so the
+    difference is real, bounded and permanent; decision 4 (2026-09-22) is to
+    accept and bound it rather than fix it.
+    """
+    if len(left) != len(right):
+        return None
+    samples = 0
+    worst = 0
+    for index in range(0, len(left) - 1, 2):
+        a = int.from_bytes(left[index:index + 2], "little", signed=True)
+        b = int.from_bytes(right[index:index + 2], "little", signed=True)
+        if a != b:
+            samples += 1
+            worst = max(worst, abs(a - b))
+    return samples, worst
+
+
+def parse_known_divergent(entries):
+    """`PROBE`, or `PROBE:SAMPLES:LSB` for a bounded one.
+
+    A bare name is the old spelling and still means "this probe may differ,
+    by any amount" -- which is an exemption rather than a tolerance, so the
+    gate prints the size it measured and says the bound is missing. With the
+    two numbers it is a tolerance: more differing samples than SAMPLES, or
+    any sample further than LSB away, fails the run.
+    """
+    bounds = {}
+    for entry in entries or []:
+        parts = entry.split(":")
+        name = parts[0]
+        if len(parts) == 1:
+            bounds[name] = None
+        elif len(parts) == 3:
+            bounds[name] = (int(parts[1]), int(parts[2]))
+        else:
+            raise SystemExit("--known-divergent wants PROBE or "
+                             "PROBE:SAMPLES:LSB, not %r" % (entry,))
+    return bounds
+
+
 def interpreter_table(args):
     """`{name: argv prefix}`. A named interpreter that is not built is an
     error, not a skip: the whole point is the comparison."""
@@ -239,6 +288,7 @@ def verify(args):
     print("interpreters: %s\n" % ", ".join(sorted(interpreters)))
 
     failures = []
+    sizes = {}
     compared = 0
     pending = []
     agreements = []
@@ -269,8 +319,13 @@ def verify(args):
                 continue
             agreed = False
             offset = first_difference(rendered[reference], rendered[name])
+            size = divergence_size(rendered[reference], rendered[name])
+            sizes.setdefault(probe, []).append((name, size))
             print("FAIL     %-30s %s and %s differ at output byte %s"
                   % (probe, reference, name, offset))
+            if size is not None:
+                print("             %d sample(s), worst %d LSB"
+                      % (size[0], size[1]))
             print("             %-14s %d bytes" % (reference,
                                                    len(rendered[reference])))
             print("             %-14s %d bytes" % (name, len(rendered[name])))
@@ -293,24 +348,50 @@ def verify(args):
     # That last property is the point. A blanket continue-on-error would report
     # green for all three, and this file's own argument is that a gate which
     # cannot fail is worse than no gate.
-    expected = set(args.known_divergent or [])
+    bounds = parse_known_divergent(args.known_divergent)
+    expected = set(bounds)
     if expected:
         diverged = {line.split(":", 1)[0] for line in failures}
         unexpected = sorted(diverged - expected)
         stale = sorted(expected & set(agreements))
 
+        over = []
         for probe in sorted(diverged & expected):
-            print("  XFAIL    %-30s diverges as expected" % probe)
+            bound = bounds[probe]
+            measured = sizes.get(probe, [])
+            worst = max((s for _n, s in measured if s is not None),
+                        default=None)
+            if worst is None:
+                print("  XFAIL    %-30s diverges as expected (length "
+                      "differs -- not a tolerance question)" % probe)
+                continue
+            if bound is None:
+                # An exemption, not a tolerance. Say so, and print the number
+                # the bound should be set from -- decision 4 asks for a
+                # tolerance and this is how one gets measured.
+                print("  XFAIL    %-30s diverges as expected: %d sample(s), "
+                      "worst %d LSB -- NO BOUND SET, use %s:%d:%d"
+                      % (probe, worst[0], worst[1], probe, worst[0], worst[1]))
+                continue
+            if worst[0] > bound[0] or worst[1] > bound[1]:
+                over.append("%s: %d sample(s) at %d LSB, over its bound of "
+                            "%d at %d" % (probe, worst[0], worst[1],
+                                          bound[0], bound[1]))
+                continue
+            print("  XFAIL    %-30s within its bound: %d/%d sample(s), "
+                  "worst %d/%d LSB"
+                  % (probe, worst[0], bound[0], worst[1], bound[1]))
         for probe in stale:
             print("  UNEXPECTED PASS  %-22s agrees now -- drop it from "
                   "--known-divergent" % probe)
 
-        if not unexpected and not stale:
+        if not unexpected and not stale and not over:
             print("\n%d expected divergence(s), none new. Gate satisfied."
                   % len(diverged & expected))
             return
         failures = ["%s: diverged and is not expected" % p for p in unexpected]
         failures += ["%s: no longer diverges" % p for p in stale]
+        failures += over
 
     if failures:
         for line in failures:
@@ -325,8 +406,10 @@ def main():
     parser.add_argument("--circuitpython", default=None,
                         help="a patched CircuitPython build")
     parser.add_argument("--known-divergent", action="append", metavar="PROBE",
-                        help="a probe whose divergence is already filed; the "
-                             "run still fails on any OTHER divergence, and "
+                        help="PROBE, or PROBE:SAMPLES:LSB to bound it. A "
+                             "probe whose divergence is already filed; the "
+                             "run still fails on any OTHER divergence, on a "
+                             "bounded one that grew past its bound, and "
                              "fails if this probe starts agreeing")
     verify(parser.parse_args())
 
