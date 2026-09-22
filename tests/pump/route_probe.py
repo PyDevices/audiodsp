@@ -394,6 +394,7 @@ def deep_loop(fault):
     ok = say("deep chain", clean,
              "%d Ports with no ring in them: fault=%d err=%d blocks=%d"
              % (stages, got[24], got[5], got[0])) and ok
+    return ok
 
 
 def excitation(strike_at, frames=BLOCK_FRAMES * 16):
