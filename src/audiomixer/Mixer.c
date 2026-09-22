@@ -354,7 +354,16 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
     while (length != 0) {
         if (voice->buffer_length == 0) {
             if (!voice->more_data) {
-                if (voice->loop) {
+                // `voice->sample` is checked here as well as three lines
+                // below, and the check here is the one that was missing. A
+                // LOOPING voice whose source has already been dropped -- by
+                // the GET_BUFFER_ERROR path below, or by the priming fetch in
+                // MixerVoice.c -- came back into this block on the next call
+                // with `sample` NULL and `loop` still true, and reset a null
+                // pointer. Found by audiodsp#110's loop guard, which is the
+                // first thing that ever made a Mixer's source answer
+                // GET_BUFFER_ERROR rather than recurse until the stack died.
+                if (voice->loop && voice->sample) {
                     audiosample_reset_buffer(voice->sample, false, 0);
                 } else {
                     voice->sample = NULL;

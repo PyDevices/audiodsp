@@ -145,6 +145,24 @@ void common_hal_audiomixer_mixervoice_reset(audiomixer_mixervoice_obj_t *self) {
     audiodsp_pump_lock_acquire();
     audiosample_reset_buffer(self->sample, false, 0);
     audioio_get_buffer_result_t result = audiosample_get_buffer(self->sample, false, 0, (uint8_t **)&self->remaining_buffer, &self->buffer_length);
+    // The priming fetch can fail, and until audiodsp#110 nothing here said
+    // so: a source that answers GET_BUFFER_ERROR hands back a NULL buffer,
+    // and this went on to divide its length and keep the voice. Dropping the
+    // voice is what `mix_down_one_voice` already does with the same answer a
+    // dozen lines away; the two now agree.
+    //
+    // Found when the funnel's loop guard started returning that error where
+    // the graph used to recurse until the stack was gone: a Mixer in a ring
+    // core-dumped INSIDE this function rather than in the recursion, which is
+    // why it reads as a stack overflow and is not one.
+    if (result == GET_BUFFER_ERROR) {
+        self->sample = NULL;
+        self->remaining_buffer = NULL;
+        self->buffer_length = 0;
+        self->more_data = false;
+        audiodsp_pump_lock_release();
+        return;
+    }
     // Track length in terms of words.
     self->buffer_length /= sizeof(uint32_t);
     self->more_data = result == GET_BUFFER_MORE_DATA;

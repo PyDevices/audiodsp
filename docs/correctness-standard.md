@@ -313,13 +313,23 @@ The third option -- a shared derivation helper at a fixed width, which is what
 not worth retrofitting through six call sites and the goldens they move.
 
 **What the gate does instead.** `verify_dsp.py`'s `--known-divergent` takes a
-bound: `PROBE:SAMPLES:LSB`. A listed probe may differ, by at most that many
-samples and at most that many LSB, and the run fails if the divergence grows,
-if a probe stops diverging, or if any other probe diverges at all. A bare
-`PROBE` with no bound is an *exemption* rather than a tolerance; the gate
-still accepts it, prints the size it measured and names the bound that should
-replace it. That distinction is the whole point: an accepted difference that
-nobody has measured is indistinguishable from a new defect.
+bound: `PROBE:LINES`. A listed probe may differ on at most that many of its
+output lines, and the run fails if the divergence grows, if a probe stops
+diverging, or if any other probe diverges at all. A bare `PROBE` with no
+bound is an *exemption* rather than a tolerance; the gate still accepts it,
+prints the size it measured and names the bound that should replace it. That
+distinction is the whole point: an accepted difference that nobody has
+measured is indistinguishable from a new defect.
+
+**Lines, not samples, and the reason is worth knowing.** A probe prints a
+case name and a few integers per line -- usually a digest -- rather than raw
+PCM. A digest's decimal spelling changes length as soon as it changes at all,
+which is why the two single-precision divergences differ in total byte count
+and not only in value, and why a per-sample LSB tolerance cannot describe
+them. Measured on the single-precision unix build, 2026-09-22: four lines
+each, for `biquad_component_probe.py` and `echo_filter_probe.py` alike. The
+field delta is printed beside the count and deliberately not bounded --
+between two digests it is a large meaningless number.
 
 ## The one thing this page does not cover
 
