@@ -1,3 +1,7 @@
+## v0.5.1 (2026-09-22)
+
+- The release gate expects the 18 wheels this tree builds, not the 21 it built with Python 3.10 (#123)
+
 ## Unreleased
 
 - **v0.5.0 was tagged and published nothing.** Its release run built every
