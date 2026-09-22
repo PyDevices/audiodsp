@@ -24,6 +24,7 @@ from array import array
 
 import audiocore
 import audiomixer
+import audiomodal
 import audiopump
 import audioroute
 import synthio
@@ -431,11 +432,132 @@ def refused(fault):
                "%d scheduled presses into %d channels: synth.refused=%d "
                "(want %d), queue applied %d of %d"
                % (len(notes), ceiling, counted, over, applied, len(notes)))
+def excitation(strike_at, frames=BLOCK_FRAMES * 16):
+    """Two clicks: one at the head and one at `strike_at`.
+
+    A modal bank is a filter, not a generator -- it rings what is fed INTO
+    it. Feeding silence and setting gains produces nothing at all, which is
+    what the first version of this case measured. So the first click arrives
+    while the gains are still zero (the bank must stay silent) and the second
+    arrives with the strike (it must ring).
+    """
+    values = array("h", bytes(frames * CHANNELS * 2))
+    for at in (0, strike_at):
+        for channel in range(CHANNELS):
+            values[at * CHANNELS + channel] = 20000
+    return audiocore.RawSample(values, sample_rate=RATE,
+                               channel_count=CHANNELS)
+
+
+def _tap_peak(probe, window):
+    """Peak magnitude in the tap's window, -1 if it had nothing new."""
+    got = probe.readinto(window)
+    if got == 0:
+        return -1
+    peak = 0
+    for at in range(0, got, 2):
+        value = window[at] | (window[at + 1] << 8)
+        if value >= 32768:
+            value -= 65536
+        peak = max(peak, abs(value))
+    return peak
+
+
+def strike(fault):
+    """audiocomponents#94. A strike on a modal bank can be held to a frame.
+
+    A strike there is a retune of a node that is already running -- writing
+    the mode gains injects the energy the moment the excitation arrives -- so
+    it is a C state change and not a press, and no queue could hold it back
+    until it had a frame of its own. `acoustickit` is `schedulable=False` for
+    that reason and no other.
+
+    Three claims, in the order they matter:
+
+      same    two runs of one schedule render the same bytes, which is what
+              "scheduled" has to mean at all;
+      late    the bank is SILENT through a click that arrives before the
+              strike's frame, and rings on the one that arrives with it;
+      choke   a scheduled CHOKE empties a bank that is ringing out, which is
+              what a closing hi-hat does to the open one.
+
+    `--fault early` moves the strike to frame 0, so the first click rings
+    too and the "silent before" row fails. Without it the determinism row
+    would pass on a bank that struck immediately and prove nothing about
+    when.
+    """
+    modes = 4
+    table = array("f")
+    for partial in range(modes):
+        table.extend((220.0 * (partial + 1), 0.45, 0.35))
+
+    at = 0 if fault == "early" else 4 * BLOCK_FRAMES
+
+    def fresh():
+        node = audiomodal.Bank(modes=modes, sample_rate=RATE,
+                               channel_count=CHANNELS, mix=1.0, gain=1.0)
+        node.set_modes([(220.0 * (p + 1), 0.45, 0.0) for p in range(modes)])
+        node.play(excitation(at))
+        return node
+
+    digests = []
+    for _run in range(2):
+        bank = fresh()
+        queue = audiopump.Events(capacity=8)
+        audiopump.events(queue)
+        queue.at(at, audiopump.STRIKE, bank, table)
+        block = status()
+        audiopump.pull(bank, 12, block)
+        audiopump.events(None)
+        digests.append(words(block)[2])
+    ok = say("strike", digests[0] == digests[1],
+             "two runs of one schedule: %016x / %016x"
+             % (digests[0], digests[1]))
+
+    window = bytearray(2 * BLOCK_BYTES)
+    bank = fresh()
+    queue = audiopump.Events(capacity=8)
+    audiopump.events(queue)
+    queue.at(at, audiopump.STRIKE, bank, table)
+    probe = audiopump.Tap(frames=2 * BLOCK_FRAMES)
+    audiopump.tap(probe)
+    audiopump.pull(bank, 3, status())          # the first click has passed
+    before = _tap_peak(probe, window)
+    audiopump.pull(bank, 5, status())          # now past the strike
+    after = _tap_peak(probe, window)
+    audiopump.tap(None)
+    audiopump.events(None)
+    ok = say("strike late", before == 0 and after > 0,
+             "peak through the click before its frame=%d, after the "
+             "strike=%d" % (before, after)) and ok
+
+    # The choke. Strike at once, let it ring out with nothing more feeding
+    # it, then empty it.
+    bank = audiomodal.Bank(modes=modes, sample_rate=RATE,
+                           channel_count=CHANNELS, mix=1.0, gain=1.0)
+    bank.set_modes([(220.0 * (p + 1), 2.0, 0.35) for p in range(modes)])
+    bank.play(excitation(0))
+    probe = audiopump.Tap(frames=2 * BLOCK_FRAMES)
+    audiopump.tap(probe)
+    queue = audiopump.Events(capacity=8)
+    audiopump.events(queue)
+    audiopump.pull(bank, 4, status())
+    ringing = _tap_peak(probe, window)
+    queue.at(0, audiopump.CHOKE, bank)
+    audiopump.pull(bank, 4, status())
+    silenced = _tap_peak(probe, window)
+    audiopump.tap(None)
+    audiopump.events(None)
+    ok = say("strike choke", ringing > 0 and silenced == 0,
+             "ringing peak=%d, after a scheduled CHOKE=%d"
+             % (ringing, silenced)) and ok
+    return ok
 
 
 CASES = (("ring", ring), ("granular", ring_granularity),
          ("events", events), ("tap", tap), ("port", port),
-         ("deep_loop", deep_loop), ("refused", refused))
+         ("deep_loop", deep_loop), ("refused", refused),
+         ("strike", strike))
 
 
 def main():

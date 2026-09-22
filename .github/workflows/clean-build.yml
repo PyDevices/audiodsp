@@ -164,7 +164,8 @@ jobs:
                          "route_probe.py tap --fault stale" \
                          "route_probe.py port --fault latch" \
                          "route_probe.py deep_loop --fault deeper" \
-                         "route_probe.py refused --fault deaf"; do
+                         "route_probe.py refused --fault deaf" \
+                         "route_probe.py strike --fault early"; do
             if run $planted > /dev/null; then
               echo "the planted fault passed: $planted" >&2
               exit 1
