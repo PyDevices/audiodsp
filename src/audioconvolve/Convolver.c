@@ -339,8 +339,12 @@ static mp_obj_t audioconvolve_convolver_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    audiodsp_pump_lock_release();
+    // Inside the lock with the rest: `storage` is the sole GC root for the
+    // eight interior pointers the pull holds, and the audit's rule is that a
+    // deinit() holds the lock over its whole body rather than over the part
+    // someone argued was the dangerous one. audiodsp#116.
     self->storage = NULL;
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_deinit_obj, audioconvolve_convolver_deinit);
