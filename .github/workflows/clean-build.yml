@@ -47,9 +47,14 @@ jobs:
             # Echo's per-sample arithmetic is mp_float_t in C and double in the
             # twin). Each moves board digests, so each is its own change.
             # The double cell has no exceptions and must not gain any.
+            # Bounded since 2026-09-22 (decision 4): each may differ on at
+            # most the four output lines measured on this build, and the run
+            # fails if either grows, stops diverging, or anything else
+            # diverges at all. An accepted difference nobody has measured is
+            # indistinguishable from a new defect.
             known-divergent: >-
-              --known-divergent biquad_component_probe.py
-              --known-divergent echo_filter_probe.py
+              --known-divergent biquad_component_probe.py:4
+              --known-divergent echo_filter_probe.py:4
     name: unix-usermod (${{ matrix.float-impl.name }}-precision)
     steps:
       - uses: actions/checkout@v7

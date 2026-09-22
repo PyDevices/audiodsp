@@ -213,39 +213,62 @@ def first_difference(left, right):
 
 
 def divergence_size(left, right):
-    """How far apart two renders are, as (samples, worst LSB).
+    """How far apart two probe outputs are, as (lines, worst field delta).
 
     Byte equality is the gate; this is what a *known* divergence is measured
-    against, so an accepted one cannot quietly grow. The renders are int16
-    little-endian PCM, which is what every probe prints. A length mismatch is
-    not a tolerance question at all and comes back as None.
+    against, so an accepted one cannot quietly grow.
+
+    A probe prints LINES of text -- a case name and a few integers, usually a
+    digest -- not raw PCM. That is worth saying because the first version of
+    this function read the output as int16 samples and reported nonsense: a
+    digest is a 32- or 64-bit number whose decimal spelling changes length
+    when it changes at all, which is why these two probes differ in total
+    byte count and not only in value.
+
+    So the measure is the number of lines that differ, and, where two
+    differing lines have the same shape and the same leading label, the
+    largest absolute difference between their numeric fields. A digest field
+    makes that number huge and meaningless, which is the point: a bound on
+    LINES is the honest tolerance here, and the field delta is reported
+    beside it rather than bounded.
 
     audiodsp#101/#102/#103/#105/#115/#55 -- the float family. Their cause is
     `mp_float_t` arithmetic inside a kernel whose width IS the target, so the
     difference is real, bounded and permanent; decision 4 (2026-09-22) is to
     accept and bound it rather than fix it.
     """
-    if len(left) != len(right):
-        return None
-    samples = 0
+    left_lines = left.decode("utf-8", "replace").splitlines()
+    right_lines = right.decode("utf-8", "replace").splitlines()
+    lines = 0
     worst = 0
-    for index in range(0, len(left) - 1, 2):
-        a = int.from_bytes(left[index:index + 2], "little", signed=True)
-        b = int.from_bytes(right[index:index + 2], "little", signed=True)
-        if a != b:
-            samples += 1
-            worst = max(worst, abs(a - b))
-    return samples, worst
+    for index in range(max(len(left_lines), len(right_lines))):
+        one = left_lines[index] if index < len(left_lines) else None
+        two = right_lines[index] if index < len(right_lines) else None
+        if one == two:
+            continue
+        lines += 1
+        if one is None or two is None:
+            continue
+        one_fields = one.split()
+        two_fields = two.split()
+        if len(one_fields) != len(two_fields):
+            continue
+        for a, b in zip(one_fields, two_fields):
+            try:
+                worst = max(worst, abs(int(a) - int(b)))
+            except ValueError:
+                continue
+    return lines, worst
 
 
 def parse_known_divergent(entries):
     """`PROBE`, or `PROBE:SAMPLES:LSB` for a bounded one.
 
     A bare name is the old spelling and still means "this probe may differ,
-    by any amount" -- which is an exemption rather than a tolerance, so the
-    gate prints the size it measured and says the bound is missing. With the
-    two numbers it is a tolerance: more differing samples than SAMPLES, or
-    any sample further than LSB away, fails the run.
+    by any amount" -- an exemption rather than a tolerance, so the gate
+    prints the size it measured and names the bound that should replace it.
+    With a number it is a tolerance: more differing output lines than LINES
+    fails the run.
     """
     bounds = {}
     for entry in entries or []:
@@ -253,11 +276,11 @@ def parse_known_divergent(entries):
         name = parts[0]
         if len(parts) == 1:
             bounds[name] = None
-        elif len(parts) == 3:
-            bounds[name] = (int(parts[1]), int(parts[2]))
+        elif len(parts) == 2:
+            bounds[name] = int(parts[1])
         else:
-            raise SystemExit("--known-divergent wants PROBE or "
-                             "PROBE:SAMPLES:LSB, not %r" % (entry,))
+            raise SystemExit("--known-divergent wants PROBE or PROBE:LINES, "
+                             "not %r" % (entry,))
     return bounds
 
 
@@ -361,26 +384,21 @@ def verify(args):
             measured = sizes.get(probe, [])
             worst = max((s for _n, s in measured if s is not None),
                         default=None)
-            if worst is None:
-                print("  XFAIL    %-30s diverges as expected (length "
-                      "differs -- not a tolerance question)" % probe)
-                continue
             if bound is None:
                 # An exemption, not a tolerance. Say so, and print the number
                 # the bound should be set from -- decision 4 asks for a
                 # tolerance and this is how one gets measured.
-                print("  XFAIL    %-30s diverges as expected: %d sample(s), "
-                      "worst %d LSB -- NO BOUND SET, use %s:%d:%d"
-                      % (probe, worst[0], worst[1], probe, worst[0], worst[1]))
+                print("  XFAIL    %-30s diverges as expected: %d line(s), "
+                      "worst field delta %d -- NO BOUND SET, use %s:%d"
+                      % (probe, worst[0], worst[1], probe, worst[0]))
                 continue
-            if worst[0] > bound[0] or worst[1] > bound[1]:
-                over.append("%s: %d sample(s) at %d LSB, over its bound of "
-                            "%d at %d" % (probe, worst[0], worst[1],
-                                          bound[0], bound[1]))
+            if worst[0] > bound:
+                over.append("%s: %d differing line(s), over its bound of %d"
+                            % (probe, worst[0], bound))
                 continue
-            print("  XFAIL    %-30s within its bound: %d/%d sample(s), "
-                  "worst %d/%d LSB"
-                  % (probe, worst[0], bound[0], worst[1], bound[1]))
+            print("  XFAIL    %-30s within its bound: %d/%d line(s) differ, "
+                  "worst field delta %d"
+                  % (probe, worst[0], bound, worst[1]))
         for probe in stale:
             print("  UNEXPECTED PASS  %-22s agrees now -- drop it from "
                   "--known-divergent" % probe)
