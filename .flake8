@@ -1,4 +1,6 @@
 [flake8]
+# manifest.py is executed by MicroPython's makemanifest with these names injected.
+builtins = c_module,package,module,freeze,freeze_as_mpy,freeze_as_str,include,require,options,metadata
 # Defect checks only, not formatting opinions.
 #
 # F   pyflakes: undefined names, unused imports, shadowed definitions,
