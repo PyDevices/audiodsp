@@ -212,6 +212,78 @@ def first_difference(left, right):
     return None
 
 
+def divergence_size(left, right):
+    """How far apart two probe outputs are, as (lines, worst field delta).
+
+    Byte equality is the gate; this is what a *known* divergence is measured
+    against, so an accepted one cannot quietly grow.
+
+    A probe prints LINES of text -- a case name and a few integers, usually a
+    digest -- not raw PCM. That is worth saying because the first version of
+    this function read the output as int16 samples and reported nonsense: a
+    digest is a 32- or 64-bit number whose decimal spelling changes length
+    when it changes at all, which is why these two probes differ in total
+    byte count and not only in value.
+
+    So the measure is the number of lines that differ, and, where two
+    differing lines have the same shape and the same leading label, the
+    largest absolute difference between their numeric fields. A digest field
+    makes that number huge and meaningless, which is the point: a bound on
+    LINES is the honest tolerance here, and the field delta is reported
+    beside it rather than bounded.
+
+    audiodsp#101/#102/#103/#105/#115/#55 -- the float family. Their cause is
+    `mp_float_t` arithmetic inside a kernel whose width IS the target, so the
+    difference is real, bounded and permanent; decision 4 (2026-09-22) is to
+    accept and bound it rather than fix it.
+    """
+    left_lines = left.decode("utf-8", "replace").splitlines()
+    right_lines = right.decode("utf-8", "replace").splitlines()
+    lines = 0
+    worst = 0
+    for index in range(max(len(left_lines), len(right_lines))):
+        one = left_lines[index] if index < len(left_lines) else None
+        two = right_lines[index] if index < len(right_lines) else None
+        if one == two:
+            continue
+        lines += 1
+        if one is None or two is None:
+            continue
+        one_fields = one.split()
+        two_fields = two.split()
+        if len(one_fields) != len(two_fields):
+            continue
+        for a, b in zip(one_fields, two_fields):
+            try:
+                worst = max(worst, abs(int(a) - int(b)))
+            except ValueError:
+                continue
+    return lines, worst
+
+
+def parse_known_divergent(entries):
+    """`PROBE`, or `PROBE:SAMPLES:LSB` for a bounded one.
+
+    A bare name is the old spelling and still means "this probe may differ,
+    by any amount" -- an exemption rather than a tolerance, so the gate
+    prints the size it measured and names the bound that should replace it.
+    With a number it is a tolerance: more differing output lines than LINES
+    fails the run.
+    """
+    bounds = {}
+    for entry in entries or []:
+        parts = entry.split(":")
+        name = parts[0]
+        if len(parts) == 1:
+            bounds[name] = None
+        elif len(parts) == 2:
+            bounds[name] = int(parts[1])
+        else:
+            raise SystemExit("--known-divergent wants PROBE or PROBE:LINES, "
+                             "not %r" % (entry,))
+    return bounds
+
+
 def interpreter_table(args):
     """`{name: argv prefix}`. A named interpreter that is not built is an
     error, not a skip: the whole point is the comparison."""
@@ -239,6 +311,7 @@ def verify(args):
     print("interpreters: %s\n" % ", ".join(sorted(interpreters)))
 
     failures = []
+    sizes = {}
     compared = 0
     pending = []
     agreements = []
@@ -269,8 +342,13 @@ def verify(args):
                 continue
             agreed = False
             offset = first_difference(rendered[reference], rendered[name])
+            size = divergence_size(rendered[reference], rendered[name])
+            sizes.setdefault(probe, []).append((name, size))
             print("FAIL     %-30s %s and %s differ at output byte %s"
                   % (probe, reference, name, offset))
+            if size is not None:
+                print("             %d sample(s), worst %d LSB"
+                      % (size[0], size[1]))
             print("             %-14s %d bytes" % (reference,
                                                    len(rendered[reference])))
             print("             %-14s %d bytes" % (name, len(rendered[name])))
@@ -293,24 +371,45 @@ def verify(args):
     # That last property is the point. A blanket continue-on-error would report
     # green for all three, and this file's own argument is that a gate which
     # cannot fail is worse than no gate.
-    expected = set(args.known_divergent or [])
+    bounds = parse_known_divergent(args.known_divergent)
+    expected = set(bounds)
     if expected:
         diverged = {line.split(":", 1)[0] for line in failures}
         unexpected = sorted(diverged - expected)
         stale = sorted(expected & set(agreements))
 
+        over = []
         for probe in sorted(diverged & expected):
-            print("  XFAIL    %-30s diverges as expected" % probe)
+            bound = bounds[probe]
+            measured = sizes.get(probe, [])
+            worst = max((s for _n, s in measured if s is not None),
+                        default=None)
+            if bound is None:
+                # An exemption, not a tolerance. Say so, and print the number
+                # the bound should be set from -- decision 4 asks for a
+                # tolerance and this is how one gets measured.
+                print("  XFAIL    %-30s diverges as expected: %d line(s), "
+                      "worst field delta %d -- NO BOUND SET, use %s:%d"
+                      % (probe, worst[0], worst[1], probe, worst[0]))
+                continue
+            if worst[0] > bound:
+                over.append("%s: %d differing line(s), over its bound of %d"
+                            % (probe, worst[0], bound))
+                continue
+            print("  XFAIL    %-30s within its bound: %d/%d line(s) differ, "
+                  "worst field delta %d"
+                  % (probe, worst[0], bound, worst[1]))
         for probe in stale:
             print("  UNEXPECTED PASS  %-22s agrees now -- drop it from "
                   "--known-divergent" % probe)
 
-        if not unexpected and not stale:
+        if not unexpected and not stale and not over:
             print("\n%d expected divergence(s), none new. Gate satisfied."
                   % len(diverged & expected))
             return
         failures = ["%s: diverged and is not expected" % p for p in unexpected]
         failures += ["%s: no longer diverges" % p for p in stale]
+        failures += over
 
     if failures:
         for line in failures:
@@ -325,8 +424,10 @@ def main():
     parser.add_argument("--circuitpython", default=None,
                         help="a patched CircuitPython build")
     parser.add_argument("--known-divergent", action="append", metavar="PROBE",
-                        help="a probe whose divergence is already filed; the "
-                             "run still fails on any OTHER divergence, and "
+                        help="PROBE, or PROBE:SAMPLES:LSB to bound it. A "
+                             "probe whose divergence is already filed; the "
+                             "run still fails on any OTHER divergence, on a "
+                             "bounded one that grew past its bound, and "
                              "fails if this probe starts agreeing")
     verify(parser.parse_args())
 
