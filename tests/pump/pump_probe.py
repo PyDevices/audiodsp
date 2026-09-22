@@ -415,8 +415,8 @@ def unpumpable(fault):
     time would fail here.
     """
     import audiocore
-    import audiofilters
     import audiomixer
+    import audioroute
 
     path = _wave_file()
     keep = []
@@ -436,19 +436,20 @@ def unpumpable(fault):
     keep.append(wave)
     ok = say("tail", _refused(wave), "a WaveFile handed over directly") and ok
 
+    # A Port rather than a Filter: it takes its source positionally and
+    # adopts its format, so the row is about the WALK and not about matching
+    # a rate.
     wave = audiocore.WaveFile(open(path, "rb"))
-    deep = audiofilters.Filter(sample_rate=8000, channel_count=1,
-                               buffer_size=512)
-    deep.play(wave)
+    deep = audioroute.Port(wave)
     keep.extend((wave, deep))
-    ok = say("one deep", _refused(deep), "a WaveFile behind a Filter") and ok
+    ok = say("one deep", _refused(deep), "a WaveFile behind a Port") and ok
 
     wave = audiocore.WaveFile(open(path, "rb"))
     mixer = audiomixer.Mixer(voice_count=2, sample_rate=8000, channel_count=1,
                              bits_per_sample=16, samples_signed=True,
                              buffer_size=512)
     # Voice 0 deliberately left silent: an empty slot must not end the walk.
-    mixer.voice[1].play(wave)
+    mixer.play(wave, voice=1)
     keep.extend((wave, mixer))
     ok = say("behind mix", _refused(mixer),
              "a WaveFile on a Mixer's SECOND voice, first voice silent") and ok
