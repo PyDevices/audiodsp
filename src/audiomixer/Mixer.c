@@ -249,11 +249,23 @@ static inline uint32_t add16signed(uint32_t a, uint32_t b) {
     return result;
 }
 
+// Deviation from upstream: a multiplier of 1<<15 is unity, and passes the
+// sample through. Upstream maps a voice level of 1.0 to Q15 32768 and then
+// scales by `level / 32767.0f`, so unity is really 1.0000305 and every
+// sample at |value| >= 32736 comes out one LSB larger. See
+// docs/upstream-diff.md, "A voice at level 1.0 is a wire". Only the unity
+// multiplier takes this branch; every other level is upstream's arithmetic,
+// bit for bit.
 static inline uint32_t mult16signed(uint32_t val, int32_t lomul, int32_t himul) {
     uint32_t result = 0;
     for (int8_t i = 0; i < 2; i++) {
-        float mod_mul = (float)(i ? himul : lomul) / (float)((1 << 15) - 1);
+        int32_t mul = i ? himul : lomul;
         int16_t ai = (val >> (sizeof(uint16_t) * 8 * i));
+        if (mul == (1 << 15)) {
+            result |= (((uint32_t)ai) & 0xffff) << (sizeof(int16_t) * 8 * i);
+            continue;
+        }
+        float mod_mul = (float)mul / (float)((1 << 15) - 1);
         int32_t intermediate = (int32_t)(ai * mod_mul);
         if (intermediate > SHRT_MAX) {
             intermediate = SHRT_MAX;
