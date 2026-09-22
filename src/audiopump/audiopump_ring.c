@@ -17,13 +17,19 @@
 // unsigned 32-bit arithmetic is the level even across the wrap, because the
 // capacity is a few kilobytes and never close to 2^31.
 //
-// 32-BIT ON PURPOSE. The pump's own output ring uses `volatile uint64_t`
-// counters, which is a latent tear on every 32-bit target we ship: the P4 is
-// RV32 and the S3 is Xtensa LX7, and a 64-bit store there is two 32-bit
-// stores with a window between them. A 32-bit aligned store is atomic
-// everywhere, so the protocol is 32-bit and the 64-bit numbers in `stats()`
-// are statistics, each written by one thread and meant to be read after the
-// pump has stopped.
+// 32-BIT ON PURPOSE. A 64-bit store on a 32-bit target is two 32-bit stores
+// with a window between them -- the P4 is RV32 and the S3 is Xtensa LX7 --
+// and a 32-bit aligned store is atomic everywhere. So the protocol is 32-bit,
+// and the 64-bit numbers in `stats()` are statistics, each written by one
+// thread and meant to be read after the pump has stopped.
+//
+// This used to say the pump's own output ring carried `volatile uint64_t`
+// positions and was a latent tear. It does not: `audiopump.c`'s `ring_w` and
+// `ring_r` are uint32 with the same acquire/release pair, and the audit of
+// audiodsp#111 found the ring's protocol clean. The 64-bit surface that is
+// genuinely read across threads is the status array, and the enumeration of
+// which of its words can tear -- and why none that is branched on can -- is
+// beside that array in `audiopump.c`.
 //
 // Acquire/release rather than bare `volatile`, because `volatile` orders the
 // compiler and not the machine. The producer's release-store of `w` is what
