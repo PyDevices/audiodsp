@@ -257,12 +257,91 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
     const float mix = config->mix;
     const float dry = 1.0f - mix;
     const float gain = config->gain * mix;
+
+    // --- narrow the loop to the modes that can do anything ----------------
+    //
+    // audiodsp#82. The skip inside the inner loop is right but late: a mode
+    // at rest still costs an index, a coefficient pointer and a compare,
+    // every sample. At 64 modes that residual is most of what a RESIDENT
+    // bank pays -- acoustickit holds 73 modes across two banks and spent
+    // 2.55 ms a block on a P4 with nothing struck at all.
+    //
+    // The audio is bit-identical: a mode outside the bounds below satisfies
+    // the existing skip on EVERY sample of this block, so dropping it
+    // changes nothing. Measured that way, digest for digest, on six shapes.
+    //
+    // Two things make a mode do something -- it is already ringing, or it is
+    // driven (b0 != 0) AND the input is not silent -- so the range is the
+    // union. The tests are ordered by what each costs and how often it
+    // settles the question, because this runs per block on the audio thread
+    // and a narrowing that does not narrow must be nearly free:
+    //
+    //   1. the ringing range, O(modes x channels). If it already spans the
+    //      bank there is nothing to win and we stop here -- which is the
+    //      all-ringing case, where every later test would be pure overhead.
+    //   2. the driven range, O(modes) and no memory beyond the coefficients.
+    //      If nothing is driven, the input does not matter.
+    //   3. only then, whether the input is silent, O(frames x channels).
+    //      This is the biggest of the three and the one that is skipped
+    //      whenever either of the others has already answered.
+    uint32_t lo = modes;
+    uint32_t hi = 0;
+    for (uint32_t m = 0; m < modes; ++m) {
+        for (uint32_t channel = 0; channel < channels; ++channel) {
+            const uint32_t w = m * channels + channel;
+            if (state->s1[w] != 0.0f || state->s2[w] != 0.0f) {
+                if (m < lo) {
+                    lo = m;
+                }
+                hi = m + 1u;
+                break;
+            }
+        }
+    }
+    if (lo != 0u || hi != modes) {
+        uint32_t driven_lo = modes;
+        uint32_t driven_hi = 0;
+        for (uint32_t m = 0; m < modes; ++m) {
+            if (config->coeffs[m].b0 != 0.0f) {
+                if (m < driven_lo) {
+                    driven_lo = m;
+                }
+                driven_hi = m + 1u;
+            }
+        }
+        if (driven_lo < driven_hi
+            && (driven_lo < lo || driven_hi > hi)) {
+            bool excited = false;
+            for (uint32_t i = 0, n = frames * channels; i < n; ++i) {
+                if (in[i] != 0) {
+                    excited = true;
+                    break;
+                }
+            }
+            if (excited) {
+                if (driven_lo < lo) {
+                    lo = driven_lo;
+                }
+                if (driven_hi > hi) {
+                    hi = driven_hi;
+                }
+            }
+        }
+    }
+    if (lo >= hi) {
+        // Nothing can sound, so the dry path is the whole of the work.
+        for (uint32_t i = 0, n = frames * channels; i < n; ++i) {
+            out[i] = to_s16(dry * (float)in[i]);
+        }
+        return;
+    }
+
     for (uint32_t frame = 0; frame < frames; ++frame) {
         for (uint32_t channel = 0; channel < channels; ++channel) {
             const size_t index = (size_t)frame * channels + channel;
             const float x0 = (float)in[index];
             float sum = 0.0f;
-            for (uint32_t m = 0; m < modes; ++m) {
+            for (uint32_t m = lo; m < hi; ++m) {
                 const uint32_t w = m * channels + channel;
                 const audiodsp_modal_coeff_t *c = &config->coeffs[m];
                 // Skip only a mode that is taking nothing in AND holding
