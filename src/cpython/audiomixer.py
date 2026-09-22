@@ -40,7 +40,15 @@ def _mod_mul(level):
     correctly rounded `float` quotient (53 >= 2*24 + 2). The product of two
     `float`s is exact in `double` for the same reason, so rounding it once is
     the `float` product itself.
+
+    The one deviation from upstream is the unity case. Q15 32768 is what a
+    voice level of 1.0 becomes, and `32768 / 32767` is 1.0000305, which lifts
+    every sample at |value| >= 32736 by one LSB. A level of 1.0 is a wire
+    here, on every target. See `docs/upstream-diff.md`, "A voice at level 1.0
+    is a wire"; the native side is the same branch in `mult16signed`.
     """
+    if level == (1 << 15):
+        return 1.0
     return _f32(_f32(level) / _f32(32767.0))
 
 
