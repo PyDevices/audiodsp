@@ -160,6 +160,7 @@ jobs:
                          "route_probe.py ring --fault flip" \
                          "route_probe.py events --fault drop" \
                          "route_probe.py tap --fault short" \
+                         "route_probe.py tap --fault stale" \
                          "route_probe.py port --fault latch"; do
             if run $planted > /dev/null; then
               echo "the planted fault passed: $planted" >&2

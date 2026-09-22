@@ -219,9 +219,33 @@ def tap(fault):
         got = got // 2
     tail = bytes(pattern[wrote - got:]) if got else b""
     same = got > 0 and bytes(window[:got]) == tail
-    return say("tap", same,
-               "%d bytes of tap against the last %d of %d pulled: %s"
-               % (got, len(tail), wrote, "same" if same else "DIFFERENT"))
+    ok = say("tap", same,
+             "%d bytes of tap against the last %d of %d pulled: %s"
+             % (got, len(tail), wrote, "same" if same else "DIFFERENT"))
+
+    # audiodsp#120. Nothing is going out now, and a second read must say so
+    # rather than hand back the same window again. It used to answer with
+    # history for ever, which read as "still playing" to anything that asked.
+    stale = probe.readinto(window)
+    if fault == "stale":
+        # What it used to do: hand the same window back. The row must then
+        # fail, which is what shows the row is reading the fix and not just
+        # agreeing with itself.
+        stale = len(window)
+    ok = say("tap stale", stale == 0,
+             "a second read with nothing pulled in between returned %d bytes"
+             % (stale,)) and ok
+
+    # And the control: pull again and the tap is live again, so the mark is
+    # not a latch that switches a tap off after one read.
+    queue.write(memoryview(pattern_bytes(2)))
+    audiopump.tap(probe)
+    pull(queue, 2)
+    audiopump.tap(None)
+    again = probe.readinto(window)
+    ok = say("tap live", again > 0,
+             "after two more blocks the tap read %d bytes" % (again,)) and ok
+    return ok
 
 
 # --- the port --------------------------------------------------------------
