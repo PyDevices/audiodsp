@@ -394,7 +394,9 @@ def _refused(tail):
     """Did `spawn()` say no, with the sentence rather than a fault number?"""
     block = status()
     try:
-        audiopump.spawn(sample=tail, blocks=4, status=block)
+        # Positional, as everywhere else in this file: spawn's first three
+        # arguments are required and the binding wants them that way.
+        audiopump.spawn(tail, 4, block)
     except ValueError as error:
         return "file-backed" in str(error)
     audiopump.shutdown()
