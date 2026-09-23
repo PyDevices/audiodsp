@@ -23,8 +23,6 @@ python -m pip install --index-url https://test.pypi.org/simple/ \
 The installed modules are top-level imports, just as they are on a board:
 
 ```python
-from array import array
-
 import audiocore
 import synthio
 
