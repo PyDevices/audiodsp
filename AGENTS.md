@@ -55,14 +55,15 @@ for source compatibility; only this repo's own name differs.
 
 - `ulab` (numpy-alike) — pinned to the exact revision CircuitPython itself
   vendors
-- `cmods/mp3` (upstream `adafruit/Adafruit_MP3`, the Helix MP3 decoder core
+- `mp3` (upstream `adafruit/Adafruit_MP3`, the Helix MP3 decoder core
   `audiomp3` wraps) — RPSL 1.0/RCSL 1.0 licensed, *not* MIT; carried
   unmodified per upstream's own terms, same as CircuitPython itself. Kept
   as a separate sibling clone rather than folded into this (MIT) repo's own
   tree.
 
-Both are expected as siblings in the parent workspace (`cmods/` in
-`pydevices`), same pattern as `pygraphics`/`displayif`.
+Both are expected under `.deps/` (`scripts/fetch_deps.sh`), or as siblings
+of this repository in the parent workspace, same pattern as
+`pygraphics`/`displayif`.
 
 ## Testing
 
@@ -74,10 +75,10 @@ Both are expected as siblings in the parent workspace (`cmods/` in
   ([docs/correctness-standard.md](docs/correctness-standard.md), 2026-09-09).
   Upstream CircuitPython has no counterpart to them, so they are held to two
   things: every target renders them identically, and their numeric traits hold.
-  `.venv/bin/python tests/parity/verify_dsp.py --micropython ../cmods/micropython/ports/unix/build-standard/micropython`
+  `.venv/bin/python tests/parity/verify_dsp.py --micropython ../micropython/ports/unix/build-pydevices/micropython`
   is the first. There is **no stored digest** — the gate is the comparison, and
   it **refuses a run with fewer than two interpreters** rather than passing one
-  that cannot fail. Add `--circuitpython ../cmods/bin/circuitpython-oracle-10.3.0`
+  that cannot fail. Add `--circuitpython ../bin/circuitpython-oracle-10.3.0`
   for the three-way. The arithmetic is all in `src/shared/`, so two
   interpreters disagreeing is never a difference of intent: it is a width, an
   undefined shift, a compiler's choice or an architecture.
@@ -132,7 +133,7 @@ Both are expected as siblings in the parent workspace (`cmods/` in
   built interpreters (`bin/circuitpython`, the workspace MicroPython) and
   golden captures that live outside this repository, so external
   contributors cannot run them and CI does not try. **Since 2026-09-03 the
-  scripts' zero-argument defaults no longer point into `cmods/`** — a
+  scripts' zero-argument defaults no longer point into the workspace** — a
   standalone user should not be steered into a directory only this
   workspace has — so in *this* workspace every parity command needs the
   explicit `--micropython`/`--circuitpython` (or `CP_DIR`, `MP_UNIX`,
@@ -183,19 +184,19 @@ Both are expected as siblings in the parent workspace (`cmods/` in
 
 ## The CircuitPython oracle — extend, never modify
 
-`cmods/circuitpython` (sibling checkout, detached at tag `10.3.0`) is the
+`../circuitpython` (the workspace's checkout, detached at tag `10.3.0`) is the
 **oracle** every parity golden is measured against. The rule, for any agent
 working here:
 
-- **The oracle binary is `cmods/bin/circuitpython-oracle-<version>`**, built
-  only by `cmods/build_interpreters.sh --only cp-oracle` (CircuitPython's unix
+- **The oracle binary is the workspace anchor's `bin/circuitpython-oracle-<version>`**,
+  built only by its `tools/build_interpreters.sh --only cp-oracle` (CircuitPython's unix
   coverage variant at `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64`) and re-pinned in
   `tests/test_voice_ceiling_consistency.py` in the same change that builds it.
-  **`cmods/bin/circuitpython` is not the oracle** — it is what that script's
+  **`bin/circuitpython` is not the oracle** — it is what that script's
   `cp-unix` target installs, at the coverage variant's own 14-voice ceiling,
   and it changes under you whenever anyone refreshes the interpreters
   (audiodsp#89, twice in eight days).
-- **Never edit files in `cmods/circuitpython` directly.** A modified oracle
+- **Never edit files in `../circuitpython` directly.** A modified oracle
   silently redefines what "parity" means and invalidates every golden without
   failing anything. Its *pin* is a different matter: it moves when this port
   moves to a new CircuitPython release, deliberately, in a change that re-reads
@@ -210,7 +211,7 @@ working here:
   tree. The script is **additive-only by design** — it adds files and
   registers them in build glue; the sole stock-file rewrite it performs is
   the fenced audiocore `'B'`-memoryview patch. Do not add non-additive
-  rewrites to it: `cmods/build_cp.sh` auto-applies the script before
+  rewrites to it: the anchor's `tools/build_interpreters.sh` runs the script before
   building `bin/circuitpython`, so a behavioral rewrite would leak *into*
   the oracle.
 - Fixes to bugs that also exist upstream go in **this repo's targets only**
@@ -218,10 +219,10 @@ working here:
   — never into the CP tree. Approved deviations from the oracle are
   enumerated there; **ask before adding one**.
 - Quick self-check after any CP-adjacent work:
-  `CP_DIR=../cmods/circuitpython ./apply_cp_patches.sh --status` must account
+  `CP_DIR=../circuitpython ./apply_cp_patches.sh --status` must account
   for every difference (bare, the script no longer finds the tree here and
   says `CircuitPython tree not found (set CP_DIR)`), and
-  `git -C ../cmods/circuitpython status` must show only the known additive
+  `git -C ../circuitpython status` must show only the known additive
   set (new module dirs, build glue, the fenced audiocore rewrite) — no
   changes under `shared-module/`/`shared-bindings/` for `synthio`,
   `audiofilters`, `audiocore` (beyond the fence), `audiomixer`, or
