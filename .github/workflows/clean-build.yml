@@ -75,13 +75,14 @@ jobs:
           ref: v1.29.0
           path: micropython
       - name: Build the unix port with the audiodsp usermod
-        # USER_C_MODULES is the PARENT directory: py.mk globs
-        # $(USER_C_MODULES)/*/micropython.mk exactly one level down.
+        # The manifest names this module and its ulab dependency (.deps/ulab,
+        # fetched above) with c_module(), so there is no USER_C_MODULES: the
+        # parent-directory scan plus the manifest would include audiodsp twice.
         run: |
           make -C micropython/mpy-cross -j2
           make -C micropython/ports/unix submodules
           make -C micropython/ports/unix -j2 \
-            USER_C_MODULES=$GITHUB_WORKSPACE \
+            FROZEN_MANIFEST=$GITHUB_WORKSPACE/audiodsp/manifest.py \
             CFLAGS_EXTRA="${{ matrix.float-impl.cflags }}"
       - name: Smoke the result
         run: |
@@ -212,7 +213,11 @@ jobs:
           ref: v1.29.0
           path: micropython
       - name: Configure the usermod through CMake
+        # The manifest names ulab (from .deps/) with c_module(); the
+        # extraction that reads it needs micropython-lib in the tree.
         run: |
+          git -C micropython submodule update --init lib/micropython-lib
           cmake -S audiodsp/tests/cmake -B cmake-build \
                 -DMICROPY_DIR="$GITHUB_WORKSPACE/micropython" \
+                -DMICROPY_FROZEN_MANIFEST="$GITHUB_WORKSPACE/audiodsp/manifest.py" \
                 -DUSER_C_MODULES="$GITHUB_WORKSPACE/audiodsp"
