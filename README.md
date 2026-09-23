@@ -14,25 +14,23 @@ package is `audiodsp_util` now, and the distribution on PyPI is
 
 ## Installation
 
-**MicroPython** consumes this repository as `USER_C_MODULES`, and it is
-fully standalone for both build flavors — no other repository is required.
-`./scripts/fetch_deps.sh` puts the two pinned native dependencies (`ulab`,
-`mp3`) under `.deps/`, and both `micropython.mk` and `micropython.cmake`
-look there first, falling back to a sibling checkout beside this repo and
-otherwise failing the build with an error naming both paths.
+**MicroPython** builds this repository through its
+[manifest.py](manifest.py), which names both `audiodsp` itself and its
+`ulab` dependency with `c_module()` (MicroPython 1.29 or later). Pass the
+manifest to the build and nothing else is needed: no `USER_C_MODULES`, and
+no other repository. `./scripts/fetch_deps.sh` puts the two pinned native
+dependencies (`ulab`, `mp3`) under `.deps/`; the manifest and the mp3 glue
+look there first and fall back to a sibling checkout beside this repo.
 
-For a CMake port (esp32, rp2), point `USER_C_MODULES` straight at this
-checkout:
+For a CMake port (esp32, rp2):
 
 ```sh
 git clone https://github.com/PyDevices/audiodsp ~/build/audiodsp
 cd ~/build/audiodsp && ./scripts/fetch_deps.sh
-idf.py build -DUSER_C_MODULES=~/build/audiodsp
+make BOARD=<board> FROZEN_MANIFEST=~/build/audiodsp/manifest.py
 ```
 
-For a Make port (unix, windows, webassembly), MicroPython's own build glob
-looks one level down, so point `USER_C_MODULES` at this checkout's
-*parent* directory instead:
+For a Make port (unix, windows, webassembly):
 
 ```sh
 git clone https://github.com/PyDevices/audiodsp ~/build/audiodsp
@@ -40,26 +38,27 @@ cd ~/build/audiodsp && ./scripts/fetch_deps.sh
 git clone https://github.com/micropython/micropython ~/build/micropython
 cd ~/build/micropython/mpy-cross && make
 cd ~/build/micropython/ports/unix && make submodules
-make USER_C_MODULES=~/build
+make FROZEN_MANIFEST=~/build/audiodsp/manifest.py
 ```
+
+A `FROZEN_MANIFEST` replaces the port's default manifest, so a build that
+also wants the port's own frozen modules (asyncio and friends) uses a
+manifest of its own that includes both, for example
+`include("$(PORT_DIR)/variants/manifest.py")` followed by
+`include("/path/to/audiodsp/manifest.py")`.
 
 The two dependencies are `ulab` (so `synthtools`'s `import ulab.numpy`
 works) and `mp3` (the `audiomp3` tier's decoder), pinned by
-[DEPENDENCIES.lock](DEPENDENCIES.lock). To build without them, skip the
-fetch and set `AUDIODSP_OPTIONAL_DEPS=1` on the **build** step instead — the
+[DEPENDENCIES.lock](DEPENDENCIES.lock). To build without `mp3`, skip the
+fetch and set `AUDIODSP_OPTIONAL_DEPS=1` on the **build** step — the
 variable is read by `micropython.mk`/`micropython.cmake`, not by
 `fetch_deps.sh`, and on CMake ports it is read as an *environment*
-variable, not as a `-D` cache entry:
-
-```sh
-make USER_C_MODULES=~/build AUDIODSP_OPTIONAL_DEPS=1              # Make ports
-AUDIODSP_OPTIONAL_DEPS=1 idf.py build -DUSER_C_MODULES=~/build/audiodsp   # CMake
-```
-
-That builds every module except `audiomp3` with no clone beyond this
-repository; `synthtools`' `import ulab.numpy` then fails at runtime, which
-is the trade the flag buys. See [docs/porting-plan.md](docs/porting-plan.md)
-for the architecture, module tiers, phased plan, and testing strategy.
+variable, not as a `-D` cache entry. To build without `ulab`, point
+`USER_C_MODULES` at this checkout (its parent directory on a Make port)
+instead of passing the manifest; `synthtools`' `import ulab.numpy` then
+fails at runtime, which is the trade that buys. See
+[docs/porting-plan.md](docs/porting-plan.md) for the architecture, module
+tiers, phased plan, and testing strategy.
 
 **CPython 3.11+** installs from TestPyPI:
 

@@ -90,29 +90,9 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiopump/audiopump_events.c \
     $(MPAUDIO_SRC_DIR)/audiopump/audiopump_tap.c
 
-# --- ulab (numpy-alike): cloned sibling dependency, pinned to match this
-#     workspace's CircuitPython checkout (see docs/porting-plan.md). Its own
-#     code/micropython.mk expects USERMOD_DIR to point at ulab/code; the
-#     workspace CMake aggregator finds ulab/code/micropython.cmake on its
-#     own (mindepth 2/maxdepth 3), but py.mk's Make-port loop only globs
-#     $(USER_C_MODULES)/*/micropython.mk at depth 1, so chain it in here.
-#     USERMOD_DIR is restored below since ulab's makefile does not save it.
-#     Search order: the repo-local .deps/ tree (scripts/fetch_deps.sh,
-#     pinned by DEPENDENCIES.lock) first, then the workspace sibling.
-MPAUDIO_ULAB_CODE_DIR := $(abspath $(MPAUDIO_MOD_DIR)/.deps/ulab/code)
-ifeq ($(wildcard $(MPAUDIO_ULAB_CODE_DIR)/ulab.c),)
-MPAUDIO_ULAB_CODE_DIR := $(abspath $(MPAUDIO_MOD_DIR)/../ulab/code)
-endif
-ifeq ($(wildcard $(MPAUDIO_ULAB_CODE_DIR)/ulab.c),)
-ifneq ($(AUDIODSP_OPTIONAL_DEPS),1)
-$(error audiodsp: ulab not found (looked in .deps/ulab and ../ulab). Run ./scripts/fetch_deps.sh, or set AUDIODSP_OPTIONAL_DEPS=1 to build without it)
-endif
-endif
-ifneq ($(wildcard $(MPAUDIO_ULAB_CODE_DIR)/ulab.c),)
-USERMOD_DIR := $(MPAUDIO_ULAB_CODE_DIR)
-include $(MPAUDIO_ULAB_CODE_DIR)/micropython.mk
-USERMOD_DIR := $(MPAUDIO_MOD_DIR)
-
+# --- ulab (numpy-alike): a cloned sibling dependency this repository owns,
+#     named by manifest.py with c_module() (MicroPython 1.29) so it is compiled
+#     exactly once on every port; nothing here includes its makefile.
 # `import ulab.numpy` / `import ulab.scipy` are dotted submodule imports of a
 # built-in (ulab's globals dict has `numpy`/`scipy` as plain module-typed
 # entries, same shape CircuitPython relies on for its own dotted built-ins).
@@ -123,7 +103,6 @@ USERMOD_DIR := $(MPAUDIO_MOD_DIR)
 # turns it on build-wide -- confirmed needed by testing `import ulab.numpy`
 # against this exact ulab pin on the unix standard variant.
 override CFLAGS_EXTRA += -DMICROPY_MODULE_BUILTIN_SUBPACKAGES=1
-endif
 
 # --- module skeleton: empty `import <name>` targets for every top-level
 #     module this tree will grow into (see docs/porting-plan.md). Tiers add

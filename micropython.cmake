@@ -323,38 +323,8 @@ endif()
 
 target_link_libraries(usermod INTERFACE usermod_mpaudio)
 
-# --- ulab (numpy-alike): a cloned dependency (see docs/porting-plan.md), not
-#     part of this module, but `import ulab.numpy` in synthtools needs it in
-#     the firmware. Mirrors micropython.mk:57-68 for standalone CMake
-#     consumers: repo-local .deps/ (scripts/fetch_deps.sh, pinned by
-#     DEPENDENCIES.lock) first, then the workspace sibling.
-#
-#     The two guard branches are load-bearing, not defensive noise -- do not
-#     delete them as redundant. ulab's own code/micropython.cmake:1 calls
-#     add_library(usermod_ulab INTERFACE) unguarded, so a second include of
-#     it is a hard `another target with the same name already exists` error.
-#     Under the workspace aggregator (cmods/micropython.cmake, which globs
-#     mindepth 2/maxdepth 3) BOTH files are found and audiodsp's comes first
-#     alphabetically -- so this block must stand down there and leave
-#     cmods/ulab to the aggregator, exactly as before this block existed.
-#     CMOD_DIR is how that is detected: cmods/micropython.cmake:1 sets it in
-#     the same directory scope the included file runs in.
-if(TARGET usermod_ulab)
-    # Someone already supplied ulab (aggregator reached it before us).
-    message(STATUS "audiodsp: ulab already provided by another usermod")
-elseif(DEFINED CMOD_DIR AND EXISTS ${CMOD_DIR}/ulab/code/micropython.cmake)
-    # Workspace aggregator build: it will include cmods/ulab itself.
-    message(STATUS "audiodsp: ulab left to the workspace aggregator (${CMOD_DIR}/ulab)")
-else()
-    set(MPAUDIO_ULAB_CODE_DIR ${MPAUDIO_MOD_DIR}/.deps/ulab/code)
-    if(NOT EXISTS ${MPAUDIO_ULAB_CODE_DIR}/ulab.c)
-        set(MPAUDIO_ULAB_CODE_DIR ${MPAUDIO_MOD_DIR}/../ulab/code)
-    endif()
-    if(NOT EXISTS ${MPAUDIO_ULAB_CODE_DIR}/ulab.c AND NOT DEFINED ENV{AUDIODSP_OPTIONAL_DEPS})
-        message(FATAL_ERROR "audiodsp: ulab not found (looked in .deps/ulab and ../ulab). Run ./scripts/fetch_deps.sh, or set AUDIODSP_OPTIONAL_DEPS=1 to build without it")
-    endif()
-    if(EXISTS ${MPAUDIO_ULAB_CODE_DIR}/ulab.c)
-        message(STATUS "audiodsp: ulab from ${MPAUDIO_ULAB_CODE_DIR}")
-        include(${MPAUDIO_ULAB_CODE_DIR}/micropython.cmake)
-    endif()
-endif()
+# --- ulab (numpy-alike): a cloned sibling dependency this repository owns,
+#     named by manifest.py with c_module() (MicroPython 1.29) so it is compiled
+#     exactly once on every port. Nothing here includes its cmake: ulab's
+#     code/micropython.cmake calls add_library(usermod_ulab) unguarded, and one
+#     owner of that include is the only way it is never included twice.
