@@ -1,3 +1,28 @@
+## v0.6.0 (2026-09-23)
+
+- docs: add audiodsp newcomer guide (#145)
+- AGENTS.md: the interpreters, the oracle and the CircuitPython checkout live in the workspace anchor, not cmods
+- tests: the oracle and the interpreters live in the workspace anchor's bin
+- ulab is named by the manifest, once, for every port (#144)
+- flake8: c_module is manifest vocabulary, not an undefined name
+- manifest: name this repo's C module with c_module() (MicroPython 1.29)
+- The pump's per-block path can be placed in IRAM, behind a knob (#142) (#143)
+- audiopump: a strike on a modal bank can carry a frame (#138)
+- synthio: a refused press is counted, so the instrument layer can see it (#137)
+- audiopump.Tap: a read with nothing new says so, instead of answering with history (#136)
+- the float family: bounded in the gate, written down, six issues closed (#141)
+- docs: two numbers that stopped being true (#140)
+- audiomodal: the inner loop runs over the modes that can sound (#139)
+- audiocore: the funnel refuses a loop entered at any node, not only at a Port (#135)
+- audiopump: a file-backed source is refused at handover, however deep (#134)
+- audiopump: the 64-bit status words, audited against the 32-bit-atomics rule (#133)
+- audiodsp: a deinit() holds the pump lock over its whole body, and it is checked (#132)
+- audioshaper: the oversample ceiling is 16, and a build-time knob (#131)
+- docs: the Phaser's held DC, re-measured and traced to its fixed point (#130)
+- audiomixer: a voice at level 1.0 is a wire (#129)
+- tests: a live set() on Ladder and FeedbackDelay lands, measured rather than assumed (#128)
+- ci: bump pypa/cibuildwheel in the actions group across 1 directory (#65)
+
 ## v0.5.1 (2026-09-22)
 
 - The release gate expects the 18 wheels this tree builds, not the 21 it built with Python 3.10 (#123)
