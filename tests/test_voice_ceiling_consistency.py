@@ -51,12 +51,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: is whether we render CircuitPython's bytes in the same situation. See
 #: docs/correctness-standard.md. The hole this closes is unchanged: a
 #: CFLAGS_EXTRA rebuild of the oracle needs no edit to any tracked file,
-#: leaves `git -C cmods/circuitpython status` clean, and overwrites the
+#: leaves `git -C circuitpython status` clean, and overwrites the
 #: gitignored binary in place. Every existing check would pass on a silently
 #: different oracle. Comparing the bytes is the only thing that notices.
 #:
 #: Re-pinned and MOVED 2026-09-17 for audiodsp#89. Two things changed. The
-#: **path**: `cmods/bin/circuitpython` is what `cmods/build_interpreters.sh`'s
+#: **path**: the anchor's `bin/circuitpython` is what `tools/build_interpreters.sh`'s
 #: `cp-unix` target installs, so anyone refreshing the workspace interpreters
 #: silently replaced the oracle with a coverage build at the variant's own
 #: 14-voice ceiling. That happened twice in eight days, and it is the whole of
@@ -75,7 +75,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: `mixdown_knee`'s stored `circuitpython_stdout` both reproduce exactly); and
 #: `verify_dsp` agrees three ways across 45 comparisons, with no skip beyond
 #: the three already written down. Previous: 447e3ee88a143e1d, still on disk
-#: as `cmods/bin/circuitpython-effects-10.3.0`.
+#: as `bin/circuitpython-effects-10.3.0`.
 #:
 #: A coverage build is not byte-reproducible, which is the other reason this
 #: pins a file and not a recipe. Two builds of the same tree with the same
@@ -96,7 +96,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #:
 #: Re-pinned 2026-09-09 for the deliberate rebuild to CircuitPython 10.3.0 at
 #: CIRCUITPY_SYNTHIO_MAX_CHANNELS=64, replacing the 10.2.1-at-14 build
-#: b3063621c72a085b (kept at cmods/bin/circuitpython-oracle-10.2.1). That
+#: b3063621c72a085b (kept at the workspace anchor's bin/circuitpython-oracle-10.2.1). That
 #: rebuild is what found the two synthio/audiomixer behaviour changes 10.3.0
 #: made and this port had not taken: the panning polarity flip and the
 #: zero-crossing loudness gate.
@@ -116,7 +116,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: previous oracle predated audioshaper.SampleHold (PR #98) and verify_dsp's
 #: three-way run aborted on its samplehold probe. Still 64 voices; the
 #: build script refused to install anything that answered otherwise.
-ORACLE = ROOT.parent / "cmods" / "bin" / "circuitpython-oracle-10.3.0"
+ORACLE = ROOT.parent / "bin" / "circuitpython-oracle-10.3.0"
 ORACLE_SHA256 = (
     "9ac258304347341875208813b510145a0dbf45ffd910b39457749fa165dd7920")
 
@@ -216,7 +216,7 @@ class VoiceCeilingConsistency(unittest.TestCase):
             "\n"
             "\n    Nothing but `build_interpreters.sh --only cp-oracle` "
             "should ever write this path, and that target exists so no "
-            "routine interpreter refresh can. `cmods/bin/circuitpython` is "
+            "routine interpreter refresh can. The anchor's `bin/circuitpython` is "
             "the installer's coverage build at 14 voices and is NOT this."
             "\n"
             "\n    If you rebuilt it deliberately, that is a decision for "

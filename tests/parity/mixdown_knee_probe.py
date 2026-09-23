@@ -31,7 +31,7 @@ Measured 2026-09-06 on all three runtimes -- these are the numbers to
 check by eye if the probe is ever edited:
 
     K=1   peak 16383, byte sums 68008 / 63296 -- byte-identical on the
-                       CPython target, cmods/bin/micropython and the pinned
+                       CPython target, the anchor's bin/micropython and the pinned
                        CircuitPython oracle. Below the knee, so the ceiling
                        cannot reach it.
     K=2   peak 28010 (port, N=64) vs 28046 (oracle, N=14)
@@ -60,7 +60,7 @@ alone cancel opposite drift inside a block), and ``peak`` is the largest
 absolute signed 16-bit sample in the block.
 
 Plain Python only: this runs unchanged under CPython,
-``cmods/bin/micropython`` and ``cmods/bin/circuitpython``.
+the anchor's ``bin/micropython`` and ``bin/circuitpython``.
 """
 
 from array import array
