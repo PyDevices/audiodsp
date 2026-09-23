@@ -1,6 +1,12 @@
 [flake8]
 # manifest.py is executed by MicroPython's makemanifest with these names injected.
-builtins = c_module,package,module,freeze,freeze_as_mpy,freeze_as_str,include,require,options,metadata
+# manifest.py is run by MicroPython's makemanifest.py, which injects
+# c_module(), include(), require() and friends as globals. flake8's
+# `builtins` option would name them, but flake8 7.4.0 + pyflakes 4.0.0
+# crash on that option (FlakesChecker lost its builtIns attribute), so
+# the undefined-name check is switched off for that one file instead.
+per-file-ignores =
+    manifest.py:F821
 # Defect checks only, not formatting opinions.
 #
 # F   pyflakes: undefined names, unused imports, shadowed definitions,

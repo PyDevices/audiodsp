@@ -2,6 +2,7 @@
 #
 #   cmake -S tests/cmake -B <build dir> \
 #         -DMICROPY_DIR=<micropython checkout> \
+#         -DMICROPY_FROZEN_MANIFEST=<this checkout>/manifest.py \
 #         -DUSER_C_MODULES=<this checkout>
 #
 # Nothing in CI ran CMake until this existed: `clean-build.yml` builds through
@@ -28,12 +29,30 @@ endforeach()
 
 # What a port does. `usermod.cmake` creates the `usermod` target, includes
 # `py/manifest.cmake`, and then includes each USER_C_MODULES entry's
-# `micropython.cmake`.
+# `micropython.cmake`. A port has `py/py.cmake` set MICROPY_LIB_DIR before
+# it gets here; `py/manifest.cmake` reads the manifest's c_module() lines
+# only when `${MICROPY_LIB_DIR}/README.md` exists, and with the variable
+# unset it warns "micropython-lib not initialised" and names nothing --
+# which is how this harness lost ulab the first time.
+if(NOT MICROPY_LIB_DIR)
+    set(MICROPY_LIB_DIR ${MICROPY_DIR}/lib/micropython-lib)
+endif()
+# There is no port here, but `makemanifest.py` refuses to run unless
+# PORT_DIR is defined (an undefined CMake variable is dropped from its
+# argument list, and the failure surfaces as an empty error). The
+# manifest uses neither $(PORT_DIR) nor $(BOARD_DIR); this directory
+# stands in for both so either would resolve to something real.
+if(NOT MICROPY_PORT_DIR)
+    set(MICROPY_PORT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
+if(NOT MICROPY_BOARD_DIR)
+    set(MICROPY_BOARD_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
 include(${MICROPY_DIR}/py/usermod.cmake)
 
 # 1. The targets. `usermod_mpaudio` is this repo's own; `usermod_ulab` comes
-#    from the ulab clone that `micropython.cmake`'s guarded block includes,
-#    and is the half that had actually broken once - so its absence is a
+#    from the c_module() line in manifest.py that names the ulab clone, and
+#    is the half that had actually broken once - so its absence is a
 #    failure here, not a warning.
 foreach(target usermod usermod_mpaudio usermod_ulab)
     if(NOT TARGET ${target})
