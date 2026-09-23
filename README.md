@@ -12,6 +12,9 @@ audio hardware layer. The modules you import did not change. The helper
 package is `audiodsp_util` now, and the distribution on PyPI is
 `pydevices-audiodsp`.
 
+New here? See the [newcomer's guide](docs/newcomers.md) for the runtime map,
+shared-core architecture, and contributor boundaries.
+
 ## Installation
 
 **MicroPython** builds this repository through its
