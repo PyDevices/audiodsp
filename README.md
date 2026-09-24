@@ -66,10 +66,10 @@ keeps ready-made manifests and boards for several PyDevices modules at once.
 [docs/porting-plan.md](docs/porting-plan.md) covers the architecture, module
 tiers and testing strategy.
 
-**CPython 3.11+** installs from TestPyPI:
+**CPython 3.11+** installs from PyPI:
 
 ```sh
-python -m pip install --index-url https://test.pypi.org/simple/ pydevices-audiodsp
+python -m pip install pydevices-audiodsp
 ```
 
 This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
@@ -84,16 +84,14 @@ reports.
 
 `audiorender` is the exception, and it is opt-in: it is numpy throughout,
 so numpy comes with the `render` extra rather than with the wheel, keeping
-the core dependency-free for boards and wasm. TestPyPI carries no usable
-numpy, so the extra needs PyPI as a second index:
+the core dependency-free for boards and wasm:
 
 ```sh
-python -m pip install --index-url https://test.pypi.org/simple/ \
-    --extra-index-url https://pypi.org/simple/ "pydevices-audiodsp[render]"
+python -m pip install "pydevices-audiodsp[render]"
 ```
 
-The instrument and effect libraries — `audioinstruments` (53 synthesizers,
-keyboards and drum machines) and `audioeffects` (46 effect classes, racks
+The instrument and effect libraries — `audioinstruments` (55 synthesizers,
+keyboards and drum machines) and `audioeffects` (45 effect classes, racks
 included) — are not part of this distribution. They live in the
 [audiocomponents](https://github.com/PyDevices/audiocomponents) repository
 as their own packages, each depending on `pydevices-audiodsp`; see that
