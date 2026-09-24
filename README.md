@@ -17,51 +17,54 @@ shared-core architecture, and contributor boundaries.
 
 ## Installation
 
-**MicroPython** builds this repository through its
-[manifest.py](manifest.py), which names both `audiodsp` itself and its
-`ulab` dependency with `c_module()` (MicroPython 1.29 or later). Pass the
-manifest to the build and nothing else is needed: no `USER_C_MODULES`, and
-no other repository. `./scripts/fetch_deps.sh` puts the two pinned native
-dependencies (`ulab`, `mp3`) under `.deps/`; the manifest and the mp3 glue
-look there first and fall back to a sibling checkout beside this repo.
-
-For a CMake port (esp32, rp2):
+**MicroPython 1.29 or later** takes this repository with one line in the
+manifest your build already uses. Clone it anywhere, fetch its two pinned
+native dependencies, and include its [manifest.py](manifest.py):
 
 ```sh
 git clone https://github.com/PyDevices/audiodsp ~/build/audiodsp
-cd ~/build/audiodsp && ./scripts/fetch_deps.sh
-make BOARD=<board> FROZEN_MANIFEST=~/build/audiodsp/manifest.py
+~/build/audiodsp/scripts/fetch_deps.sh
 ```
 
-For a Make port (unix, windows, webassembly):
-
-```sh
-git clone https://github.com/PyDevices/audiodsp ~/build/audiodsp
-cd ~/build/audiodsp && ./scripts/fetch_deps.sh
-git clone https://github.com/micropython/micropython ~/build/micropython
-cd ~/build/micropython/mpy-cross && make
-cd ~/build/micropython/ports/unix && make submodules
-make FROZEN_MANIFEST=~/build/audiodsp/manifest.py
+```python
+include("/home/you/build/audiodsp/manifest.py")
 ```
 
-A `FROZEN_MANIFEST` replaces the port's default manifest, so a build that
-also wants the port's own frozen modules (asyncio and friends) uses a
-manifest of its own that includes both, for example
-`include("$(PORT_DIR)/variants/manifest.py")` followed by
-`include("/path/to/audiodsp/manifest.py")`.
+On unix the manifest to edit is `ports/unix/variants/standard/manifest.py`; on
+esp32 and rp2 it is usually `ports/<port>/boards/manifest.py`, unless your
+board brings its own. Then build the way you always do. The include brings in
+the audiodsp C modules and `ulab` (named with `c_module()`); it freezes no
+Python. `fetch_deps.sh` puts `ulab` and `mp3` under `.deps/`, pinned by
+[DEPENDENCIES.lock](DEPENDENCIES.lock); the manifest and the mp3 glue look
+there first and fall back to a sibling checkout beside this repo. Tested on
+the unix port against MicroPython v1.29.0, where `synthio`, `audiomp3`,
+`audiopump` and `ulab.numpy` all import.
 
-The two dependencies are `ulab` (so `synthtools`'s `import ulab.numpy`
-works) and `mp3` (the `audiomp3` tier's decoder), pinned by
-[DEPENDENCIES.lock](DEPENDENCIES.lock). To build without `mp3`, skip the
-fetch and set `AUDIODSP_OPTIONAL_DEPS=1` on the **build** step — the
-variable is read by `micropython.mk`/`micropython.cmake`, not by
-`fetch_deps.sh`, and on CMake ports it is read as an *environment*
-variable, not as a `-D` cache entry. To build without `ulab`, point
-`USER_C_MODULES` at this checkout (its parent directory on a Make port)
-instead of passing the manifest; `synthtools`' `import ulab.numpy` then
-fails at runtime, which is the trade that buys. See
-[docs/porting-plan.md](docs/porting-plan.md) for the architecture, module
-tiers, phased plan, and testing strategy.
+If you would rather not edit the MicroPython tree, write a manifest of your
+own and pass it as `FROZEN_MANIFEST=`. That replaces the port's default, so
+include the default too (`include("$(PORT_DIR)/variants/standard/manifest.py")`
+on unix, `include("$(PORT_DIR)/boards/manifest.py")` on esp32) or you lose
+`asyncio` and the port's other frozen modules.
+
+To build without `mp3`, skip the fetch and set `AUDIODSP_OPTIONAL_DEPS=1` on
+the **build** step — `micropython.mk`/`micropython.cmake` read it, not
+`fetch_deps.sh`, and on CMake ports it is an *environment* variable, not a
+`-D` cache entry.
+
+**Older than 1.29?** Manifests there have no `c_module()`, so do not include
+this one; use `USER_C_MODULES`. On esp32 and rp2 point it at this checkout
+(add `;<checkout>/.deps/ulab/code` if you want `ulab`); on a Make port point
+it at the directory that *contains* the checkout, which builds every module in
+that directory and does not reach `ulab`. Without `ulab`, `synthtools`'
+`import ulab.numpy` fails at runtime.
+
+MicroPython's
+[manifest reference](https://docs.micropython.org/en/v1.29.0/reference/manifest.html)
+explains `include()` and `c_module()`, and
+[micropython-pydevices](https://github.com/PyDevices/micropython-pydevices)
+keeps ready-made manifests and boards for several PyDevices modules at once.
+[docs/porting-plan.md](docs/porting-plan.md) covers the architecture, module
+tiers and testing strategy.
 
 **CPython 3.11+** installs from TestPyPI:
 
