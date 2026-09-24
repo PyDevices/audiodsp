@@ -83,5 +83,11 @@ jobs:
       # tagged and then published nothing (#122).
       expected-wheel-count: 18
       wheel-filename-prefix: pydevices_audiodsp
+      # Production PyPI too, for final releases (Brad, 2026-09-23): the name
+      # was parked at 0.6.0 by mirroring TestPyPI's files, and its Trusted
+      # Publisher (this workflow, environment "pypi") is configured. The pypi
+      # environment requires a reviewer, so each production publish waits for
+      # Brad's approval.
+      pypi-publish: true
       release-ref: ${{ inputs.release-ref }}
     secrets: inherit
