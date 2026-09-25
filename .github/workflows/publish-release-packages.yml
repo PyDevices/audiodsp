@@ -11,12 +11,12 @@ on:
         required: true
         type: string
 
-# publishing-v5 needs contents:write (attach release assets) and
-# id-token:write (PyPI Trusted Publishing); a called workflow may not
-# exceed the caller's grant, so the ceiling is set here.
+# The coordinator needs contents:write to attach release assets; a called
+# workflow may not exceed the caller's grant, so the ceiling is set here.
+# id-token:write is granted only to the pypi job below, the one job that
+# uses it.
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   parity:
@@ -64,7 +64,12 @@ jobs:
     needs:
       - parity
       - credentials
-    uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-v8
+    # publishing-vNEXT is a placeholder for the first publishing tag cut after
+    # PyDevices/.github's caller-side PyPI change (the coordinator's pypi-gate
+    # job and its pypi-publish / dist-artifact / version outputs). Replace it
+    # with that tag's real name before merging; as written, a run fails at
+    # startup.
+    uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-vNEXT
     with:
       build-kind: native-and-wasm
       distribution-name: pydevices-audiodsp
@@ -85,9 +90,48 @@ jobs:
       wheel-filename-prefix: pydevices_audiodsp
       # Production PyPI too, for final releases (Brad, 2026-09-23): the name
       # was parked at 0.6.0 by mirroring TestPyPI's files, and its Trusted
-      # Publisher (this workflow, environment "pypi") is configured. The pypi
-      # environment requires a reviewer, so each production publish waits for
-      # Brad's approval.
+      # Publisher (this workflow, environment "pypi") is configured. The
+      # coordinator only decides; the upload is the pypi job below.
       pypi-publish: true
       release-ref: ${{ inputs.release-ref }}
+    secrets: inherit
+
+  pypi:
+    # The upload has to run here, in this file. PyPI matches the Trusted
+    # Publisher against the workflow that runs the upload job, and when that
+    # job lived in the reusable coordinator, the workflow was
+    # PyDevices/.github's, not this one: v0.6.1 failed with invalid-publisher.
+    # The pypi environment requires Brad's approval and allows v* tags only.
+    needs: publish
+    if: >-
+      !cancelled() && needs.publish.outputs.pypi-publish == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download the validated distributions
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.publish.outputs.dist-artifact }}
+          path: dist
+      - name: Publish to PyPI via Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+  report-pypi:
+    # The coordinator's Release Health report went out before this upload,
+    # with pypi "pending"; this fills in the outcome on the same row.
+    needs:
+      - publish
+      - pypi
+    if: >-
+      !cancelled() && needs.publish.outputs.pypi-publish == 'true'
+    # Same placeholder as the publish job above: the same tag, both lines.
+    uses: PyDevices/.github/.github/workflows/reusable-report-pypi-result.yml@publishing-vNEXT
+    with:
+      distribution-name: pydevices-audiodsp
+      version: ${{ needs.publish.outputs.version }}
+      pypi-result: ${{ needs.pypi.result }}
     secrets: inherit
