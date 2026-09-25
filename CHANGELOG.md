@@ -1,3 +1,9 @@
+## v0.6.1 (2026-09-25)
+
+- README: install from PyPI; audiocomponents counts are 55 and 45
+- README: add this module to your own MicroPython build with one include() line (#148)
+- Publish final releases to production PyPI as well (#147)
+
 ## v0.6.0 (2026-09-23)
 
 - docs: add audiodsp newcomer guide (#145)
