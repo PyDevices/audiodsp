@@ -8,14 +8,21 @@ python -m build
 ```
 
 A GitHub Release `vX.Y.Z` — matching the `VERSION` file, which is also where
-`_audiodsp.__version__` comes from — invokes the organization `publishing-v8`
-workflow (the pin is the `@publishing-v8` ref in
+`_audiodsp.__version__` comes from — invokes the organization's reusable
+publishing workflow (the pin is the `@publishing-vN` ref in
 `.github/workflows/publish-release-packages.yml`) with
-`build-kind: native-and-wasm`. It builds and validates exactly **21** wheels:
+`build-kind: native-and-wasm`. It builds and validates exactly **18** wheels:
 
 - CPython 3.11–3.14, manylinux_2_28 x86_64, Windows AMD64, and
-  macosx_arm64 — 15.
-- CPython 3.13–3.14, Android API 21 arm64_v8a/x86_64 and Pyodide wasm32 — 6.
+  macosx_arm64 — 12.
+- CPython 3.13–3.14, Android API 21 arm64_v8a/x86_64 — 4.
+- CPython 3.13–3.14, Pyodide wasm32 — 2.
+
+Final releases then go to production PyPI too, after Brad approves the `pypi`
+environment. That upload is the `pypi` job in this repository's own
+`publish-release-packages.yml`, not in the reusable workflow, because PyPI's
+Trusted Publishing only matches the workflow that runs the upload
+([why](https://github.com/PyDevices/.github/blob/main/docs/publishing-automation.md#production-pypi-opt-in-protected-trusted-publishing)).
 
 (This paragraph said `publishing-v6` and 16 wheels until 2026-09-02, having
 gone stale when macOS landed. The count that matters is
@@ -111,16 +118,15 @@ written beside it. That is both a faithful reading of the rule and a
 stricter regression detector than a threshold.
 
 **Release-time gap, precisely — this one IS open.** The organization
-desktop matrix (`reusable-build-native-and-wasm-wheels.yml`, at
-`publishing-v8`) runs `ubuntu-latest`, `windows-latest` and
+desktop matrix (`reusable-build-native-and-wasm-wheels.yml`) runs `ubuntu-latest`, `windows-latest` and
 `macos-latest`. There is no ARM cell, so **a release still ships no
-aarch64 wheel** and `expected-wheel-count` stays 21. Closing it is three
+aarch64 wheel** and `expected-wheel-count` stays 18. Closing it is three
 coupled steps, all outside this repository:
 
 1. add an ARM runner to that matrix (the macOS comment there describes
    the same shape: repos that skip the arch build a no-op cell);
 2. cut the new `publishing-vN` tag;
-3. move this repository's pin and raise `expected-wheel-count` 21 → 26
+3. move this repository's pin and raise `expected-wheel-count` 18 → 22
    in the same change.
 
 Steps 2 and 3 are release-machinery version decisions and belong to Brad.
