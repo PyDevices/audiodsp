@@ -64,12 +64,12 @@ jobs:
     needs:
       - parity
       - credentials
-    # publishing-vNEXT is a placeholder for the first publishing tag cut after
+    # publishing-v12 is a placeholder for the first publishing tag cut after
     # PyDevices/.github's caller-side PyPI change (the coordinator's pypi-gate
     # job and its pypi-publish / dist-artifact / version outputs). Replace it
     # with that tag's real name before merging; as written, a run fails at
     # startup.
-    uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-vNEXT
+    uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-v12
     with:
       build-kind: native-and-wasm
       distribution-name: pydevices-audiodsp
@@ -129,7 +129,7 @@ jobs:
     if: >-
       !cancelled() && needs.publish.outputs.pypi-publish == 'true'
     # Same placeholder as the publish job above: the same tag, both lines.
-    uses: PyDevices/.github/.github/workflows/reusable-report-pypi-result.yml@publishing-vNEXT
+    uses: PyDevices/.github/.github/workflows/reusable-report-pypi-result.yml@publishing-v12
     with:
       distribution-name: pydevices-audiodsp
       version: ${{ needs.publish.outputs.version }}
