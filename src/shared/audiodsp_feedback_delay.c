@@ -317,6 +317,42 @@ static int16_t to_s16(float value) {
     return (int16_t)(value >= 0.0f ? value + 0.5f : value - 0.5f);
 }
 
+// What goes back round the loop: `feedback * sent`, made unable to hold a
+// value forever (audiodsp#153).
+//
+// The write rounds to nearest, and rounded to nearest a repeat x comes back as
+// round(feedback * x): every |x| <= 0.5 / (1 - feedback) is its own image, so
+// 1 LSB from feedback 0.5, 5 at 0.9 and 50 at the 0.99 clamp went round the
+// line forever. Exactly there -- where what comes back is within half an LSB
+// of what went in, so rounding could hand it back unchanged -- the term is
+// truncated toward zero instead, and |trunc(feedback * x)| < |x|. Everywhere
+// else rounding already makes it smaller (|round(p)| <= |p| + 0.5 < |x|), and
+// the term is left exactly as it was. Either way, with nothing coming in, no
+// write is as large as what the loop sent it, so the largest value on the
+// line falls by at least one LSB a lap and reaches exact zero. The
+// interpolation, the damping low-pass, the soft-clip, the cross-feed and the
+// shifter's crossfade are each a convex mix or a shrink and cannot undo that;
+// the cut high-pass can overshoot, and is measured rather than argued
+// (test_cpython_audioecho, E10).
+//
+// Why not truncate always, as audiodsp_tank.c's tank_quantize() does: that
+// takes half an LSB on average from every pass at every level, and a short
+// loop makes hundreds of passes a second. On a 3 ms flanger at the clamp it
+// ended the ring half a second early, 5 dB down at 1.5 s. Stepping only where
+// rounding would stall keeps every repeat above the stall region
+// byte-identical and changes only the part that used to circulate for ever.
+static float recirculated(float sent, float feedback) {
+    const float back = feedback * sent;
+    const float in_size = sent < 0.0f ? -sent : sent;
+    const float back_size = back < 0.0f ? -back : back;
+    if (in_size - back_size > 0.5f) {
+        return back;
+    }
+    // Here |back| <= |sent| <= 0.5 / (1 - feedback), at most 50 under the
+    // 0.99 clamp, so the cast is defined.
+    return (float)(int32_t)back;
+}
+
 // One read position on the line: which two neighbours to interpolate between,
 // and how far. Pulled out of the loop body so the pitch shifter's two taps and
 // the plain read are the same arithmetic rather than two copies of it.
@@ -490,7 +526,7 @@ void audiodsp_feedback_delay_process_s16(
             const float fed = source * config->feed_own[channel] +
                 other_source * config->feed_other[channel];
             state->line[(size_t)channel * length + state->write_frame] =
-                to_s16(fed + config->feedback * sent);
+                to_s16(fed + recirculated(sent, config->feedback));
             // The dry path is the channel's own signal, never the panned
             // one: `input_pan` steers what goes round the loop, not what the
             // listener hears straight through.
