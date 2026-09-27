@@ -22,6 +22,14 @@ its own output.
 | E7 | `Echo.filter` in the feedback loop changes the delay line | at least 1 sample differs |
 | E8 | A setting moved on a live node lands on the render | the response moves to the new setting |
 | E9 | `set()` needs no second call to finish the config | exact, every option |
+| E10 | After the input stops, the repeats reach exact zero, at every feedback up to the clamp | exact, 0 LSB, and each lap strictly quieter than the last |
+
+**E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
+came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
+own image: from feedback 0.5 up, a few LSB went round the line forever (1 at
+0.5, 5 at 0.9, 50 at the 0.99 clamp), and no class built on the node could
+report a finite tail. The fed-back term now rounds toward zero, which makes
+each lap's largest value at least one LSB smaller than the last.
 
 **E1 is this module's form of the identity trait** that
 `docs/correctness-standard.md` asks of every own node - an exact answer through
@@ -368,6 +376,121 @@ class LiveSettingTest(unittest.TestCase):
             with self.subTest(option=name):
                 self.assertNotEqual(words(self._live(**{name: value}), 12),
                                     reference)
+
+
+class TailReachesZeroTest(unittest.TestCase):
+    """E10 - audiodsp#153.
+
+    One impulse per channel (+1000 left, -1000 right, so a rounding that is
+    wrong on one sign only is caught too), then silence for as long as the
+    source lasts: the node only advances while its source delivers frames. A
+    10 ms delay at 8 kHz is 80 whole frames, so with no filter each lap holds
+    exactly one nonzero value per channel and the lap peaks are the loop's
+    magnitude, read directly.
+    """
+
+    DELAY_FRAMES = 80
+    #: At the 0.99 clamp the peak falls by 1 % a lap until it is small, then
+    #: by one LSB a lap: about 330 laps from 1000. 400 is the margin.
+    LAPS = 400
+    #: 0.5 is where the old write started holding 1 LSB; 1.0 is clamped to
+    #: 0.99 by the node, which is the worst case it allows.
+    FEEDBACKS = (0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.0)
+
+    def _render(self, channels, burst=False, **extra):
+        frames = self.DELAY_FRAMES * self.LAPS
+        data = array("h", bytes(2 * channels * (frames + 512)))
+        data[0] = 1000
+        if channels == 2:
+            data[1] = -1000
+        if burst:
+            # A 64-frame ramp, unequal between the channels: a lone impulse
+            # can fall between the pitch shifter's taps, and a hard-panned
+            # pair of equal and opposite impulses averages to nothing.
+            for frame in range(64):
+                data[frame * channels] = 1000 - 15 * frame
+                if channels == 2:
+                    data[frame * channels + 1] = -(600 - 9 * frame)
+        options = dict(delay_ms=10.0)
+        options.update(extra)
+        node = delay(channels=channels, mix=2.0, **options)
+        node.play(audiocore.RawSample(data, sample_rate=SAMPLE_RATE,
+                                      channel_count=channels))
+        # A block is 256 frames at either width.
+        blocks = -(-frames // 256)
+        rendered = words(node, blocks)[:frames * channels]
+        self.assertEqual(len(rendered), frames * channels)
+        return rendered
+
+    def _lap_peaks(self, rendered, channels, channel):
+        lap = self.DELAY_FRAMES * channels
+        return [max(abs(value) for value in
+                    rendered[start + channel:start + lap:channels])
+                for start in range(0, len(rendered) - lap + 1, lap)]
+
+    def test_the_repeats_reach_exact_zero(self):
+        """E10: the last lap is silent, at every feedback and both widths."""
+        for channels in (2, 1):
+            for feedback in self.FEEDBACKS:
+                with self.subTest(channels=channels, feedback=feedback):
+                    rendered = self._render(channels, feedback=feedback)
+                    last_lap = rendered[-self.DELAY_FRAMES * channels:]
+                    self.assertEqual(max(abs(v) for v in last_lap), 0)
+
+    def test_each_lap_is_quieter_than_the_last_until_silence(self):
+        """E10's shape: the magnitude strictly falls and, once zero, stays
+        zero. A floor that only happened to break would pass the first test
+        at one length and fail it at another; this one cannot."""
+        for channels in (2, 1):
+            for feedback in self.FEEDBACKS:
+                for channel in range(channels):
+                    with self.subTest(channels=channels, feedback=feedback,
+                                      channel=channel):
+                        peaks = self._lap_peaks(
+                            self._render(channels, feedback=feedback),
+                            channels, channel)
+                        # Lap 0 is the empty line (the delay has not come
+                        # round yet); lap 1 is the first repeat, 1000 exact.
+                        self.assertEqual(peaks[0], 0)
+                        self.assertEqual(peaks[1], 1000)
+                        tail = peaks[1:]
+                        for before, after in zip(tail, tail[1:]):
+                            if before == 0:
+                                self.assertEqual(after, 0)
+                            else:
+                                self.assertLess(after, before)
+
+    #: Each thing the loop can put between the read and the write, one at a
+    #: time, then all together. One at a time because each is a place a value
+    #: could be held; together because that is what a class builds.
+    LOOPS = {
+        "fractional delay": dict(delay_ms=10.37),
+        "damping": dict(damping_hz=2500.0),
+        "cut": dict(cut_hz=150.0),
+        "soft-clip": dict(loop_drive=0.8),
+        "cross-feed": dict(cross_feed=1.0, input_pan=-1.0),
+        "wow": dict(wow_hz=0.7, wow_depth_ms=1.0),
+        "pitch shift": dict(loop_semitones=12.0),
+        "all": dict(damping_hz=2500.0, cut_hz=150.0, loop_drive=0.5,
+                    cross_feed=0.5, wow_hz=0.7, wow_depth_ms=1.0),
+    }
+
+    def test_every_loop_element_reaches_exact_zero(self):
+        """E10 through everything the loop can hold a value in. All but one
+        are a convex mix or a shrink, which cannot undo a write that rounds
+        toward zero; the cut is a one-pole high-pass, which can overshoot,
+        so it is here to be measured rather than argued. On the old write
+        31 of these 48 held a residue (1 to 50 LSB)."""
+        for name, loop in self.LOOPS.items():
+            for channels in (2, 1):
+                for feedback in (0.5, 0.9, 0.99):
+                    with self.subTest(loop=name, channels=channels,
+                                      feedback=feedback):
+                        rendered = self._render(channels, burst=True,
+                                                feedback=feedback, **loop)
+                        self.assertGreater(max(abs(v) for v in rendered), 0)
+                        last_lap = rendered[-self.DELAY_FRAMES * channels:]
+                        self.assertEqual(max(abs(v) for v in last_lap), 0)
 
 
 if __name__ == "__main__":

@@ -317,6 +317,35 @@ static int16_t to_s16(float value) {
     return (int16_t)(value >= 0.0f ? value + 0.5f : value - 0.5f);
 }
 
+// The recirculated term rounds toward zero, never to nearest (audiodsp#153).
+// Rounded to nearest, a repeat x comes back as round(feedback * x), and every
+// |x| <= 0.5 / (1 - feedback) is its own image: 1 LSB from feedback 0.5, 5 at
+// 0.9, 50 at the 0.99 clamp, going round the line forever. Toward zero,
+// |trunc(feedback * x)| <= |x| - 1 for any nonzero integer x and any
+// feedback below 1, so with nothing coming in the line's largest value falls
+// by at least one every lap and reaches exact zero -- the cure
+// audiodsp_tank.c's tank_quantize() has used from the start. The
+// interpolation, the damping low-pass, the soft-clip, the cross-feed and the
+// shifter's crossfade are each a convex mix or a shrink, so none can undo
+// that; the cut high-pass can overshoot, and is measured rather than argued
+// (test_cpython_audioecho, E10).
+//
+// Only this term: the input's own share of the write and the output write
+// keep to_s16's rounding, so the dry path, and everything before the loop
+// first comes round, are the same bytes they always were. Each write moves
+// by at most one LSB from what rounding to nearest would have stored.
+// The clamp keeps the cast defined; past +/-65536 to_s16 saturates the sum
+// the same way either side of it, since |fed| is at most 32768.
+static float toward_zero(float value) {
+    if (value >= 65536.0f) {
+        return 65536.0f;
+    }
+    if (value <= -65536.0f) {
+        return -65536.0f;
+    }
+    return (float)(int32_t)value;
+}
+
 // One read position on the line: which two neighbours to interpolate between,
 // and how far. Pulled out of the loop body so the pitch shifter's two taps and
 // the plain read are the same arithmetic rather than two copies of it.
@@ -490,7 +519,7 @@ void audiodsp_feedback_delay_process_s16(
             const float fed = source * config->feed_own[channel] +
                 other_source * config->feed_other[channel];
             state->line[(size_t)channel * length + state->write_frame] =
-                to_s16(fed + config->feedback * sent);
+                to_s16(fed + toward_zero(config->feedback * sent));
             // The dry path is the channel's own signal, never the panned
             // one: `input_pan` steers what goes round the loop, not what the
             // listener hears straight through.
