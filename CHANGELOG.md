@@ -1,3 +1,9 @@
+## v0.6.2 (2026-09-27)
+
+- audioecho.FeedbackDelay: a tail reaches exact zero at every feedback (#153) (#154)
+- audiopump.Tap: a C stream reader (position, frame size, read_since) for readers that cannot wait on the interpreter (#152)
+- Upload to production PyPI from this workflow (needs .github#53 and a new publishing tag first) (#151)
+
 ## v0.6.1 (2026-09-25)
 
 - README: install from PyPI; audiocomponents counts are 55 and 45
