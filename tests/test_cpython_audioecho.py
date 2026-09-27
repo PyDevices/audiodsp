@@ -478,8 +478,8 @@ class TailReachesZeroTest(unittest.TestCase):
 
     def test_every_loop_element_reaches_exact_zero(self):
         """E10 through everything the loop can hold a value in. All but one
-        are a convex mix or a shrink, which cannot undo a write that rounds
-        toward zero; the cut is a one-pole high-pass, which can overshoot,
+        are a convex mix or a shrink, which cannot undo a write that is
+        always smaller than what the loop sent it; the cut is a one-pole high-pass, which can overshoot,
         so it is here to be measured rather than argued. On the old write
         31 of these 48 held a residue (1 to 50 LSB)."""
         for name, loop in self.LOOPS.items():
