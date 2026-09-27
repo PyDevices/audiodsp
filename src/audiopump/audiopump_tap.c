@@ -159,6 +159,61 @@ static mp_obj_t audiopump_tap_readinto(mp_obj_t self_in, mp_obj_t buf_in) {
 static MP_DEFINE_CONST_FUN_OBJ_2(audiopump_tap_readinto_obj,
     audiopump_tap_readinto);
 
+uint32_t audiopump_tap_position(mp_obj_t tap) {
+    audiopump_tap_obj_t *self = MP_OBJ_TO_PTR(tap);
+    return AUDIOPUMP_TAP_LOAD_ACQ(&self->w);
+}
+
+uint32_t audiopump_tap_frame_bytes(mp_obj_t tap) {
+    audiopump_tap_obj_t *self = MP_OBJ_TO_PTR(tap);
+    return self->frame;
+}
+
+uint32_t audiopump_tap_read_since(mp_obj_t tap, uint32_t *cursor,
+    uint8_t *dst, uint32_t max, bool *lapped) {
+    audiopump_tap_obj_t *self = MP_OBJ_TO_PTR(tap);
+    *lapped = false;
+    for (int attempt = 0; attempt < 2; attempt++) {
+        const uint32_t w = AUDIOPUMP_TAP_LOAD_ACQ(&self->w);
+        uint32_t start = *cursor;
+        uint32_t avail = w - start;          // wraps correctly: cap divides 2^32
+        if (avail > self->cap) {
+            // Lapped: what was not read is overwritten. Keep a margin of one
+            // frame-aligned eighth so the writer does not tear the copy.
+            uint32_t keep = self->cap - self->cap / 8;
+            keep -= keep % self->frame;
+            start = w - keep;
+            avail = keep;
+            *lapped = true;
+        }
+        uint32_t n = avail < max ? avail : max;
+        n -= n % self->frame;
+        if (n == 0) {
+            *cursor = start;
+            return 0;
+        }
+        const uint32_t at = start & (self->cap - 1);
+        uint32_t first = self->cap - at;
+        if (first > n) {
+            first = n;
+        }
+        memcpy(dst, self->buf + at, first);
+        if (n > first) {
+            memcpy(dst + first, self->buf, n - first);
+        }
+        // Torn if the writer overwrote any of it while it was copied.
+        const uint32_t after = AUDIOPUMP_TAP_LOAD_ACQ(&self->w);
+        if (after - start <= self->cap) {
+            *cursor = start + n;
+            return n;
+        }
+        *cursor = after - self->cap / 2;     // far behind: jump and try again
+        *cursor -= *cursor % self->frame;
+        *lapped = true;
+    }
+    return 0;
+}
+
 // (bytes_written, blocks, reads, torn, capacity, frame_size)
 static mp_obj_t audiopump_tap_stats(mp_obj_t self_in) {
     audiopump_tap_obj_t *self = MP_OBJ_TO_PTR(self_in);
