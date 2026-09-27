@@ -28,8 +28,9 @@ its own output.
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
 own image: from feedback 0.5 up, a few LSB went round the line forever (1 at
 0.5, 5 at 0.9, 50 at the 0.99 clamp), and no class built on the node could
-report a finite tail. The fed-back term now rounds toward zero, which makes
-each lap's largest value at least one LSB smaller than the last.
+report a finite tail. Where rounding would hand a repeat back unchanged, the
+fed-back term now truncates toward zero instead, which makes each lap's largest
+value at least one LSB smaller than the last.
 
 **E1 is this module's form of the identity trait** that
 `docs/correctness-standard.md` asks of every own node - an exact answer through
