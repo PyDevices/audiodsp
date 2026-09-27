@@ -64,11 +64,9 @@ jobs:
     needs:
       - parity
       - credentials
-    # publishing-v12 is a placeholder for the first publishing tag cut after
-    # PyDevices/.github's caller-side PyPI change (the coordinator's pypi-gate
-    # job and its pypi-publish / dist-artifact / version outputs). Replace it
-    # with that tag's real name before merging; as written, a run fails at
-    # startup.
+    # publishing-v12 (cut 2026-09-26) is the first publishing tag that carries
+    # PyDevices/.github's caller-side PyPI change (#53: the coordinator's
+    # pypi-gate job and its pypi-publish / dist-artifact / version outputs).
     uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-v12
     with:
       build-kind: native-and-wasm

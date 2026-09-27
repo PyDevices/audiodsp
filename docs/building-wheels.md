@@ -50,7 +50,8 @@ Intel-Mac field report is what would add x86_64.
 **The release-time gap is closed** (corrected 2026-09-02; this section
 described it as open long after it shut). `macos-latest` joined the org
 desktop matrix in **publishing-v7**, this repository is pinned at
-**`@publishing-v8`**, and `expected-wheel-count` is already **21** — the
+**`@publishing-v12`** (the production PyPI upload runs here, not in the
+reusable, since 2026-09-26), and `expected-wheel-count` is already **21** — the
 five `macosx_arm64` wheels ship. Hardware audio output on a real Mac is
 still community-verified; that part has not changed.
 
