@@ -1,3 +1,8 @@
+## v0.6.3rc2 (2026-09-28)
+
+- audioconvolve.Convolver: each side of a synthesized stereo room is normalised on its own (#164)
+- audioconvolve.Convolver: a re-synthesis keeps the audio in flight and crossfades the block being played (#163)
+
 ## v0.6.3rc1 (2026-09-28)
 
 - audioecho.FeedbackDelay: a new wow_depth_ms ramps in over 20 ms (#160)
