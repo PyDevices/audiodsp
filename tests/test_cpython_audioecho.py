@@ -25,6 +25,7 @@ its own output.
 | E10 | After the input stops, the repeats reach exact zero, at every feedback up to the clamp | exact, 0 LSB, and each lap strictly quieter than the last |
 | E11 | E10 with the damping low-pass in, at the feedbacks where 0.5 / (1 - feedback) is whole | exact, 0 LSB |
 | E12 | A loop filter set to 0 and back plays nothing stale: silence stays silence, a steady line stays put, a high-pass comes back as a fresh one | exact, 0 LSB |
+| E13 | A wow depth moved on a live node glides in over 20 ms, then renders as a node built with it | no step past 1.5 x the tone's own; exact after the ramp |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -653,6 +654,69 @@ class SwitchedFilterTest(unittest.TestCase):
                 switched.set(**{option: 0.0})
                 switched.play(alternating())
                 self.assertEqual(words(switched, 12), words(plain, 12))
+
+
+def sine_words(frames, hz, level, channels=CHANNELS):
+    import math
+    values = array("h")
+    for frame in range(frames):
+        value = int(round(level * math.sin(2 * math.pi * hz * frame /
+                                           SAMPLE_RATE)))
+        for _channel in range(channels):
+            values.append(value)
+    return values
+
+
+class WowDepthGlideTest(unittest.TestCase):
+    """E13 - audiodsp#160. A new `wow_depth_ms` ramps in over 20 ms.
+
+    It used to land on the next frame, so the read head jumped by the whole
+    change between two samples: at the wow's crest a 3 ms move on a 250 Hz
+    tone stepped the output far past anything the tone does by itself. Now
+    the depth walks there in a straight line, 160 frames at 8 kHz, and lands
+    exactly, so from then on the node is the node built with that depth.
+    """
+
+    #: The crest of a 0.7 Hz sine is at 0.357 s: block 11 at 8 kHz.
+    CREST_BLOCKS = 11
+
+    def _pair(self, depth):
+        tone = sine_words(4096, 250.0, 20000)
+        moved = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=0.0)
+        built = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=depth)
+        for node in (moved, built):
+            node.play(audiocore.RawSample(tone, sample_rate=SAMPLE_RATE,
+                                          channel_count=CHANNELS))
+        lead = words(moved, self.CREST_BLOCKS)
+        words(built, self.CREST_BLOCKS)
+        moved.set(wow_depth_ms=depth)
+        return lead, words(moved, 4), words(built, 4)
+
+    def test_a_depth_move_glides(self):
+        """E13: no sample-to-sample step after the move is more than 1.5 x
+        the largest the tone takes on its own."""
+        for depth in (0.5, 1.5, 3.0):
+            with self.subTest(depth=depth):
+                lead, after, _built = self._pair(depth)
+                left = lead[0::CHANNELS]
+                own = max(abs(b - a) for a, b in zip(left[200:], left[201:]))
+                moved = left[-1:] + after[0::CHANNELS]
+                step = max(abs(b - a) for a, b in zip(moved, moved[1:]))
+                self.assertLess(step, own * 1.5)
+
+    def test_after_the_ramp_it_is_the_node_built_with_that_depth(self):
+        """E13: at feedback 0 the line holds only the input, so once the
+        160-frame ramp is done the moved node renders exactly what a node
+        built with the new depth renders."""
+        for depth in (0.5, 3.0):
+            with self.subTest(depth=depth):
+                _lead, after, built = self._pair(depth)
+                self.assertNotEqual(after[:160 * CHANNELS],
+                                    built[:160 * CHANNELS])
+                self.assertEqual(after[160 * CHANNELS:],
+                                 built[160 * CHANNELS:])
 
 
 if __name__ == "__main__":

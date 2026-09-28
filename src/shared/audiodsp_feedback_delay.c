@@ -286,6 +286,10 @@ void audiodsp_feedback_delay_state_init(audiodsp_feedback_delay_state_t *state,
     // Not primed. The first block snaps the read head onto whatever delay is
     // configured; only a change *after* that glides.
     state->delay_current = -1.0f;
+    state->wow_depth_current = -1.0f;
+    state->wow_depth_target = 0.0f;
+    state->wow_depth_step = 0.0f;
+    state->wow_depth_left = 0;
 }
 
 void audiodsp_feedback_delay_reset(audiodsp_feedback_delay_state_t *state,
@@ -403,6 +407,34 @@ void audiodsp_feedback_delay_process_s16(
     if (slew <= 0.0f || state->delay_current < 0.0f) {
         state->delay_current = config->delay_frames;
     }
+    // A new wow depth ramps in over 20 ms instead of landing on the next
+    // frame (audiodsp#160). Landing at once moved the read head by the whole
+    // change between two samples, a click and a step in pitch; SlapbackDelay
+    // measured 7 684 LSB against a tone whose own largest step was 1 565. A
+    // straight line in a fixed time, so the extra pitch while it travels is
+    // the change over 20 ms times the wow (a 0.46 ms move is 2.3 % at the
+    // wow's crest), and the last frame lands on the target exactly, so a depth
+    // that is not moving is the same float it always was and renders the
+    // same bytes. A fresh state starts on its depth, as the delay does.
+    const float depth_target = config->wow_depth_frames;
+    if (state->wow_depth_current < 0.0f) {
+        state->wow_depth_current = depth_target;
+        state->wow_depth_target = depth_target;
+        state->wow_depth_left = 0;
+    } else if (depth_target != state->wow_depth_target) {
+        uint32_t ramp = config->sample_rate /
+            AUDIODSP_FEEDBACK_DELAY_WOW_DEPTH_RAMP_DIVISOR;
+        if (ramp < 1u) {
+            ramp = 1u;
+        }
+        state->wow_depth_target = depth_target;
+        state->wow_depth_step =
+            (depth_target - state->wow_depth_current) / (float)ramp;
+        state->wow_depth_left = ramp;
+    }
+    float depth = state->wow_depth_current;
+    uint32_t depth_left = state->wow_depth_left;
+    const float depth_step = state->wow_depth_step;
     // While the cut high-pass is out its state is held at zero, the state
     // at which its output is its input (audiodsp#159). Left frozen, putting
     // the filter back in subtracted whatever it last held from silence,
@@ -470,8 +502,11 @@ void audiodsp_feedback_delay_process_s16(
             state->delay_current = current;
         }
 
-        const float offset = state->delay_current +
-            config->wow_depth_frames * wow;
+        if (depth_left > 0u) {
+            --depth_left;
+            depth = depth_left == 0u ? depth_target : depth + depth_step;
+        }
+        const float offset = state->delay_current + depth * wow;
         if (shifting) {
             // Two taps half a window apart, each walking one window per
             // crossfade turn, mixed with a triangular fade whose two halves
@@ -560,6 +595,8 @@ void audiodsp_feedback_delay_process_s16(
         }
         state->write_frame = (state->write_frame + 1u) % length;
     }
+    state->wow_depth_current = depth;
+    state->wow_depth_left = depth_left;
 
     // Near the floor, a damping state that has stopped moving lands on its
     // input (audiodsp#157). In float32 the one-pole approaches a steady tap

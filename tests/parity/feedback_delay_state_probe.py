@@ -98,3 +98,15 @@ node.set(cut_hz=0.0)
 emit("cut-out", node, 2)
 node.set(cut_hz=220.0)
 emit("cut-back", node, 3)
+
+# audiodsp#160. The wow depth moved while playing, up and then to nothing.
+# Each move ramps over 20 ms (160 frames here) and lands exactly.
+node = echo.FeedbackDelay(sample_rate=SAMPLE_RATE, max_delay_ms=120.0,
+                          delay_ms=40.0, feedback=0.7, mix=1.0, wow_hz=5.0,
+                          wow_depth_ms=0.5)
+node.play(source())
+emit("depth-a", node, 2)
+node.set(wow_depth_ms=3.0)
+emit("depth-b", node, 3)
+node.set(wow_depth_ms=0.0)
+emit("depth-c", node, 3)

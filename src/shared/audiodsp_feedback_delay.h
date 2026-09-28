@@ -167,7 +167,19 @@ typedef struct {
     // `config->delay_frames`. Negative means "never primed": a fresh state
     // starts *on* the target rather than gliding up to it from nowhere.
     float delay_current;
+    // The wow depth actually applied, in frames, while it ramps toward
+    // `config->wow_depth_frames` (audiodsp#160): the target it is heading
+    // for, the step per frame, and the frames left. Negative `current`
+    // means "never primed", so a fresh state starts on the configured depth.
+    float wow_depth_current;
+    float wow_depth_target;
+    float wow_depth_step;
+    uint32_t wow_depth_left;
 } audiodsp_feedback_delay_state_t;
+
+//: How long a change of `wow_depth_ms` takes to land: 20 ms, a fiftieth of
+//: the rate in frames (960 at 48 kHz, 882 at 44.1, 441 at 22.05).
+#define AUDIODSP_FEEDBACK_DELAY_WOW_DEPTH_RAMP_DIVISOR 50u
 
 void audiodsp_feedback_delay_config_init(
     audiodsp_feedback_delay_config_t *config, uint32_t sample_rate,

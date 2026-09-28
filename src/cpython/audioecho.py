@@ -23,6 +23,13 @@ channel's line, and `input_pan` steers the *input* to one line only: hard
 over with full cross-feed is a real ping-pong, where the first repeat is on
 one side alone.
 
+A `damping_hz` or `cut_hz` of 0 takes that filter out. While it is out, the
+low-pass's state follows the signal and the high-pass's rests at zero, so
+putting either back in starts from what is playing rather than from what it
+held when it went out. A `wow_depth_ms` changed on a playing node ramps to
+the new depth over 20 ms instead of jumping, so turning it glides rather
+than clicks; a depth that is not moving renders exactly as before.
+
 Four more options, every one of them off by default, so a node built the way
 it was before them renders the same bytes:
 
