@@ -1,3 +1,10 @@
+## v0.6.3rc1 (2026-09-28)
+
+- audioecho.FeedbackDelay: a new wow_depth_ms ramps in over 20 ms (#160)
+- audioecho.FeedbackDelay: the loop high-pass holds a zero state while cut_hz is 0 (#159)
+- audioecho.FeedbackDelay: the loop low-pass follows the tap while damping_hz is 0 (#158)
+- audioecho.FeedbackDelay: with damping_hz in, a tail still reaches exact zero (#157)
+
 ## v0.6.2 (2026-09-27)
 
 - audioecho.FeedbackDelay: a tail reaches exact zero at every feedback (#153) (#154)
