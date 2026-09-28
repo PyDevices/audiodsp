@@ -26,6 +26,7 @@ its own output.
 | E11 | E10 with the damping low-pass in, at the feedbacks where 0.5 / (1 - feedback) is whole | exact, 0 LSB |
 | E12 | A loop filter set to 0 and back plays nothing stale: silence stays silence, a steady line stays put, a high-pass comes back as a fresh one | exact, 0 LSB |
 | E13 | A wow depth moved on a live node glides in over 20 ms, then renders as a node built with it | no step past 1.5 x the tone's own; exact after the ramp |
+| E14 | E10 in stereo with a cross-feed strictly between 0 and 1, at the feedbacks where the cross-fed sum lands an ulp above its lanes | exact, 0 LSB |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -53,6 +54,7 @@ leaves them by the hundred. The cross-target half of this lives in the probe's
 """
 
 from array import array
+import struct
 import unittest
 
 import audiocore
@@ -717,6 +719,116 @@ class WowDepthGlideTest(unittest.TestCase):
                                     built[:160 * CHANNELS])
                 self.assertEqual(after[160 * CHANNELS:],
                                  built[160 * CHANNELS:])
+
+
+def _f32(value):
+    return struct.unpack("f", struct.pack("f", value))[0]
+
+
+def _f32_step(value, steps):
+    bits = struct.unpack("I", struct.pack("f", value))[0]
+    return struct.unpack("f", struct.pack("I", bits + steps))[0]
+
+
+def crossfeed_stall_cells():
+    """The (s, k, feedback) cells where audiodsp main's float32 arithmetic
+    handed a landed stereo line of k back: cross_feed s / 127, both lanes at
+    k, feedback within three float32 steps of 1 - 0.5 / k. Worked out here in
+    the node's own float32 order (each product rounded, then the sum; the
+    stall test at 0.5 as it was), so the cells do not depend on the build
+    under test."""
+    def write(sent, feedback):
+        back = _f32(feedback * sent)
+        if _f32(abs(sent) - abs(back)) <= 0.5:
+            back = float(int(back))
+        return int(_f32(back + 0.5))
+
+    cells = []
+    for s in range(1, 127):
+        crossed = _f32(s / 127.0)
+        direct = _f32(1.0 - crossed)
+        for k in range(1, 51):
+            sent = _f32(_f32(k * direct) + _f32(k * crossed))
+            if not sent > k:
+                continue
+            centre = _f32(1.0 - 0.5 / k)
+            for steps in range(-3, 4):
+                feedback = _f32_step(centre, steps)
+                if write(sent, feedback) >= k > write(float(k), feedback):
+                    cells.append((s, k, feedback))
+    return cells
+
+
+class CrossFedTailReachesZeroTest(unittest.TestCase):
+    """E14 - audiodsp#170. E10 in stereo with the cross-feed strictly
+    between 0 and 1.
+
+    With both lanes of the line at the same whole k, each lane sends
+    `k * (1 - cross_feed) + k * cross_feed` round the loop. That is k, but
+    the two float32 products could sum to an ulp above it; one or two float32
+    steps under f = 1 - 0.5 / k the stall test then saw a gap a hair over 0.5,
+    rounded, and wrote k back on every lap: 117 cells on the 7-bit cross_feed
+    grid, 9 to 50 LSB held for ever, while the same feedback ended at
+    cross_feed 0 and in mono. Within 2^-14 of that edge the node now works
+    out the write and keeps the rounding only if it is smaller than the
+    larger lane, which holds however the sum is rounded and leaves every
+    other write as it was.
+    """
+
+    def _held(self, rate, delay_ms, feedback, cross_feed, level,
+              channels=2, silent_blocks=40):
+        lap = int(rate * delay_ms / 1000.0 + 0.5)
+        lead = (4 * lap + 255) // 256 * 256
+        data = array("h", [level] * (lead * channels))
+        data.extend(array("h", bytes(2 * channels * 256 * silent_blocks)))
+        node = audioecho.FeedbackDelay(
+            sample_rate=rate, channel_count=channels,
+            max_delay_ms=delay_ms + 2.0, delay_ms=delay_ms,
+            feedback=feedback, mix=2.0, cross_feed=cross_feed)
+        node.play(audiocore.RawSample(data, sample_rate=rate,
+                                      channel_count=channels))
+        rendered = words(node, lead // 256 + silent_blocks)
+        self.assertGreater(max(abs(v) for v in rendered[:lead * channels]),
+                           0)
+        return max(abs(v) for v in rendered[-lap * channels:])
+
+    def test_the_search_finds_the_cells_it_was_written_for(self):
+        """The cells below are the 117 AnalogDelay's audit found."""
+        cells = crossfeed_stall_cells()
+        self.assertEqual(len(cells), 117)
+        self.assertEqual(len(set(k for _s, k, _f in cells)), 30)
+
+    def test_a_cross_fed_stereo_tail_reaches_exact_zero(self):
+        """E14: every cell, both signs, a 1 ms line at 8 kHz so a lap is
+        eight frames: the last lap is silent."""
+        for s, k, feedback in crossfeed_stall_cells():
+            for level in (2 * k + 2, -(2 * k + 2)):
+                with self.subTest(s=s, k=k, feedback=feedback, level=level):
+                    self.assertEqual(self._held(8000, 1.0, feedback,
+                                                s / 127.0, level), 0)
+
+    def test_the_reported_cells_at_48k(self):
+        """E14 as it was found: 48 kHz, 20 ms, and the typed feedback
+        0.9899999 with cross_feed 39 / 127 that held 50 LSB. Four laps of
+        DC build the line to about 4 x the level, and at 0.99 that takes
+        some 300 laps to come down; 1 600 blocks is 426 laps."""
+        for feedback, s, k in ((0.9444443583, 1, 9), (0.9545453787, 3, 11),
+                               (0.9899999499, 2, 50), (0.9899999, 39, 50),
+                               (0.9666666, 21, 15)):
+            with self.subTest(feedback=feedback, s=s):
+                self.assertEqual(self._held(48000, 20.0, feedback, s / 127.0,
+                                            2 * k + 2, silent_blocks=1600), 0)
+
+    def test_the_controls_end_as_they_did(self):
+        """Cross-feed 0 and 1 and mono ended before the fix and still do."""
+        for s, k, feedback in crossfeed_stall_cells()[::9]:
+            for cross_feed, channels in ((0.0, 2), (1.0, 2),
+                                         (s / 127.0, 1)):
+                with self.subTest(s=s, k=k, cross_feed=cross_feed,
+                                  channels=channels):
+                    self.assertEqual(self._held(8000, 1.0, feedback,
+                                                cross_feed, 2 * k + 2,
+                                                channels=channels), 0)
 
 
 if __name__ == "__main__":
