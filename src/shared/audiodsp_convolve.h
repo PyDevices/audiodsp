@@ -91,6 +91,7 @@ typedef struct {
     uint32_t phase;    // frames into the block being gathered
     uint32_t cursor;   // newest slot in the frequency-delay line
     uint32_t loaded;   // partitions actually carrying impulse; 0 == bypass
+    float emitted_mix; // config->mix as `emitted` was computed at
 } audiodsp_convolve_state_t;
 
 // Floats the caller must hand to audiodsp_convolve_state_init for this
@@ -136,12 +137,18 @@ void audiodsp_convolve_load_s16(audiodsp_convolve_state_t *state,
     uint32_t tap_frames, uint32_t channels, float gain);
 
 // Builds a decaying-noise impulse in place, so a reverb is available without
-// a file to load. `decay_seconds` is the -60 dB time; `damping_hz` rolls the
+// a file to load. On a node that already carries an impulse the audio in
+// flight is kept: no frame is dropped or repeated, the block being played
+// out crossfades from the old room to the new over its unplayed frames, and
+// from the next block on the new room convolves the whole history. On a
+// node with nothing loaded it starts the one-partition latency from empty,
+// as `load` does. `decay_seconds` is the -60 dB time; `damping_hz` rolls the
 // tail's top off as it decays (0 leaves it bright); `predelay_ms` is silence
 // before anything arrives; `diffusion_ms` fades the tail in rather than
 // starting it at full amplitude, which is what stops a synthetic impulse
 // reading as a burst of noise. `seed` picks the room: two seeds are two
-// different halls of the same size.
+// different halls of the same size. A stereo impulse is one envelope over
+// two noises, each side scaled to unit energy on its own.
 //
 // Deterministic to the last bit on every interpreter -- xorshift for the
 // noise and series for the exponentials, never libm -- because the parity

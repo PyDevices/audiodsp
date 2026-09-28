@@ -140,7 +140,15 @@ class Convolver(_AudioSample):
         burst of noise. `seed` picks the room -- two seeds are two different
         halls of the same size, and with `ir_channels=2` the two channels get
         different noise under one envelope, which is one room in stereo rather
-        than two rooms."""
+        than two rooms. Each side is normalised to unit energy on its own, so
+        the room sits in the middle whatever the arguments (audiodsp#164).
+
+        On a convolver already carrying an impulse, the audio in flight is
+        kept: no frame is dropped or repeated, the block being played out
+        crossfades from the old room to the new, and from the next block on
+        the new room rings on the history as if it had always been loaded
+        (audiodsp#163). A convolver with nothing loaded starts its
+        one-partition latency from empty here, as it always has."""
         self._check()
         self._state.synthesize(float(decay), float(damping_hz),
                                float(predelay_ms), float(diffusion_ms),

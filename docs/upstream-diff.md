@@ -1979,7 +1979,29 @@ that says so.
   partitions are transformed as they are generated and there is nowhere to
   keep the taps, so the deterministic generator simply runs twice: once to
   measure the energy, once to write it scaled. The second pass costs only the
-  noise, not the transforms.
+  noise, not the transforms. **Each side of a stereo room has its own
+  scale** (audiodsp#164, 2026-09-28): the two sides are one envelope over two
+  noises, and one scale from the mean of their energies left a room leaning
+  by up to 5.3 dB, a different way for every argument. Scaled per side, both
+  are unit energy, the pair is the level it was, and the image is untouched,
+  since the image is the decorrelation between the two noises and a scale
+  does not move a correlation. A mono room is the first side alone and
+  renders the same bytes as before.
+- **A re-synthesis keeps the audio in flight** (audiodsp#163, 2026-09-28).
+  `synthesize()` used to end in the same reset as `clear()`, so moving a room
+  while playing dropped the 256 frames in flight, dry and wet, at every mix,
+  and the tail stopped dead. Now only the impulse changes. The
+  frequency-delay line holds input alone, so from the next block the node is
+  exactly one that always had the new room. The block already computed for
+  output is recomputed against both rooms and crossfaded over its unplayed
+  frames, at the mix it was computed at; the old room's wet waits in the
+  first half of the overlap-save window, which the next block overwrites
+  unread, so it costs no memory, and the two extra convolutions of one block
+  run inside the call rather than on the audio path. A hard swap at the
+  block edge was rejected: on a dark room a move that decorrelates the two
+  rooms (a new seed, a new predelay) steps the wet up to three times the
+  largest step either room makes on its own. A node with nothing loaded
+  still starts its latency from empty, and `load()` still resets.
 - **The noise is xorshift32 and the exponentials are a series**, for the
   determinism reason again. A room that is not bit-identical between builds
   is not a room, it is three rooms.
