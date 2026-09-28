@@ -200,6 +200,23 @@ audiodsp_tank_status_t audiodsp_tank_set_taps(audiodsp_tank_config_t *config,
     return AUDIODSP_TANK_OK;
 }
 
+audiodsp_tank_status_t audiodsp_tank_recut(audiodsp_tank_config_t *recut,
+    const audiodsp_tank_config_t *running, const uint32_t *frames,
+    uint32_t frame_count, const float *taps, uint32_t tap_values) {
+    *recut = *running;
+    if (frames != NULL) {
+        const audiodsp_tank_status_t status =
+            audiodsp_tank_set_delays(recut, frames, frame_count);
+        if (status != AUDIODSP_TANK_OK) {
+            return status;
+        }
+    }
+    if (taps != NULL) {
+        return audiodsp_tank_set_taps(recut, taps, tap_values);
+    }
+    return AUDIODSP_TANK_OK;
+}
+
 void audiodsp_tank_config_init(audiodsp_tank_config_t *config,
     uint32_t sample_rate, float max_predelay_ms) {
     memset(config, 0, sizeof(*config));

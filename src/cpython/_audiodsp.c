@@ -1931,6 +1931,49 @@ static PyObject *tank_state_reset(audiodsp_tank_object_t *self,
     Py_RETURN_NONE;
 }
 
+// A re-cut of a running node (audiodsp#169): the new tables checked on a
+// copy, then the network rebuilt empty on them, exactly as tank_state_init
+// leaves a new one. `delays` or `taps` may be None to keep that table.
+static PyObject *tank_state_recut(audiodsp_tank_object_t *self,
+    PyObject *args) {
+    PyObject *delays = Py_None;
+    PyObject *taps = Py_None;
+    if (!PyArg_ParseTuple(args, "OO:recut", &delays, &taps)) return NULL;
+    uint32_t frames[AUDIODSP_TANK_LINES];
+    uint32_t frame_count = 0;
+    float tap_values[AUDIODSP_TANK_MAX_TAPS * 4u];
+    uint32_t tap_count = 0;
+    if (delays != Py_None) {
+        float values[AUDIODSP_TANK_LINES];
+        if (tank_state_floats(delays, values, AUDIODSP_TANK_LINES,
+            &frame_count) < 0) return NULL;
+        for (uint32_t line = 0; line < frame_count; ++line) {
+            frames[line] = values[line] < 0.0f ? 0u : (uint32_t)values[line];
+        }
+    }
+    if (taps != Py_None) {
+        if (tank_state_floats(taps, tap_values, AUDIODSP_TANK_MAX_TAPS * 4u,
+            &tap_count) < 0) return NULL;
+    }
+    audiodsp_tank_config_t recut;
+    if (tank_state_status(audiodsp_tank_recut(&recut, &self->config,
+        delays != Py_None ? frames : NULL, frame_count,
+        taps != Py_None ? tap_values : NULL, tap_count)) < 0) return NULL;
+    const uint32_t samples = audiodsp_tank_buffer_samples(&recut);
+    int16_t *lines = self->lines;
+    if (samples != audiodsp_tank_buffer_samples(&self->config)) {
+        lines = PyMem_Calloc((size_t)samples, sizeof(int16_t));
+        if (lines == NULL) return PyErr_NoMemory();
+        PyMem_Free(self->lines);
+        self->lines = lines;
+    } else {
+        memset(lines, 0, (size_t)samples * sizeof(int16_t));
+    }
+    self->config = recut;
+    audiodsp_tank_state_init(&self->state, &self->config, lines);
+    Py_RETURN_NONE;
+}
+
 static PyObject *tank_state_process(audiodsp_tank_object_t *self,
     PyObject *argument) {
     Py_buffer input = {0};
@@ -1956,6 +1999,7 @@ static PyMethodDef tank_state_methods[] = {
     {"configure", (PyCFunction)tank_state_configure, METH_VARARGS, NULL},
     {"finish", (PyCFunction)tank_state_finish, METH_NOARGS, NULL},
     {"reset", (PyCFunction)tank_state_reset, METH_NOARGS, NULL},
+    {"recut", (PyCFunction)tank_state_recut, METH_VARARGS, NULL},
     {"process", (PyCFunction)tank_state_process, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
