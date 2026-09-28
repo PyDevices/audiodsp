@@ -593,12 +593,22 @@ void audiodsp_tank_process_s16(const audiodsp_tank_config_t *config,
 
         for (uint32_t channel = 0; channel < channels; ++channel) {
             float value = tapped[channel];
-            if (config->tone_db != 0.0f && config->tone_coef > 0.0f) {
+            // The tilt's pole runs whether or not the tilt is applied. At
+            // tone_db 0 the output skips the tilt (its two gains are 1, and
+            // `s + (v - s)` is not always `v` in float), but a pole that
+            // stopped there would hold its last state and play it the moment
+            // Tone moved off 0: a tick out of exact silence (audiodsp#168).
+            // Tracking keeps it where a pole that never stopped would be, so
+            // Tone comes back in exactly as it would from 2^-24 dB.
+            if (config->tone_coef > 0.0f) {
                 state->tone_state[channel] +=
                     config->tone_coef * (value - state->tone_state[channel]);
-                value = state->tone_state[channel] * config->tone_low_gain +
-                    (value - state->tone_state[channel]) *
-                    config->tone_high_gain;
+                if (config->tone_db != 0.0f) {
+                    value = state->tone_state[channel] *
+                        config->tone_low_gain +
+                        (value - state->tone_state[channel]) *
+                        config->tone_high_gain;
+                }
             }
             const float source = (float)in[frame * channels + channel];
             out[frame * channels + channel] =

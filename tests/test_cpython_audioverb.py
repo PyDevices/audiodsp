@@ -198,6 +198,87 @@ class TankArguments(unittest.TestCase):
         self.assertEqual(len(render(node, 2)), 2 * audioverb.FRAMES * 4)
 
 
+def noise(frames, channels, seed=7, level=12000):
+    values = array("h")
+    state = seed
+    for _ in range(frames * channels):
+        state = (state * 1103515245 + 12345) & 0x7FFFFFFF
+        values.append(((state >> 8) % (2 * level + 1)) - level)
+    return values
+
+
+class ToneStateTest(unittest.TestCase):
+    """T1-T2, audiodsp#168: the tilt's pole keeps tracking while `tone_db`
+    is 0, so Tone moved off 0 comes in from the signal and not from a state
+    frozen when it reached 0.
+
+    T1  Tone out, silence until the wet is exact zero, Tone back in with
+        nothing playing: every output sample is 0. Main: 1 382 LSB stereo,
+        707 mono at 48 kHz (tank_fix_repro.py); here at 8 kHz both widths
+        fail.
+    T2  Tone out and back in while the input plays: from the move on, the
+        node renders byte for byte what a node handed 2^-24 dB instead of 0
+        renders (both tilt gains round to exactly 1 there, so that node is
+        flat and its pole never stops). Main differs for tens of frames;
+        so does a pole that follows the signal while out, and one held at 0.
+    """
+
+    RATE = 8000
+    OPTIONS = dict(decay=0.7, diffusion=0.75, damping_hz=2500.0,
+                   bandwidth_hz=3500.0, mod_depth_ms=0.2, mod_rate_hz=1.0,
+                   mix=0.5, max_predelay_ms=20.0)
+
+    def _node(self, channels, tone_db):
+        return audioverb.Tank(sample_rate=self.RATE, channel_count=channels,
+                              tone_db=tone_db, **self.OPTIONS)
+
+    def test_tone_back_in_after_silence_plays_nothing(self):
+        for channels in (2, 1):
+            for before, after in ((12.0, 12.0), (-12.0, 3.0)):
+                with self.subTest(channels=channels, before=before,
+                                  after=after):
+                    node = self._node(channels, before)
+                    node.play(audiocore.RawSample(
+                        noise(4 * audioverb.FRAMES, channels),
+                        sample_rate=self.RATE, channel_count=channels))
+                    render(node, 3)
+                    node.set(tone_db=0.0)
+                    render(node, 1)
+                    node.play(audiocore.RawSample(
+                        array("h", bytes(2 * audioverb.FRAMES * channels)),
+                        sample_rate=self.RATE, channel_count=channels))
+                    quiet = 0
+                    for _ in range(400):
+                        quiet = quiet + 1 if not any(render(node, 1)) else 0
+                        if quiet == 4:
+                            break
+                    self.assertEqual(quiet, 4, "the tail never died")
+                    node.set(tone_db=after)
+                    peak = max(abs(value) for value in
+                               samples(render(node, 2)))
+                    self.assertEqual(peak, 0)
+
+    def test_tone_back_in_matches_a_pole_that_never_stopped(self):
+        for channels in (2, 1):
+            for before, after in ((12.0, 12.0), (-12.0, 6.0), (6.0, -3.0)):
+                with self.subTest(channels=channels, before=before,
+                                  after=after):
+                    material = noise(12 * audioverb.FRAMES, channels, seed=11)
+                    outputs = []
+                    for held in (0.0, 1.0 / 16777216.0):
+                        node = self._node(channels, before)
+                        node.play(audiocore.RawSample(
+                            material, sample_rate=self.RATE,
+                            channel_count=channels))
+                        render(node, 3)
+                        node.set(tone_db=held)
+                        render(node, 3)
+                        node.set(tone_db=after)
+                        outputs.append(render(node, 3))
+                    self.assertTrue(any(outputs[0]))
+                    self.assertEqual(outputs[0], outputs[1])
+
+
 if __name__ == "__main__":
     unittest.main()
 
