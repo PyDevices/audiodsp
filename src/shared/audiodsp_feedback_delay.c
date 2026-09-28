@@ -403,6 +403,17 @@ void audiodsp_feedback_delay_process_s16(
     if (slew <= 0.0f || state->delay_current < 0.0f) {
         state->delay_current = config->delay_frames;
     }
+    // While the cut high-pass is out its state is held at zero, the state
+    // at which its output is its input (audiodsp#159). Left frozen, putting
+    // the filter back in subtracted whatever it last held from silence,
+    // 19 208 LSB measured. At zero, switching it in is continuous, the same
+    // as a node built with it, and the low end then falls away at the
+    // corner's own rate. Following the signal instead, as the low-pass does,
+    // would subtract the signal's last value on return, which is the same
+    // click. Once per block: `config` cannot change inside one.
+    if (config->cut_coef <= 0.0f) {
+        state->cut_state[0] = state->cut_state[1] = 0.0f;
+    }
     feedback_delay_tap_t near_tap = { 0u, 0u, 0.0f };
     feedback_delay_tap_t far_tap = { 0u, 0u, 0.0f };
     float near_gain = 1.0f;

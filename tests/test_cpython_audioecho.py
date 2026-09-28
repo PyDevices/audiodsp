@@ -24,7 +24,7 @@ its own output.
 | E9 | `set()` needs no second call to finish the config | exact, every option |
 | E10 | After the input stops, the repeats reach exact zero, at every feedback up to the clamp | exact, 0 LSB, and each lap strictly quieter than the last |
 | E11 | E10 with the damping low-pass in, at the feedbacks where 0.5 / (1 - feedback) is whole | exact, 0 LSB |
-| E12 | A loop filter set to 0 and back plays nothing stale: silence stays silence, a steady line stays put | exact, 0 LSB |
+| E12 | A loop filter set to 0 and back plays nothing stale: silence stays silence, a steady line stays put, a high-pass comes back as a fresh one | exact, 0 LSB |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -547,17 +547,20 @@ class DampedTailReachesZeroTest(unittest.TestCase):
 
 
 class SwitchedFilterTest(unittest.TestCase):
-    """E12 - audiodsp#158. A loop filter taken out and put back in plays
-    nothing stale.
+    """E12 - audiodsp#158 and #159. A loop filter taken out and put back in
+    plays nothing stale.
 
     A loud square with the filter in, the filter set to 0 while it still
     plays, silence until the line is empty, then the filter back in with
-    nothing playing. With the state frozen at 0, the node put the frozen
-    value out of silence (15 393 LSB at 48 kHz for the low-pass).
+    nothing playing. With the filter at 0 its state used to freeze, and the
+    node put the frozen value out of silence (15 393 LSB at 48 kHz for the
+    low-pass, 19 110 for the high-pass). Now the low-pass state follows the
+    tap while out, and the high-pass state is held at zero, where its output
+    is its input.
     """
 
     #: The option, and the corner it goes back in at.
-    FILTERS = (("damping_hz", 900.0),)
+    FILTERS = (("damping_hz", 900.0), ("cut_hz", 300.0))
 
     def _render(self, channels, option, corner, feedback):
         node = delay(channels=channels, max_delay_ms=50, delay_ms=20.0,
@@ -608,6 +611,34 @@ class SwitchedFilterTest(unittest.TestCase):
         words(node, 2)                     # the line is all -7000 now
         node.set(damping_hz=900.0)
         self.assertEqual(set(words(node, 2)), {-7000})
+
+    def test_a_highpass_put_back_in_is_a_highpass_put_in_for_the_first_time(
+            self):
+        """E12 for the cut, on a steady line. At feedback 0 the line holds
+        only the input, so a node whose high-pass went in, out and back in
+        renders, from the moment it is back, exactly what a node that never
+        had one renders once it is put in at the same moment - and that
+        starts where the unfiltered output was, then falls away. A frozen
+        state subtracts the old DC at once; one that followed the signal
+        would too, which is why the high-pass is held at zero instead."""
+        switched = delay(delay_ms=20.0, feedback=0.0, mix=2.0, cut_hz=300.0)
+        fresh = delay(delay_ms=20.0, feedback=0.0, mix=2.0)
+        for node in (switched, fresh):
+            node.play(audiocore.RawSample(
+                array("h", [12000] * (4096 * CHANNELS)),
+                sample_rate=SAMPLE_RATE, channel_count=CHANNELS))
+        words(switched, 3)
+        words(fresh, 3)
+        switched.set(cut_hz=0.0)
+        self.assertEqual(set(words(switched, 3)), {12000})
+        words(fresh, 3)
+        switched.set(cut_hz=300.0)
+        fresh.set(cut_hz=300.0)
+        back = words(switched, 4)
+        self.assertEqual(back, words(fresh, 4))
+        # 1 - a of the line on the first frame back, a = 0.21 at 300 Hz.
+        self.assertGreater(back[0], 9000)
+        self.assertLess(abs(back[-1]), 100)
 
     def test_the_filter_out_renders_as_no_filter(self):
         """While a filter is out, the render is the render of a node that

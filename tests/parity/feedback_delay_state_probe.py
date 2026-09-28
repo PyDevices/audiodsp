@@ -86,3 +86,15 @@ node.set(damping_hz=0.0)
 emit("damping-out", node, 2)
 node.set(damping_hz=900.0)
 emit("damping-back", node, 3)
+
+# audiodsp#159. The same for the cut high-pass. Its state rests at zero
+# while out, where its output is its input; frozen, it subtracted what it
+# held from whatever came next.
+node = echo.FeedbackDelay(sample_rate=SAMPLE_RATE, max_delay_ms=120.0,
+                          delay_ms=40.0, feedback=0.7, mix=1.0, cut_hz=220.0)
+node.play(source())
+emit("cut-in", node, 3)
+node.set(cut_hz=0.0)
+emit("cut-out", node, 2)
+node.set(cut_hz=220.0)
+emit("cut-back", node, 3)
