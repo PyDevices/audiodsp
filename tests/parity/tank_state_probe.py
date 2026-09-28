@@ -65,12 +65,14 @@ TAPS = [0, 9, 27, 0.6, 0, 5, 200, -0.6, 0, 7, 100, 0.6,
         1, 5, 36, 0.6, 1, 11, 12, -0.6, 1, 10, 90, -0.6]
 
 
-def scaled(factor):
-    lines = [max(4, int(v * factor)) for v in LINES]
+def scaled(tenths):
+    """The network x tenths / 10, in integers: a float product truncated to
+    a frame count lands one frame apart on a single-precision build."""
+    lines = [max(4, v * tenths // 10) for v in LINES]
     taps = list(TAPS)
     for index in range(0, len(taps), 4):
-        taps[index + 2] = min(int(taps[index + 2] * factor),
-                              lines[int(taps[index + 1])] - 1)
+        taps[index + 2] = min(taps[index + 2] * tenths // 10,
+                              lines[taps[index + 1]] - 1)
     return lines, taps
 
 
@@ -119,7 +121,7 @@ for channels in (2, 1):
 SAME = list(LINES)
 SAME[5] -= 30
 SAME[9] += 30
-CUTS = (("longer", scaled(1.4)), ("shorter", scaled(0.3)),
+CUTS = (("longer", scaled(14)), ("shorter", scaled(3)),
         ("same", (SAME, list(TAPS))))
 for channels in (2, 1):
     for name, (lines, taps) in CUTS:
@@ -149,7 +151,7 @@ for channels in (2, 1):
     out = bytearray()
     for block in range(9):
         if block == 3:
-            tank.set(delays=scaled(1.3)[0], taps=scaled(1.3)[1])
+            tank.set(delays=scaled(13)[0], taps=scaled(13)[1])
         out += bytes(audiocore.get_buffer(tank)[1])
     print("tank-state wire-exact", channels,
           bytes(out) == bytes(material)[:len(out)])
