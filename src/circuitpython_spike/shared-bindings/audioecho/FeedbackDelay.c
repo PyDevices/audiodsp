@@ -56,6 +56,11 @@
 //|         ``input_pan`` steers the input into one line only: hard over with
 //|         full cross-feed is a real ping-pong.
 //|
+//|         A ``damping_hz`` or ``cut_hz`` of 0 takes that filter out; while
+//|         out, the low-pass's state follows the signal and the high-pass's
+//|         rests at zero, so putting either back in plays nothing stale. A
+//|         ``wow_depth_ms`` changed while playing ramps in over 20 ms.
+//|
 //|         The last five are off at their defaults, and a delay built without
 //|         them renders exactly what it rendered before they existed.
 //|

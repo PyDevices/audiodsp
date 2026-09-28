@@ -977,13 +977,21 @@ board, so a `TapeDelay` written against it would silently be a different
 effect there -- the exact failure `apply_cp_patches.sh` exists to avoid. A
 new module either installs whole or is absent and says so on import.
 
-Two details worth recording:
+Details worth recording:
 
 - **The wow oscillator is a magic-circle resonator**, two states rotated by a
   constant each frame, not `sinf()`. Per-sample modulation is the point (an
   LFO-driven `delay_ms` updates once per block, about 187 Hz at 48 kHz, so it
   steps rather than glides and there is no doppler), and a library call per
   sample would not be affordable on the parts this has to run on.
+- **A filter set to 0 is out, and its state stays live** (audiodsp#158,
+  #159): the low-pass's follows the tap and the high-pass's rests at zero,
+  the state at which each one's output is its input. A frozen state played
+  out of silence when the filter went back in, 15 000 to 25 000 LSB.
+- **A new `wow_depth_ms` ramps in over 20 ms** (audiodsp#160), a straight
+  line that lands on the target exactly, so a static depth renders the same
+  bytes it always did. Landing at once moved the read head by the whole
+  change between two samples.
 - **`reset_buffer` really does drop everything**, unlike `audiodynamics`,
   which keeps its sidechain filter and last gain. A delay's whole state is
   audible: a chain restarted with the old repeats still in the line plays the

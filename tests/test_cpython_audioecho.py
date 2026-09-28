@@ -23,6 +23,9 @@ its own output.
 | E8 | A setting moved on a live node lands on the render | the response moves to the new setting |
 | E9 | `set()` needs no second call to finish the config | exact, every option |
 | E10 | After the input stops, the repeats reach exact zero, at every feedback up to the clamp | exact, 0 LSB, and each lap strictly quieter than the last |
+| E11 | E10 with the damping low-pass in, at the feedbacks where 0.5 / (1 - feedback) is whole | exact, 0 LSB |
+| E12 | A loop filter set to 0 and back plays nothing stale: silence stays silence, a steady line stays put, a high-pass comes back as a fresh one | exact, 0 LSB |
+| E13 | A wow depth moved on a live node glides in over 20 ms, then renders as a node built with it | no step past 1.5 x the tone's own; exact after the ramp |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -492,6 +495,228 @@ class TailReachesZeroTest(unittest.TestCase):
                         self.assertGreater(max(abs(v) for v in rendered), 0)
                         last_lap = rendered[-self.DELAY_FRAMES * channels:]
                         self.assertEqual(max(abs(v) for v in last_lap), 0)
+
+
+def render_48k(channels, lead, silent, level, **options):
+    """`lead` frames of a `level` LSB DC, then `silent` frames of silence,
+    through a node at 48 kHz, where the damping corners the delay classes
+    hand the node are narrow enough to show the float32 stall. Returns the
+    output words."""
+    data = array("h", [level] * (lead * channels))
+    data.extend(array("h", bytes(2 * channels * silent)))
+    node = audioecho.FeedbackDelay(sample_rate=48000, channel_count=channels,
+                                   mix=2.0, **options)
+    node.play(audiocore.RawSample(data, sample_rate=48000,
+                                  channel_count=channels))
+    rendered = []
+    for _block in range((lead + silent) // 256):
+        rendered.extend(array("h", bytes(audiocore.get_buffer(node)[1])))
+    return rendered
+
+
+class DampedTailReachesZeroTest(unittest.TestCase):
+    """E11 - audiodsp#157. E10 with the damping low-pass in the loop, at the
+    feedbacks where it used to hold.
+
+    The loop sends the damping state round, a float32 one-pole. With the
+    line holding a steady v it approaches v from above and stopped a few ulps
+    short, where its step rounded away. At f = 1 - 0.5 / v the feedback write
+    then rounded f * (v + a few ulps) back to v, and v went round for ever:
+    1 / 2 / 3 / 4 / 5 LSB at feedback 0.5 / 0.75 / 0.8333 / 0.875 / 0.9 with
+    an 800 Hz corner at 48 kHz, 1 LSB at 0.5 with 3 kHz. A step too small to
+    move the state now lands it on its input, so the line empties.
+    """
+
+    #: 0.5 / (1 - f) whole, which is where the stall was: the value held.
+    FEEDBACKS = (0.5, 0.75, 5.0 / 6.0, 0.875, 0.9)
+
+    def test_a_damped_dc_tail_reaches_exact_zero(self):
+        """E11: the last 20 ms after 1.3 s of silence is exactly zero."""
+        for channels in (2, 1):
+            for damping_hz in (800.0, 3000.0):
+                for feedback in self.FEEDBACKS:
+                    for level in (2, 5, 100):
+                        with self.subTest(channels=channels,
+                                          damping_hz=damping_hz,
+                                          feedback=feedback, level=level):
+                            rendered = render_48k(
+                                channels, 256 * 20, 256 * 250, level,
+                                max_delay_ms=20.0, delay_ms=12.5,
+                                feedback=feedback, damping_hz=damping_hz)
+                            tail = rendered[-960 * channels:]
+                            self.assertEqual(max(abs(v) for v in tail), 0)
+
+
+class SwitchedFilterTest(unittest.TestCase):
+    """E12 - audiodsp#158 and #159. A loop filter taken out and put back in
+    plays nothing stale.
+
+    A loud square with the filter in, the filter set to 0 while it still
+    plays, silence until the line is empty, then the filter back in with
+    nothing playing. With the filter at 0 its state used to freeze, and the
+    node put the frozen value out of silence (15 393 LSB at 48 kHz for the
+    low-pass, 19 110 for the high-pass). Now the low-pass state follows the
+    tap while out, and the high-pass state is held at zero, where its output
+    is its input.
+    """
+
+    #: The option, and the corner it goes back in at.
+    FILTERS = (("damping_hz", 900.0), ("cut_hz", 300.0))
+
+    def _render(self, channels, option, corner, feedback):
+        node = delay(channels=channels, max_delay_ms=50, delay_ms=20.0,
+                     feedback=feedback, mix=2.0, **{option: corner})
+        loud = array("h")
+        for frame in range(2048):
+            level = 20000 if (frame // 40) % 2 else 6000
+            for channel in range(channels):
+                loud.append(level if channel == 0 else -level)
+        node.play(audiocore.RawSample(loud, sample_rate=SAMPLE_RATE,
+                                      channel_count=channels))
+        words(node, 6)                     # filter in, playing
+        node.set(**{option: 0.0})
+        words(node, 2)                     # filter out, still playing
+        node.play(silence(256 * 64, channels))
+        emptied = words(node, 60)          # the line runs dry
+        node.set(**{option: corner})
+        return emptied, words(node, 4)     # filter back in, silence
+
+    def test_a_filter_put_back_in_after_silence_is_silent(self):
+        """E12: the line is empty before the filter goes back in, and the
+        output stays exactly zero after."""
+        for option, corner in self.FILTERS:
+            for channels in (2, 1):
+                for feedback in (0.0, 0.5, 0.9):
+                    with self.subTest(option=option, channels=channels,
+                                      feedback=feedback):
+                        emptied, after = self._render(channels, option,
+                                                      corner, feedback)
+                        self.assertEqual(
+                            max(abs(v) for v in emptied[-256 * channels:]), 0)
+                        self.assertEqual(max(abs(v) for v in after), 0)
+
+    def test_a_lowpass_put_back_in_on_a_steady_line_changes_nothing(self):
+        """E12 on a live signal: a DC that fills the line, the low-pass out
+        and back in while it plays. A state that followed the tap is the DC
+        itself, so the output does not move by one LSB; a frozen state jumps
+        and a zeroed one dips."""
+        node = delay(delay_ms=20.0, feedback=0.0, mix=2.0, damping_hz=900.0)
+        node.play(audiocore.RawSample(array("h", [12345] * (4096 * CHANNELS)),
+                                      sample_rate=SAMPLE_RATE,
+                                      channel_count=CHANNELS))
+        words(node, 2)
+        node.set(damping_hz=0.0)
+        node.play(audiocore.RawSample(array("h", [-7000] * (4096 * CHANNELS)),
+                                      sample_rate=SAMPLE_RATE,
+                                      channel_count=CHANNELS))
+        words(node, 2)                     # the line is all -7000 now
+        node.set(damping_hz=900.0)
+        self.assertEqual(set(words(node, 2)), {-7000})
+
+    def test_a_highpass_put_back_in_is_a_highpass_put_in_for_the_first_time(
+            self):
+        """E12 for the cut, on a steady line. At feedback 0 the line holds
+        only the input, so a node whose high-pass went in, out and back in
+        renders, from the moment it is back, exactly what a node that never
+        had one renders once it is put in at the same moment - and that
+        starts where the unfiltered output was, then falls away. A frozen
+        state subtracts the old DC at once; one that followed the signal
+        would too, which is why the high-pass is held at zero instead."""
+        switched = delay(delay_ms=20.0, feedback=0.0, mix=2.0, cut_hz=300.0)
+        fresh = delay(delay_ms=20.0, feedback=0.0, mix=2.0)
+        for node in (switched, fresh):
+            node.play(audiocore.RawSample(
+                array("h", [12000] * (4096 * CHANNELS)),
+                sample_rate=SAMPLE_RATE, channel_count=CHANNELS))
+        words(switched, 3)
+        words(fresh, 3)
+        switched.set(cut_hz=0.0)
+        self.assertEqual(set(words(switched, 3)), {12000})
+        words(fresh, 3)
+        switched.set(cut_hz=300.0)
+        fresh.set(cut_hz=300.0)
+        back = words(switched, 4)
+        self.assertEqual(back, words(fresh, 4))
+        # 1 - a of the line on the first frame back, a = 0.21 at 300 Hz.
+        self.assertGreater(back[0], 9000)
+        self.assertLess(abs(back[-1]), 100)
+
+    def test_the_filter_out_renders_as_no_filter(self):
+        """While a filter is out, the render is the render of a node that
+        never had it, byte for byte - following the signal must not leak
+        into what plays."""
+        for option, corner in self.FILTERS:
+            with self.subTest(option=option):
+                plain = delay(delay_ms=20.0, feedback=0.7, mix=1.0)
+                plain.play(alternating())
+                switched = delay(delay_ms=20.0, feedback=0.7, mix=1.0,
+                                 **{option: corner})
+                switched.set(**{option: 0.0})
+                switched.play(alternating())
+                self.assertEqual(words(switched, 12), words(plain, 12))
+
+
+def sine_words(frames, hz, level, channels=CHANNELS):
+    import math
+    values = array("h")
+    for frame in range(frames):
+        value = int(round(level * math.sin(2 * math.pi * hz * frame /
+                                           SAMPLE_RATE)))
+        for _channel in range(channels):
+            values.append(value)
+    return values
+
+
+class WowDepthGlideTest(unittest.TestCase):
+    """E13 - audiodsp#160. A new `wow_depth_ms` ramps in over 20 ms.
+
+    It used to land on the next frame, so the read head jumped by the whole
+    change between two samples: at the wow's crest a 3 ms move on a 250 Hz
+    tone stepped the output far past anything the tone does by itself. Now
+    the depth walks there in a straight line, 160 frames at 8 kHz, and lands
+    exactly, so from then on the node is the node built with that depth.
+    """
+
+    #: The crest of a 0.7 Hz sine is at 0.357 s: block 11 at 8 kHz.
+    CREST_BLOCKS = 11
+
+    def _pair(self, depth):
+        tone = sine_words(4096, 250.0, 20000)
+        moved = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=0.0)
+        built = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=depth)
+        for node in (moved, built):
+            node.play(audiocore.RawSample(tone, sample_rate=SAMPLE_RATE,
+                                          channel_count=CHANNELS))
+        lead = words(moved, self.CREST_BLOCKS)
+        words(built, self.CREST_BLOCKS)
+        moved.set(wow_depth_ms=depth)
+        return lead, words(moved, 4), words(built, 4)
+
+    def test_a_depth_move_glides(self):
+        """E13: no sample-to-sample step after the move is more than 1.5 x
+        the largest the tone takes on its own."""
+        for depth in (0.5, 1.5, 3.0):
+            with self.subTest(depth=depth):
+                lead, after, _built = self._pair(depth)
+                left = lead[0::CHANNELS]
+                own = max(abs(b - a) for a, b in zip(left[200:], left[201:]))
+                moved = left[-1:] + after[0::CHANNELS]
+                step = max(abs(b - a) for a, b in zip(moved, moved[1:]))
+                self.assertLess(step, own * 1.5)
+
+    def test_after_the_ramp_it_is_the_node_built_with_that_depth(self):
+        """E13: at feedback 0 the line holds only the input, so once the
+        160-frame ramp is done the moved node renders exactly what a node
+        built with the new depth renders."""
+        for depth in (0.5, 3.0):
+            with self.subTest(depth=depth):
+                _lead, after, built = self._pair(depth)
+                self.assertNotEqual(after[:160 * CHANNELS],
+                                    built[:160 * CHANNELS])
+                self.assertEqual(after[160 * CHANNELS:],
+                                 built[160 * CHANNELS:])
 
 
 if __name__ == "__main__":

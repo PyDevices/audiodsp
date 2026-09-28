@@ -286,6 +286,10 @@ void audiodsp_feedback_delay_state_init(audiodsp_feedback_delay_state_t *state,
     // Not primed. The first block snaps the read head onto whatever delay is
     // configured; only a change *after* that glides.
     state->delay_current = -1.0f;
+    state->wow_depth_current = -1.0f;
+    state->wow_depth_target = 0.0f;
+    state->wow_depth_step = 0.0f;
+    state->wow_depth_left = 0;
 }
 
 void audiodsp_feedback_delay_reset(audiodsp_feedback_delay_state_t *state,
@@ -333,7 +337,10 @@ static int16_t to_s16(float value) {
 // interpolation, the damping low-pass, the soft-clip, the cross-feed and the
 // shifter's crossfade are each a convex mix or a shrink and cannot undo that;
 // the cut high-pass can overshoot, and is measured rather than argued
-// (test_cpython_audioecho, E10).
+// (test_cpython_audioecho, E10). The damping low-pass is convex only once its
+// state lands: in float32 it stopped a few ulps above a steady line, which
+// was enough to hand that line back (audiodsp#157), so near the floor a state
+// that has stopped moving is set onto its input (E11).
 //
 // Why not truncate always, as audiodsp_tank.c's tank_quantize() does: that
 // takes half an LSB on average from every pass at every level, and a short
@@ -400,10 +407,51 @@ void audiodsp_feedback_delay_process_s16(
     if (slew <= 0.0f || state->delay_current < 0.0f) {
         state->delay_current = config->delay_frames;
     }
+    // A new wow depth ramps in over 20 ms instead of landing on the next
+    // frame (audiodsp#160). Landing at once moved the read head by the whole
+    // change between two samples, a click and a step in pitch; SlapbackDelay
+    // measured 7 684 LSB against a tone whose own largest step was 1 565. A
+    // straight line in a fixed time, so the extra pitch while it travels is
+    // the change over 20 ms times the wow (a 0.46 ms move is 2.3 % at the
+    // wow's crest), and the last frame lands on the target exactly, so a depth
+    // that is not moving is the same float it always was and renders the
+    // same bytes. A fresh state starts on its depth, as the delay does.
+    const float depth_target = config->wow_depth_frames;
+    if (state->wow_depth_current < 0.0f) {
+        state->wow_depth_current = depth_target;
+        state->wow_depth_target = depth_target;
+        state->wow_depth_left = 0;
+    } else if (depth_target != state->wow_depth_target) {
+        uint32_t ramp = config->sample_rate /
+            AUDIODSP_FEEDBACK_DELAY_WOW_DEPTH_RAMP_DIVISOR;
+        if (ramp < 1u) {
+            ramp = 1u;
+        }
+        state->wow_depth_target = depth_target;
+        state->wow_depth_step =
+            (depth_target - state->wow_depth_current) / (float)ramp;
+        state->wow_depth_left = ramp;
+    }
+    float depth = state->wow_depth_current;
+    uint32_t depth_left = state->wow_depth_left;
+    const float depth_step = state->wow_depth_step;
+    // While the cut high-pass is out its state is held at zero, the state
+    // at which its output is its input (audiodsp#159). Left frozen, putting
+    // the filter back in subtracted whatever it last held from silence,
+    // 19 208 LSB measured. At zero, switching it in is continuous, the same
+    // as a node built with it, and the low end then falls away at the
+    // corner's own rate. Following the signal instead, as the low-pass does,
+    // would subtract the signal's last value on return, which is the same
+    // click. Once per block: `config` cannot change inside one.
+    if (config->cut_coef <= 0.0f) {
+        state->cut_state[0] = state->cut_state[1] = 0.0f;
+    }
     feedback_delay_tap_t near_tap = { 0u, 0u, 0.0f };
     feedback_delay_tap_t far_tap = { 0u, 0u, 0.0f };
     float near_gain = 1.0f;
     float far_gain = 0.0f;
+    // The last frame's tap per channel, for the damping landing below.
+    float tapped[2] = { 0.0f, 0.0f };
     for (uint32_t frame = 0; frame < frames; ++frame) {
         // Rotate the wow oscillator one step. Updating the sine first and
         // feeding the new value back into the cosine is what keeps this
@@ -454,8 +502,11 @@ void audiodsp_feedback_delay_process_s16(
             state->delay_current = current;
         }
 
-        const float offset = state->delay_current +
-            config->wow_depth_frames * wow;
+        if (depth_left > 0u) {
+            --depth_left;
+            depth = depth_left == 0u ? depth_target : depth + depth_step;
+        }
+        const float offset = state->delay_current + depth * wow;
         if (shifting) {
             // Two taps half a window apart, each walking one window per
             // crossfade turn, mixed with a triangular fade whose two halves
@@ -490,10 +541,19 @@ void audiodsp_feedback_delay_process_s16(
             }
 
             float value = delayed;
+            tapped[channel] = value;
             if (config->damping_coef > 0.0f) {
                 state->damping_state[channel] += config->damping_coef *
                     (value - state->damping_state[channel]);
                 value = state->damping_state[channel];
+            } else {
+                // Out of the loop, the state follows the tap (audiodsp#158),
+                // so switching the low-pass back in starts from the signal
+                // rather than from whatever it held when it went out -- which
+                // played out of silence, 25 220 LSB measured. The output here
+                // never reads it, so nothing that plays with the filter out
+                // changes.
+                state->damping_state[channel] = value;
             }
             if (config->cut_coef > 0.0f) {
                 state->cut_state[channel] += config->cut_coef *
@@ -534,5 +594,31 @@ void audiodsp_feedback_delay_process_s16(
                 to_s16(dry * source + wet_gain * loop[channel]);
         }
         state->write_frame = (state->write_frame + 1u) % length;
+    }
+    state->wow_depth_current = depth;
+    state->wow_depth_left = depth_left;
+
+    // Near the floor, a damping state that has stopped moving lands on its
+    // input (audiodsp#157). In float32 the one-pole approaches a steady tap
+    // from above and stops a few ulps short, where its step rounds away; left
+    // there, `recirculated` saw a value a hair over the line's and handed the
+    // line back unchanged, so 1 to 5 LSB went round for ever at the feedbacks
+    // where 0.5 / (1 - feedback) is whole. A stuck state is a steady state,
+    // so it is looked for once a block, on the last frame's tap, rather than
+    // on every sample, where the test sat on the one-pole's own dependency
+    // chain and cost 6 to 7 % of the node at -O2. It can only matter where
+    // `recirculated` rounds or truncates by the stall test, |sent| <=
+    // 0.5 / (1 - 0.99) = 50 LSB, so it is kept to |state| <= 64: above that,
+    // and wherever the state still moves, nothing changes.
+    if (frames > 0u && config->damping_coef > 0.0f) {
+        const uint32_t lanes = config->channel_count == 1u ? 1u : 2u;
+        for (uint32_t channel = 0; channel < lanes; ++channel) {
+            const float held = state->damping_state[channel];
+            if (held <= 64.0f && held >= -64.0f &&
+                held + config->damping_coef * (tapped[channel] - held) ==
+                held) {
+                state->damping_state[channel] = tapped[channel];
+            }
+        }
     }
 }
