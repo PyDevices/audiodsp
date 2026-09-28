@@ -333,7 +333,10 @@ static int16_t to_s16(float value) {
 // interpolation, the damping low-pass, the soft-clip, the cross-feed and the
 // shifter's crossfade are each a convex mix or a shrink and cannot undo that;
 // the cut high-pass can overshoot, and is measured rather than argued
-// (test_cpython_audioecho, E10).
+// (test_cpython_audioecho, E10). The damping low-pass is convex only once its
+// state lands: in float32 it stopped a few ulps above a steady line, which
+// was enough to hand that line back (audiodsp#157), so near the floor a state
+// that has stopped moving is set onto its input (E11).
 //
 // Why not truncate always, as audiodsp_tank.c's tank_quantize() does: that
 // takes half an LSB on average from every pass at every level, and a short
@@ -404,6 +407,8 @@ void audiodsp_feedback_delay_process_s16(
     feedback_delay_tap_t far_tap = { 0u, 0u, 0.0f };
     float near_gain = 1.0f;
     float far_gain = 0.0f;
+    // The last frame's tap per channel, for the damping landing below.
+    float tapped[2] = { 0.0f, 0.0f };
     for (uint32_t frame = 0; frame < frames; ++frame) {
         // Rotate the wow oscillator one step. Updating the sine first and
         // feeding the new value back into the cosine is what keeps this
@@ -490,6 +495,7 @@ void audiodsp_feedback_delay_process_s16(
             }
 
             float value = delayed;
+            tapped[channel] = value;
             if (config->damping_coef > 0.0f) {
                 state->damping_state[channel] += config->damping_coef *
                     (value - state->damping_state[channel]);
@@ -534,5 +540,29 @@ void audiodsp_feedback_delay_process_s16(
                 to_s16(dry * source + wet_gain * loop[channel]);
         }
         state->write_frame = (state->write_frame + 1u) % length;
+    }
+
+    // Near the floor, a damping state that has stopped moving lands on its
+    // input (audiodsp#157). In float32 the one-pole approaches a steady tap
+    // from above and stops a few ulps short, where its step rounds away; left
+    // there, `recirculated` saw a value a hair over the line's and handed the
+    // line back unchanged, so 1 to 5 LSB went round for ever at the feedbacks
+    // where 0.5 / (1 - feedback) is whole. A stuck state is a steady state,
+    // so it is looked for once a block, on the last frame's tap, rather than
+    // on every sample, where the test sat on the one-pole's own dependency
+    // chain and cost 6 to 7 % of the node at -O2. It can only matter where
+    // `recirculated` rounds or truncates by the stall test, |sent| <=
+    // 0.5 / (1 - 0.99) = 50 LSB, so it is kept to |state| <= 64: above that,
+    // and wherever the state still moves, nothing changes.
+    if (frames > 0u && config->damping_coef > 0.0f) {
+        const uint32_t lanes = config->channel_count == 1u ? 1u : 2u;
+        for (uint32_t channel = 0; channel < lanes; ++channel) {
+            const float held = state->damping_state[channel];
+            if (held <= 64.0f && held >= -64.0f &&
+                held + config->damping_coef * (tapped[channel] - held) ==
+                held) {
+                state->damping_state[channel] = tapped[channel];
+            }
+        }
     }
 }

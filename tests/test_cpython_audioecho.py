@@ -23,6 +23,7 @@ its own output.
 | E8 | A setting moved on a live node lands on the render | the response moves to the new setting |
 | E9 | `set()` needs no second call to finish the config | exact, every option |
 | E10 | After the input stops, the repeats reach exact zero, at every feedback up to the clamp | exact, 0 LSB, and each lap strictly quieter than the last |
+| E11 | E10 with the damping low-pass in, at the feedbacks where 0.5 / (1 - feedback) is whole | exact, 0 LSB |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -492,6 +493,56 @@ class TailReachesZeroTest(unittest.TestCase):
                         self.assertGreater(max(abs(v) for v in rendered), 0)
                         last_lap = rendered[-self.DELAY_FRAMES * channels:]
                         self.assertEqual(max(abs(v) for v in last_lap), 0)
+
+
+def render_48k(channels, lead, silent, level, **options):
+    """`lead` frames of a `level` LSB DC, then `silent` frames of silence,
+    through a node at 48 kHz, where the damping corners the delay classes
+    hand the node are narrow enough to show the float32 stall. Returns the
+    output words."""
+    data = array("h", [level] * (lead * channels))
+    data.extend(array("h", bytes(2 * channels * silent)))
+    node = audioecho.FeedbackDelay(sample_rate=48000, channel_count=channels,
+                                   mix=2.0, **options)
+    node.play(audiocore.RawSample(data, sample_rate=48000,
+                                  channel_count=channels))
+    rendered = []
+    for _block in range((lead + silent) // 256):
+        rendered.extend(array("h", bytes(audiocore.get_buffer(node)[1])))
+    return rendered
+
+
+class DampedTailReachesZeroTest(unittest.TestCase):
+    """E11 - audiodsp#157. E10 with the damping low-pass in the loop, at the
+    feedbacks where it used to hold.
+
+    The loop sends the damping state round, a float32 one-pole. With the
+    line holding a steady v it approaches v from above and stopped a few ulps
+    short, where its step rounded away. At f = 1 - 0.5 / v the feedback write
+    then rounded f * (v + a few ulps) back to v, and v went round for ever:
+    1 / 2 / 3 / 4 / 5 LSB at feedback 0.5 / 0.75 / 0.8333 / 0.875 / 0.9 with
+    an 800 Hz corner at 48 kHz, 1 LSB at 0.5 with 3 kHz. A step too small to
+    move the state now lands it on its input, so the line empties.
+    """
+
+    #: 0.5 / (1 - f) whole, which is where the stall was: the value held.
+    FEEDBACKS = (0.5, 0.75, 5.0 / 6.0, 0.875, 0.9)
+
+    def test_a_damped_dc_tail_reaches_exact_zero(self):
+        """E11: the last 20 ms after 1.3 s of silence is exactly zero."""
+        for channels in (2, 1):
+            for damping_hz in (800.0, 3000.0):
+                for feedback in self.FEEDBACKS:
+                    for level in (2, 5, 100):
+                        with self.subTest(channels=channels,
+                                          damping_hz=damping_hz,
+                                          feedback=feedback, level=level):
+                            rendered = render_48k(
+                                channels, 256 * 20, 256 * 250, level,
+                                max_delay_ms=20.0, delay_ms=12.5,
+                                feedback=feedback, damping_hz=damping_hz)
+                            tail = rendered[-960 * channels:]
+                            self.assertEqual(max(abs(v) for v in tail), 0)
 
 
 if __name__ == "__main__":
