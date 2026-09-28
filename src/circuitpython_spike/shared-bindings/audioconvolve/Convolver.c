@@ -266,7 +266,12 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_load_obj, 2,
 //|         ``decay`` is the -60 dB time in seconds; ``damping_hz`` rolls the
 //|         tail's top off; ``predelay_ms`` is silence before anything arrives;
 //|         ``diffusion_ms`` fades the tail in, which is what stops a synthetic
-//|         impulse reading as a burst of noise. ``seed`` picks the room."""
+//|         impulse reading as a burst of noise. ``seed`` picks the room.
+//|
+//|         On a convolver already carrying an impulse, the audio in flight is
+//|         kept: no frame is dropped or repeated, the block being played out
+//|         crossfades from the old room to the new, and from the next block on
+//|         the new room rings on the history as if it had always been loaded."""
 //|         ...
 static mp_obj_t audioconvolve_convolver_synthesize(size_t n_args,
     const mp_obj_t *args, mp_map_t *kw_args) {

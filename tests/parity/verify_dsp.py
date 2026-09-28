@@ -115,6 +115,10 @@ PROBES = (
     # still holds (audiodsp#97).
     ("samplehold_probe.py", "audioshaper", {}, None),
     ("convolve_probe.py", "audioconvolve", {}, None),
+    # The room moved while audio plays: the kept history and the crossfaded
+    # block in flight (#163). Its own file, so the probe above keeps
+    # rendering what it rendered.
+    ("convolve_state_probe.py", "audioconvolve", {}, None),
     ("filter_f32_probe.py", "audiobiquad", {}, None),
     ("modal_probe.py", "audiomodal", {}, None),
     # synthio.Biquad and audiofilters.Filter are CircuitPython's, so they are
