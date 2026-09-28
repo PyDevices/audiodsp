@@ -147,7 +147,8 @@ void audiodsp_convolve_load_s16(audiodsp_convolve_state_t *state,
 // before anything arrives; `diffusion_ms` fades the tail in rather than
 // starting it at full amplitude, which is what stops a synthetic impulse
 // reading as a burst of noise. `seed` picks the room: two seeds are two
-// different halls of the same size.
+// different halls of the same size. A stereo impulse is one envelope over
+// two noises, each side scaled to unit energy on its own.
 //
 // Deterministic to the last bit on every interpreter -- xorshift for the
 // noise and series for the exponentials, never libm -- because the parity

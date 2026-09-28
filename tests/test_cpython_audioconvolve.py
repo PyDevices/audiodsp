@@ -22,6 +22,7 @@ previous version of its own output.
 | C7 | `latency` reports the loaded state, not a constant | exact |
 | C8 | A starved node yields a full block of silence, not a short block | exact |
 | C9 | A re-synthesis on a playing node drops and repeats nothing: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old room to the new over its unplayed frames at the mix it was computed at; after it the node renders what a node built with the new room renders; the fade does not click | exact; the fade 1 LSB of the line; no step past 1.5 x the rooms' own |
+| C10 | Each side of a synthesized stereo room is the unit-energy room of its own noise: the left is the mono room of the same seed, the right the mono room of the right side's seed; the two sides balance, together they are the level of a mono room, and they stay two different noises | exact; 0.01 dB; correlation under 0.5 |
 
 **C1 and C2 are this module's form of the identity trait** that
 `docs/correctness-standard.md` asks of every own node: an exact answer *through*
@@ -48,12 +49,22 @@ block edge also drops nothing, but on a dark room a move that decorrelates
 the two (Room, Predelay) steps the wet up to about three times the largest
 step either room makes on its own, and that is a click.
 
+C10 is audiodsp#164. The room used to be scaled by the mean of its two
+sides' energies, so the pair was unit energy but one side could come back
+5.3 dB louder than the other, and every argument moved which. Each side now
+has its own scale. The exact form of the trait follows from how the noise is
+seeded: the right side's generator starts at `seed + 0x9e3779b9`, so it is
+the mono room of that seed, and the left side is the mono room of `seed`.
+What a per-side scale must not do is make the room mono, so C10 also asks
+that the two sides stay different noises.
+
 C7 is audiodsp#44's class-side clause. It returned `AUDIODSP_CONVOLVE_FRAMES`
 unconditionally until 2026-09-09, so an unloaded convolver - which is a
 passthrough and adds no latency at all - reported a whole partition of it.
 """
 
 from array import array
+import math
 import unittest
 
 import audioconvolve
@@ -524,6 +535,104 @@ class ResynthesisTest(unittest.TestCase):
         fresh = Resynthesis(new, mix=0.5)
         fresh.play(values)
         self.assertEqual(used.pull(6), fresh.pull(6))
+
+
+GOLDEN = 0x9e3779b9      # the right side's seed offset in the C
+
+
+def click_energies(room, rate, taps, ir_channels=2):
+    """Each side's energy over the room's own impulse: a 32767 click at
+    mix 1.0, the wet alone, read to the end of the impulse."""
+    node = audioconvolve.Convolver(max_taps=taps, ir_channels=ir_channels,
+                                   sample_rate=rate,
+                                   channel_count=ir_channels, mix=1.0)
+    node.synthesize(**room)
+    frames = taps + 2 * PARTITION_FRAMES
+    values = array("h", bytes(2 * frames * ir_channels))
+    for c in range(ir_channels):
+        values[c] = 32767
+    node.play(audiocore.RawSample(values, sample_rate=rate,
+                                  channel_count=ir_channels))
+    out = words(node, frames // PARTITION_FRAMES)
+    energy = [0.0] * ir_channels
+    for index, value in enumerate(out):
+        energy[index % ir_channels] += value * value
+    return energy, out
+
+
+def db(ratio):
+    return 10.0 * math.log10(ratio)
+
+
+#: The widest cells the class's walks found on main (L - R -5.296, -5.256,
+#: -4.675 and +4.489 dB), as the node's arguments, with the 0.08 s room's
+#: taps.
+WIDEST = (
+    (48000, 3840, {"decay": 0.05, "damping_hz": 500.0, "predelay_ms": 0.0,
+                   "diffusion_ms": 12 / 127.0 * 12.5, "seed": 36}),
+    (44100, 3584, {"decay": 0.05, "damping_hz": 500.0, "predelay_ms": 0.0,
+                   "diffusion_ms": 13 / 127.0 * 12.5, "seed": 36}),
+    (22050, 1792, {"decay": 0.05, "damping_hz": 500.0, "predelay_ms": 0.0,
+                   "diffusion_ms": 22 / 127.0 * 12.5, "seed": 36}),
+    (48000, 3840, {"decay": 0.05, "damping_hz": 500.0, "predelay_ms": 0.0,
+                   "diffusion_ms": 0.0, "seed": 4}),
+)
+
+#: Rooms at 8 kHz across every argument, for the exact trait.
+ROOMS = (
+    ROOM,
+    moved({"damping_hz": 500.0}),
+    moved({"decay": 0.06, "diffusion_ms": 0.0}),
+    moved({"predelay_ms": 15.0, "seed": 36}),
+    moved({"damping_hz": 0.0, "diffusion_ms": 30.0, "seed": 4}),
+)
+
+
+class StereoRoomTest(unittest.TestCase):
+    """C10, audiodsp#164."""
+
+    def test_each_side_is_the_mono_room_of_its_own_noise(self):
+        """Exact. The left of a stereo room renders what a mono room of the
+        same arguments renders from the left alone, and the right what a
+        mono room seeded where the right side's noise starts renders from
+        the right alone: one unit-energy scale per side."""
+        values = noise_source(BLOCKS * PARTITION_FRAMES, 2)
+        left = array("h", values[0::2])
+        right = array("h", values[1::2])
+        for room in ROOMS:
+            with self.subTest(room=room):
+                stereo = render(room, values, 0.5, 2)
+                mono_left = render(room, left, 0.5, 1)
+                shifted = dict(room, seed=(room["seed"] + GOLDEN) & 0xffffffff)
+                mono_right = render(shifted, right, 0.5, 1)
+                self.assertEqual(stereo[0::2], mono_left)
+                self.assertEqual(stereo[1::2], mono_right)
+
+    def test_the_sides_balance_and_the_pair_keeps_its_level(self):
+        """At the widest cells found before the fix: each side's energy over
+        the impulse within 0.01 dB of the other, and the two together within
+        0.01 dB of twice a mono room's, which is what the pair was before."""
+        for rate, taps, room in WIDEST:
+            with self.subTest(rate=rate, room=room):
+                (left, right), _ = click_energies(room, rate, taps)
+                (mono,), _ = click_energies(room, rate, taps, 1)
+                self.assertLess(abs(db(left / right)), 0.01)
+                self.assertLess(abs(db((left + right) / (2.0 * mono))), 0.01)
+
+    def test_a_stereo_room_stays_stereo(self):
+        """What a per-side scale must not cost: the two sides are still two
+        different noises, correlated at lag 0 by under 0.5 (the darkest,
+        shortest rooms read about 0.25), where a room with the same noise
+        on both sides reads 1."""
+        for rate, taps, room in WIDEST[:3]:
+            with self.subTest(rate=rate):
+                _, out = click_energies(room, rate, taps)
+                left, right = out[0::2], out[1::2]
+                cross = sum(a * b for a, b in zip(left, right))
+                norm = (sum(a * a for a in left)
+                        * sum(b * b for b in right)) ** 0.5
+                self.assertNotEqual(left, right)
+                self.assertLess(abs(cross / norm), 0.5)
 
 
 def words_of(node, blocks):

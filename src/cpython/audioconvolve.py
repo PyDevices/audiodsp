@@ -140,7 +140,8 @@ class Convolver(_AudioSample):
         burst of noise. `seed` picks the room -- two seeds are two different
         halls of the same size, and with `ir_channels=2` the two channels get
         different noise under one envelope, which is one room in stereo rather
-        than two rooms.
+        than two rooms. Each side is normalised to unit energy on its own, so
+        the room sits in the middle whatever the arguments (audiodsp#164).
 
         On a convolver already carrying an impulse, the audio in flight is
         kept: no frame is dropped or repeated, the block being played out

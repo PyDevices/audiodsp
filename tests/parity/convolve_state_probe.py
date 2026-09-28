@@ -7,7 +7,8 @@ plays. This one moves the room while audio is in flight, which is where
 `synthesize()` keeps the history and crossfades the block being played out
 (audiodsp#163): the two extra convolutions of that block, the fade's
 division and the mix the block was computed at. Its own file, so the probe
-above keeps rendering what it rendered.
+above keeps rendering what it rendered. Stereo rooms here are scaled per
+side (audiodsp#164).
 
 No oracle: what `verify_dsp.py` checks is that every interpreter renders
 it identically.

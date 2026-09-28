@@ -227,7 +227,15 @@ void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
     double rise = diffusion ? 1.0 / (double)diffusion : 0.0;
 
     // Two passes over the same deterministic sequence: the first measures the
-    // impulse's energy, the second writes it scaled so that energy is one.
+    // impulse's energy, the second writes it scaled so that energy is one --
+    // each side's own energy, one scale per side. The two sides are one
+    // envelope over two noises, so their energies differ by the luck of the
+    // draw and by what the damping makes of each, and one scale from their
+    // mean left a stereo room leaning by up to 5.3 dB (audiodsp#164). With a
+    // scale each, both sides are unit energy, the two together are the same
+    // level as before, and the room keeps its two noises: the stereo image
+    // is the decorrelation between them, which a scale does not touch. A mono
+    // room is the first side alone, the same arithmetic as ever.
     //
     // Normalizing matters more here than it looks. A tail of unit-amplitude
     // noise convolved with anything is enormous -- 48000 taps near full scale
@@ -239,9 +247,9 @@ void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
     // Two passes rather than one and a rescale because the partitions are
     // transformed as they are generated and there is nowhere to keep the taps.
     // The second pass costs only the noise, not the transforms.
-    double scale = 1.0;
+    double scale[2] = {1.0, 1.0};
     for (int pass = 0; pass < 2; pass++) {
-        double energy = 0.0;
+        double energy[2] = {0.0, 0.0};
         for (uint32_t ch = 0; ch < config->ir_channels; ch++) {
             // Same envelope, different noise: two channels of one room, not
             // two rooms. A shared seed would make the impulse mono and
@@ -265,19 +273,18 @@ void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
                     }
                     envelope *= envelope_step;
                     if (pass == 0) {
-                        energy += shaped * shaped;
+                        energy[ch] += shaped * shaped;
                     } else {
-                        state->block[i] = (float)(shaped * scale);
+                        state->block[i] = (float)(shaped * scale[ch]);
                     }
                 }
                 if (pass) store_partition(state, config, ch, part);
             }
         }
         if (pass == 0) {
-            // Per channel, so a stereo room is not half the level of a mono
-            // one -- each side has to stand on its own.
-            energy /= (double)config->ir_channels;
-            scale = energy > 0.0 ? 1.0 / sqrt(energy) : 0.0;
+            for (uint32_t ch = 0; ch < config->ir_channels; ch++) {
+                scale[ch] = energy[ch] > 0.0 ? 1.0 / sqrt(energy[ch]) : 0.0;
+            }
         }
     }
     state->loaded = parts;

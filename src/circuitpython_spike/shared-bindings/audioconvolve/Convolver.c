@@ -266,7 +266,9 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_load_obj, 2,
 //|         ``decay`` is the -60 dB time in seconds; ``damping_hz`` rolls the
 //|         tail's top off; ``predelay_ms`` is silence before anything arrives;
 //|         ``diffusion_ms`` fades the tail in, which is what stops a synthetic
-//|         impulse reading as a burst of noise. ``seed`` picks the room.
+//|         impulse reading as a burst of noise. ``seed`` picks the room. With
+//|         ``ir_channels=2`` the two sides get different noise under one
+//|         envelope, each normalised to unit energy on its own.
 //|
 //|         On a convolver already carrying an impulse, the audio in flight is
 //|         kept: no frame is dropped or repeated, the block being played out
