@@ -500,6 +500,14 @@ void audiodsp_feedback_delay_process_s16(
                 state->damping_state[channel] += config->damping_coef *
                     (value - state->damping_state[channel]);
                 value = state->damping_state[channel];
+            } else {
+                // Out of the loop, the state follows the tap (audiodsp#158),
+                // so switching the low-pass back in starts from the signal
+                // rather than from whatever it held when it went out -- which
+                // played out of silence, 25 220 LSB measured. The output here
+                // never reads it, so nothing that plays with the filter out
+                // changes.
+                state->damping_state[channel] = value;
             }
             if (config->cut_coef > 0.0f) {
                 state->cut_state[channel] += config->cut_coef *

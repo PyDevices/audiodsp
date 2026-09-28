@@ -24,6 +24,7 @@ its own output.
 | E9 | `set()` needs no second call to finish the config | exact, every option |
 | E10 | After the input stops, the repeats reach exact zero, at every feedback up to the clamp | exact, 0 LSB, and each lap strictly quieter than the last |
 | E11 | E10 with the damping low-pass in, at the feedbacks where 0.5 / (1 - feedback) is whole | exact, 0 LSB |
+| E12 | A loop filter set to 0 and back plays nothing stale: silence stays silence, a steady line stays put | exact, 0 LSB |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -543,6 +544,84 @@ class DampedTailReachesZeroTest(unittest.TestCase):
                                 feedback=feedback, damping_hz=damping_hz)
                             tail = rendered[-960 * channels:]
                             self.assertEqual(max(abs(v) for v in tail), 0)
+
+
+class SwitchedFilterTest(unittest.TestCase):
+    """E12 - audiodsp#158. A loop filter taken out and put back in plays
+    nothing stale.
+
+    A loud square with the filter in, the filter set to 0 while it still
+    plays, silence until the line is empty, then the filter back in with
+    nothing playing. With the state frozen at 0, the node put the frozen
+    value out of silence (15 393 LSB at 48 kHz for the low-pass).
+    """
+
+    #: The option, and the corner it goes back in at.
+    FILTERS = (("damping_hz", 900.0),)
+
+    def _render(self, channels, option, corner, feedback):
+        node = delay(channels=channels, max_delay_ms=50, delay_ms=20.0,
+                     feedback=feedback, mix=2.0, **{option: corner})
+        loud = array("h")
+        for frame in range(2048):
+            level = 20000 if (frame // 40) % 2 else 6000
+            for channel in range(channels):
+                loud.append(level if channel == 0 else -level)
+        node.play(audiocore.RawSample(loud, sample_rate=SAMPLE_RATE,
+                                      channel_count=channels))
+        words(node, 6)                     # filter in, playing
+        node.set(**{option: 0.0})
+        words(node, 2)                     # filter out, still playing
+        node.play(silence(256 * 64, channels))
+        emptied = words(node, 60)          # the line runs dry
+        node.set(**{option: corner})
+        return emptied, words(node, 4)     # filter back in, silence
+
+    def test_a_filter_put_back_in_after_silence_is_silent(self):
+        """E12: the line is empty before the filter goes back in, and the
+        output stays exactly zero after."""
+        for option, corner in self.FILTERS:
+            for channels in (2, 1):
+                for feedback in (0.0, 0.5, 0.9):
+                    with self.subTest(option=option, channels=channels,
+                                      feedback=feedback):
+                        emptied, after = self._render(channels, option,
+                                                      corner, feedback)
+                        self.assertEqual(
+                            max(abs(v) for v in emptied[-256 * channels:]), 0)
+                        self.assertEqual(max(abs(v) for v in after), 0)
+
+    def test_a_lowpass_put_back_in_on_a_steady_line_changes_nothing(self):
+        """E12 on a live signal: a DC that fills the line, the low-pass out
+        and back in while it plays. A state that followed the tap is the DC
+        itself, so the output does not move by one LSB; a frozen state jumps
+        and a zeroed one dips."""
+        node = delay(delay_ms=20.0, feedback=0.0, mix=2.0, damping_hz=900.0)
+        node.play(audiocore.RawSample(array("h", [12345] * (4096 * CHANNELS)),
+                                      sample_rate=SAMPLE_RATE,
+                                      channel_count=CHANNELS))
+        words(node, 2)
+        node.set(damping_hz=0.0)
+        node.play(audiocore.RawSample(array("h", [-7000] * (4096 * CHANNELS)),
+                                      sample_rate=SAMPLE_RATE,
+                                      channel_count=CHANNELS))
+        words(node, 2)                     # the line is all -7000 now
+        node.set(damping_hz=900.0)
+        self.assertEqual(set(words(node, 2)), {-7000})
+
+    def test_the_filter_out_renders_as_no_filter(self):
+        """While a filter is out, the render is the render of a node that
+        never had it, byte for byte - following the signal must not leak
+        into what plays."""
+        for option, corner in self.FILTERS:
+            with self.subTest(option=option):
+                plain = delay(delay_ms=20.0, feedback=0.7, mix=1.0)
+                plain.play(alternating())
+                switched = delay(delay_ms=20.0, feedback=0.7, mix=1.0,
+                                 **{option: corner})
+                switched.set(**{option: 0.0})
+                switched.play(alternating())
+                self.assertEqual(words(switched, 12), words(plain, 12))
 
 
 if __name__ == "__main__":

@@ -73,3 +73,16 @@ for damping_hz in (800.0, 3000.0):
                 whole = ((whole ^ byte) * 16777619) & 0xffffffff
         print("fbds", tag, "approach", whole)
         emit(tag, node, 4)
+
+# audiodsp#158. The damping low-pass taken out while repeats circulate and
+# put back in as the next one arrives. Its state follows the tap while out;
+# frozen, it put back what it held when it went.
+node = echo.FeedbackDelay(sample_rate=SAMPLE_RATE, max_delay_ms=120.0,
+                          delay_ms=40.0, feedback=0.7, mix=1.0,
+                          damping_hz=900.0)
+node.play(source())
+emit("damping-in", node, 3)
+node.set(damping_hz=0.0)
+emit("damping-out", node, 2)
+node.set(damping_hz=900.0)
+emit("damping-back", node, 3)
