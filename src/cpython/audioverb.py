@@ -29,7 +29,8 @@ stereo comes back out of the tap table, then `width`, `tone_db` and `mix`.
     8..11   tank half B: the same four
 
 `taps` is four values per tap -- channel, line index, offset in frames, gain --
-and at most 32 of them. Both default to Dattorro's own published table, scaled
+and at most 32 of them. Either can be re-cut later with `set()`, which empties
+the network and keeps the source where it is. Both default to Dattorro's own published table, scaled
 from 29761 Hz to whatever `sample_rate` says. His figures, for a class that
 wants to scale or re-cut them itself:
 
@@ -87,10 +88,11 @@ _OPTIONS = {
     "mix": 11,
 }
 
-#: Keywords that shape the allocation rather than setting an option. They are
-#: constructor-only, and `set()` refuses them rather than silently ignoring
-#: them.
+#: Keywords that shape the allocation rather than setting an option. The first
+#: three are constructor-only, and `set()` refuses them rather than silently
+#: ignoring them; `delays` and `taps` in `set()` re-cut the network in place.
 _SHAPE = ("sample_rate", "channel_count", "max_predelay_ms", "delays", "taps")
+_FIXED = ("sample_rate", "channel_count", "max_predelay_ms")
 
 
 class Tank(_AudioSample):
@@ -130,11 +132,29 @@ class Tank(_AudioSample):
 
     def set(self, **options):
         """Change settings mid-stream. The lines keep their contents; only what
-        the network does to them changes."""
+        the network does to them changes.
+
+        `delays` and `taps` are the exception: either one re-cuts the network
+        in place, and every line and filter starts empty, exactly as a newly
+        built tank's would. The source, and any source frames the tank has
+        pulled and not yet played, stay where they are, so the dry does not
+        skip (audiodsp#169). A class that changes a reverb's size or character
+        used to need a new node for it, and the frames went with the old one.
+        `sample_rate`, `channel_count` and `max_predelay_ms` are fixed at
+        construction."""
         self._check()
-        for name in _SHAPE:
+        for name in _FIXED:
             if name in options:
                 raise TypeError("%r is fixed at construction" % (name,))
+        delays = options.pop("delays", None)
+        taps = options.pop("taps", None)
+        for name in options:
+            if name not in _OPTIONS:
+                raise TypeError("unknown Tank option %r" % (name,))
+        if delays is not None or taps is not None:
+            self._state.recut(
+                None if delays is None else [float(v) for v in delays],
+                None if taps is None else [float(v) for v in taps])
         self._apply(options)
         self._state.finish()
 

@@ -90,7 +90,7 @@ typedef enum {
 //: The whole network as it was asked for. Held apart from the running state so
 //: `set()` can rewrite it mid-stream without emptying the lines. The line
 //: table and the tap table are the exception: they size the allocation, so
-//: they are fixed once the state is initialised.
+//: changing either is a re-cut (audiodsp_tank_recut), which empties it.
 typedef struct {
     uint32_t sample_rate;
     uint32_t channel_count;
@@ -163,14 +163,28 @@ void audiodsp_tank_default_delays(uint32_t sample_rate, uint32_t *delays);
 uint32_t audiodsp_tank_default_taps(uint32_t sample_rate, float *taps);
 #define AUDIODSP_TANK_DEFAULT_TAPS 14u
 
-// Re-cuts the topology. Both size the allocation, so both are applied before
-// audiodsp_tank_state_init and are refused afterwards by construction: nothing
-// re-reads them per frame except through the state's own pointers.
+// Cut the topology. Both size or index the allocation, so on a new node both
+// are applied before audiodsp_tank_state_init; on a running one they go
+// through audiodsp_tank_recut, never straight onto the live config.
 audiodsp_tank_status_t audiodsp_tank_set_delays(audiodsp_tank_config_t *config,
     const uint32_t *frames, uint32_t count);
 // `values` is 4 floats per tap: channel, line index, offset in frames, gain.
 audiodsp_tank_status_t audiodsp_tank_set_taps(audiodsp_tank_config_t *config,
     const float *values, uint32_t count);
+
+// Re-cuts a running node's topology, checked on a copy so nothing running
+// changes if it is refused: `recut` becomes `running` with `frames`
+// (AUDIODSP_TANK_LINES values; NULL keeps the lines) and then `taps` (4
+// floats a tap; NULL keeps the table) applied, in the constructor's order.
+// The binding then allocates audiodsp_tank_buffer_samples(recut) (or clears
+// the buffer it has, when that is the same size), installs `recut` and calls
+// audiodsp_tank_state_init on it, so the network is exactly a newly built
+// one's while the node's source, and any source frames it holds, stay where
+// they are (audiodsp#169). Followed by audiodsp_tank_config_finish, since the
+// modulation depth's ceiling is a line length.
+audiodsp_tank_status_t audiodsp_tank_recut(audiodsp_tank_config_t *recut,
+    const audiodsp_tank_config_t *running, const uint32_t *frames,
+    uint32_t frame_count, const float *taps, uint32_t tap_values);
 
 void audiodsp_tank_set_channel_count(audiodsp_tank_config_t *config,
     uint32_t channel_count);

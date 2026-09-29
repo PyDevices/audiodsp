@@ -181,9 +181,10 @@ class TankArguments(unittest.TestCase):
             audioverb.Tank(sample_rate=SAMPLE_RATE, roomsize=0.5)
 
     def test_set_refuses_what_construction_fixed(self):
+        """`delays` and `taps` re-cut in place (RecutTest); these three are
+        the node's shape and stay fixed."""
         node = audioverb.Tank(sample_rate=SAMPLE_RATE)
-        for name in ("sample_rate", "channel_count", "max_predelay_ms",
-                     "delays", "taps"):
+        for name in ("sample_rate", "channel_count", "max_predelay_ms"):
             with self.assertRaises(TypeError):
                 node.set(**{name: 1})
 
@@ -196,6 +197,233 @@ class TankArguments(unittest.TestCase):
                               mod_depth_ms=9e5, mod_rate_hz=9e5)
         node.play(source())
         self.assertEqual(len(render(node, 2)), 2 * audioverb.FRAMES * 4)
+
+
+def noise(frames, channels, seed=7, level=12000):
+    values = array("h")
+    state = seed
+    for _ in range(frames * channels):
+        state = (state * 1103515245 + 12345) & 0x7FFFFFFF
+        values.append(((state >> 8) % (2 * level + 1)) - level)
+    return values
+
+
+class ToneStateTest(unittest.TestCase):
+    """T1-T2, audiodsp#168: the tilt's pole keeps tracking while `tone_db`
+    is 0, so Tone moved off 0 comes in from the signal and not from a state
+    frozen when it reached 0.
+
+    T1  Tone out, silence until the wet is exact zero, Tone back in with
+        nothing playing: every output sample is 0. Main: 1 382 LSB stereo,
+        707 mono at 48 kHz (tank_fix_repro.py); here at 8 kHz both widths
+        fail.
+    T2  Tone out and back in while the input plays: from the move on, the
+        node renders byte for byte what a node handed 2^-24 dB instead of 0
+        renders (both tilt gains round to exactly 1 there, so that node is
+        flat and its pole never stops). Main differs for tens of frames;
+        so does a pole that follows the signal while out, and one held at 0.
+    """
+
+    RATE = 8000
+    OPTIONS = dict(decay=0.7, diffusion=0.75, damping_hz=2500.0,
+                   bandwidth_hz=3500.0, mod_depth_ms=0.2, mod_rate_hz=1.0,
+                   mix=0.5, max_predelay_ms=20.0)
+
+    def _node(self, channels, tone_db):
+        return audioverb.Tank(sample_rate=self.RATE, channel_count=channels,
+                              tone_db=tone_db, **self.OPTIONS)
+
+    def test_tone_back_in_after_silence_plays_nothing(self):
+        for channels in (2, 1):
+            for before, after in ((12.0, 12.0), (-12.0, 3.0)):
+                with self.subTest(channels=channels, before=before,
+                                  after=after):
+                    node = self._node(channels, before)
+                    node.play(audiocore.RawSample(
+                        noise(4 * audioverb.FRAMES, channels),
+                        sample_rate=self.RATE, channel_count=channels))
+                    render(node, 3)
+                    node.set(tone_db=0.0)
+                    render(node, 1)
+                    node.play(audiocore.RawSample(
+                        array("h", bytes(2 * audioverb.FRAMES * channels)),
+                        sample_rate=self.RATE, channel_count=channels))
+                    quiet = 0
+                    for _ in range(400):
+                        quiet = quiet + 1 if not any(render(node, 1)) else 0
+                        if quiet == 4:
+                            break
+                    self.assertEqual(quiet, 4, "the tail never died")
+                    node.set(tone_db=after)
+                    peak = max(abs(value) for value in
+                               samples(render(node, 2)))
+                    self.assertEqual(peak, 0)
+
+    def test_tone_back_in_matches_a_pole_that_never_stopped(self):
+        for channels in (2, 1):
+            for before, after in ((12.0, 12.0), (-12.0, 6.0), (6.0, -3.0)):
+                with self.subTest(channels=channels, before=before,
+                                  after=after):
+                    material = noise(12 * audioverb.FRAMES, channels, seed=11)
+                    outputs = []
+                    for held in (0.0, 1.0 / 16777216.0):
+                        node = self._node(channels, before)
+                        node.play(audiocore.RawSample(
+                            material, sample_rate=self.RATE,
+                            channel_count=channels))
+                        render(node, 3)
+                        node.set(tone_db=held)
+                        render(node, 3)
+                        node.set(tone_db=after)
+                        outputs.append(render(node, 3))
+                    self.assertTrue(any(outputs[0]))
+                    self.assertEqual(outputs[0], outputs[1])
+
+
+class RecutTest(unittest.TestCase):
+    """R1-R4, audiodsp#169: `set(delays=..., taps=...)` re-cuts a playing
+    node in place, so a class that changes a reverb's size or character no
+    longer builds a new node and loses the source frames the old one held.
+
+    R1  At `mix=0` the output is the source byte for byte across a re-cut,
+        on a 1024-frame source (the node holds 768 frames between blocks)
+        and on a RawSample handed whole (it holds all of it). Main refuses
+        the keywords; a rebuilt node is 512 frames ahead of the source
+        (tank_fix_repro.py).
+    R2  From the re-cut on, the node renders byte for byte what a node built
+        on the new tables renders from the same source frame, with options
+        handed in the same call applied too: longer, shorter and same-size
+        networks, stereo and mono, with the modulation deep enough that the
+        new lines' ceiling holds it. Lines and filters that kept their
+        contents, a modulation oscillator that kept its phase, or a ceiling
+        from the old lines would each show.
+    R3  A refused re-cut (eleven lines, a tap past its line, a bad option in
+        the same call) raises and leaves the node exactly as it was.
+    R4  A re-cut on `taps` alone keeps the lines' lengths and still starts
+        the network empty.
+    """
+
+    RATE = 8000
+    OPTIONS = dict(decay=0.7, diffusion=0.7, damping_hz=2500.0,
+                   bandwidth_hz=3500.0, mod_depth_ms=0.3, mod_rate_hz=1.3,
+                   tone_db=3.0, mix=0.5, max_predelay_ms=20.0,
+                   predelay_ms=5.0)
+    LINES = [16, 12, 40, 28, 70, 460, 190, 380, 95, 430, 275, 330]
+    TAPS = [0, 9, 27, 0.6, 0, 5, 200, -0.6, 0, 7, 100, 0.6,
+            1, 5, 36, 0.6, 1, 11, 12, -0.6, 1, 10, 90, -0.6]
+
+    def _scaled(self, factor):
+        lines = [max(4, int(v * factor)) for v in self.LINES]
+        taps = list(self.TAPS)
+        for index in range(0, len(taps), 4):
+            taps[index + 2] = min(int(taps[index + 2] * factor),
+                                  lines[taps[index + 1]] - 1)
+        return lines, taps
+
+    def _same_size(self):
+        """The same total, cut differently: the buffer is reused."""
+        lines = list(self.LINES)
+        lines[5] -= 30
+        lines[9] += 30
+        return lines, list(self.TAPS)
+
+    def test_the_dry_does_not_skip(self):
+        for block in (1024, 0):
+            for channels in (2, 1):
+                with self.subTest(block=block, channels=channels):
+                    material = noise(10 * audioverb.FRAMES, channels, seed=5)
+                    raw = audiocore.RawSample(material, sample_rate=self.RATE,
+                                              channel_count=channels)
+                    source = raw
+                    if block:
+                        import audiofilters
+                        source = audiofilters.Filter(
+                            filter=None, mix=1, buffer_size=block * channels * 2,
+                            sample_rate=self.RATE, bits_per_sample=16,
+                            samples_signed=True, channel_count=channels)
+                        source.play(raw, loop=False)
+                    options = dict(self.OPTIONS, mix=0.0)
+                    node = audioverb.Tank(sample_rate=self.RATE,
+                                          channel_count=channels, **options)
+                    node.play(source)
+                    head = render(node, 3)
+                    lines, taps = self._scaled(1.3)
+                    node.set(delays=lines, taps=taps)
+                    tail = render(node, 6)
+                    self.assertEqual(head + tail,
+                                     bytes(material)[:len(head + tail)])
+
+    def test_a_recut_node_is_a_new_node_on_the_same_source(self):
+        cuts = {"longer": self._scaled(1.4), "shorter": self._scaled(0.3),
+                "same size": self._same_size()}
+        for name, (lines, taps) in cuts.items():
+            for channels in (2, 1):
+                with self.subTest(cut=name, channels=channels):
+                    material = noise(12 * audioverb.FRAMES, channels, seed=9)
+                    node = audioverb.Tank(sample_rate=self.RATE,
+                                          channel_count=channels,
+                                          delays=self.LINES, taps=self.TAPS,
+                                          **self.OPTIONS)
+                    node.play(audiocore.RawSample(
+                        material, sample_rate=self.RATE,
+                        channel_count=channels))
+                    render(node, 4)
+                    # 2 ms of modulation is 16 frames: past the shorter
+                    # cut's ceiling (9.5 frames on its 21-frame line), inside
+                    # the old lines' (34).
+                    node.set(delays=lines, taps=taps, decay=0.5,
+                             mod_depth_ms=2.0)
+                    moved = render(node, 5)
+
+                    options = dict(self.OPTIONS, decay=0.5, mod_depth_ms=2.0)
+                    fresh = audioverb.Tank(sample_rate=self.RATE,
+                                           channel_count=channels,
+                                           delays=lines, taps=taps, **options)
+                    start = 4 * audioverb.FRAMES * channels
+                    fresh.play(audiocore.RawSample(
+                        material[start:], sample_rate=self.RATE,
+                        channel_count=channels))
+                    self.assertTrue(any(moved))
+                    self.assertEqual(moved, render(fresh, 5))
+
+    def test_a_refused_recut_changes_nothing(self):
+        refusals = (dict(delays=[100] * 11), dict(taps=[0, 5, 10 ** 6, 0.5]),
+                    dict(delays=self._scaled(1.4)[0], roomsize=0.5),
+                    dict(delays=self._scaled(0.5)[0], taps=[0, 5, 999, 0.5]))
+        for refusal in refusals:
+            with self.subTest(refusal=sorted(refusal)):
+                material = noise(8 * audioverb.FRAMES, 2, seed=3)
+                renders = []
+                for refuse in (True, False):
+                    node = audioverb.Tank(sample_rate=self.RATE,
+                                          delays=self.LINES, taps=self.TAPS,
+                                          **self.OPTIONS)
+                    node.play(audiocore.RawSample(
+                        material, sample_rate=self.RATE, channel_count=2))
+                    out = render(node, 3)
+                    if refuse:
+                        with self.assertRaises((ValueError, TypeError)):
+                            node.set(**refusal)
+                    renders.append(out + render(node, 4))
+                self.assertEqual(renders[0], renders[1])
+
+    def test_taps_alone_start_the_network_empty(self):
+        material = noise(8 * audioverb.FRAMES, 2, seed=4)
+        taps = list(self.TAPS)
+        taps[2] = 5
+        node = audioverb.Tank(sample_rate=self.RATE, delays=self.LINES,
+                              taps=self.TAPS, **self.OPTIONS)
+        node.play(audiocore.RawSample(material, sample_rate=self.RATE,
+                                      channel_count=2))
+        render(node, 3)
+        node.set(taps=taps)
+        moved = render(node, 4)
+        fresh = audioverb.Tank(sample_rate=self.RATE, delays=self.LINES,
+                               taps=taps, **self.OPTIONS)
+        fresh.play(audiocore.RawSample(
+            material[3 * audioverb.FRAMES * 2:], sample_rate=self.RATE,
+            channel_count=2))
+        self.assertEqual(moved, render(fresh, 4))
 
 
 if __name__ == "__main__":

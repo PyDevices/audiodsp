@@ -3172,7 +3172,7 @@ a CircuitPython module would not exist on a stock board, so a `Plate` written
 against it would silently be a different effect there. `audiofreeverb` is not
 touched by any of this.
 
-Four details worth recording:
+Six details worth recording:
 
 - **Every line write is a magnitude truncation, not a rounding, and that is
   what makes the tail reach exact zero.** A recirculating `int16` network that
@@ -3205,6 +3205,41 @@ Four details worth recording:
   a starved chain gets silence and the tail stops with the source rather than
   ringing on. A class that wants the tail rung out feeds the tank silence for
   as long as its `tail_samples` says.
+- **The tilt's pole runs while `tone_db` is 0** (audiodsp#168, 2026-09-28).
+  At 0 the output skips the tilt, because its gains are exactly 1 and
+  `s + (v - s)` is not always `v` in `float`, so a node held at 0 renders what
+  it always did. Until then the pole stopped there too, and held the state it
+  had when Tone reached 0: moved off 0 after the tail had died, the node
+  played `state * (low_gain - high_gain)` out of exact silence, 1 382 LSB at
+  48 kHz stereo for a move back to +12 dB. Now Tone comes back exactly as it
+  would from 2^-24 dB, where both gains round to 1 and the pole never
+  stopped. *Rejected:* following the signal while out (`s = v`, a store
+  rather than a multiply-add). Out of silence it is silent too, but the tilt
+  then comes back as a pole at the last sample rather than at the signal's
+  low band, and the first millisecond or so of wet is wrong: back to +12 dB
+  while noise plays, 2 402 LSB off at 48 kHz stereo, against 2 995 frozen.
+  Holding the state at 0 is wrong the same way (1 914).
+- **`set(delays=..., taps=...)` re-cuts a playing node in place**
+  (audiodsp#169, 2026-09-28). The line table and the tap table size and index
+  the allocation, so until then `set()` refused them and the only way to
+  change a reverb's size or character mid-stream was a new node. That lost
+  audio: the node pulls its source a buffer at a time and plays 256 frames a
+  block, so between blocks it can hold the unplayed rest of a source buffer,
+  and those frames went with the old node (512 frames of a 1024- or
+  2048-frame source for a move 1536 frames in; a RawSample handed whole
+  replayed from its start). Now the node keeps its source and the frames it
+  holds; the new tables are checked on a copy, the network is allocated (or
+  cleared, at the same size) and starts exactly as a newly built node's does,
+  lines, filters, predelay and modulation phase, and options in the same call
+  apply after it. `sample_rate`, `channel_count` and `max_predelay_ms` stay
+  fixed. No new name: the two keywords are the constructor's. *Rejected:* a
+  way to read the held frames out of the old node and hand them to a new one
+  (a new public method, and a pointer into the source's memory handed across
+  objects); and the old node leaving its frames somewhere a new node playing
+  the same source would find them (hidden state shared between objects, and
+  wrong the moment anything pulls the source in between). `reset_buffer`
+  still drops the held frames, as every node in the family does;
+  `clear()` has always kept them.
 
 **What it costs.** Counted from the source, with everything switched on and
 the default 14-tap table: about 62 multiplies per stereo frame -- input

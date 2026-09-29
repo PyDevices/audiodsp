@@ -45,8 +45,9 @@
 //|         mix: float = 0.3,
 //|     ) -> None:
 //|         """Create a reverberation tank. ``max_predelay_ms``, ``delays`` and
-//|         ``taps`` size the allocation and cut the topology, and none of the
-//|         three can change afterwards.
+//|         ``taps`` size the allocation and cut the topology.
+//|         ``max_predelay_ms`` cannot change afterwards; ``delays`` and
+//|         ``taps`` can be re-cut with `set`, which empties the network.
 //|
 //|         ``delays`` is twelve line lengths in frames - the four input
 //|         diffusers, then each tank half's modulated all-pass, delay,
@@ -254,21 +255,98 @@ MP_DEFINE_CONST_FUN_OBJ_2(audioverb_tank_play_obj, audioverb_tank_play);
 
 //|     def set(self, **options: float) -> None:
 //|         """Change settings mid-stream. The lines keep their contents; only
-//|         what the network does to them changes."""
+//|         what the network does to them changes.
+//|
+//|         ``delays`` and ``taps`` are the exception: either one re-cuts the
+//|         network in place, and every line and filter starts empty, exactly
+//|         as a newly built tank's would. The source, and any source frames
+//|         the tank has pulled and not yet played, stay where they are, so
+//|         the dry does not skip. The other shape keywords (``sample_rate``,
+//|         ``channel_count``, ``max_predelay_ms``) are fixed at construction."""
 //|         ...
-static mp_obj_t audioverb_tank_set(size_t n_args, const mp_obj_t *args,
-    mp_map_t *kw_args) {
-    audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    (void)n_args;
-    for (size_t i = 0; i < kw_args->alloc; ++i) {
-        if (!mp_map_slot_is_filled(kw_args, i)) {
+// `delays` and `taps` re-cut the network in place (audiodsp#169): the
+// MicroPython binding's tank_recut, line for line, without the pump lock this
+// runtime does not have.
+static bool tank_is_topology_keyword(qstr name) {
+    return name == MP_QSTR_delays || name == MP_QSTR_taps;
+}
+
+static void tank_check_options(const mp_map_t *kw) {
+    for (size_t i = 0; i < kw->alloc; ++i) {
+        if (!mp_map_slot_is_filled(kw, i)) {
             continue;
         }
-        qstr name = mp_obj_str_get_qstr(kw_args->table[i].key);
+        qstr name = mp_obj_str_get_qstr(kw->table[i].key);
+        if (tank_is_topology_keyword(name)) {
+            continue;
+        }
         if (tank_is_shape_keyword(name)) {
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("'%q' is fixed at construction"), name);
         }
+        bool known = false;
+        for (size_t option = 0; option < MP_ARRAY_SIZE(tank_option_names);
+             ++option) {
+            if (tank_option_names[option].name == name) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) {
+            mp_raise_msg_varg(&mp_type_TypeError,
+                MP_ERROR_TEXT("unknown Tank option '%q'"), name);
+        }
+    }
+}
+
+static void tank_recut(audioverb_tank_obj_t *self, mp_obj_t delays,
+    mp_obj_t taps) {
+    uint32_t frames[AUDIODSP_TANK_LINES];
+    uint32_t frame_count = 0;
+    float tap_values[AUDIODSP_TANK_MAX_TAPS * 4u];
+    uint32_t tap_count = 0;
+    if (delays != MP_OBJ_NULL) {
+        float values[AUDIODSP_TANK_LINES];
+        frame_count = tank_read_floats(delays, values, AUDIODSP_TANK_LINES);
+        for (uint32_t line = 0; line < frame_count; ++line) {
+            frames[line] = values[line] < 0.0f ? 0u : (uint32_t)values[line];
+        }
+    }
+    if (taps != MP_OBJ_NULL) {
+        tap_count = tank_read_floats(taps, tap_values,
+            AUDIODSP_TANK_MAX_TAPS * 4u);
+    }
+    audiodsp_tank_config_t recut;
+    tank_raise_status(audiodsp_tank_recut(&recut, &self->config,
+        delays != MP_OBJ_NULL ? frames : NULL, frame_count,
+        taps != MP_OBJ_NULL ? tap_values : NULL, tap_count));
+    const uint32_t old_samples = audiodsp_tank_buffer_samples(&self->config);
+    const uint32_t samples = audiodsp_tank_buffer_samples(&recut);
+    int16_t *old_lines = self->state.lines[0];
+    int16_t *lines = old_lines;
+    if (samples != old_samples) {
+        lines = m_malloc((size_t)samples * sizeof(int16_t));
+    }
+    memset(lines, 0, (size_t)samples * sizeof(int16_t));
+    self->config = recut;
+    audiodsp_tank_state_init(&self->state, &self->config, lines);
+    if (lines != old_lines) {
+        m_del(int16_t, old_lines, old_samples);
+    }
+}
+
+static mp_obj_t audioverb_tank_set(size_t n_args, const mp_obj_t *args,
+    mp_map_t *kw_args) {
+    audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    (void)n_args;
+    tank_check_options(kw_args);
+    mp_map_elem_t *delays =
+        mp_map_lookup(kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_delays), MP_MAP_LOOKUP);
+    mp_map_elem_t *taps =
+        mp_map_lookup(kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_taps), MP_MAP_LOOKUP);
+    if (delays != NULL || taps != NULL) {
+        tank_recut(self, delays != NULL ? delays->value : MP_OBJ_NULL,
+            taps != NULL ? taps->value : MP_OBJ_NULL);
     }
     tank_apply_kwargs(self, kw_args);
     audiodsp_tank_config_finish(&self->config);

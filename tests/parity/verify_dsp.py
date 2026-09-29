@@ -151,6 +151,10 @@ PROBES = (
     # audiodsp#89.
     ("mixer_borrowed_block_probe.py", "audiomixer", {}, None),
     ("tank_probe.py", "audioverb", {}, None),
+    # The node's own state: Tone out and back through 0 (#168) and the
+    # network re-cut in place on a playing node (#169). Its own file, so the
+    # probe above keeps rendering what it rendered.
+    ("tank_state_probe.py", "audioverb", {}, None),
     ("flanger_probe.py", "audiodelays",
      {"circuitpython": "upstream's own Flanger overflows int32 in its wet "
                        "interpolation on full-scale material and ours does "

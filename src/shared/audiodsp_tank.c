@@ -200,6 +200,23 @@ audiodsp_tank_status_t audiodsp_tank_set_taps(audiodsp_tank_config_t *config,
     return AUDIODSP_TANK_OK;
 }
 
+audiodsp_tank_status_t audiodsp_tank_recut(audiodsp_tank_config_t *recut,
+    const audiodsp_tank_config_t *running, const uint32_t *frames,
+    uint32_t frame_count, const float *taps, uint32_t tap_values) {
+    *recut = *running;
+    if (frames != NULL) {
+        const audiodsp_tank_status_t status =
+            audiodsp_tank_set_delays(recut, frames, frame_count);
+        if (status != AUDIODSP_TANK_OK) {
+            return status;
+        }
+    }
+    if (taps != NULL) {
+        return audiodsp_tank_set_taps(recut, taps, tap_values);
+    }
+    return AUDIODSP_TANK_OK;
+}
+
 void audiodsp_tank_config_init(audiodsp_tank_config_t *config,
     uint32_t sample_rate, float max_predelay_ms) {
     memset(config, 0, sizeof(*config));
@@ -593,12 +610,22 @@ void audiodsp_tank_process_s16(const audiodsp_tank_config_t *config,
 
         for (uint32_t channel = 0; channel < channels; ++channel) {
             float value = tapped[channel];
-            if (config->tone_db != 0.0f && config->tone_coef > 0.0f) {
+            // The tilt's pole runs whether or not the tilt is applied. At
+            // tone_db 0 the output skips the tilt (its two gains are 1, and
+            // `s + (v - s)` is not always `v` in float), but a pole that
+            // stopped there would hold its last state and play it the moment
+            // Tone moved off 0: a tick out of exact silence (audiodsp#168).
+            // Tracking keeps it where a pole that never stopped would be, so
+            // Tone comes back in exactly as it would from 2^-24 dB.
+            if (config->tone_coef > 0.0f) {
                 state->tone_state[channel] +=
                     config->tone_coef * (value - state->tone_state[channel]);
-                value = state->tone_state[channel] * config->tone_low_gain +
-                    (value - state->tone_state[channel]) *
-                    config->tone_high_gain;
+                if (config->tone_db != 0.0f) {
+                    value = state->tone_state[channel] *
+                        config->tone_low_gain +
+                        (value - state->tone_state[channel]) *
+                        config->tone_high_gain;
+                }
             }
             const float source = (float)in[frame * channels + channel];
             out[frame * channels + channel] =
