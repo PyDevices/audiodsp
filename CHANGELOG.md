@@ -1,5 +1,6 @@
 ## v0.6.3 (2026-09-29)
 
+- The same code as v0.6.3rc3. What changed since v0.6.2 is listed under the three release candidates below.
 
 ## v0.6.3rc3 (2026-09-29)
 
