@@ -1,3 +1,11 @@
+## v0.6.3rc3 (2026-09-29)
+
+- tests/parity: tank_state_probe cuts its networks in integers
+- audioecho.FeedbackDelay: a cross-fed stereo tail reaches exact zero (#170)
+- audioverb.Tank: set(delays=..., taps=...) re-cuts a playing node in place (#169)
+- audioverb.Tank: the tilt's pole keeps tracking while tone_db is 0 (#168)
+- Tag release: a manual run, for a merge whose push event never arrived
+
 ## v0.6.3rc2 (2026-09-28)
 
 - audioconvolve.Convolver: each side of a synthesized stereo room is normalised on its own (#164)
