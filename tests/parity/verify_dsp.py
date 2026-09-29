@@ -99,7 +99,8 @@ PROBES = (
     ("feedback_delay_probe.py", "audioecho", {}, None),
     ("feedback_delay_options_probe.py", "audioecho", {}, None),
     # The node's own state: the damping floor (#157), then the filters out
-    # and back (#158, #159) and a moved wow depth (#160). Its own file, so
+    # and back (#158, #159), a moved wow depth (#160) and the cross-fed
+    # floor (#170). Its own file, so
     # the two above keep rendering what they rendered.
     ("feedback_delay_state_probe.py", "audioecho", {}, None),
     ("ladder_probe.py", "audioladder", {}, None),

@@ -342,21 +342,55 @@ static int16_t to_s16(float value) {
 // was enough to hand that line back (audiodsp#157), so near the floor a state
 // that has stopped moving is set onto its input (E11).
 //
+// The cross-feed is convex only in exact arithmetic. In float32
+// `own * direct + other * crossed` can land an ulp above both lanes: with
+// both lanes of a stereo line at k, one or two float32 steps under
+// f = 1 - 0.5 / k, the test saw a gap a hair over 0.5, rounded, and wrote k
+// back on every lap (audiodsp#170, E14). So a gap within EDGE of 0.5 is not
+// trusted: there the write is worked out, and rounding stands only if what
+// comes back is smaller than the larger lane. That is the property the whole
+// argument needs, checked directly, so it holds however the sum was rounded
+// -- each product on its own or fused into a multiply-add, in either order --
+// and it never touches a write that was already smaller than both lanes,
+// which is every write in mono, at cross-feed 0 or 1, and in stereo wherever
+// the lanes differ. How far the sum can overshoot is bounded: a few float32
+// steps of a value no larger than 51 (the test only bites where |sent| <=
+// 0.5 / (1 - 0.99)), under 1.1e-5, so EDGE is 2^-14 = 6.1e-5 and a gap past
+// it goes straight to rounding, one compare, as before. (A margin on the
+// test alone, the same constant with no check behind it, also ends every
+// tail, but it moves the edge for every sample that crosses it, and loud
+// passages cross it at every zero crossing: it moved 90 of 286 audible
+// renders by a 1 LSB flip carried round the loop.)
+//
 // Why not truncate always, as audiodsp_tank.c's tank_quantize() does: that
 // takes half an LSB on average from every pass at every level, and a short
 // loop makes hundreds of passes a second. On a 3 ms flanger at the clamp it
 // ended the ring half a second early, 5 dB down at 1.5 s. Stepping only where
 // rounding would stall keeps every repeat above the stall region
 // byte-identical and changes only the part that used to circulate for ever.
-static float recirculated(float sent, float feedback) {
+#define AUDIODSP_FEEDBACK_DELAY_STALL_EDGE (1.0f / 16384.0f)
+
+static float recirculated(float sent, float own, float other,
+    float feedback) {
     const float back = feedback * sent;
     const float in_size = sent < 0.0f ? -sent : sent;
     const float back_size = back < 0.0f ? -back : back;
-    if (in_size - back_size > 0.5f) {
+    const float gap = in_size - back_size;
+    if (gap > 0.5f + AUDIODSP_FEEDBACK_DELAY_STALL_EDGE) {
         return back;
     }
-    // Here |back| <= |sent| <= 0.5 / (1 - feedback), at most 50 under the
-    // 0.99 clamp, so the cast is defined.
+    if (gap > 0.5f) {
+        // Rounded, `back` would write this (to_s16 of it alone); keep it only
+        // if that is smaller than the larger lane (audiodsp#170).
+        const float own_size = own < 0.0f ? -own : own;
+        const float other_size = other < 0.0f ? -other : other;
+        const float larger = own_size > other_size ? own_size : other_size;
+        if ((float)(int32_t)(back_size + 0.5f) < larger) {
+            return back;
+        }
+    }
+    // Here |back| <= |sent| <= (0.5 + EDGE) / (1 - feedback), about 50
+    // under the 0.99 clamp, so the cast is defined.
     return (float)(int32_t)back;
 }
 
@@ -586,7 +620,8 @@ void audiodsp_feedback_delay_process_s16(
             const float fed = source * config->feed_own[channel] +
                 other_source * config->feed_other[channel];
             state->line[(size_t)channel * length + state->write_frame] =
-                to_s16(fed + recirculated(sent, config->feedback));
+                to_s16(fed + recirculated(sent, loop[channel], other,
+                    config->feedback));
             // The dry path is the channel's own signal, never the panned
             // one: `input_pan` steers what goes round the loop, not what the
             // listener hears straight through.

@@ -1,6 +1,6 @@
 """Deterministic FeedbackDelay PCM for the node's own state: the damping
-low-pass near the floor, the loop filters taken out and put back, and a wow
-depth moved while playing.
+low-pass near the floor, the loop filters taken out and put back, a wow
+depth moved while playing, and a cross-fed stereo line near the floor.
 
     feedback_delay_state_probe.py audioecho
 
@@ -110,3 +110,27 @@ node.set(wow_depth_ms=3.0)
 emit("depth-b", node, 3)
 node.set(wow_depth_ms=0.0)
 emit("depth-c", node, 3)
+
+# audiodsp#170. A stereo line cross-fed at s / 127, at two of the feedbacks
+# where the float32 cross-feed sum landed an ulp above a landed line of k and
+# the stall test handed k back for ever (k = 9 at 1/127, k = 50 at 39/127).
+# A DC of 2k + 2 for one block, then silence, at 8 kHz with a 1 ms line, so a
+# lap is eight frames and the floor comes in 60 blocks without a buffer the
+# default MicroPython heap cannot hold; the approach in one number, then the
+# last four blocks.
+for feedback, cross_feed, k in ((0.9444443583, 1.0 / 127.0, 9),
+                                (0.9899999499, 39.0 / 127.0, 50)):
+    node = echo.FeedbackDelay(sample_rate=8000, max_delay_ms=3.0,
+                              delay_ms=1.0, feedback=feedback, mix=2.0,
+                              cross_feed=cross_feed)
+    values = array("h", [2 * k + 2] * (256 * 2))
+    values.extend(array("h", bytes(256 * 63 * 2 * 2)))
+    node.play(audiocore.RawSample(values, sample_rate=8000,
+                                  channel_count=2))
+    tag = "crossfed-%d" % k
+    whole = 2166136261
+    for _block in range(60):
+        for byte in bytes(audiocore.get_buffer(node)[1]):
+            whole = ((whole ^ byte) * 16777619) & 0xffffffff
+    print("fbds", tag, "approach", whole)
+    emit(tag, node, 4)
