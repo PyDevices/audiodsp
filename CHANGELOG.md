@@ -1,3 +1,6 @@
+## v0.6.3 (2026-09-29)
+
+
 ## v0.6.3rc3 (2026-09-29)
 
 - tests/parity: tank_state_probe cuts its networks in integers
