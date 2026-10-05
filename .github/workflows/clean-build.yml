@@ -75,9 +75,9 @@ jobs:
           ref: v1.29.0
           path: micropython
       - name: Build the unix port with the audiodsp usermod
-        # The manifest names this module and its ulab dependency (.deps/ulab,
-        # fetched above) with c_module(), so there is no USER_C_MODULES: the
-        # parent-directory scan plus the manifest would include audiodsp twice.
+        # The manifest names this module with c_module(), so there is no
+        # USER_C_MODULES: the parent-directory scan plus the manifest would
+        # include audiodsp twice. It names no ulab; nothing here uses one.
         run: |
           make -C micropython/mpy-cross -j2
           make -C micropython/ports/unix submodules
@@ -90,7 +90,6 @@ jobs:
           import audiocore, synthio, audiomixer, audiofilters, audiodelays
           import audiomp3, audiodynamics, audioroute, audiomath, audioecho
           import audiofreeverb, audiospeed, audioconvolve, audioshaper
-          import ulab.numpy as np
           s = synthio.Synthesizer(sample_rate=8000); s.press(69)
           r, b = audiocore.get_buffer(s)
           assert r == 1 and len(b) == 512
@@ -199,8 +198,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           path: audiodsp
-      # ulab is not optional here: `usermod_ulab` is the target that had
-      # actually broken once, so the harness treats its absence as a failure.
       - name: Fetch pinned dependencies
         working-directory: audiodsp
         run: |
@@ -213,8 +210,8 @@ jobs:
           ref: v1.29.0
           path: micropython
       - name: Configure the usermod through CMake
-        # The manifest names ulab (from .deps/) with c_module(); the
-        # extraction that reads it needs micropython-lib in the tree.
+        # The manifest names this module with c_module(); the extraction that
+        # reads it needs micropython-lib in the tree.
         run: |
           git -C micropython submodule update --init lib/micropython-lib
           cmake -S audiodsp/tests/cmake -B cmake-build \

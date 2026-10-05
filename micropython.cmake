@@ -213,9 +213,6 @@ if(EXISTS ${MPAUDIO_MP3_SRC_DIR}/mp3dec.c)
     )
 endif()
 
-# See micropython.mk for why this is needed for `import ulab.numpy` (and any
-# future dotted submodule this tree grows) to work at all.
-target_compile_definitions(usermod_mpaudio INTERFACE MICROPY_MODULE_BUILTIN_SUBPACKAGES=1)
 
 # CIRCUITPY_SYNTHIO_MAX_CHANNELS (phase 8e decision, made while actually
 # building the ESP32-P4 firmware -- see docs/porting-plan.md "8e"): the
@@ -322,9 +319,3 @@ if(AUDIODSP_PUMP_IRAM AND (CONFIG_IDF_TARGET_ARCH_RISCV OR CONFIG_IDF_TARGET_ARC
 endif()
 
 target_link_libraries(usermod INTERFACE usermod_mpaudio)
-
-# --- ulab (numpy-alike): a cloned sibling dependency this repository owns,
-#     named by manifest.py with c_module() (MicroPython 1.29) so it is compiled
-#     exactly once on every port. Nothing here includes its cmake: ulab's
-#     code/micropython.cmake calls add_library(usermod_ulab) unguarded, and one
-#     owner of that include is the only way it is never included twice.

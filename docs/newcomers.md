@@ -36,8 +36,9 @@ host can pull the graph for offline rendering, give it to a mixer or pump, or
 attach it to a platform-specific audio output. `audiomp3` is firmware-only.
 
 For MicroPython, audiodsp is compiled into firmware through
-[`manifest.py`](../manifest.py), with the pinned `ulab` and `mp3` dependencies
-retrieved by `scripts/fetch_deps.sh`. The root [README](../README.md#installation)
+[`manifest.py`](../manifest.py), with the pinned `mp3` dependency retrieved by
+`scripts/fetch_deps.sh`. audiodsp brings no `ulab`; a build that wants it
+names it. The root [README](../README.md#installation)
 has the supported CMake and Make build paths. It explains when a custom
 manifest must include the port's own frozen modules as well.
 
@@ -106,8 +107,8 @@ python -m pip install --index-url https://test.pypi.org/simple/ \
 
 - `audioinstruments` and `audioeffects` no longer ship from this repository.
   Install and change them in `audiocomponents`.
-- The `ulab` and `mp3` native dependencies are cloned, pinned dependencies;
-  they are not vendored source to edit here.
+- The `mp3` native dependency is a cloned, pinned dependency; it is not
+  vendored source to edit here.
 - `audiodsp_util.float32()` matters when Python computes a setting that must
   have board-equivalent single-precision behavior on a desktop. It is not a
   general-purpose numeric library.

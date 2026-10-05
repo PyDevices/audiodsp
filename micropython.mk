@@ -90,20 +90,6 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiopump/audiopump_events.c \
     $(MPAUDIO_SRC_DIR)/audiopump/audiopump_tap.c
 
-# --- ulab (numpy-alike): a cloned sibling dependency this repository owns,
-#     named by manifest.py with c_module() (MicroPython 1.29) so it is compiled
-#     exactly once on every port; nothing here includes its makefile.
-# `import ulab.numpy` / `import ulab.scipy` are dotted submodule imports of a
-# built-in (ulab's globals dict has `numpy`/`scipy` as plain module-typed
-# entries, same shape CircuitPython relies on for its own dotted built-ins).
-# Mainline only walks that path when MICROPY_MODULE_BUILTIN_SUBPACKAGES is
-# on (py/builtinimport.c, process_import_at_level); off by default outside
-# the "everything" ROM level. CFLAGS_EXTRA reaches every compiled object for
-# this port (see ports/unix/Makefile), not just usermod sources, so this
-# turns it on build-wide -- confirmed needed by testing `import ulab.numpy`
-# against this exact ulab pin on the unix standard variant.
-override CFLAGS_EXTRA += -DMICROPY_MODULE_BUILTIN_SUBPACKAGES=1
-
 # --- module skeleton: empty `import <name>` targets for every top-level
 #     module this tree will grow into (see docs/porting-plan.md). Tiers add
 #     real classes/functions by editing mpaudio_modules.c's globals tables
@@ -264,7 +250,7 @@ SRC_USERMOD_C += \
 # lib/mp3: a cloned sibling dependency in the parent workspace (the upstream
 # adafruit/Adafruit_MP3 repo, pinned to the exact commit the parent
 # workspace's circuitpython checkout vendors in its own lib/mp3), not a
-# port -- same treatment as ulab above. Its `src/` is the Helix
+# port. Its `src/` is the Helix
 # fixed-point MP3 decoder (RealNetworks, 2003), under RPSL 1.0/RCSL 1.0
 # per-file headers, NOT MIT; CircuitPython itself carries it unmodified
 # under those terms rather than relicensing it, and so does this port --

@@ -25,13 +25,7 @@ every interpreter in the workspace. There is nothing to put here:
   into.
 """
 
-# MicroPython 1.29: the manifest names its own C module and the one dependency
-# it owns. ulab (the numpy-alike `synthtools` imports) is a cloned sibling,
-# pinned by DEPENDENCIES.lock: a lone clone fetches it into .deps/ with
-# scripts/fetch_deps.sh; a workspace keeps it beside this repository. Named
-# here, once, for every port -- neither micropython.mk nor micropython.cmake
-# includes it any more, so a build that carries this manifest carries ulab
-# exactly once.
-import os
-c_module(".deps/ulab/code" if os.path.isdir(".deps/ulab/code") else "../ulab/code")
+# MicroPython 1.29: the manifest names its own C module with c_module(). It
+# names no ulab: nothing in audiodsp uses it, and a build that wants ulab
+# names it as a module of its own, so it is compiled once, from one place.
 c_module(".")  # this directory holds the micropython.cmake / micropython.mk for the C half
