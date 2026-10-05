@@ -33,12 +33,13 @@ include("/home/you/build/audiodsp/manifest.py")
 On unix the manifest to edit is `ports/unix/variants/standard/manifest.py`; on
 esp32 and rp2 it is usually `ports/<port>/boards/manifest.py`, unless your
 board brings its own. Then build the way you always do. The include brings in
-the audiodsp C modules and `ulab` (named with `c_module()`); it freezes no
-Python. `fetch_deps.sh` puts `ulab` and `mp3` under `.deps/`, pinned by
-[DEPENDENCIES.lock](DEPENDENCIES.lock); the manifest and the mp3 glue look
-there first and fall back to a sibling checkout beside this repo. Tested on
-the unix port against MicroPython v1.29.0, where `synthio`, `audiomp3`,
-`audiopump` and `ulab.numpy` all import.
+the audiodsp C modules (named with `c_module()`); it freezes no Python and
+brings no `ulab`, which audiodsp doesn't use: a build that wants `ulab` names
+it itself. `fetch_deps.sh` puts the `mp3` decoder under `.deps/`, pinned by
+[DEPENDENCIES.lock](DEPENDENCIES.lock); the mp3 glue looks there first and
+falls back to a sibling checkout beside this repo. Tested on the unix port
+against MicroPython v1.29.0, where `synthio`, `audiomp3` and `audiopump` all
+import.
 
 If you would rather not edit the MicroPython tree, write a manifest of your
 own and pass it as `FROZEN_MANIFEST=`. That replaces the port's default, so
@@ -52,11 +53,9 @@ the **build** step — `micropython.mk`/`micropython.cmake` read it, not
 `-D` cache entry.
 
 **Older than 1.29?** Manifests there have no `c_module()`, so do not include
-this one; use `USER_C_MODULES`. On esp32 and rp2 point it at this checkout
-(add `;<checkout>/.deps/ulab/code` if you want `ulab`); on a Make port point
-it at the directory that *contains* the checkout, which builds every module in
-that directory and does not reach `ulab`. Without `ulab`, `synthtools`'
-`import ulab.numpy` fails at runtime.
+this one; use `USER_C_MODULES`. On esp32 and rp2 point it at this checkout;
+on a Make port point it at the directory that *contains* the checkout, which
+builds every module in that directory.
 
 MicroPython's
 [manifest reference](https://docs.micropython.org/en/v1.29.0/reference/manifest.html)
@@ -535,11 +534,10 @@ CircuitPython 10.3.0 PCM byte-for-byte — built at the same voice ceiling this
 port ships, which is the only comparison worth making. Import/API smoke success
 is not used as a substitute for those comparisons.
 
-`ulab` and `mp3` (the vendored Adafruit_MP3/Helix decoder `audiomp3`
-depends on, RPSL/RCSL-licensed — not MIT, carried unmodified per upstream's
-own terms) are consumed as cloned sibling dependencies in the parent
-workspace, same pattern as `pygraphics`/`displayif`, not vendored into this
-repo.
+`mp3` (the Adafruit_MP3/Helix decoder `audiomp3` depends on,
+RPSL/RCSL-licensed — not MIT, carried unmodified per upstream's own terms) is
+consumed as a cloned sibling dependency in the parent workspace, same pattern
+as `pygraphics`/`displayif`, not vendored into this repo.
 
 The playback-facing pull protocol (`audiocore.get_buffer`/`reset_buffer`)
 is consumed by `pydevices`' `lib/audiodev` package (`AudioOut` in

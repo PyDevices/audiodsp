@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Fetch audiodsp's pinned native dependencies into .deps/ for standalone
-# builds (a workspace checkout with sibling clones already in place needs
-# none of this -- the build glue prefers .deps/ and falls back to the
-# siblings).
+# Fetch audiodsp's pinned native dependency (the mp3 decoder) into .deps/ for
+# standalone builds (a workspace checkout with a sibling clone already in
+# place needs none of this -- the build glue prefers .deps/ and falls back to
+# the sibling).
 #
 #   ./scripts/fetch_deps.sh          # clone/checkout pins, apply patches
 #   ./scripts/fetch_deps.sh --check  # verify only; nonzero on any mismatch

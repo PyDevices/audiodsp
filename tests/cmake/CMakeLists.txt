@@ -33,7 +33,7 @@ endforeach()
 # it gets here; `py/manifest.cmake` reads the manifest's c_module() lines
 # only when `${MICROPY_LIB_DIR}/README.md` exists, and with the variable
 # unset it warns "micropython-lib not initialised" and names nothing --
-# which is how this harness lost ulab the first time.
+# which is how this harness once lost a c_module() without a word.
 if(NOT MICROPY_LIB_DIR)
     set(MICROPY_LIB_DIR ${MICROPY_DIR}/lib/micropython-lib)
 endif()
@@ -50,11 +50,10 @@ if(NOT MICROPY_BOARD_DIR)
 endif()
 include(${MICROPY_DIR}/py/usermod.cmake)
 
-# 1. The targets. `usermod_mpaudio` is this repo's own; `usermod_ulab` comes
-#    from the c_module() line in manifest.py that names the ulab clone, and
-#    is the half that had actually broken once - so its absence is a
-#    failure here, not a warning.
-foreach(target usermod usermod_mpaudio usermod_ulab)
+# 1. The targets. `usermod_mpaudio` is this repo's own, named by the
+#    c_module() line in manifest.py - so its absence is a failure here, not a
+#    warning. (ulab is not audiodsp's: a build that wants it names it.)
+foreach(target usermod usermod_mpaudio)
     if(NOT TARGET ${target})
         message(FATAL_ERROR
             "audiodsp's CMake glue did not define the ${target} target")

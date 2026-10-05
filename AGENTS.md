@@ -53,8 +53,6 @@ for source compatibility; only this repo's own name differs.
 
 ## Sibling dependencies (cloned, not vendored)
 
-- `ulab` (numpy-alike) — pinned to the exact revision CircuitPython itself
-  vendors
 - `mp3` (upstream `adafruit/Adafruit_MP3`, the Helix MP3 decoder core
   `audiomp3` wraps) — RPSL 1.0/RCSL 1.0 licensed, *not* MIT; carried
   unmodified per upstream's own terms, same as CircuitPython itself. Kept
