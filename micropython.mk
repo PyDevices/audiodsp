@@ -283,9 +283,16 @@ MPAUDIO_MP3_SRC_DIR := $(abspath $(MPAUDIO_MOD_DIR)/.deps/mp3/src)
 ifeq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)
 MPAUDIO_MP3_SRC_DIR := $(abspath $(MPAUDIO_MOD_DIR)/../mp3/src)
 endif
+# Neither there: fetch our own pinned copy (DEPENDENCIES.lock, plus our
+# patches) into .deps/, the way a fresh clone outside any workspace builds.
 ifeq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)
 ifneq ($(AUDIODSP_OPTIONAL_DEPS),1)
-$(error audiodsp: Adafruit_MP3 not found (looked in .deps/mp3 and ../mp3). Run ./scripts/fetch_deps.sh, or set AUDIODSP_OPTIONAL_DEPS=1 to build without audiomp3)
+$(info audiodsp: fetching Adafruit_MP3 into .deps/ (scripts/fetch_deps.sh))
+MPAUDIO_FETCH := $(shell bash $(MPAUDIO_MOD_DIR)/scripts/fetch_deps.sh 1>&2; echo $$?)
+MPAUDIO_MP3_SRC_DIR := $(abspath $(MPAUDIO_MOD_DIR)/.deps/mp3/src)
+ifeq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)
+$(error audiodsp: fetching Adafruit_MP3 failed (scripts/fetch_deps.sh exit $(MPAUDIO_FETCH)). Set AUDIODSP_OPTIONAL_DEPS=1 to build without audiomp3)
+endif
 endif
 endif
 ifneq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)
