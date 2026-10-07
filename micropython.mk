@@ -221,6 +221,10 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiomath/Multiply.c \
     $(MPAUDIO_SRC_DIR)/audiomath/SubOctave.c \
     $(MPAUDIO_SRC_DIR)/audiomath/module.c
+# audiometer: band levels for a spectrum meter (media modules roadmap, Phase 6)
+SRC_USERMOD_C += \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_meter.c \
+    $(MPAUDIO_SRC_DIR)/audiometer/module.c
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audioecho/FeedbackDelay.c \
     $(MPAUDIO_SRC_DIR)/audioecho/module.c

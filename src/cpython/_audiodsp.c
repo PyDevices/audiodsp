@@ -30,6 +30,7 @@
 #include "shared/audiodsp_ladder.h"
 #include "shared/audiodsp_tank.h"
 #include "shared/audiodsp_modal.h"
+#include "shared/audiodsp_meter.h"
 #include "shared/audiodsp_filter_f32.h"
 
 // setup.py defines this from the VERSION file; the fallback is only for
@@ -57,6 +58,7 @@ typedef struct {
     PyObject *allpass_f32_state_type;
     PyObject *suboctave_state_type;
     PyObject *convolver_state_type;
+    PyObject *meter_state_type;
     PyObject *tank_state_type;
     PyObject *modal_state_type;
 } audiodsp_state_t;
@@ -2357,6 +2359,107 @@ static PyType_Spec convolver_state_spec = {
     .slots = convolver_state_slots,
 };
 
+// --- MeterState: audiometer's engine (shared/audiodsp_meter.c) -------------
+
+typedef struct {
+    PyObject_HEAD
+    audiodsp_meter_t *m;
+} audiodsp_meter_object_t;
+
+static int meter_state_init(audiodsp_meter_object_t *self, PyObject *args, PyObject *kwargs) {
+    if (!PyArg_ParseTuple(args, ":MeterState")) return -1;
+    if (self->m == NULL) {
+        self->m = audiodsp_meter_new();
+        if (self->m == NULL) {
+            PyErr_NoMemory();
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static void meter_state_dealloc(audiodsp_meter_object_t *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    audiodsp_meter_free(self->m);
+    self->m = NULL;
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
+static PyObject *meter_state_configure(audiodsp_meter_object_t *self, PyObject *args) {
+    int bands;
+    double lo, hi;
+    if (!PyArg_ParseTuple(args, "idd:configure", &bands, &lo, &hi)) return NULL;
+    if (bands < 0 || bands > AUDIODSP_METER_MAX_BANDS || lo <= 0 || hi <= lo) {
+        PyErr_SetString(PyExc_ValueError, "bands 0..96, and 0 < low_hz < high_hz");
+        return NULL;
+    }
+    audiodsp_meter_configure(self->m, bands, (float)lo, (float)hi);
+    Py_RETURN_NONE;
+}
+
+static PyObject *meter_state_feed(audiodsp_meter_object_t *self, PyObject *args) {
+    Py_buffer pcm = {0};
+    unsigned int rate, channels = 2;
+    if (!PyArg_ParseTuple(args, "y*I|I:feed", &pcm, &rate, &channels)) return NULL;
+    if (rate < 1000 || rate > 384000 || channels < 1 || channels > 8
+        || pcm.len % (2 * (Py_ssize_t)channels)) {
+        PyBuffer_Release(&pcm);
+        PyErr_SetString(PyExc_ValueError, "whole s16 frames, 1..8 channels, 1 kHz..384 kHz");
+        return NULL;
+    }
+    audiodsp_meter_feed_s16(self->m, (const int16_t *)pcm.buf,
+        (uint32_t)(pcm.len / (2 * (Py_ssize_t)channels)), channels, rate);
+    PyBuffer_Release(&pcm);
+    Py_RETURN_NONE;
+}
+
+static PyObject *meter_state_read(audiodsp_meter_object_t *self, PyObject *unused) {
+    uint8_t levels[AUDIODSP_METER_MAX_BANDS];
+    uint8_t pk = 0, rms = 0;
+    uint32_t n = 0;
+    uint32_t seq = audiodsp_meter_read(self->m, levels, sizeof(levels), &pk, &rms, &n);
+    return Py_BuildValue("(ky#ii)", (unsigned long)seq, (const char *)levels, (Py_ssize_t)n, pk, rms);
+}
+
+static PyObject *meter_state_stats(audiodsp_meter_object_t *self, PyObject *unused) {
+    audiodsp_meter_stats_t st;
+    audiodsp_meter_stats(self->m, &st);
+    return Py_BuildValue("(OkkKKkK)", st.enabled ? Py_True : Py_False, (unsigned long)st.bands,
+        (unsigned long)st.analyses, (unsigned long long)st.feed_us,
+        (unsigned long long)st.analysis_us, (unsigned long)st.max_analysis_us,
+        (unsigned long long)st.elapsed_us);
+}
+
+static PyMethodDef meter_state_methods[] = {
+    {"configure", (PyCFunction)meter_state_configure, METH_VARARGS, NULL},
+    {"feed", (PyCFunction)meter_state_feed, METH_VARARGS, NULL},
+    {"read", (PyCFunction)meter_state_read, METH_NOARGS, NULL},
+    {"stats", (PyCFunction)meter_state_stats, METH_NOARGS, NULL},
+    {NULL, NULL, 0, NULL},
+};
+
+static PyType_Slot meter_state_slots[] = {
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, meter_state_init},
+    {Py_tp_dealloc, meter_state_dealloc},
+    {Py_tp_methods, meter_state_methods},
+    {0, NULL},
+};
+
+static PyType_Spec meter_state_spec = {
+    .name = "_audiodsp.MeterState",
+    .basicsize = sizeof(audiodsp_meter_object_t),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = meter_state_slots,
+};
+
+static PyObject *audiodsp_meter_db_byte_py(PyObject *module, PyObject *args) {
+    double power;
+    if (!PyArg_ParseTuple(args, "d:meter_db_byte", &power)) return NULL;
+    return PyLong_FromLong(audiodsp_meter_db_byte((float)power));
+}
+
 static PyObject *audiodsp_multiply_s16(PyObject *module, PyObject *args) {
     Py_buffer signal = {0};
     Py_buffer modulator = {0};
@@ -3095,6 +3198,7 @@ static PyMethodDef audiodsp_methods[] = {
     {"freeverb_s16", audiodsp_freeverb_s16, METH_VARARGS, NULL},
     {"multiply_s16", audiodsp_multiply_s16, METH_VARARGS, NULL},
     {"midside_s16", audiodsp_midside_s16, METH_VARARGS, NULL},
+    {"meter_db_byte", audiodsp_meter_db_byte_py, METH_VARARGS, NULL},
     {"remix_s16", audiodsp_py_remix_s16, METH_VARARGS, PyDoc_STR("Interleaved s16 native-endian channel convert between 1 and 2 channels. Optional writable dest.")},
     {NULL, NULL, 0, NULL},
 };
@@ -3201,6 +3305,13 @@ static int audiodsp_exec(PyObject *module) {
         AUDIODSP_CONVOLVE_FRAMES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "CONVOLVE_MAX_PARTITIONS",
         AUDIODSP_CONVOLVE_MAX_PARTITIONS) < 0) return -1;
+    state->meter_state_type = PyType_FromModuleAndSpec(module,
+        &meter_state_spec, NULL);
+    if (state->meter_state_type == NULL) return -1;
+    if (PyModule_AddObjectRef(module, "MeterState",
+        state->meter_state_type) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "METER_MAX_BANDS",
+        AUDIODSP_METER_MAX_BANDS) < 0) return -1;
     state->tank_state_type = PyType_FromModuleAndSpec(module,
         &tank_state_spec, NULL);
     if (state->tank_state_type == NULL) return -1;
@@ -3249,6 +3360,7 @@ static int audiodsp_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->allpass_f32_state_type);
     Py_VISIT(state->suboctave_state_type);
     Py_VISIT(state->convolver_state_type);
+    Py_VISIT(state->meter_state_type);
     Py_VISIT(state->tank_state_type);
     Py_VISIT(state->modal_state_type);
     return 0;
@@ -3271,6 +3383,7 @@ static int audiodsp_clear(PyObject *module) {
     Py_CLEAR(state->allpass_f32_state_type);
     Py_CLEAR(state->suboctave_state_type);
     Py_CLEAR(state->convolver_state_type);
+    Py_CLEAR(state->meter_state_type);
     Py_CLEAR(state->tank_state_type);
     Py_CLEAR(state->modal_state_type);
     return 0;

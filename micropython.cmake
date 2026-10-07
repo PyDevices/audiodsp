@@ -59,6 +59,8 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_convolve.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_tank.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_modal.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_meter.c
+    ${MPAUDIO_SRC_DIR}/audiometer/module.c
     ${MPAUDIO_SRC_DIR}/mpaudio_modules.c
     ${MPAUDIO_SRC_DIR}/audiocore/__init__.c
     ${MPAUDIO_SRC_DIR}/audiocore/RawSample.c
