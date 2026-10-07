@@ -3,6 +3,7 @@
 #include "shared/audiodsp_fp_contract.h"
 
 #include "shared/audiodsp_fft.h"
+#include "shared/audiodsp_hot.h"
 
 #include "shared/audiodsp_trig.h"
 
@@ -42,7 +43,7 @@ void audiodsp_rfft_init(audiodsp_rfft_t *rfft, uint32_t n, float *tables) {
 // runs it backwards by the usual identity -- conjugate in, forward, conjugate
 // out -- so there is one butterfly loop to get right rather than two. The
 // 1/length is applied by the caller that needs it.
-static void fft_complex(float *data, uint32_t length, uint32_t log2_length,
+static void AUDIODSP_METER_HOT fft_complex(float *data, uint32_t length, uint32_t log2_length,
     const float *twiddle, int conjugated) {
     if (conjugated) {
         for (uint32_t k = 0; k < length; k++) data[2 * k + 1] = -data[2 * k + 1];
@@ -90,7 +91,7 @@ static void fft_complex(float *data, uint32_t length, uint32_t log2_length,
     }
 }
 
-void audiodsp_rfft_forward(const audiodsp_rfft_t *rfft, const float *input,
+void AUDIODSP_METER_HOT audiodsp_rfft_forward(const audiodsp_rfft_t *rfft, const float *input,
     float *spectrum, float *scratch) {
     uint32_t half = rfft->half;
 

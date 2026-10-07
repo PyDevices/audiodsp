@@ -66,6 +66,7 @@ setup(
                 "src/shared/audiodsp_convolve.c",
                 "src/shared/audiodsp_tank.c",
                 "src/shared/audiodsp_modal.c",
+                "src/shared/audiodsp_meter.c",
             ],
             include_dirs=["src"],
             define_macros=[("AUDIODSP_VERSION", '"%s"' % VERSION),

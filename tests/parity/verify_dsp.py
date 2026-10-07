@@ -122,6 +122,12 @@ PROBES = (
     ("convolve_state_probe.py", "audioconvolve", {}, None),
     ("filter_f32_probe.py", "audiobiquad", {}, None),
     ("modal_probe.py", "audiomodal", {}, None),
+    # audiometer reads levels rather than rendering PCM; the bytes it prints
+    # are the comparison. Not added to CircuitPython by apply_cp_patches.sh.
+    ("meter_probe.py", "audiometer",
+     {"circuitpython": "audiometer is not added to CircuitPython (the meter's "
+                       "sources are the sound card's and the pump's, neither of "
+                       "which CircuitPython has)"}, None),
     # synthio.Biquad and audiofilters.Filter are CircuitPython's, so they are
     # held to CircuitPython's bytes and NOT to a stored digest -- which is the
     # whole of audiodsp#77: graded against its own capture, this probe reported
