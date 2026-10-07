@@ -38,3 +38,13 @@
 #ifndef AUDIODSP_HOT
 #define AUDIODSP_HOT
 #endif
+
+// The same, for audiometer's per-block feed and analysis and the real FFT it
+// runs 90 times a second (shared/audiodsp_meter.c, shared/audiodsp_fft.c).
+// Separate from AUDIODSP_HOT because it is ON by default where it exists:
+// the meter runs in usbif's sound-card pump, and from flash it cost that core
+// 8.9 % against the 4.8 % it cost from IRAM as usbif's spike. A few kB of
+// IRAM, named by `micropython.cmake` on esp32 and empty everywhere else.
+#ifndef AUDIODSP_METER_HOT
+#define AUDIODSP_METER_HOT
+#endif

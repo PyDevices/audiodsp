@@ -74,7 +74,7 @@ python -m pip install pydevices-audiodsp
 This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiodelays`, `audiofreeverb`, `audiospeed`, `audiodynamics`, `audioroute`,
 `audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audioconvolve`,
-`audiobiquad`, `audioverb`, `audiomodal`, and the
+`audiobiquad`, `audioverb`, `audiomodal`, `audiometer`, and the
 `audiorender` package.
 `audiomp3` remains firmware-only. The distribution declares no *required*
 runtime dependencies and does not itself publish an `audiodsp` import; its
@@ -145,6 +145,9 @@ measured or synthesized impulse response, by partitioned FFT), `audioverb`
 `audioroute.MidSide` (scale the difference between a stereo pair's channels)
 and `audiobiquad` (below) have no ancestor anywhere and are audiodsp's own.
 `apply_cp_patches.sh` adds every one of them to a CircuitPython tree too.
+`audiometer` (band levels for a spectrum meter, below) is ours as well, and
+is the one it doesn't add: its sources are a board's pump and usbif's sound
+card, and CircuitPython has neither.
 
 ### `audiobiquad` — filters whose tails reach exact zero
 
@@ -416,6 +419,33 @@ extrapolating a per-class cost at all ([#113](https://github.com/PyDevices/audio
 pulled while it is already inside itself, which is what a component wrapping
 its own output builds, publishes a loop fault and hands back an error in
 17 us instead of recursing until the stack is gone.
+
+### `audiometer.Meter` — band levels for a spectrum meter
+
+N log-spaced bands between two frequencies, plus peak and RMS, one byte each
+in half-dB steps (0 is -100 dB or quieter, 200 a full-scale sine).
+
+```python
+meter = audiometer.Meter(32, low_hz=35, high_hz=20000)
+meter.feed(pcm, 48000, 2)            # interleaved s16, from Python
+seq, levels, peak, rms = meter.levels()
+```
+
+On a board it can listen without Python touching a sample.
+`meter.attach(tap, 48000)` reads an `audiopump.Tap` in C each time you call
+`levels()`, so any pump stream can be metered. `meter.attach(audiometer.UAC)`
+is fed by usbif's sound card in its own pump, on the other core, about 4 % of
+that core with 44 bands. `seq` counts analyses, 60 a second of audio, so a
+reader can tell fresh levels from a stopped stream.
+
+Two FFTs, because one can't be both quick and sharp at the bottom of a log
+scale: 1024 points for the bands above 400 Hz, and 512 points on a copy
+low-passed and decimated by 16 for those below. A band's level is the
+spectrum integrated over the band, so pink noise reads flat to within about
+1.5 dB across 35 Hz to 20 kHz. The default floor is 35 Hz because below that
+real music barely moves a bar. The window, the filter, the band edges and
+the dB rounding avoid libm, so a desktop and a board read the same bytes for
+the same samples; `tests/parity/meter_probe.py` checks that.
 
 ## `audiopump` — the audio pull, off the interpreter thread
 

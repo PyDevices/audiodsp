@@ -67,7 +67,8 @@ typedef struct {
     bool enabled;
     uint32_t bands;
     uint32_t analyses;
-    uint64_t feed_us;        // the per-block work: mix, filter, rings
+    uint64_t feed_us;        // the per-block work: mix, filter, rings (one block
+                             // in 16 timed, and scaled)
     uint64_t analysis_us;    // the FFTs and the bands
     uint32_t max_analysis_us;
     uint64_t elapsed_us;     // since configure()

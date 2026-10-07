@@ -16,7 +16,8 @@ Each case is fed in two block sizes, and both must print the same.
 import sys
 from array import array
 
-MODULE = sys.argv[1] if len(sys.argv) > 1 else "audiometer"
+ARGV = getattr(sys, "argv", [])     # a board has none
+MODULE = ARGV[1] if len(ARGV) > 1 else "audiometer"
 meter_module = __import__(MODULE)
 
 RATE = 48000

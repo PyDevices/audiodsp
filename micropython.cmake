@@ -327,4 +327,17 @@ if(AUDIODSP_PUMP_IRAM AND (CONFIG_IDF_TARGET_ARCH_RISCV OR CONFIG_IDF_TARGET_ARC
     message(STATUS "audiodsp: pump block loop in IRAM (AUDIODSP_PUMP_IRAM=1)")
 endif()
 
+# audiometer's feed and analysis, and the FFT they share with audioconvolve,
+# in IRAM: ON wherever there is IRAM, unlike the pump loop above, because the
+# meter runs inside usbif's sound-card pump and from flash it cost that core
+# 8.9 % against the spike's 4.8 % from IRAM (media modules roadmap, Phase 6).
+# A few kB; -DAUDIODSP_METER_IRAM=0 leaves it in flash.
+if(NOT DEFINED AUDIODSP_METER_IRAM)
+    set(AUDIODSP_METER_IRAM 1)
+endif()
+if(AUDIODSP_METER_IRAM AND (CONFIG_IDF_TARGET_ARCH_RISCV OR CONFIG_IDF_TARGET_ARCH_XTENSA))
+    target_compile_definitions(usermod_mpaudio INTERFACE
+        "AUDIODSP_METER_HOT=__attribute__((section(\".iram1.audiometer\")))")
+endif()
+
 target_link_libraries(usermod INTERFACE usermod_mpaudio)

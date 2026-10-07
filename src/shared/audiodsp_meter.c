@@ -30,6 +30,10 @@
 #define LP_HZ (700.0)
 #define SPLIT_HZ (400.0)
 #define NSEC (3)
+// The feed is timed one block in this many and scaled: a clock read costs
+// about as much as a block of a few frames, and the sound card's pump feeds
+// 8000 of those a second.
+#define FEED_SAMPLE (16)
 
 typedef struct {
     float b0, b1, b2, a1, a2;
@@ -81,6 +85,10 @@ struct audiodsp_meter {
     // Cost, from the port's clock.
     uint64_t feed_us, analysis_us, t0;
     uint32_t analyses, max_analysis_us;
+    uint32_t blocks;    // feeds since configure(): one in FEED_SAMPLE is timed
+    uint32_t clock_ns;  // what one reading of the clock costs, taken out of each
+    uint64_t feed_ns;   // timed block (a sound-card block is ~6 frames, which
+                        // costs about as much as the reading does)
 };
 
 // --- log and exp, the same on every interpreter ---------------------------
@@ -118,19 +126,40 @@ static double meter_exp(double y) {
     return ldexp(sum, k);
 }
 
-uint8_t audiodsp_meter_db_byte(float power) {
-    if (power <= 1e-10f) {
+// Byte b is 2 * (10 log10 p + 100), rounded: p at or above step[b - 1] is
+// byte b or more. The steps are worked out once, with the log above, so a
+// level costs eight comparisons rather than a double-precision series, which
+// on a board with a single-precision FPU is all software.
+static float meter_steps[255];
+
+static void meter_make_steps(void) {
+    if (meter_steps[0] != 0) {
+        return;
+    }
+    const double ln10 = 2.30258509299404568402;
+    for (int b = 1; b <= 255; b++) {
+        // v = b - 1/2  <=>  p = 10 ^ ((b - 1/2 - 200) / 20)
+        meter_steps[b - 1] = (float)meter_exp((b - 0.5 - 200.0) / 20.0 * ln10);
+    }
+}
+
+uint8_t AUDIODSP_METER_HOT audiodsp_meter_db_byte(float power) {
+    if (meter_steps[0] == 0) {
+        meter_make_steps();
+    }
+    if (!(power > 1e-10f)) {
         return 0;
     }
-    // half-dB steps: 2 * (10 log10 p + 100)
-    const double v = 20.0 * meter_ln((double)power) / 2.30258509299404568402 + 200.0;
-    if (v < 0) {
-        return 0;
+    int lo = 0, hi = 255;                   // the answer is in lo .. hi
+    while (lo < hi) {
+        const int mid = (lo + hi + 1) / 2;
+        if (power >= meter_steps[mid - 1]) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
     }
-    if (v > 255) {
-        return 255;
-    }
-    return (uint8_t)(v + 0.5);
+    return (uint8_t)lo;
 }
 
 // --- set-up -----------------------------------------------------------------
@@ -171,6 +200,7 @@ audiodsp_meter_t *audiodsp_meter_new(void) {
         audiodsp_meter_free(m);
         return NULL;
     }
+    meter_make_steps();
     meter_hann(m->win_hi, HI_N, &m->norm_hi);
     meter_hann(m->win_lo, LO_N, &m->norm_lo);
     audiodsp_rfft_init(&m->fft_hi, HI_N, m->tab_hi);
@@ -256,7 +286,7 @@ static void meter_design(audiodsp_meter_t *m, uint32_t rate) {
 // --- the analysis -----------------------------------------------------------
 
 // The ring, oldest first, windowed, into lin; transformed; |X[k]|^2 into pw.
-static void AUDIODSP_HOT meter_power(audiodsp_meter_t *m, const float *ring, uint32_t pos,
+static void AUDIODSP_METER_HOT meter_power(audiodsp_meter_t *m, const float *ring, uint32_t pos,
     const float *win, const audiodsp_rfft_t *fft, int n) {
     const uint32_t mask = (uint32_t)n - 1;
     float *lin = m->lin;
@@ -272,7 +302,7 @@ static void AUDIODSP_HOT meter_power(audiodsp_meter_t *m, const float *ring, uin
     }
 }
 
-static float AUDIODSP_HOT band_power(const audiodsp_meter_t *m, const band_t *b, float norm) {
+static float AUDIODSP_METER_HOT band_power(const audiodsp_meter_t *m, const band_t *b, float norm) {
     const float *pw = m->pw;
     float s = pw[b->k0] * b->w0;
     if (b->k1 > b->k0) {
@@ -284,7 +314,7 @@ static float AUDIODSP_HOT band_power(const audiodsp_meter_t *m, const band_t *b,
     return s * norm;
 }
 
-static void AUDIODSP_HOT meter_analyse(audiodsp_meter_t *m) {
+static void AUDIODSP_METER_HOT meter_analyse(audiodsp_meter_t *m) {
     uint8_t *out = m->out;
     // The fast FFT for the upper bands.
     meter_power(m, m->hi_ring, m->hi_pos, m->win_hi, &m->fft_hi, HI_N);
@@ -318,7 +348,7 @@ static void AUDIODSP_HOT meter_analyse(audiodsp_meter_t *m) {
     METER_STORE_REL(&m->seq, m->seq + 1);
 }
 
-void AUDIODSP_HOT audiodsp_meter_feed_s16(audiodsp_meter_t *m, const int16_t *frames,
+void AUDIODSP_METER_HOT audiodsp_meter_feed_s16(audiodsp_meter_t *m, const int16_t *frames,
     uint32_t n, uint32_t channels, uint32_t rate) {
     if (METER_LOAD_ACQ(&m->want_config)) {
         METER_STORE_REL(&m->want_config, 0);
@@ -330,12 +360,22 @@ void AUDIODSP_HOT audiodsp_meter_feed_s16(audiodsp_meter_t *m, const int16_t *fr
         memset(m->out, 0, sizeof(m->out));
         m->feed_us = m->analysis_us = 0;
         m->analyses = m->max_analysis_us = 0;
+        m->blocks = 0;
+        m->feed_ns = 0;
+        // 32 readings back to back, in nanoseconds each
+        const uint64_t c0 = meter_now();
+        for (int i = 0; i < 31; i++) {
+            (void)meter_now();
+        }
+        m->clock_ns = (uint32_t)((meter_now() - c0) * 1000 / 32);
         m->t0 = meter_now();
     }
     if (!m->enabled || n == 0 || rate == 0 || channels == 0) {
         return;
     }
-    const uint64_t t0 = meter_now();
+    const bool timed = (m->blocks++ % FEED_SAMPLE) == 0;
+    const uint64_t t0 = timed ? meter_now() : 0;
+    uint64_t in_analysis = 0;
     if (rate != m->rate) {
         m->rate = rate;
         meter_design(m, rate);
@@ -343,6 +383,8 @@ void AUDIODSP_HOT audiodsp_meter_feed_s16(audiodsp_meter_t *m, const int16_t *fr
     const float k = 1.0f / 32768.0f;
     float pk = m->peak, ss = m->sumsq;
     uint32_t ns = m->nsum, hp = m->hi_pos, lp = m->lo_pos, ph = m->dec_phase;
+    uint32_t hc = m->hop_count;
+    const uint32_t hop = m->hop;
     float *hr = m->hi_ring, *lr = m->lo_ring;
     // The three low-pass sections, held in registers for the block.
     biquad_t q0 = m->lp[0], q1 = m->lp[1], q2 = m->lp[2];
@@ -380,8 +422,8 @@ void AUDIODSP_HOT audiodsp_meter_feed_s16(audiodsp_meter_t *m, const int16_t *fr
         }
         // A hop ends mid-block as often as not: analyse there, so the levels
         // describe the same samples however the stream is cut into blocks.
-        if (++m->hop_count == m->hop) {
-            m->hop_count = 0;
+        if (++hc == hop) {
+            hc = 0;
             m->hi_pos = hp;
             m->lo_pos = lp;
             m->peak = pk;
@@ -390,6 +432,7 @@ void AUDIODSP_HOT audiodsp_meter_feed_s16(audiodsp_meter_t *m, const int16_t *fr
             const uint64_t a0 = meter_now();
             meter_analyse(m);
             const uint64_t d = meter_now() - a0;
+            in_analysis += d;
             m->analysis_us += d;
             m->analyses++;
             if (d > m->max_analysis_us) {
@@ -409,7 +452,13 @@ void AUDIODSP_HOT audiodsp_meter_feed_s16(audiodsp_meter_t *m, const int16_t *fr
     m->hi_pos = hp;
     m->lo_pos = lp;
     m->dec_phase = ph;
-    m->feed_us += meter_now() - t0;
+    m->hop_count = hc;
+    if (timed) {
+        const uint64_t d = (meter_now() - t0) * 1000;
+        const uint64_t off = in_analysis * 1000 + m->clock_ns;
+        m->feed_ns += (d > off ? d - off : 0) * FEED_SAMPLE;
+        m->feed_us = m->feed_ns / 1000;
+    }
 }
 
 uint32_t audiodsp_meter_read(audiodsp_meter_t *m, uint8_t *levels, uint32_t max,
@@ -440,7 +489,6 @@ void audiodsp_meter_stats(audiodsp_meter_t *m, audiodsp_meter_stats_t *st) {
     st->analyses = m->analyses;
     st->analysis_us = m->analysis_us;
     st->max_analysis_us = m->max_analysis_us;
-    // feed_us times the whole block, analyses included: report the feed alone
-    st->feed_us = m->feed_us > m->analysis_us ? m->feed_us - m->analysis_us : 0;
+    st->feed_us = m->feed_us;   // sampled, one block in FEED_SAMPLE, and scaled
     st->elapsed_us = m->enabled && m->t0 ? meter_now() - m->t0 : 0;
 }
