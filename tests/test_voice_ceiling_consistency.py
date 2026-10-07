@@ -56,13 +56,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: different oracle. Comparing the bytes is the only thing that notices.
 #:
 #: Re-pinned and MOVED 2026-09-17 for audiodsp#89. Two things changed. The
-#: **path**: the anchor's `bin/circuitpython` is what `tools/build_interpreters.sh`'s
-#: `cp-unix` target installs, so anyone refreshing the workspace interpreters
-#: silently replaced the oracle with a coverage build at the variant's own
-#: 14-voice ceiling. That happened twice in eight days, and it is the whole of
-#: #89. The oracle now lives where no build script writes it by accident: the
-#: opt-in `cp-oracle` target, added to `build_interpreters.sh` in the same
-#: change, builds at 64 and installs only to `bin/circuitpython-oracle-<ver>`.
+#: **path**: the `bin/circuitpython` beside this checkout is what the
+#: interpreter build's `cp-unix` target installs, so anyone refreshing the
+#: workspace interpreters silently replaced the oracle with a coverage build
+#: at the variant's own 14-voice ceiling. That happened twice in eight days,
+#: and it is the whole of #89. The oracle now lives where no build script
+#: writes it by accident: the opt-in `cp-oracle` target, added to
+#: `build_interpreters.sh` in the same change, builds at 64 and installs only
+#: to `bin/circuitpython-oracle-<ver>`.
 #: `bin/circuitpython` belongs to the installer and may change under you.
 #: The **bytes**: PR #86 gave `src/shared/` an fp-contract header, and
 #: `src/shared/` is relinked into this binary by `apply_cp_patches.sh`, so our
@@ -96,7 +97,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #:
 #: Re-pinned 2026-09-09 for the deliberate rebuild to CircuitPython 10.3.0 at
 #: CIRCUITPY_SYNTHIO_MAX_CHANNELS=64, replacing the 10.2.1-at-14 build
-#: b3063621c72a085b (kept at the workspace anchor's bin/circuitpython-oracle-10.2.1). That
+#: b3063621c72a085b (kept as bin/circuitpython-oracle-10.2.1). That
 #: rebuild is what found the two synthio/audiomixer behaviour changes 10.3.0
 #: made and this port had not taken: the panning polarity flip and the
 #: zero-crossing loudness gate.
@@ -216,11 +217,11 @@ class VoiceCeilingConsistency(unittest.TestCase):
             "\n"
             "\n    Nothing but `build_interpreters.sh --only cp-oracle` "
             "should ever write this path, and that target exists so no "
-            "routine interpreter refresh can. The anchor's `bin/circuitpython` is "
+            "routine interpreter refresh can. The plain `bin/circuitpython` is "
             "the installer's coverage build at 14 voices and is NOT this."
             "\n"
             "\n    If you rebuilt it deliberately, that is a decision for "
-            "Brad and it needs its own commit saying why, with this hash "
+            "a maintainer and it needs its own commit saying why, with this hash "
             "updated in the same change." % (ORACLE_SHA256, digest))
 
 

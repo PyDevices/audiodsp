@@ -32,9 +32,8 @@ What each case is for
     ``gc.mem_free()`` delta to read. Every graph is gated **cold**: built,
     then locked, with no warm-up pull, because a warm-up hides exactly the
     first-block allocation a pump hits on its first block. This is a small
-    representative set of node types, not the whole palette; the palette is
-    swept by ``docs/spikes/probes/alloc_gate.py`` in the workspace anchor,
-    which needs the component tier this repository does not depend on.
+    representative set of node types, not the whole palette; the full palette
+    needs the component tier, which this repository does not depend on.
 
 ``storm``   Retargeting the pump onto new graphs, and releasing the old ones,
     **without parking it** -- the shape that caught a real race on an

@@ -584,7 +584,7 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
         }
         // The park, at the block boundary and nowhere else. The control
         // thread asks; the pump finishes the block it is in, says it has
-        // parked, and waits. See docs/spikes/live-audio-path-handoff.md.
+        // parked, and waits.
         if (ctx->park_req) {
             // Nothing can clear park_req while this call holds the only
             // thread, so waiting here is a hang, not a park. Give the thread
@@ -706,7 +706,7 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
         // about to be pulled goes now; one already behind goes now too and is
         // counted late. That is block-accurate and no better: the nodes
         // produce fixed-length blocks and splitting one is not a small
-        // change. See docs/spikes/live-audio-path-events.md.
+        // change.
         if (ctx->events != MP_OBJ_NULL) {
             const uint64_t e0 = audiopump_now_us();
             (void)audiopump_events_apply(ctx->events, ctx->frames,

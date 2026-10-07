@@ -101,7 +101,7 @@ fixture_path = PARITY / "golden" / "mixdown_knee.json"
 
 # The architecture `stdout` was captured on. Elsewhere the gate is exact
 # too, but against that architecture's own accepted baseline -- recorded
-# only after a human has read a deviation report (Brad, 2026-09-02;
+# only after a human has read a deviation report (decided 2026-09-02;
 # verify_effects.py carries the same rule and the precedent).
 REFERENCE_MACHINE = "x86_64"
 
@@ -191,7 +191,7 @@ if actual != expected:
             "",
             f"  {machine} has no accepted baseline recorded, so it was "
             "compared against the x86_64 capture. Cross-architecture "
-            "bit-identity is not required (Brad, 2026-09-02). Accepting "
+            "bit-identity is not required (decided 2026-09-02). Accepting "
             "this architecture means adding an entry to "
             "stdout_sha256_by_arch with the hash, the date and the "
             "evidence -- a human judgement, not a formality. Do not add a "

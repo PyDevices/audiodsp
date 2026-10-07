@@ -66,9 +66,9 @@ static const audiodsp_sample_ops_t micropython_sample_ops = {
 // Non-raising. This is the half of the funnel that used to call
 // mp_proto_get_or_throw, and the reason it may not is that the raise dies one
 // frame EARLIER than the longjmp -- inside gc_alloc, building the exception
-// object, on a thread with no interpreter state to allocate from. The spike
-// has the stack (docs/spikes/live-audio-path-notes.md, "a raise on the pump
-// thread dies allocating the exception"). So it returns false and leaves a
+// object, on a thread with no interpreter state to allocate from. A stack
+// from the pump thread shows exactly that: the raise dies allocating the
+// exception. So it returns false and leaves a
 // code in the fault register; the pull stops and the next control call
 // reports it, and the Python-facing entry points below raise from the fault
 // exactly as they always did.

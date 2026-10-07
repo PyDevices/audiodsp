@@ -144,7 +144,7 @@ class RefusedCountTest(unittest.TestCase):
     with its own predicate to count 86 of them over the parity sequence.
 
     The counter, and nothing else: no stealing policy, and `max_polyphony`
-    has not moved (Brad, 2026-09-22).
+    has not moved (decided 2026-09-22).
     """
 
     def _synth(self):

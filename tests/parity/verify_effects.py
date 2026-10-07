@@ -7,7 +7,7 @@ CircuitPython oracle byte for byte, and a tolerance there would quietly
 retire the property the accuracy program is built on.
 
 **Bit-identical audio is required within one CPU architecture, not across
-them** (Brad, 2026-09-02). The oracle hash in `effects_component.json` was
+them** (decided 2026-09-02). The oracle hash in `effects_component.json` was
 captured on x86_64. Floating-point contraction (a compiler fusing `a*b+c`
 into one fused multiply-add, which rounds once instead of twice) and
 differing libm implementations both legitimately move the last bit, and
@@ -216,7 +216,7 @@ else:
     report.append(
         f"  {machine} has no accepted baseline yet, so it was compared "
         "against the x86_64 oracle hash, which it is not expected to match. "
-        "Cross-architecture bit-identity is not required (Brad, 2026-09-02)."
+        "Cross-architecture bit-identity is not required (decided 2026-09-02)."
     )
     report.append("")
     report.append(

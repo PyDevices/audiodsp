@@ -164,7 +164,7 @@ class EveryModuleSaysWhichAudiodspItIs(unittest.TestCase):
 
     Upstream's modules are deliberately NOT checked: adding a dunder to
     `audiocore` or `synthio` would deviate from CircuitPython's surface, and any
-    of our nine answers the question (Brad, 2026-09-09).
+    of our nine answers the question (decided 2026-09-09).
 
     **The CircuitPython spike bindings are also excluded, on purpose.** They
     have the same globals-table shape and could carry the marker, but the CP

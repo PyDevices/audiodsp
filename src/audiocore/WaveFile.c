@@ -168,8 +168,7 @@ void common_hal_audioio_wavefile_deinit(audioio_wavefile_obj_t *self) {
 //
 // So it refuses, rather than being trusted not to be wired up. The design
 // that replaces this is a prefetcher: the interpreter fills a ring and the
-// pump drains it. See docs/spikes/live-audio-path-done.md, "prefetching
-// sources".
+// pump drains it.
 void audioio_wavefile_reset_buffer(audioio_wavefile_obj_t *self,
     bool single_channel_output,
     uint8_t channel) {
