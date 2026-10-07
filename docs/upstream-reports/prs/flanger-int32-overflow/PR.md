@@ -76,7 +76,7 @@ the other side: 18 of 54 probe lines differed and every one of them was a
 `.codespellrc` is clean. Upstream's `tests/circuitpython` suite is unchanged
 by the patch (same 20 pass / 3 skip / 34 pre-existing failures).
 
-## If Brad would rather ask than patch — not for posting as well as the body
+## If the maintainer would rather ask than patch — not for posting as well as the body
 
 Two sentences, as an issue instead:
 
@@ -86,13 +86,13 @@ Two sentences, as an issue instead:
 Happy to send the one-line `(int64_t)` cast, matching `delay_span_q16 * tri` eighteen lines above, or a `delay_frac >> 1` version that stays in int32 if the M0+ cost of a 64-bit multiply per sample matters more than the bottom bit of the fractional delay.
 ```
 
-## Publish commands (Brad runs these; nothing has been pushed)
+## Publish commands (the maintainer runs these; nothing has been pushed)
 
 ```sh
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-flanger-int32-overflow
-git am /home/brad/gh/pydevices/audiodsp/docs/upstream-reports/prs/flanger-int32-overflow/0001-audiodelays-widen-the-Flanger-s-wet-interpolation.patch
+git am <audiodsp>/docs/upstream-reports/prs/flanger-int32-overflow/0001-audiodelays-widen-the-Flanger-s-wet-interpolation.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-flanger-int32-overflow

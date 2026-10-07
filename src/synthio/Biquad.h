@@ -28,7 +28,7 @@ struct synthio_biquad {
     synthio_filter_mode mode;
     synthio_block_slot_t f0, Q, A;
     mp_float_t cached_W0, cached_Q, cached_A;
-    // CircuitPython's Q15 coefficients, and nothing else. audiodsp#77, Brad
+    // CircuitPython's Q15 coefficients, and nothing else. audiodsp#77,
     // 2026-09-09: a node CircuitPython also has renders CircuitPython's bytes,
     // so there is one coefficient set here rather than two. The widened
     // fixed-point kernel this file used to carry alongside is now reached only

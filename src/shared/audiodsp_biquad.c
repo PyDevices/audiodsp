@@ -187,7 +187,7 @@ void audiodsp_biquad_process(const audiodsp_biquad_coefficients_t *c,
 // --- CircuitPython's own Q15 biquad ---------------------------------------
 //
 // See audiodsp_biquad.h for why this exists beside the widened kernel above:
-// audiodsp#77, Brad 2026-09-09. Upstream nodes run this so they render
+// audiodsp#77, 2026-09-09. Upstream nodes run this so they render
 // CircuitPython's bytes; `audiobiquad`, which is ours, runs the widened one.
 //
 // It tracks CircuitPython **main**, not the 10.3.0 tag, in two places -- both

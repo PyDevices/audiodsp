@@ -85,12 +85,9 @@ fail identically on unmodified `main` in this environment (float
 precision vs. the checked-in .exp files) — pre-existing, not caused by
 this change. `audiofilter_filter.py` and the new test pass.
 
-## Publish commands (Brad runs these; nothing has been pushed)
+## Publish commands (the maintainer runs these; nothing has been pushed)
 
-From a checkout with this branch (the scratch clone lives at
-`/tmp/claude-1000/-home-brad-gh-pydevices/2825dfbc-8269-4769-8e80-f7e2e1a461a1/scratchpad/upstream/circuitpython`,
-but a scratch dir may be gone — `git am` the patch onto fresh `main`
-instead):
+From a CircuitPython checkout, `git am` the patch onto fresh `main`:
 
 ```sh
 git clone https://github.com/adafruit/circuitpython.git

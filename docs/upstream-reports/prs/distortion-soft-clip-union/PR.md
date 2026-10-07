@@ -110,7 +110,7 @@ defect regardless of what it happens to return -- but it means the reporter
 should expect the "before" number in this table to be this environment's
 result, not a universal constant.
 
-## Publish commands (Brad runs these; nothing has been pushed)
+## Publish commands (the maintainer runs these; nothing has been pushed)
 
 ```sh
 git clone https://github.com/adafruit/circuitpython.git

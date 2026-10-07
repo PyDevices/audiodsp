@@ -173,12 +173,9 @@ diff after this hook.
 `make -C mpy-cross -j8 && make -C ports/unix VARIANT=coverage -j8`.
 Clean build both before and after the fix.
 
-## Publish commands (Brad runs these; nothing has been pushed)
+## Publish commands (the maintainer runs these; nothing has been pushed)
 
-From a checkout with this branch (the scratch clone lives at
-`/tmp/claude-1000/-home-brad-gh-pydevices/1139bed2-49e9-471e-8f3f-9ff13eab29f0/scratchpad/upstream/circuitpython`,
-but a scratch dir may be gone -- `git am` the patch onto fresh `main`
-instead):
+From a CircuitPython checkout, `git am` the patch onto fresh `main`:
 
 ```sh
 git clone https://github.com/adafruit/circuitpython.git
@@ -193,7 +190,7 @@ gh pr create --repo adafruit/circuitpython \
   --body-file <body extracted from the Body section above>
 ```
 
-No issue exists to link with `Fixes #nnnn`. If Brad would rather file a
+No issue exists to link with `Fixes #nnnn`. If the maintainer would rather file a
 short issue first (house pattern: "a two-sentence issue plus the PR"),
 two sentences that would do it:
 
@@ -239,7 +236,7 @@ No corrections needed to the public body.
 
 ## Why this body is short (Arthur, 2026-09-02)
 
-Trimmed from 163 words to 75 at Brad's direction, after measuring what
+Trimmed from 163 words to 75 on review, after measuring what
 these maintainers actually merge. Median body length in merged PRs:
 tannewt **16 words** (6 of 30 bodies empty), jepler **24** (2 of 30
 empty), todbot 36, gamblor21 92, dhalbert 123. Restricted to bug-fix PRs

@@ -373,7 +373,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
      audiomp3: three Windows-only local fixes"). A mechanical `win_audio`
      `AudioOut` smoke (construct, play a `synthio.Note`, service, close, no
      hardware errors) also passed under `micropython.exe`; true by-ear
-     verification is left for Brad, since this environment has no speakers.
+     verification is left for a human listener, since this environment has no speakers.
    - **8d (mostly done):** Rebuilt `micropython.mjs`/`.wasm`
      (`build_interpreters.sh --only mp-wasm`); fixed five real
      emscripten-only portability bugs found along the way (an mp3dec.h

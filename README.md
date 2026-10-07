@@ -583,6 +583,8 @@ unmodified, with rendered PCM diffed against `bin/circuitpython`'s own unix
 coverage build (which already contains the entire DSP stack — the parity
 oracle for this whole port).
 
+What's planned next is in [ROADMAP.md](ROADMAP.md).
+
 ## Sound stability
 
 The API is our contract with you: class names, signatures, metadata, and
