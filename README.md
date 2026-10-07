@@ -434,8 +434,9 @@ seq, levels, peak, rms = meter.levels()
 On a board it can listen without Python touching a sample.
 `meter.attach(tap, 48000)` reads an `audiopump.Tap` in C each time you call
 `levels()`, so any pump stream can be metered. `meter.attach(audiometer.UAC)`
-is fed by usbif's sound card in its own pump, on the other core, about 4 % of
-that core with 44 bands. `seq` counts analyses, 60 a second of audio, so a
+is fed by usbif's sound card in its own pump, on the other core: on the P4
+panel, 1.6 % of that core for the feed and 2.7 % for the analysis with 44
+bands, and the card's delivery doesn't move. `seq` counts analyses, 60 a second of audio, so a
 reader can tell fresh levels from a stopped stream.
 
 Two FFTs, because one can't be both quick and sharp at the bottom of a log
