@@ -584,7 +584,7 @@ static PyObject *biquad_state_process(audiodsp_biquad_state_object_t *self,
     if (result == NULL) return NULL;
     // CircuitPython's Q15 kernel, not the widened one beside it: this backs
     // synthio.Biquad and audiofilters.Filter, which CircuitPython also has, so
-    // they render CircuitPython's bytes. audiodsp#77, Brad 2026-09-09.
+    // they render CircuitPython's bytes. audiodsp#77, 2026-09-09.
     audiodsp_biquad_cp_coefficients_t coefficients;
     audiodsp_biquad_cp_configure(&coefficients, mode,
         audiodsp_biquad_cp_w0(frequency, sample_rate), Q, A);

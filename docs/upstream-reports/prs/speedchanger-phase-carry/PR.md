@@ -101,13 +101,13 @@ phase lands inside a buffer, because above rate 1.0 the carry can exceed a
 whole buffer. `phase` stays `uint32_t`, so upstream's limit of 65535 source
 frames per buffer is unchanged.
 
-## Publish commands (Brad runs these; nothing has been pushed)
+## Publish commands (the maintainer runs these; nothing has been pushed)
 
 ```sh
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-speedchanger-phase-carry
-git am /home/brad/gh/pydevices/audiodsp/docs/upstream-reports/prs/speedchanger-phase-carry/0001-audiospeed-carry-the-phase-across-source-buffers.patch
+git am <audiodsp>/docs/upstream-reports/prs/speedchanger-phase-carry/0001-audiospeed-carry-the-phase-across-source-buffers.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-speedchanger-phase-carry

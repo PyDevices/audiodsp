@@ -1534,7 +1534,7 @@ the flat-EQ passthrough, and the Nyquist refusal.
 
 ## The biquads were Q15, so they could not go low — now `audiobiquad` only (audiodsp#77)
 
-> **SCOPE CHANGED 2026-09-09 (Brad's call on audiodsp#77).** This deviation now
+> **SCOPE CHANGED 2026-09-09 (the maintainer's call on audiodsp#77).** This deviation now
 > applies to **`audiobiquad`, which is ours, and to nothing CircuitPython has.**
 > `synthio.Biquad` — and so `audiofilters.Filter` and a `Note.filter` chain —
 > runs `audiodsp_biquad_cp_*`, CircuitPython's own Q15 arithmetic, on all three
@@ -1596,13 +1596,13 @@ the flat-EQ passthrough, and the Nyquist refusal.
 > a corner *we* live in and most callers do not: at 200 Hz and above the
 > coefficients are fine, and synthio's own note filters sit far above it. We are
 > trying to be an exact replica and to build instruments a musician would use;
-> the projects synthio was designed for ask neither of those things (Brad,
-> 2026-09-09). It is severe for us, it has a fix on our side, and it is not a
+> the projects synthio was designed for ask neither of those things
+> (2026-09-09). It is severe for us, it has a fix on our side, and it is not a
 > fire under anyone else's chair.
 >
 > `docs/upstream-reports/biquad-band-edges.md` carries the report. It is **held**
 > along with the other two — nothing goes upstream until we have done a great
-> deal more work across the org (Brad, 2026-09-09).
+> deal more work across the org (2026-09-09).
 
 ### Which filter to reach for
 
@@ -1832,7 +1832,7 @@ these are different kernels with different state formats, and fixing one will
 not move the other by a bit.
 
 **Kept verbatim, and not fixed.** The Phaser is a CircuitPython-ported kernel
-and is never modified — the standing rule, and Brad's hold of 2026-09-03 on
+and is never modified — the standing rule, and the hold of 2026-09-03 on
 #23. What is recorded here is the consequence for anything built on it: a
 class asserting "a decaying tail reaches exact zero" cannot hold that
 invariant through a `Phaser` at any rate where the fixed point is non-zero,
@@ -2297,7 +2297,7 @@ and the oracle this port is measured against is built at **14** (the
 `CIRCUITPY_SYNTHIO_MAX_CHANNELS` entry above). This port ships **64** at
 all five sites that carry the number -- `src/synthio/__init__.h`,
 `micropython.mk`, `micropython.cmake`, `src/cpython/synthio.py` and
-`src/cpython/_audiodsp.c` -- moved together in `8f8b10d` by Brad, on #31's
+`src/cpython/_audiodsp.c` -- moved together in `8f8b10d` on #31's
 evidence. 14 was the drum kits' number (cr78 holds exactly 14 permanent
 Notes) and never the melodic library's, whose instruments press several
 Notes per key; over the parity sequence 4743 of 7335 presses got a channel
@@ -2355,7 +2355,7 @@ construction; everything under it still byte-matches.
 
 **Still open on #31.** The prebuilt Windows interpreter, the wasm pair and
 the micropython-vst3 sidecar carry 14 until rebuilt; the melodic instruments
-that stack notes are a listen Brad reserved for himself when he made the
+that stack notes are a listen reserved for the maintainer when he made the
 raise; audiocomponents' CPython leg follows the next audiodsp release, at
 which point its three moved digests are re-captured at 64 with this entry
 as the reason, and not before.

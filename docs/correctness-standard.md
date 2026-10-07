@@ -1,6 +1,6 @@
 # What audiodsp is held to
 
-Decided with Brad on 2026-09-09, replacing every earlier arrangement. One page,
+Decided on 2026-09-09, replacing every earlier arrangement. One page,
 because the previous answer was spread across a golden file, an oracle binary,
 a build script, three deviation sections and a rule about a binary nobody was
 allowed to rebuild — and nobody could state it in a sentence.
@@ -92,8 +92,7 @@ refactor and do not survive a regression. It is the effects program's own method
 and it is the right one here.
 
 A trait without a planted fault is not a check; it is a hope. See
-`docs/program-pattern.md` §4 in the anchor, and `tests/parity/deinit_surface_probe.py`
-for the shape — its `--fault` mode is run by CI first, and CI fails if the fault
+`tests/parity/deinit_surface_probe.py` for the shape — its `--fault` mode is run by CI first, and CI fails if the fault
 *passes*.
 
 ## What this retires
@@ -277,7 +276,7 @@ divergence of this shape is recognised rather than re-derived.
 The two ways above have fixes. A compiler choosing contraction is forbidden by
 a pragma; a number derived in Python is put through `audiodsp_util.float32`
 before it reaches a node. This one has neither, and **that is a decision rather
-than an omission** (Brad, 2026-09-22, decision 4 of the housekeeping sweep:
+than an omission** (2026-09-22, decision 4 of the housekeeping sweep:
 accept and document, do not fix).
 
 The shape is always the same. A binding computes something in `mp_float_t` and
@@ -336,5 +335,5 @@ between two digests it is a large meaningless number.
 Nothing establishes that a node of ours *sounds right*, or that its algorithm is
 the one intended. Three-target agreement proves consistency, traits prove stated
 properties. Neither proves a design. That comes from a dossier, a reference
-recording, or Brad's ear, and it belongs to the effects program's gates rather
+recording, or a listener's ear, and it belongs to the effects program's gates rather
 than to this page.

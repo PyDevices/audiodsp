@@ -102,13 +102,13 @@ That is a third (small) upstream finding: the documented lower bound of 0.001
 is compiled as 0, and the module cannot be added to a test build until it is
 resolved. It is why this PR carries no `tests/circuitpython` regression test.
 
-## Publish commands (Brad runs these; nothing has been pushed)
+## Publish commands (the maintainer runs these; nothing has been pushed)
 
 ```sh
 git clone https://github.com/adafruit/circuitpython.git
 cd circuitpython
 git checkout -b fix-speedchanger-rate-rounding
-git am /home/brad/gh/pydevices/audiodsp/docs/upstream-reports/prs/speedchanger-rate-rounding/0001-audiospeed-round-the-16.16-rate-instead-of-truncatin.patch
+git am <audiodsp>/docs/upstream-reports/prs/speedchanger-rate-rounding/0001-audiospeed-round-the-16.16-rate-instead-of-truncatin.patch
 
 gh repo fork adafruit/circuitpython --remote --remote-name fork
 git push fork fix-speedchanger-rate-rounding

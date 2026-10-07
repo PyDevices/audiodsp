@@ -18,7 +18,7 @@ publishing workflow (the pin is the `@publishing-vN` ref in
 - CPython 3.13–3.14, Android API 21 arm64_v8a/x86_64 — 4.
 - CPython 3.13–3.14, Pyodide wasm32 — 2.
 
-Final releases then go to production PyPI too, after Brad approves the `pypi`
+Final releases then go to production PyPI too, after the maintainer approves the `pypi`
 environment. That upload is the `pypi` job in this repository's own
 `publish-release-packages.yml`, not in the reusable workflow, because PyPI's
 Trusted Publishing only matches the workflow that runs the upload
@@ -57,7 +57,7 @@ still community-verified; that part has not changed.
 
 ## Linux aarch64: enabled, CI-proven; not yet shipped
 
-**Decided 2026-09-02 (Brad): add Linux ARM.** aarch64 is the Raspberry Pi
+**Decided 2026-09-02: add Linux ARM.** aarch64 is the Raspberry Pi
 and every 64-bit SBC — real users on a tier the organization's
 `platform-support-tiers.md` already claims desktop-Linux coverage for,
 while shipping no ARM wheel. That gap between claim and artifact is the
@@ -110,7 +110,7 @@ held to the oracle hash itself now, the same one x86_64 is held to, and
 `cpython_stdout_sha256_reproduced_by` records that the agreement was
 measured so a future mismatch reads as a regression.
 
-The rule this settled (Brad, 2026-09-02) stands whatever any one
+The rule this settled (2026-09-02) stands whatever any one
 architecture does: **bit-identical audio is required within one CPU
 architecture, not across them.** No tolerance was introduced anywhere. The
 gate stays exact everywhere, and an architecture that genuinely differs is
@@ -130,7 +130,7 @@ coupled steps, all outside this repository:
 3. move this repository's pin and raise `expected-wheel-count` 18 → 22
    in the same change.
 
-Steps 2 and 3 are release-machinery version decisions and belong to Brad.
+Steps 2 and 3 are release-machinery version decisions and belong to the maintainer.
 The work here means that when they happen, the ARM lane is a matrix line
 rather than a discovery.
 
@@ -138,7 +138,7 @@ rather than a discovery.
 
 Each with its cause rather than by silence:
 
-- **musllinux** — **decided 2026-09-02 (Brad): stay skipped.** It doubles
+- **musllinux** — **decided 2026-09-02: stay skipped.** It doubles
   the Linux matrix for the Alpine family, and the test that admitted
   aarch64 is what excludes it: we can name aarch64's users (every Pi and
   SBC, on a tier we already claim) and cannot name musllinux's. Revisit

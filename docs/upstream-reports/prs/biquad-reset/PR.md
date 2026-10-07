@@ -99,7 +99,7 @@ plain `filter.play(other_sample)` deliberately carries the filter memory
 over. That path is untouched; this fix is only for the path that means to
 clear it (`reset_buffer`, and note (re)initialisation).
 
-## Publish commands (Brad runs these; nothing has been pushed)
+## Publish commands (the maintainer runs these; nothing has been pushed)
 
 ```sh
 git clone https://github.com/adafruit/circuitpython.git

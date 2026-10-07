@@ -21,7 +21,7 @@
 // (audiocore, audiodelays, audiofilters, audiofreeverb, audiomixer, audiomp3,
 // audiospeed, synthio) are left alone -- adding a dunder to upstream's
 // namespace would be a deviation from its surface, and any of our nine answers
-// the question, since they are always built together (Brad, 2026-09-09).
+// the question, since they are always built together (2026-09-09).
 
 #pragma once
 

@@ -119,8 +119,8 @@ python -m pip install --index-url https://test.pypi.org/simple/ \
 
 ## Testing and contributing
 
-Most deep parity checks need the larger PyDevices workspace, built
-interpreters, and the fixed CircuitPython oracle. They are intentionally not a
+Most deep parity checks need the sibling repositories checked out beside
+this one, built interpreters, and the fixed CircuitPython oracle. They are intentionally not a
 standalone contributor prerequisite. The repository's CI covers CPython
 fixture tests and committed in-repository parity gates; `python -m flake8` is
 the local lint gate.

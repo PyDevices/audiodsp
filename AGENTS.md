@@ -99,7 +99,7 @@ of this repository in the parent workspace, same pattern as
   [audiocomponents](https://github.com/PyDevices/audiocomponents) now, under
   its `tests/parity/`, beside the packages it renders. Its `REBUILT` rule (a
   name there records a sound changed **on purpose**, and adding one is
-  Brad's call, never an agent's) is documented in that repository's
+  the maintainer's call, never an agent's) is documented in that repository's
   AGENTS.md. It is not run from here.
 - What covers the mpvst cutover is `python3 tests/parity/capture_render_reference.py
   --verify`: it renders every piece of [mpvst](https://github.com/PyDevices/mpvst)'s
@@ -157,7 +157,7 @@ of this repository in the parent workspace, same pattern as
   contract tests (`test_audio_component_api`, `test_metadata_contract`,
   `tools/validate_api.py`) went to audiocomponents with the packages they
   check.
-- **Two kinds of golden, two rules (Brad, 2026-09-03).** The instruments
+- **Two kinds of golden, two rules (2026-09-03).** The instruments
   digests — `instruments_*.json`, now under audiocomponents'
   `tests/parity/golden/` — record that *the port matches the pre-rewrite
   original script, within one interpreter*: `run_instruments_parity.py`
@@ -172,7 +172,7 @@ of this repository in the parent workspace, same pattern as
   re-capture names the audiodsp commit that carries that evidence. A fix that
   merely *asserts* oracle intent does not qualify; that would let it rewrite
   its own reference. The accuracy program's *listening* goldens
-  (audiocomponents) are a different authority — Brad's ear — and move only
+  (audiocomponents) are a different authority — a listener's ear — and move only
   at his phrase. The stored digest is also the only thing in that gate that
   notices the engine moving under both original and port — which is why it
   stays: a live original-vs-port comparison was measured, approved and then
@@ -182,12 +182,12 @@ of this repository in the parent workspace, same pattern as
 
 ## The CircuitPython oracle — extend, never modify
 
-`../circuitpython` (the workspace's checkout, detached at tag `10.3.0`) is the
+`../circuitpython` (the sibling checkout, detached at tag `10.3.0`) is the
 **oracle** every parity golden is measured against. The rule, for any agent
 working here:
 
-- **The oracle binary is the workspace anchor's `bin/circuitpython-oracle-<version>`**,
-  built only by its `tools/build_interpreters.sh --only cp-oracle` (CircuitPython's unix
+- **The oracle binary is `bin/circuitpython-oracle-<version>` beside the sibling checkouts**,
+  built only by the interpreter build script's `--only cp-oracle` (CircuitPython's unix
   coverage variant at `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64`) and re-pinned in
   `tests/test_voice_ceiling_consistency.py` in the same change that builds it.
   **`bin/circuitpython` is not the oracle** — it is what that script's
@@ -209,7 +209,7 @@ working here:
   tree. The script is **additive-only by design** — it adds files and
   registers them in build glue; the sole stock-file rewrite it performs is
   the fenced audiocore `'B'`-memoryview patch. Do not add non-additive
-  rewrites to it: the anchor's `tools/build_interpreters.sh` runs the script before
+  rewrites to it: the interpreter build script runs this script before
   building `bin/circuitpython`, so a behavioral rewrite would leak *into*
   the oracle.
 - Fixes to bugs that also exist upstream go in **this repo's targets only**

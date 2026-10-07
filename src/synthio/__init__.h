@@ -10,7 +10,7 @@
 // guarantees on every port; its own boards raise it to 12, and
 // raspberrypi to 24). This port deliberately does NOT inherit that 2.
 //
-// Raised 2 -> 14 on 2026-09-03 (Brad: "14 everywhere"). 2 was carried over
+// Raised 2 -> 14 on 2026-09-03 (ruled: "14 everywhere"). 2 was carried over
 // as an upstream-matching marker, but micropython.cmake's own comment
 // already calls it "*broken* for essentially any real patch" -- two notes
 // held on a detuned 2-oscillator voice is 4 concurrent Notes -- and the
@@ -19,7 +19,7 @@
 // build files describe as broken, purely to match upstream's number, buys
 // a marker at the cost of any build that sets nothing starting broken.
 //
-// Raised 14 -> 64 on 2026-09-03 (Brad, #31). 14 was the number the drum
+// Raised 14 -> 64 on 2026-09-03 (#31). 14 was the number the drum
 // kits needed -- cr78 holds exactly 14 permanent Notes. It was never the
 // number the MELODIC library needs, because most of those press more than
 // one Note per key: solina 9, jp8000 7, b3 and vp330 6, farfisa 5, four
@@ -167,8 +167,8 @@ struct synthio_synth {
     //: it happen. Counts presses only: a release of a note that is not held
     //: takes the same path and is not a refusal.
     //:
-    //: Deliberately NOT a stealing policy and NOT a ceiling change (Brad,
-    //: 2026-09-22). An instrument that wants to steal can decide that for
+    //: Deliberately NOT a stealing policy and NOT a ceiling change
+    //: (2026-09-22). An instrument that wants to steal can decide that for
     //: itself once it can see the number.
     uint32_t refused;
     int16_t *buffers[2];

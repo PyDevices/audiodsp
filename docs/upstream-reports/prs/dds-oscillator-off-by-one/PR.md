@@ -94,7 +94,7 @@ that the repro demonstrates seemed better than folding in an unverified
 second change; happy to split it into a follow-up if a maintainer wants it
 addressed together.
 
-## Publish commands (Brad runs these; nothing has been pushed)
+## Publish commands (the maintainer runs these; nothing has been pushed)
 
 ```sh
 git clone https://github.com/adafruit/circuitpython.git

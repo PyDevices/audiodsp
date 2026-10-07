@@ -36,7 +36,7 @@ void audiodsp_biquad_process(const audiodsp_biquad_coefficients_t *coefficients,
 // --- CircuitPython's own Q15 biquad ---------------------------------------
 //
 // The kernel above is a deliberate improvement on this one and is used only by
-// `audiobiquad`, which is ours (audiodsp#77, Brad 2026-09-09). Anything
+// `audiobiquad`, which is ours (audiodsp#77, 2026-09-09). Anything
 // CircuitPython also has -- `synthio.Biquad`, and so `audiofilters.Filter` and
 // a `Note.filter` chain -- runs THIS, so it renders CircuitPython's bytes.
 //
