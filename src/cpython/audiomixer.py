@@ -212,10 +212,21 @@ class Mixer(_AudioSample):
             # The voice stops, its remainder is zero-filled like any other
             # short voice, and the mix continues. See issue #24.
             empty_fetches = 0
+            # Where each piece of this block came from a separate stretch of
+            # the source, in bytes. The native mixer applies a level per such
+            # stretch and forces a pending level move at the end of each,
+            # with stretches capped at SYNTHIO_MAX_DUR frames' worth of 32-bit
+            # words (src/audiomixer/Mixer.c, mix_down_one_voice).
+            stretch_ends = []
+            stretch_cap = 256 * self.channel_count * 4
             while len(output) < self._render_size and voice._sample is not None:
                 take = min(self._render_size - len(output), len(voice._remaining))
+                start = len(output)
                 output += voice._remaining[:take]
                 voice._remaining = voice._remaining[take:]
+                if take:
+                    stretch_ends.extend(range(start + stretch_cap, len(output), stretch_cap))
+                    stretch_ends.append(len(output))
                 if len(output) == self._render_size:
                     break
                 if not voice._remaining:
@@ -266,8 +277,16 @@ class Mixer(_AudioSample):
                 active = list(voice._active_level)
                 mul_lo, mul_hi = _mod_mul(active[0]), _mod_mul(active[1])
                 last_lo = last_hi = 0
+                # Stretch ends as sample-pair indices: a level move pending at
+                # one is forced there, and the zero-crossing watch restarts.
+                forced = {(end // 4) * 2 for end in stretch_ends}
                 scaled = []
                 for index in range(0, len(samples), 2):
+                    if index in forced and index:
+                        active[0], active[1] = pending
+                        mul_lo = _mod_mul(active[0])
+                        mul_hi = _mod_mul(active[1])
+                        last_lo = last_hi = 0
                     lo = samples[index]
                     hi = samples[index + 1] if index + 1 < len(samples) else 0
                     if active[0] != pending[0] or active[1] != pending[1]:
@@ -285,7 +304,7 @@ class Mixer(_AudioSample):
                     if index + 1 < len(samples):
                         scaled.append(max(-32768, min(32767,
                             int(_f32(hi * mul_hi)))))
-                # Forced at the block boundary: at most one block of delay.
+                # Forced at the block boundary too: at most one block of delay.
                 voice._active_level = pending
                 data = array.array("h", scaled).tobytes()
             chunks.append(data)
