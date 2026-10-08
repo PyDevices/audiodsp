@@ -91,8 +91,12 @@ static mp_obj_t audioroute_midside_set(size_t n_args, const mp_obj_t *args,
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown MidSide option '%q'"), name);
         }
-        audiodsp_midside_set_width(&self->config,
-            (float)mp_obj_get_float(kw_args->table[i].value));
+        // Converted before the lock, which must not be held across a raise;
+        // written under it, so a pull never meets a half-applied set.
+        const float width = (float)mp_obj_get_float(kw_args->table[i].value);
+        audiodsp_pump_lock_acquire();
+        audiodsp_midside_set_width(&self->config, width);
+        audiodsp_pump_lock_release();
     }
     return mp_const_none;
 }

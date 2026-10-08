@@ -162,6 +162,10 @@ class Splitter:
             if result == GET_BUFFER_ERROR:
                 return
             self._pending = bytes(data)
+            if len(self._pending) % (2 * self.channel_count):
+                # Not whole frames: dropped, as the native node drops it,
+                # rather than kept and refused on every later pull.
+                self._pending = b""
             if not self._pending:
                 return
         taken = self._ring.write(self._pending)
@@ -208,22 +212,17 @@ class MidSide(_AudioSample):
         self._check()
         self._apply(options)
 
-    @property
-    def playing(self):
-        return self._source is not None
-
     def play(self, sample, *, loop=False):
         """Set the source the matrix reads from."""
         self._check()
         self._source = sample
         self._pending = b""
 
-    def stop(self):
+    # No public stop() or `playing`: the native node has neither, and the
+    # twin's surface is the native one.
+    def _release(self):
         self._source = None
         self._pending = b""
-
-    def _release(self):
-        self.stop()
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
