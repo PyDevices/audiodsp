@@ -394,6 +394,14 @@ static PyObject *rawsample_get_single_buffer(audiodsp_rawsample_object_t *self,
     return PyBool_FromLong(self->info.single_buffer);
 }
 
+// The most one pull can hand back: the whole buffer, as the native RawSample's
+// base struct says. The pump sizes its ring from it, and Python has no other
+// way to ask.
+static PyObject *rawsample_get_max_buffer_length(
+    audiodsp_rawsample_object_t *self, void *closure) {
+    return PyLong_FromUnsignedLong(self->info.max_buffer_length);
+}
+
 static PyMethodDef rawsample_methods[] = {
     {"deinit", (PyCFunction)rawsample_deinit, METH_NOARGS, NULL},
     {"_reset_buffer", (PyCFunction)rawsample_reset_buffer, METH_VARARGS | METH_KEYWORDS, NULL},
@@ -409,6 +417,7 @@ static PyGetSetDef rawsample_getset[] = {
     {"channel_count", (getter)rawsample_get_channel_count, NULL, NULL, NULL},
     {"samples_signed", (getter)rawsample_get_samples_signed, NULL, NULL, NULL},
     {"single_buffer", (getter)rawsample_get_single_buffer, NULL, NULL, NULL},
+    {"max_buffer_length", (getter)rawsample_get_max_buffer_length, NULL, NULL, NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
@@ -2953,6 +2962,23 @@ static PyObject *audiodsp_mixdown_i32(PyObject *module, PyObject *args) {
     return result;
 }
 
+// FNV-1a 64 over a buffer, continuing from `seed`: the digest the pump keeps
+// over every byte it pulls and every byte it drains. audiopump.py calls this
+// once per block; a Python loop over the bytes would cost more than the pull.
+static PyObject *audiodsp_fnv1a64(PyObject *module, PyObject *args) {
+    Py_buffer input = {0};
+    unsigned long long digest = 0xcbf29ce484222325ULL;
+    if (!PyArg_ParseTuple(args, "y*|K:fnv1a64", &input, &digest)) return NULL;
+    const uint8_t *bytes = (const uint8_t *)input.buf;
+    uint64_t value = (uint64_t)digest;
+    for (Py_ssize_t i = 0; i < input.len; i++) {
+        value ^= bytes[i];
+        value *= 0x100000001b3ULL;
+    }
+    PyBuffer_Release(&input);
+    return PyLong_FromUnsignedLongLong((unsigned long long)value);
+}
+
 static PyObject *audiodsp_pitch_bend_value(PyObject *module, PyObject *args) {
     unsigned int frequency_scaled;
     int bend_value;
@@ -3189,6 +3215,7 @@ static PyMethodDef audiodsp_methods[] = {
     {"apply_loudness_i32", audiodsp_apply_loudness_i32, METH_VARARGS, NULL},
     {"mixdown_i32", audiodsp_mixdown_i32, METH_VARARGS, NULL},
     {"pitch_bend", audiodsp_pitch_bend_value, METH_VARARGS, NULL},
+    {"fnv1a64", audiodsp_fnv1a64, METH_VARARGS, NULL},
     {"distortion_s16", audiodsp_distortion_s16, METH_VARARGS, NULL},
     {"echo_s16", audiodsp_echo_s16, METH_VARARGS, NULL},
     {"phaser_s16", audiodsp_phaser_s16, METH_VARARGS, NULL},

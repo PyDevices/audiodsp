@@ -526,14 +526,33 @@ the audio's clock instead of the interpreter's. `audiopump.Tap` reads what is
 going out, for a meter or a scope, without being in the path.
 
 **Which builds carry it.** Every MicroPython port: unix, Windows,
-WebAssembly and esp32. The **CPython wheel does not** — it is a MicroPython C
-module through and through (`MP_REGISTER_MODULE`, `mp_obj_t`, a VM root
-array), so it is excluded from the wheel rather than stubbed, and a desktop
-Python program has threads of its own. **CircuitPython does not either**: its
-playback layer already pulls natively from its own audio thread, and a second
-pull loop would be a second owner of the same graph. What both of those still
-take is the lock and the hook table, on default hooks, which cost a load and
-a branch.
+WebAssembly and esp32. **The CPython wheel does too**, in the shape a port
+with no thread has: `driver()` is `'none'`, `threaded()` is False, `spawn()`
+returns −2 and adopts the graph, and nothing is pulled until you call
+`service()`, which fills the ring you passed to `spawn()` and returns when it
+is full. The names, the status block, `Ring`, `Events` and `Tap` are the same,
+and so are the bytes: drained from the ring, a graph is byte-identical to the
+same graph on the MicroPython unix build.
+
+```python
+status = bytearray(audiopump.STATUS_BYTES)
+ring = bytearray(16384)
+audiopump.spawn(mixer, 0x7FFFFFFF, status, ring=ring)
+buf = bytearray(4096)
+while playing:                 # from your app's timer, say every 20 ms
+    audiopump.service()
+    n = audiopump.drain(buf)
+    sink.write(memoryview(buf)[:n])
+```
+
+`audiodev` does this for you: on CPython its players drive the pump from
+their own tick. What CPython does not have is `pull()` under a heap lock,
+because it has no heap lock, and audiocore's pull-depth cap: a graph that
+leads back into itself is caught at Python's recursion limit instead, and
+reported as the same fault. **CircuitPython does not carry it**: its playback
+layer already pulls natively from its own audio thread, and a second pull loop
+would be a second owner of the same graph. It still takes the lock and the
+hook table, on default hooks, which cost a load and a branch.
 
 The hardware — the channel a board writes into, and a live microphone as a
 source — is not here. It arrives as a separate module, `_audioif`, from a

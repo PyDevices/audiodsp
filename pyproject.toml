@@ -36,7 +36,7 @@ Repository = "https://github.com/PyDevices/audiodsp"
 Issues = "https://github.com/PyDevices/audiodsp/issues"
 
 [tool.setuptools]
-py-modules = ["audiocore", "synthio", "audiomixer", "audiofilters", "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics", "audioroute", "audiomath", "audioecho", "audioconvolve", "audiobiquad", "audioshaper", "audioladder", "audioverb", "audiomodal", "audiometer"]
+py-modules = ["audiocore", "synthio", "audiomixer", "audiofilters", "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics", "audioroute", "audiomath", "audioecho", "audioconvolve", "audiobiquad", "audioshaper", "audioladder", "audioverb", "audiomodal", "audiometer", "audiopump"]
 # Keep py-modules explicit: src/cpython is the root package directory now, and
 # an automatic scan there would also pick up anything else that lands in it.
 packages = ["audiorender", "audiodsp_util"]
@@ -73,7 +73,7 @@ version = {file = "VERSION"}
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-* cp314-*"
 skip = "*musllinux* *-win32"
-test-command = "python -c \"from array import array; import audiocore, synthio; s=synthio.Synthesizer(sample_rate=8000); s.press(69); r,b=audiocore.get_buffer(s); assert r == 1 and b.format == 'B' and len(b) == 512\""
+test-command = "python -c \"from array import array; import audiocore, synthio; s=synthio.Synthesizer(sample_rate=8000); s.press(69); r,b=audiocore.get_buffer(s); assert r == 1 and b.format == 'B' and len(b) == 512; import audiopump; assert audiopump.driver() == 'none'\""
 
 # auto64 -- the runner's own 64-bit architecture -- NOT ["x86_64",
 # "aarch64"]. Naming both would make the x86_64 release runner try to

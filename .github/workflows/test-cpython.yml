@@ -52,6 +52,33 @@ jobs:
             exit 1
           fi
           python tests/parity/deinit_surface_probe.py
+      # The pump's gates, on CPython. The same probes clean-build.yml runs on
+      # a MicroPython build; here the loop runs in service mode, as it does
+      # on every build with no platform driver. Two planted faults are
+      # MicroPython's alone: `alloc` needs its heap lock, and `deeper` proves
+      # audiocore's pull-depth cap, which CPython does not have (a ring there
+      # is caught at Python's recursion limit instead).
+      - name: The pump's gates, and proof each one can fail
+        shell: bash
+        run: |
+          for planted in "pump_probe.py identity --fault short" \
+                         "pump_probe.py identity --fault reuse" \
+                         "pump_probe.py storm --fault stall" \
+                         "pump_probe.py unpumpable --fault unpumpable" \
+                         "route_probe.py ring --fault flip" \
+                         "route_probe.py events --fault drop" \
+                         "route_probe.py tap --fault short" \
+                         "route_probe.py tap --fault stale" \
+                         "route_probe.py port --fault latch" \
+                         "route_probe.py refused --fault deaf" \
+                         "route_probe.py strike --fault early"; do
+            if python tests/pump/$planted > /dev/null; then
+              echo "the planted fault passed: $planted" >&2
+              exit 1
+            fi
+          done
+          python tests/pump/pump_probe.py
+          python tests/pump/route_probe.py
       - run: python tests/parity/verify_effects.py
       - run: python tests/parity/verify_streaming.py
       - run: python tests/parity/verify_biquad.py

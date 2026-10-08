@@ -7,10 +7,13 @@ Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
 ``stall`` (storm). Each one must make this exit non-zero; a probe whose
 failing mode is never run is not a gate.
 
-Needs a MicroPython build carrying this repository as a usermod -- the one
-``clean-build.yml`` makes. It does **not** need the platform driver: without
-one ``audiopump.threaded()`` is False and the same loop runs on the
-interpreter's own thread, which is what the ``driver`` case checks.
+Runs on a MicroPython build carrying this repository as a usermod -- the one
+``clean-build.yml`` makes -- and on CPython with this repository's wheel
+installed. It does **not** need the platform driver: without one
+``audiopump.threaded()`` is False and the same loop runs on the
+interpreter's own thread, which is what the ``driver`` case checks and what
+CPython always does. ``alloc`` needs MicroPython's heap lock and says it was
+skipped anywhere else.
 
 What each case is for
 ---------------------
@@ -50,7 +53,10 @@ import os
 import struct
 import sys
 
-import micropython
+try:
+    import micropython
+except ImportError:  # CPython: no heap lock, so no allocation gate
+    micropython = None
 
 import audiocore
 import audiodelays
@@ -266,6 +272,12 @@ def gate(tail, blocks=ALLOC_BLOCKS, allocate=False):
 
 
 def alloc(fault):
+    if micropython is None:
+        # CPython allocates for every Python object it touches and has no
+        # heap lock to prove otherwise, so this gate is MicroPython's alone,
+        # and so is its planted fault. Said rather than silently passed.
+        print("  alloc     skip no heap lock on this interpreter")
+        return True
     ok = True
     for name, build in GRAPHS:
         keep = []
@@ -368,7 +380,13 @@ def driver(fault):
 
 #: Same convention route_probe.py uses: CI points this at the runner's temp
 #: directory so a probe never writes into the checkout.
-_TMP = os.getenv("PUMP_PROBE_TMP", "/tmp")
+_TMP = os.getenv("PUMP_PROBE_TMP")
+if _TMP is None:
+    try:
+        import tempfile
+        _TMP = tempfile.gettempdir()
+    except ImportError:      # MicroPython
+        _TMP = "/tmp"
 
 
 def _wave_file(path=None, frames=2048):
