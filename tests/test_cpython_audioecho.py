@@ -27,6 +27,7 @@ its own output.
 | E12 | A loop filter set to 0 and back plays nothing stale: silence stays silence, a steady line stays put, a high-pass comes back as a fresh one | exact, 0 LSB |
 | E13 | A wow depth moved on a live node glides in over 20 ms, then renders as a node built with it | no step past 1.5 x the tone's own; exact after the ramp |
 | E14 | E10 in stereo with a cross-feed strictly between 0 and 1, at the feedbacks where the cross-fed sum lands an ulp above its lanes | exact, 0 LSB |
+| E15 | `delay_frames=N` reads the line exactly N frames back, at 44.1, 22.05 and 48 kHz, where no `delay_ms` lands on N | exact: the whole click on frame N, nothing on its neighbours |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -300,7 +301,7 @@ class LiveSettingTest(unittest.TestCase):
         "cut_hz": 600.0, "wow_hz": 6.0, "wow_depth_ms": 3.0,
         "cross_feed": 1.0, "loop_drive": 1.0, "input_pan": -1.0,
         "delay_slew": 8.0, "wow_am_depth": 0.9, "loop_semitones": -12.0,
-        "loop_window_ms": 11.0,
+        "loop_window_ms": 11.0, "delay_frames": 150.0,
     }
 
     #: `shift_window_finish` clamps the shift window to a quarter of the
@@ -829,6 +830,58 @@ class CrossFedTailReachesZeroTest(unittest.TestCase):
                     self.assertEqual(self._held(8000, 1.0, feedback,
                                                 cross_feed, 2 * k + 2,
                                                 channels=channels), 0)
+
+
+class DelayFramesTest(unittest.TestCase):
+    """E15, audiodsp#179. `delay_ms` becomes frames as `ms * rate / 1000` in
+    float32, and at 44.1 kHz no float32 millisecond value lands on 16457: the
+    read sits a fraction of a frame off and splits a click across two frames.
+    `delay_frames` is the read offset itself."""
+
+    #: (rate, frames). 16457 and 8231 are frames no float32 `delay_ms`
+    #: within 64 ulps lands on; 17913 at 48 kHz is the control rate.
+    CELLS = ((44100, 16457), (22050, 8231), (48000, 17913))
+
+    @staticmethod
+    def _click_at(rate, **options):
+        frames = int(options.pop("frames")) + 512
+        values = array("h", [0] * (frames * 2))
+        values[0] = values[1] = 20000
+        source = audiocore.RawSample(values, sample_rate=rate,
+                                     channel_count=2)
+        node = audioecho.FeedbackDelay(sample_rate=rate, max_delay_ms=600.0,
+                                       feedback=0.0, mix=2.0, **options)
+        node.play(source)
+        heard = {}
+        frame = 0
+        while frame < frames:
+            data = array("h", bytes(audiocore.get_buffer(node)[1]))
+            for index in range(0, len(data), 2):
+                if data[index]:
+                    heard[frame] = data[index]
+                frame += 1
+        return heard
+
+    def test_delay_frames_lands_on_the_whole_frame(self):
+        for rate, frames in self.CELLS:
+            with self.subTest(rate=rate):
+                self.assertEqual(
+                    self._click_at(rate, frames=frames, delay_frames=frames),
+                    {frames: 20000})
+
+    def test_E15_discriminates_a_split_read(self):
+        """The control: through `delay_ms` the same frame at 44.1 kHz is a
+        split read, so the bar above can fail."""
+        heard = self._click_at(44100, frames=16457,
+                               delay_ms=16457 * 1000.0 / 44100)
+        self.assertGreater(len(heard), 1)
+
+    def test_both_units_in_one_call_is_refused(self):
+        with self.assertRaises(TypeError):
+            delay(delay_ms=10.0, delay_frames=80)
+        node = delay()
+        with self.assertRaises(TypeError):
+            node.set(delay_ms=10.0, delay_frames=80)
 
 
 if __name__ == "__main__":

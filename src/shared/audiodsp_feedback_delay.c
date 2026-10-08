@@ -150,6 +150,11 @@ void audiodsp_feedback_delay_configure(audiodsp_feedback_delay_config_t *config,
                 clampf(frames, 1.0f, (float)config->line_frames - 2.0f);
             break;
         }
+        case AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_FRAMES:
+            // The same headroom as `delay_ms`, and no conversion at all.
+            config->delay_frames =
+                clampf(value, 1.0f, (float)config->line_frames - 2.0f);
+            break;
         case AUDIODSP_FEEDBACK_DELAY_OPT_FEEDBACK:
             // Stops just short of 1: at exactly unity a loop with no filter
             // in it never decays, and with the soft-clip engaged it settles

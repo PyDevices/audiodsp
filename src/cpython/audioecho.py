@@ -75,6 +75,20 @@ one, 200.00 ms with the shift off. So switching `loop_semitones` on or off
 mid-stream steps the read by that half window, and nothing smooths it. Set
 it when you build the node, or between takes.
 
+`delay_frames` gives the delay in frames instead of milliseconds, and the line
+is read exactly that far back. Milliseconds become frames in single precision,
+and at 44.1 and 22.05 kHz some whole frames have no `delay_ms` that lands on
+them: the read sits a fraction of a frame off, and every repeat comes back a
+little softer than the feedback alone would make it. A whole `delay_frames`
+always lands:
+
+    exact = audioecho.FeedbackDelay(
+        sample_rate=44100, max_delay_ms=600, delay_frames=16457,
+        feedback=0.99, mix=1.0)
+
+It is the same setting as `delay_ms`, so `delay_slew` glides to it too. Give
+one or the other: naming both in one call raises `TypeError`.
+
 A new module rather than arguments on `Echo`, deliberately: an argument added
 to audiodsp's copy of a CircuitPython module would not exist on a stock board,
 so an effect written against it would silently be a different effect there.
@@ -112,6 +126,7 @@ _OPTIONS = {
     "wow_am_depth": 11,
     "loop_semitones": 12,
     "loop_window_ms": 13,
+    "delay_frames": 14,
 }
 
 
@@ -142,6 +157,10 @@ class FeedbackDelay(_AudioSample):
         self._state.finish()
 
     def _apply(self, options):
+        # One setting in two units: a call naming both would be decided by
+        # keyword order.
+        if "delay_ms" in options and "delay_frames" in options:
+            raise TypeError("give delay_ms or delay_frames, not both")
         for name, value in options.items():
             # wow_shape is a buffer, not a number, so it does not go through
             # configure()'s float table.
