@@ -131,11 +131,15 @@ void recalculate_delay(audiodelays_echo_obj_t *self, mp_float_t f_delay_ms) {
     } else {
         uint32_t new_echo_buffer_len = (uint32_t)(self->base.sample_rate / MICROPY_FLOAT_CONST(1000.0) * f_delay_ms) * sizeof(uint16_t);
 
-        if (new_echo_buffer_len > max_echo_buffer_len) {
-            new_echo_buffer_len = max_echo_buffer_len;
-        } else if (new_echo_buffer_len < self->buffer_len) {
+        if (new_echo_buffer_len < self->buffer_len) {
             // If the echo buffer is smaller than our audio buffer, weird things happen
             new_echo_buffer_len = self->buffer_len;
+        }
+        // Clamped last: raised to the audio buffer, a short line was longer
+        // than its allocation, and the memset below and the line itself ran
+        // past it (upstream's order; see docs/upstream-diff.md).
+        if (new_echo_buffer_len > max_echo_buffer_len) {
+            new_echo_buffer_len = max_echo_buffer_len;
         }
 
         self->echo_buffer_len = new_echo_buffer_len;
