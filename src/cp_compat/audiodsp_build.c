@@ -7,9 +7,15 @@
 
 #include "py/objstr.h"
 
-// Passed by micropython.mk / micropython.cmake. A build that reaches here
-// without them says so rather than claiming a revision it does not know --
-// "unknown" is the honest answer and the one that made this file necessary.
+// micropython.cmake writes them into a header at build time (#156);
+// micropython.mk passes them as -D flags.
+#ifdef AUDIODSP_REVISION_HEADER
+#include "audiodsp_revision.h"
+#endif
+
+// A build that reaches here without them says so rather than claiming a
+// revision it does not know -- "unknown" is the honest answer and the one that
+// made this file necessary.
 #ifndef AUDIODSP_VERSION
 #define AUDIODSP_VERSION "0.0.0+unknown"
 #endif

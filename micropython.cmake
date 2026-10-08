@@ -273,25 +273,30 @@ endif()
 # as on the unix Make path. Per-board tuning is the fuller phase 10 (port
 # matrix) job, not this one.
 # --- which audiodsp this firmware was built from -----------------------------
-# See micropython.mk for why this is computed at build time and not stored.
-# Quoted through CMake's generator so the strings survive as C string literals.
-execute_process(
-    COMMAND git -C ${MPAUDIO_MOD_DIR} describe --always --dirty --abbrev=7
-    OUTPUT_VARIABLE MPAUDIO_REVISION
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET)
-if(NOT MPAUDIO_REVISION)
-    set(MPAUDIO_REVISION "unknown")
+# See micropython.mk for why this is computed from the checkout and how it is
+# described. It is computed when the firmware BUILDS, not when CMake
+# configures: a configure-time value stays in CMakeCache.txt, so an
+# incremental build in a reused build directory, after the checkout moved,
+# flashed the old revision over the new code (#156). The target below
+# rewrites a header on every build, only when the strings change, and the
+# compiler's dependency tracking recompiles the one file that includes it.
+set(MPAUDIO_GENHDR_DIR ${CMAKE_BINARY_DIR}/audiodsp_genhdr)
+set(MPAUDIO_REVISION_HEADER ${MPAUDIO_GENHDR_DIR}/audiodsp_revision.h)
+set(MPAUDIO_REVISION_COMMAND ${CMAKE_COMMAND}
+    -DMOD_DIR=${MPAUDIO_MOD_DIR} -DOUT=${MPAUDIO_REVISION_HEADER}
+    -P ${MPAUDIO_SRC_DIR}/cp_compat/audiodsp_revision.cmake)
+# Once now, so the header exists before anything compiles.
+execute_process(COMMAND ${MPAUDIO_REVISION_COMMAND})
+if(NOT TARGET audiodsp_revision)
+    add_custom_target(audiodsp_revision
+        COMMAND ${MPAUDIO_REVISION_COMMAND}
+        BYPRODUCTS ${MPAUDIO_REVISION_HEADER}
+        VERBATIM)
 endif()
-if(EXISTS ${MPAUDIO_MOD_DIR}/VERSION)
-    file(READ ${MPAUDIO_MOD_DIR}/VERSION MPAUDIO_VERSION)
-    string(STRIP "${MPAUDIO_VERSION}" MPAUDIO_VERSION)
-else()
-    set(MPAUDIO_VERSION "0.0.0+unknown")
-endif()
-target_compile_definitions(usermod_mpaudio INTERFACE
-    AUDIODSP_VERSION=\"${MPAUDIO_VERSION}\"
-    AUDIODSP_REVISION=\"${MPAUDIO_REVISION}\")
+# An interface library's dependencies are followed by whatever links it.
+add_dependencies(usermod_mpaudio audiodsp_revision)
+target_include_directories(usermod_mpaudio INTERFACE ${MPAUDIO_GENHDR_DIR})
+target_compile_definitions(usermod_mpaudio INTERFACE AUDIODSP_REVISION_HEADER=1)
 
 target_compile_definitions(usermod_mpaudio INTERFACE CIRCUITPY_SYNTHIO_MAX_CHANNELS=64)
 
