@@ -106,6 +106,9 @@ archs = ["AMD64"]
 [tool.cibuildwheel.android]
 archs = ["arm64_v8a", "x86_64"]
 environment = { ANDROID_API_LEVEL = "21" }
+# Fetch the target Pythons into cibuildwheel's cache first, retrying a passing
+# 404 that cibuildwheel's own download gives up on (audiodsp#194).
+before-all = "python3 tools/prefetch_android_python.py"
 test-skip = "*"
 
 [[tool.cibuildwheel.overrides]]
