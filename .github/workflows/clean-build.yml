@@ -3,10 +3,19 @@
 # of any kind. This is the standalone contract's proof, run on every push.
 name: Clean standalone build
 
+# Documentation-only changes can't change this result, so they don't run it.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:
