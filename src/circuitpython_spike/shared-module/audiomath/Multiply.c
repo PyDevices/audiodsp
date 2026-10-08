@@ -38,7 +38,7 @@ audioio_get_buffer_result_t audiomath_multiply_get_buffer(
             if (result == GET_BUFFER_ERROR || raw == NULL || raw_bytes < width) {
                 break;
             }
-            self->pending_source = (const int16_t *)raw;
+            self->pending_source = (const int16_t *)(const void *)raw;
             self->pending_source_frames = raw_bytes / width;
         }
         if (self->pending_modulator_frames == 0 &&
@@ -52,7 +52,7 @@ audioio_get_buffer_result_t audiomath_multiply_get_buffer(
             // stopped leaves the signal alone rather than muting it.
             const uint32_t width = 2u * self->base.channel_count;
             if (result != GET_BUFFER_ERROR && raw != NULL && raw_bytes >= width) {
-                self->pending_modulator = (const int16_t *)raw;
+                self->pending_modulator = (const int16_t *)(const void *)raw;
                 self->pending_modulator_frames = raw_bytes / width;
             }
         }

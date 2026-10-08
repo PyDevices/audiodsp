@@ -35,7 +35,7 @@ audioio_get_buffer_result_t audioshaper_waveshaper_get_buffer(
             if (result == GET_BUFFER_ERROR || raw == NULL || raw_bytes < width) {
                 break;
             }
-            self->pending = (const int16_t *)raw;
+            self->pending = (const int16_t *)(const void *)raw;
             self->pending_frames = raw_bytes / width;
         }
         uint32_t run = AUDIODSP_SHAPER_FRAMES - produced;

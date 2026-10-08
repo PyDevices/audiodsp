@@ -40,7 +40,7 @@ audioio_get_buffer_result_t audiomodal_bank_get_buffer(
                 raw_bytes < width) {
                 break;
             }
-            self->pending = (const int16_t *)raw;
+            self->pending = (const int16_t *)(const void *)raw;
             self->pending_frames = raw_bytes / width;
         }
         uint32_t run = AUDIODSP_MODAL_FRAMES - produced;
