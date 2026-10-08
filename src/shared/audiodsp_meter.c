@@ -250,7 +250,7 @@ static void meter_design(audiodsp_meter_t *m, uint32_t rate) {
 
     const double r = meter_exp(meter_ln((double)m->hi_hz / (double)m->lo_hz) / m->nbands);
     const double lo_rate = (double)rate / LO_DEC;
-    double f0 = m->lo_hz;
+    double f0 = (double)m->lo_hz;
     for (int i = 0; i < m->nbands; i++, f0 *= r) {
         const double f1 = f0 * r;
         const double fc = sqrt(f0 * f1);
