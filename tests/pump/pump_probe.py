@@ -2,9 +2,10 @@
 
     <interpreter> tests/pump/pump_probe.py [case ...] [--fault WHICH]
 
-Cases: ``identity``, ``alloc``, ``storm``, ``driver`` (all by default).
+Cases: ``identity``, ``alloc``, ``storm``, ``driver``, ``unpumpable``,
+``swap`` (all by default).
 Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
-``stall`` (storm). Each one must make this exit non-zero; a probe whose
+``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap). Each one must make this exit non-zero; a probe whose
 failing mode is never run is not a gate.
 
 Runs on a MicroPython build carrying this repository as a usermod -- the one
@@ -46,6 +47,19 @@ What each case is for
 ``driver``  Which platform driver the engine bound, and whether that agrees
     with ``threaded()``. A build with no driver still pumps; it just runs the
     loop on this thread.
+
+``swap``    ``Convolver.load()`` and ``Convolver.synthesize()`` on a node the
+    pump is pulling. Both used to build the new impulse in place with no lock,
+    and the pull's own transform shares the scratch the build writes each
+    partition through, so a pull that landed mid-build left that partition
+    wrong until the next load (audiodsp#166). Where the pump has a thread of
+    its own, the room is rebuilt over and over while the pump pulls it, and
+    must then render exactly as a room built in peace does. Everywhere, the
+    lock ledger must show the call took the lock, and where it can time the
+    hold, the hold must be well under the call: the build runs unlocked and
+    only the install is held. ``--fault unlocked`` counts across a call that
+    takes no lock, and must fail. Skipped on CPython, whose extension has no
+    pump lock: nothing there pulls from another thread.
 """
 
 import gc
@@ -58,6 +72,7 @@ try:
 except ImportError:  # CPython: no heap lock, so no allocation gate
     micropython = None
 
+import audioconvolve
 import audiocore
 import audiodelays
 import audiofilters
@@ -478,8 +493,120 @@ def unpumpable(fault):
     return ok
 
 
+# --- swap ------------------------------------------------------------------
+
+
+def _ticks_us():
+    import time
+    if hasattr(time, "ticks_us"):
+        return time.ticks_us()
+    return int(time.perf_counter() * 1000000)
+
+
+def _room():
+    return audioconvolve.Convolver(sample_rate=RATE, channel_count=CHANNELS,
+                                   max_taps=3840, ir_channels=2)
+
+
+def _impulse(seed):
+    taps = array("h", [0] * (3840 * 2))
+    value = seed
+    for i in range(len(taps)):
+        value = (value * 1103515245 + 12345) & 0x7FFFFFFF
+        taps[i] = ((value >> 16) & 0x3FFF) - 0x2000
+    return taps
+
+
+def _render(node, blocks=40):
+    node.clear()
+    node.play(raw())
+    out = bytearray()
+    for _ in range(blocks):
+        out += bytes(audiocore.get_buffer(node)[1])
+    return bytes(out)
+
+
+def _rebuilt_under_the_pump(rebuild, finish):
+    """Rebuild a room the pump is pulling, then compare it with one built
+    while nothing pulls. Returns (same, blocks the pump pulled)."""
+    room = _room()
+    room.play(raw())
+    room.synthesize(decay=0.08, seed=1)
+    block = status()
+    audiopump.spawn(room, 1 << 30, block)
+    spins = 0
+    while read(block)[BLOCKS_AT] < 50 and spins < 1000000:
+        spins += 1
+    for round_ in range(30):
+        rebuild(room, round_)
+    finish(room)
+    pulled = read(block)[BLOCKS_AT]
+    audiopump.stop()
+    audiopump.join()
+    audiopump.shutdown()
+    reference = _room()
+    finish(reference)
+    same = _render(room) == _render(reference)
+    room.deinit()
+    reference.deinit()
+    return same, pulled
+
+
+def swap(fault):
+    if sys.implementation.name == "cpython":
+        return say("swap", True, "skipped: the CPython extension has no pump "
+                   "lock, and nothing there pulls from another thread")
+    threaded = bool(audiopump.threaded())
+    ok = True
+    if threaded:
+        impulses = (_impulse(3), _impulse(4))
+        races = (
+            ("synthesize",
+             lambda room, k: room.synthesize(decay=0.08, seed=7 + k % 2),
+             lambda room: room.synthesize(decay=0.08, seed=7)),
+            ("load",
+             lambda room, k: room.load(impulses[k % 2], channels=2),
+             lambda room: room.load(impulses[0], channels=2)),
+        )
+        for name, rebuild, finish in races:
+            same, pulled = _rebuilt_under_the_pump(rebuild, finish)
+            ok = say(name, same, "%s after 30 rebuilds while the pump pulled "
+                     "%d blocks" % ("the same room" if same else
+                                    "a DIFFERENT room", pulled)) and ok
+    room = _room()
+    room.play(raw())
+    room.synthesize(decay=0.08, seed=1)
+    for _ in range(4):
+        audiocore.get_buffer(room)
+    impulse = _impulse(5)
+    calls = (
+        ("synthesize", lambda: room.synthesize(decay=0.08, seed=2)),
+        ("load", lambda: room.load(impulse, channels=2)),
+    )
+    for name, call in calls:
+        if fault == "unlocked":
+            call = lambda: room.set(mix=0.5)   # noqa: E731 -- takes no lock
+        gc.collect()
+        audiopump.lock_reset()
+        start = _ticks_us()
+        call()
+        took = _ticks_us() - start
+        stats = audiopump.lock_stats()
+        takes, held = stats[3], stats[6]
+        good = takes >= 1
+        detail = "%d lock take(s)" % takes
+        if threaded:
+            # The build is the long part and runs unlocked; what the lock
+            # covers is a copy and two one-block convolutions per channel.
+            good = good and held * 2 < took
+            detail += ", held %d us of a %d us call" % (held, took)
+        ok = say(name, good, detail) and ok
+    room.deinit()
+    return ok
+
+
 CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
-         ("driver", driver), ("unpumpable", unpumpable))
+         ("driver", driver), ("unpumpable", unpumpable), ("swap", swap))
 
 
 def main():

@@ -41,6 +41,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "shared/audiodsp_fft.h"
@@ -117,6 +118,15 @@ void audiodsp_convolve_set_channel_count(audiodsp_convolve_config_t *config,
 void audiodsp_convolve_state_init(audiodsp_convolve_state_t *state,
     const audiodsp_convolve_config_t *config, float *storage);
 
+// The same with the impulse in an allocation of its own, which is what lets
+// audiodsp_convolve_install swap a new one in rather than copy it. `storage`
+// holds audiodsp_convolve_float_count_apart() floats and `impulse`
+// audiodsp_convolve_impulse_floats().
+uint32_t audiodsp_convolve_float_count_apart(
+    const audiodsp_convolve_config_t *config);
+void audiodsp_convolve_state_init_apart(audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *storage, float *impulse);
+
 // Drops the history, the frequency-delay line and the block in flight. Keeps
 // the loaded impulse -- that is a setting, not audio.
 void audiodsp_convolve_reset(audiodsp_convolve_state_t *state,
@@ -156,6 +166,47 @@ void audiodsp_convolve_load_s16(audiodsp_convolve_state_t *state,
 void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
     const audiodsp_convolve_config_t *config, float decay_seconds,
     float damping_hz, float predelay_ms, float diffusion_ms, uint32_t seed);
+
+// --- building an impulse away from the node, for a pump on another thread ---
+//
+// `load_s16` and `synthesize` above work in place: they write the node's own
+// impulse with the node's own scratch, so a pull that lands while one runs
+// can convolve with a half-written room, or have its own transform overwrite
+// the partition being built, which then stays wrong until the next load. A
+// binding whose pump pulls from another thread splits the call in two
+// instead. The build runs with no lock held and touches nothing a pull reads;
+// the install is the short part, and is the only part that needs the lock.
+// The bytes are the same either way.
+
+// Floats one impulse holds for this configuration.
+uint32_t audiodsp_convolve_impulse_floats(
+    const audiodsp_convolve_config_t *config);
+
+// Build `load_s16`'s impulse, or `synthesize`'s room, into `impulse`
+// (audiodsp_convolve_impulse_floats() floats). `block` and `scratch` are
+// AUDIODSP_CONVOLVE_FFT floats each. Reads only `state`'s transform tables,
+// which never change after audiodsp_convolve_state_init, and writes only the
+// three buffers handed in. Returns the partitions loaded, for the install.
+uint32_t audiodsp_convolve_build_s16(const audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *impulse, float *block,
+    float *scratch, const int16_t *taps, uint32_t tap_frames,
+    uint32_t channels, float gain);
+uint32_t audiodsp_convolve_build_room(const audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *impulse, float *block,
+    float *scratch, float decay_seconds, float damping_hz, float predelay_ms,
+    float diffusion_ms, uint32_t seed);
+
+// Make a built impulse the node's: the node takes `impulse` itself, not a
+// copy, and hands back the one it had, for the caller to free once the lock
+// is let go (NULL when `impulse` is NULL, which installs what is already in
+// the node's own). `crossfade` is `synthesize`'s behaviour: on a node already
+// carrying a room, the audio in flight is kept and the block being played
+// crossfades to the new room. Without it, or on a node with nothing loaded,
+// the history is reset, which is `load_s16`'s. With `crossfade` it costs two
+// one-block convolutions per audio channel; without, the reset.
+float *audiodsp_convolve_install(audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *impulse,
+    uint32_t loaded, bool crossfade);
 
 // Interleaved stereo frames in and out, any count. `out` may alias `in`.
 // Blocks internally, so the output lags the input by AUDIODSP_CONVOLVE_FRAMES
