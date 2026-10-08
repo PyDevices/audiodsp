@@ -81,6 +81,12 @@ typedef enum {
     AUDIODSP_FEEDBACK_DELAY_OPT_WOW_AM_DEPTH,
     AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_SEMITONES,
     AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS,
+    // The delay in frames, used as the read offset directly. A whole number
+    // of frames is exact in float up to 2^24, where `delay_ms` goes through
+    // `value * rate / 1000` in float and at 44.1 and 22.05 kHz cannot land
+    // on every whole frame (audiodsp#179). The two write the same setting,
+    // and whichever was written last is the delay.
+    AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_FRAMES,
 } audiodsp_feedback_delay_option_t;
 
 //: A `wow_shape` table is one period, so its length has to be a power of two

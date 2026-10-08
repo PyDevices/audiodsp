@@ -205,6 +205,7 @@ PROBES = (
     # A shorter Time and back again: every native build clears the line past
     # the new length, and the CPython twin now does too (audiodsp#177).
     ("multitap_time_probe.py", "audiodelays", {}, None),
+    ("feedback_delay_frames_probe.py", "audioecho", {}, None),
     ("freeverb_filter_probe.py", "audiofreeverb", {}, None),
 )
 

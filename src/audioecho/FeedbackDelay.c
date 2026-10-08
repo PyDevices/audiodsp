@@ -33,7 +33,20 @@ static const feedback_delay_option_name_t feedback_delay_option_names[] = {
     { MP_QSTR_wow_am_depth, AUDIODSP_FEEDBACK_DELAY_OPT_WOW_AM_DEPTH },
     { MP_QSTR_loop_semitones, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_SEMITONES },
     { MP_QSTR_loop_window_ms, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS },
+    { MP_QSTR_delay_frames, AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_FRAMES },
 };
+
+// `delay_ms` and `delay_frames` are one setting in two units, so a call that
+// names both would be decided by keyword order. Refused instead.
+static void feedback_delay_check_one_delay(const mp_map_t *kw) {
+    if (mp_map_lookup((mp_map_t *)kw, MP_OBJ_NEW_QSTR(MP_QSTR_delay_ms),
+        MP_MAP_LOOKUP) != NULL &&
+        mp_map_lookup((mp_map_t *)kw, MP_OBJ_NEW_QSTR(MP_QSTR_delay_frames),
+            MP_MAP_LOOKUP) != NULL) {
+        mp_raise_TypeError(MP_ERROR_TEXT(
+            "give delay_ms or delay_frames, not both"));
+    }
+}
 
 // `wow_shape` is a buffer, not a number, so it is handled beside
 // `sample_rate` and `max_delay_ms` rather than from the table above. The
@@ -76,6 +89,7 @@ static void feedback_delay_set_shape(audioecho_feedback_delay_obj_t *self,
 
 static void feedback_delay_apply_kwargs(audioecho_feedback_delay_obj_t *self,
     const mp_map_t *kw) {
+    feedback_delay_check_one_delay(kw);
     for (size_t i = 0; i < kw->alloc; ++i) {
         if (!mp_map_slot_is_filled(kw, i)) {
             continue;

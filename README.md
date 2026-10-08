@@ -228,6 +228,11 @@ after a delay is not. See
 [docs/upstream-diff.md](docs/upstream-diff.md) for what each was asked for
 and what it measures.
 
+If you want the delay in frames rather than milliseconds, give `delay_frames`
+instead of `delay_ms`: the line is read exactly that many frames back. At
+44.1 and 22.05 kHz some whole frames have no `delay_ms` that lands on them,
+so a lossless repeat at those rates needs `delay_frames`.
+
 `audioroute.MidSide(source, width=1.0, sample_rate=48000, channel_count=2)`
 takes a stereo pair apart into its mono sum and the difference between its
 channels, scales the difference, and puts the pair back together. `width=0`
