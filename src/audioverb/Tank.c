@@ -186,6 +186,7 @@ static mp_obj_t audioverb_tank_make_new(const mp_obj_type_t *type,
 
 static mp_obj_t audioverb_tank_play(mp_obj_t self_in, mp_obj_t sample) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     (void)audiosample_check(sample);
     audiodsp_pump_lock_acquire();
     self->source = sample;
@@ -283,6 +284,7 @@ static void tank_recut(audioverb_tank_obj_t *self, mp_obj_t delays,
 static mp_obj_t audioverb_tank_set(size_t n_args, const mp_obj_t *args,
     mp_map_t *kw_args) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     (void)n_args;
     tank_check_options(kw_args);
     mp_map_elem_t *delays =
@@ -304,6 +306,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioverb_tank_set_obj, 1,
 
 static mp_obj_t audioverb_tank_clear(mp_obj_t self_in) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_pump_lock_acquire();
     audiodsp_tank_reset(&self->state, &self->config);
     audiodsp_pump_lock_release();
@@ -387,6 +390,13 @@ static void audioverb_tank_reset_buffer(mp_obj_t self_in,
 // object holds a *reference* to: the upstream source, so releasing the tail
 // of a chain lets the GC reclaim the rest of it, and every borrowed pointer
 // into a source's buffer, so nothing dangles.
+//
+// The lines and the predelay go too, at the next collection rather than when
+// the object does: a plate's are about 90 KB, and a class that keeps a
+// reference to a released tank should not go on holding them (audiodsp#181).
+// Clearing every pointer into the block is what releases it, so nothing here
+// calls the allocator while the lock is held. Every method raises once the
+// node is released, so nothing reads the lines again.
 static mp_obj_t audioverb_tank_deinit(mp_obj_t self_in) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiodsp_pump_lock_acquire();
@@ -394,6 +404,8 @@ static mp_obj_t audioverb_tank_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    memset(self->state.lines, 0, sizeof(self->state.lines));
+    self->state.predelay = NULL;
     audiodsp_pump_lock_release();
     return mp_const_none;
 }

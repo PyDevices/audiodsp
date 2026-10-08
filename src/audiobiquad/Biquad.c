@@ -106,6 +106,7 @@ static void biquad_apply_blocks(audiobiquad_biquad_obj_t *self,
 
 static mp_obj_t audiobiquad_biquad_play(mp_obj_t self_in, mp_obj_t sample) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     (void)audiosample_check(sample);
     audiodsp_pump_lock_acquire();
     self->source = sample;
@@ -119,6 +120,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiobiquad_biquad_play_obj,
 
 static mp_obj_t audiobiquad_biquad_stop(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_pump_lock_acquire();
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
@@ -131,6 +133,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_stop_obj,
 
 static mp_obj_t audiobiquad_biquad_clear(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_pump_lock_acquire();
     audiodsp_biquad_f32_reset(&self->state);
     audiodsp_pump_lock_release();
@@ -141,6 +144,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_clear_obj,
 
 static mp_obj_t audiobiquad_biquad_obj_get_playing(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return mp_obj_new_bool(self->source != MP_OBJ_NULL);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_get_playing_obj,
@@ -151,6 +155,7 @@ MP_PROPERTY_GETTER(audiobiquad_biquad_playing_obj,
 #define BIQUAD_SLOT_PROPERTY(name) \
     static mp_obj_t audiobiquad_biquad_obj_get_##name(mp_obj_t self_in) { \
         audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in); \
+        audiosample_check_for_deinit(&self->base); \
         return self->name.obj; \
     } \
     static MP_DEFINE_CONST_FUN_OBJ_1( \
@@ -159,6 +164,7 @@ MP_PROPERTY_GETTER(audiobiquad_biquad_playing_obj,
     static mp_obj_t audiobiquad_biquad_obj_set_##name(mp_obj_t self_in, \
         mp_obj_t value) { \
         audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in); \
+        audiosample_check_for_deinit(&self->base); \
         synthio_block_assign_slot(value, &self->name, MP_QSTR_##name); \
         return mp_const_none; \
     } \
@@ -176,6 +182,7 @@ BIQUAD_SLOT_PROPERTY(mix);
 
 static mp_obj_t audiobiquad_biquad_obj_get_mode(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return MP_OBJ_NEW_SMALL_INT(self->config.mode);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_get_mode_obj,
@@ -184,6 +191,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_biquad_get_mode_obj,
 static mp_obj_t audiobiquad_biquad_obj_set_mode(mp_obj_t self_in,
     mp_obj_t value) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     biquad_set_mode(self, mp_obj_get_int(value));
     return mp_const_none;
 }
@@ -199,6 +207,7 @@ MP_PROPERTY_GETSET(audiobiquad_biquad_mode_obj,
 // not move an LFO along.
 static mp_obj_t audiobiquad_biquad_obj_get_coefficients(mp_obj_t self_in) {
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     biquad_refresh(self);
     mp_obj_t items[5] = {
         mp_obj_new_float((mp_float_t)self->config.b0),

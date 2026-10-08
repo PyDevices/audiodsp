@@ -158,6 +158,7 @@ static mp_obj_t audioecho_feedback_delay_make_new(const mp_obj_type_t *type,
 static mp_obj_t audioecho_feedback_delay_play(mp_obj_t self_in,
     mp_obj_t sample) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     (void)audiosample_check(sample);
     audiodsp_pump_lock_acquire();
     self->source = sample;
@@ -172,6 +173,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audioecho_feedback_delay_play_obj,
 static mp_obj_t audioecho_feedback_delay_set(size_t n_args,
     const mp_obj_t *args, mp_map_t *kw_args) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     (void)n_args;
     feedback_delay_apply_kwargs(self, kw_args);
     return mp_const_none;
@@ -181,6 +183,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioecho_feedback_delay_set_obj, 1,
 
 static mp_obj_t audioecho_feedback_delay_clear(mp_obj_t self_in) {
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_pump_lock_acquire();
     audiodsp_feedback_delay_reset(&self->state, &self->config);
     audiodsp_pump_lock_release();
@@ -280,6 +283,11 @@ static mp_obj_t audioecho_feedback_delay_deinit(mp_obj_t self_in) {
     self->wow_shape = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    // The line goes at the next collection rather than when the object does:
+    // it is the node's whole allocation, and a class that keeps a reference
+    // to a released node should not go on holding it. Clearing the one
+    // pointer to it is what releases it.
+    self->state.line = NULL;
     audiodsp_pump_lock_release();
     return mp_const_none;
 }

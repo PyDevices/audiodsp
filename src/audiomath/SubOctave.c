@@ -95,6 +95,7 @@ static mp_obj_t audiomath_suboctave_make_new(const mp_obj_type_t *type,
 
 static mp_obj_t audiomath_suboctave_play(mp_obj_t self_in, mp_obj_t sample) {
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiosample_base_t *base = audiosample_check(sample);
     if (base->channel_count != self->base.channel_count) {
         mp_raise_ValueError(MP_ERROR_TEXT(
@@ -116,6 +117,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiomath_suboctave_play_obj,
 static mp_obj_t audiomath_suboctave_set(size_t n_args, const mp_obj_t *args,
     mp_map_t *kw_args) {
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     (void)n_args;
     for (size_t i = 0; i < kw_args->alloc; ++i) {
         if (!mp_map_slot_is_filled(kw_args, i)) {
@@ -137,6 +139,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audiomath_suboctave_set_obj, 1,
 
 static mp_obj_t audiomath_suboctave_clear(mp_obj_t self_in) {
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_pump_lock_acquire();
     audiodsp_suboctave_reset(&self->state);
     audiodsp_pump_lock_release();

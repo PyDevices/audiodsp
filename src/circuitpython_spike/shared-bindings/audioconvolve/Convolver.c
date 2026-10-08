@@ -168,6 +168,7 @@ static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
 static mp_obj_t audioconvolve_convolver_play(mp_obj_t self_in,
     mp_obj_t sample) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     (void)audiosample_check(sample);
     self->source = sample;
     self->pending = NULL;
@@ -185,6 +186,7 @@ MP_DEFINE_CONST_FUN_OBJ_2(audioconvolve_convolver_play_obj,
 static mp_obj_t audioconvolve_convolver_set(size_t n_args,
     const mp_obj_t *args, mp_map_t *kw_args) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     (void)n_args;
     for (size_t i = 0; i < kw_args->alloc; ++i) {
         if (!mp_map_slot_is_filled(kw_args, i)) {
@@ -223,6 +225,7 @@ static mp_obj_t audioconvolve_convolver_load(size_t n_args,
         { MP_QSTR_gain, MP_ARG_OBJ, { .u_obj = MP_ROM_NONE } },
     };
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     mp_arg_val_t parsed[MP_ARRAY_SIZE(allowed)];
     mp_arg_parse_all(n_args - 1, args + 1, kw_args, MP_ARRAY_SIZE(allowed),
         allowed, parsed);
@@ -287,6 +290,7 @@ static mp_obj_t audioconvolve_convolver_synthesize(size_t n_args,
         { MP_QSTR_seed, MP_ARG_INT, { .u_int = 1 } },
     };
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     mp_arg_val_t parsed[MP_ARRAY_SIZE(allowed)];
     mp_arg_parse_all(n_args - 1, args + 1, kw_args, MP_ARRAY_SIZE(allowed),
         allowed, parsed);
@@ -312,6 +316,7 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_synthesize_obj, 1,
 //|         ...
 static mp_obj_t audioconvolve_convolver_clear(mp_obj_t self_in) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_convolve_reset(&self->state, &self->config);
     return mp_const_none;
 }
@@ -323,6 +328,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_clear_obj,
 //|     Zero means the convolver is passing its input through."""
 static mp_obj_t audioconvolve_convolver_get_taps(mp_obj_t self_in) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return MP_OBJ_NEW_SMALL_INT(self->state.loaded * AUDIODSP_CONVOLVE_FRAMES);
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_get_taps_obj,
@@ -342,6 +348,7 @@ static mp_obj_t audioconvolve_convolver_get_latency(mp_obj_t self_in) {
     // (audiodsp#44). The MicroPython binding was fixed on 2026-09-09 and this
     // copy was not, which is audiodsp#75.
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return MP_OBJ_NEW_SMALL_INT(
         self->state.loaded != 0 ? AUDIODSP_CONVOLVE_FRAMES : 0);
 }
@@ -361,7 +368,12 @@ static mp_obj_t audioconvolve_convolver_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    // Every pointer into the kernel's storage goes, and the collector takes
+    // it back at its next pass. Dropping `storage` alone never released it:
+    // the state's first carved pointer is the start of the same block
+    // (audiodsp#176, #181).
     self->storage = NULL;
+    memset(&self->state, 0, sizeof(self->state));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_deinit_obj, audioconvolve_convolver_deinit);

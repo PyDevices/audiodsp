@@ -111,6 +111,7 @@ static mp_obj_t audiomodal_bank_make_new(const mp_obj_type_t *type,
 
 static mp_obj_t audiomodal_bank_play(mp_obj_t self_in, mp_obj_t sample) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     (void)audiosample_check(sample);
     audiodsp_pump_lock_acquire();
     self->source = sample;
@@ -125,6 +126,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiomodal_bank_play_obj,
 static mp_obj_t audiomodal_bank_set(size_t n_args, const mp_obj_t *args,
     mp_map_t *kw_args) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     (void)n_args;
     modal_apply_kwargs(self, kw_args);
     return mp_const_none;
@@ -138,6 +140,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audiomodal_bank_set_obj, 1,
 static mp_obj_t audiomodal_bank_set_mode(size_t n_args,
     const mp_obj_t *args) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     mp_int_t index = mp_obj_get_int(args[1]);
     if (index < 0 || (uint32_t)index >= self->config.mode_count) {
         mp_raise_msg_varg(&mp_type_IndexError,
@@ -157,6 +160,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiomodal_bank_set_mode_obj, 5, 5,
 // partials is a dozen calls.
 static mp_obj_t audiomodal_bank_set_modes(mp_obj_t self_in, mp_obj_t table) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     size_t count = 0;
     mp_obj_t *rows = NULL;
     mp_obj_get_array(table, &count, &rows);
@@ -191,6 +195,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiomodal_bank_set_modes_obj,
 
 static mp_obj_t audiomodal_bank_clear(mp_obj_t self_in) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_pump_lock_acquire();
     audiodsp_modal_reset(&self->state);
     audiodsp_pump_lock_release();
@@ -204,6 +209,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_clear_obj,
 // voice allocator can ask "has this drum stopped?" and be told the truth.
 static mp_obj_t audiomodal_bank_obj_get_ringing(mp_obj_t self_in) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return mp_obj_new_bool(!audiodsp_modal_silent(&self->state));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_get_ringing_obj,
@@ -213,6 +219,7 @@ MP_PROPERTY_GETTER(audiomodal_bank_ringing_obj,
 
 static mp_obj_t audiomodal_bank_obj_get_modes(mp_obj_t self_in) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return MP_OBJ_NEW_SMALL_INT(self->config.mode_count);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_get_modes_obj,

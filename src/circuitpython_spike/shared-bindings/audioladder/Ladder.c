@@ -152,6 +152,7 @@ static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
 //|         ...
 static mp_obj_t audioladder_ladder_play(mp_obj_t self_in, mp_obj_t sample) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     (void)audiosample_check(sample);
     self->source = sample;
     self->pending = NULL;
@@ -169,6 +170,7 @@ MP_DEFINE_CONST_FUN_OBJ_2(audioladder_ladder_play_obj,
 static mp_obj_t audioladder_ladder_set(size_t n_args, const mp_obj_t *args,
     mp_map_t *kw_args) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     (void)n_args;
     ladder_apply_kwargs(self, kw_args);
     return mp_const_none;
@@ -184,6 +186,7 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioladder_ladder_set_obj, 1,
 //|
 static mp_obj_t audioladder_ladder_clear(mp_obj_t self_in) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_ladder_reset(&self->state);
     return mp_const_none;
 }
