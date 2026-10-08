@@ -1,7 +1,7 @@
 // audiodynamics.Dynamics for CircuitPython. See audiodsp's
 // src/audiodynamics/Dynamics.h for the MicroPython twin; the DSP is the same
-// shared/audiodsp_dynamics.c in both, copied into this tree by
-// audiodsp/apply_cp_patches.sh.
+// shared/audiodsp_dynamics.c in both, built into CircuitPython by
+// audiodsp's circuitpython.mk.
 //
 // SPDX-License-Identifier: MIT
 

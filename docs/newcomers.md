@@ -89,8 +89,8 @@ CircuitPython-compatible public API. This is why `import synthio` is portable
 without importing a package named `audiodsp` first.
 
 CircuitPython is an oracle and an extension target, not a working tree to
-edit. `apply_cp_patches.sh` can add audiodsp-owned modules to a CircuitPython
-tree, but stock behavior is not changed there. Read
+edit. audiodsp-owned modules build into CircuitPython as a user C module
+(`circuitpython.mk`), but stock behavior is not changed there. Read
 [the correctness standard](correctness-standard.md) before any parity- or
 CircuitPython-adjacent work.
 

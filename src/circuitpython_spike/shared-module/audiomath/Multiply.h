@@ -1,6 +1,6 @@
 // audiomath.Multiply for CircuitPython. See audiodsp's src/audiomath/Multiply.h
 // for the MicroPython twin; the DSP is the same shared/audiodsp_multiply.c in
-// both, copied into this tree by audiodsp/apply_cp_patches.sh.
+// both, built into CircuitPython by audiodsp's circuitpython.mk.
 //
 // SPDX-License-Identifier: MIT
 

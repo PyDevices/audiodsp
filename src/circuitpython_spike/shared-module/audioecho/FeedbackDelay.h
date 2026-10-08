@@ -1,7 +1,7 @@
 // audioecho.FeedbackDelay for CircuitPython. See audiodsp's
 // src/audioecho/FeedbackDelay.h for the MicroPython twin; the DSP is the same
-// shared/audiodsp_feedback_delay.c in both, copied into this tree by
-// audiodsp/apply_cp_patches.sh.
+// shared/audiodsp_feedback_delay.c in both, built into CircuitPython by
+// audiodsp's circuitpython.mk.
 //
 // SPDX-License-Identifier: MIT
 

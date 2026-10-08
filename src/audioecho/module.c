@@ -5,8 +5,8 @@
 // extension of `audiodelays.Echo` but a second delay that has a filter, a
 // soft-clip and a cross-feed inside its feedback loop. Adding those to
 // `Echo` would have made audiodsp's copy of a CircuitPython module diverge
-// from the one on a stock board, which is the one thing apply_cp_patches.sh
-// is built to avoid.
+// from the one on a stock board, which is the one thing audiodsp's CircuitPython build
+// is designed to avoid.
 //
 // SPDX-License-Identifier: MIT
 

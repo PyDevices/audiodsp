@@ -7,7 +7,7 @@
 // pair of kernels whose state is float and whose tail therefore reaches
 // exact zero. Adding that to the ported classes would have made audiodsp's
 // copy of a CircuitPython module diverge from the one on a stock board,
-// which is the one thing apply_cp_patches.sh is built to avoid.
+// which is the one thing audiodsp's CircuitPython build is designed to avoid.
 //
 // The mode constants are here rather than on the class so that
 // `audiobiquad.NOTCH` reads the way `synthio.FilterMode.NOTCH` does; the

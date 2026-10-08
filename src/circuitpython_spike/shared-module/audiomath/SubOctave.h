@@ -1,7 +1,7 @@
 // audiomath.SubOctave for CircuitPython. See audiodsp's
 // src/audiomath/SubOctave.h for the MicroPython twin; the DSP is the same
-// shared/audiodsp_suboctave.c in both, copied into this tree by
-// audiodsp/apply_cp_patches.sh.
+// shared/audiodsp_suboctave.c in both, built into CircuitPython by
+// audiodsp's circuitpython.mk.
 //
 // SPDX-License-Identifier: MIT
 

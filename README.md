@@ -148,8 +148,7 @@ Every one of them builds into CircuitPython 11 too, as a user C module from
 this repository's `micropython.mk` (`make BOARD=... USER_C_MODULES=/path/to/audiodsp`
 in a CircuitPython port), and plays through CircuitPython's own `audiobusio`,
 `audioio` and `audiopwmio`; there, `audiocore`, `synthio`, `audiomixer` and the
-effects modules stay CircuitPython's. (`apply_cp_patches.sh` adds them to a
-CircuitPython tree the older way.) `audiometer` (band levels for a spectrum
+effects modules stay CircuitPython's. `audiometer` (band levels for a spectrum
 meter, below) is ours as well, and is the one CircuitPython doesn't get: its
 sources are a board's pump and usbif's sound card, and CircuitPython has
 neither.

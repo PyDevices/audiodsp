@@ -35,10 +35,11 @@ for source compatibility; only this repo's own name differs.
   [audiocomponents](https://github.com/PyDevices/audiocomponents) now, as
   their own distributions depending on `pydevices-audiodsp`; nothing in this
   repository builds, tests, publishes or freezes them.
-- `apply_cp_patches.sh` + `src/circuitpython_spike/` — add `audiodynamics`,
+- `circuitpython.mk` + `src/circuitpython_spike/` — build `audiodynamics`,
   `audioroute`, `audiomath`, `audioecho`, `audioshaper`, `audioladder`,
-  `audioconvolve`, `audiobiquad`, `audioverb` and `audiomodal` to a
-  CircuitPython tree. None of the ten is a CircuitPython port: the first
+  `audioconvolve`, `audiobiquad`, `audioverb` and `audiomodal` into
+  CircuitPython 11 as a user C module (`micropython.mk` hands a CircuitPython
+  tree to `circuitpython.mk`). None of the ten is a CircuitPython port: the first
   two come from micropython-vst3's `vstaudio` engine and the last eight are
   audiodsp's own, so CircuitPython gains them here rather than the other
   way round.
@@ -182,19 +183,20 @@ of this repository in the parent workspace, same pattern as
 
 ## The CircuitPython oracle — extend, never modify
 
-`../circuitpython` (the sibling checkout, detached at tag `10.3.0`) is the
-**oracle** every parity golden is measured against. The rule, for any agent
-working here:
+CircuitPython at the tag in `CIRCUITPYTHON_ORACLE` is the **oracle** every
+parity golden is measured against. The rule, for any agent working here:
 
 - **The oracle binary is `bin/circuitpython-oracle-<version>` beside the sibling checkouts**,
   built only by the interpreter build script's `--only cp-oracle` (CircuitPython's unix
-  coverage variant at `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64`) and re-pinned in
+  coverage variant at `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64`, with this repository as
+  its only audio user C module, through micropython-pydevices' `build_mp.py
+  --interpreter circuitpython`) and re-pinned in
   `tests/test_voice_ceiling_consistency.py` in the same change that builds it.
   **`bin/circuitpython` is not the oracle** — it is what that script's
   `cp-unix` target installs, at the coverage variant's own 14-voice ceiling,
   and it changes under you whenever anyone refreshes the interpreters
   (audiodsp#89, twice in eight days).
-- **Never edit files in `../circuitpython` directly.** A modified oracle
+- **Never edit CircuitPython's own sources for the oracle.** A modified oracle
   silently redefines what "parity" means and invalidates every golden without
   failing anything. Its *pin* is a different matter: it moves when this port
   moves to a new CircuitPython release, deliberately, in a change that re-reads
@@ -204,24 +206,17 @@ working here:
   worth asking. See `docs/correctness-standard.md` and
   `tests/test_voice_ceiling_consistency.py`.
 - **Extending CircuitPython is fine and is the designed path**: new modules
-  live in this repo under `src/circuitpython_spike/`, and
-  `apply_cp_patches.sh` copies them (plus `src/shared/` DSP) into the CP
-  tree. The script is **additive-only by design** — it adds files and
-  registers them in build glue; the sole stock-file rewrite it performs is
-  the fenced audiocore `'B'`-memoryview patch. Do not add non-additive
-  rewrites to it: the interpreter build script runs this script before
-  building `bin/circuitpython`, so a behavioral rewrite would leak *into*
-  the oracle.
+  live in this repo under `src/circuitpython_spike/` and build, with
+  `src/shared/` DSP, as a user C module (`circuitpython.mk`). That is
+  **additive-only by design**: it adds modules CircuitPython lacks and touches
+  none of its own. Never make it shadow or rewrite a CircuitPython module,
+  because the oracle is built with it, so a behavioral change would leak
+  *into* the oracle.
 - Fixes to bugs that also exist upstream go in **this repo's targets only**
   (MicroPython/CPython/`src/shared/`), recorded in `docs/upstream-diff.md`
   — never into the CP tree. Approved deviations from the oracle are
   enumerated there; **ask before adding one**.
-- Quick self-check after any CP-adjacent work:
-  `CP_DIR=../circuitpython ./apply_cp_patches.sh --status` must account
-  for every difference (bare, the script no longer finds the tree here and
-  says `CircuitPython tree not found (set CP_DIR)`), and
-  `git -C ../circuitpython status` must show only the known additive
-  set (new module dirs, build glue, the fenced audiocore rewrite) — no
-  changes under `shared-module/`/`shared-bindings/` for `synthio`,
-  `audiofilters`, `audiocore` (beyond the fence), `audiomixer`, or
-  `audiodelays`.
+- Quick self-check after any CP-adjacent work: `circuitpython.mk` compiles
+  only the ten modules above and `src/shared/`, never a file under
+  CircuitPython's own `shared-module/` or `shared-bindings/` for `synthio`,
+  `audiofilters`, `audiocore`, `audiomixer` or `audiodelays`.

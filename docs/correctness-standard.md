@@ -44,9 +44,9 @@ all of them observed in this repository rather than imagined:
 ## Which nodes are which
 
 The dividing line is not "did we write the C". It is whether **upstream
-CircuitPython** ships the module. Both kinds are present in
-`cmods/circuitpython`, and `git ls-files` tells them apart: ours are patched in
-by `apply_cp_patches.sh` and are untracked there.
+CircuitPython** ships the module. Both kinds are present in the oracle
+binary: CircuitPython's from its own tree, ours from this repository as a user
+C module (`circuitpython.mk` lists exactly which).
 
 | CircuitPython's own — held to CP's bytes | Ours alone — no external reference |
 |---|---|

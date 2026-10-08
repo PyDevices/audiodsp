@@ -1,6 +1,6 @@
 // audioroute.Splitter for CircuitPython. See audiodsp's src/audioroute/ for
 // the MicroPython twin; the ring is the same shared/audiodsp_splitter.c in
-// both, copied into this tree by audiodsp/apply_cp_patches.sh.
+// both, built into CircuitPython by audiodsp's circuitpython.mk.
 //
 // SPDX-License-Identifier: MIT
 
