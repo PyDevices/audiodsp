@@ -157,6 +157,9 @@ PROBES = (
     # first block differently on CPython than on every native build.
     # audiodsp#89.
     ("mixer_borrowed_block_probe.py", "audiomixer", {}, None),
+    # A level move forced at the end of each stretch of a short source
+    # buffer, not once per block (audiodsp#178).
+    ("mixer_short_buffer_probe.py", "audiomixer", {}, None),
     ("tank_probe.py", "audioverb", {}, None),
     # The node's own state: Tone out and back through 0 (#168) and the
     # network re-cut in place on a playing node (#169). Its own file, so the
