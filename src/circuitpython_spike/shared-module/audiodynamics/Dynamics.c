@@ -37,7 +37,7 @@ audioio_get_buffer_result_t audiodynamics_dynamics_get_buffer(
             if (result == GET_BUFFER_ERROR || raw == NULL || raw_bytes < width) {
                 break;
             }
-            self->pending = (const int16_t *)raw;
+            self->pending = (const int16_t *)(const void *)raw;
             self->pending_frames = raw_bytes / width;
         }
         uint32_t run = AUDIODSP_DYNAMICS_FRAMES - produced;
@@ -59,7 +59,7 @@ audioio_get_buffer_result_t audiodynamics_dynamics_get_buffer(
                     // the detector to the audio.
                     break;
                 }
-                self->key_pending = (const int16_t *)raw;
+                self->key_pending = (const int16_t *)(const void *)raw;
                 self->key_pending_frames = raw_bytes / width;
             }
             if (run > self->key_pending_frames) {

@@ -34,7 +34,7 @@ void audioroute_splitter_pull(audioroute_splitter_obj_t *self) {
         }
     }
     const uint32_t taken = audiodsp_splitter_write(&self->state,
-        (const int16_t *)self->pending, self->pending_frames);
+        (const int16_t *)(const void *)self->pending, self->pending_frames);
     self->pending += (size_t)taken * width;
     self->pending_frames -= taken;
 }

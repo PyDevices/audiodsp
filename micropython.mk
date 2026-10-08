@@ -5,6 +5,15 @@
 # contains this repo (its parent) — see the parent workspace's own build
 # script.
 
+# A CircuitPython tree builds this repository through circuitpython.mk instead:
+# CircuitPython already has audiocore, synthio, audiomixer and the effects
+# modules, so it compiles only the modules CircuitPython lacks. Its py/ has
+# circuitpy_mpconfig.h and MicroPython's does not; that is the test, because
+# the unix port never sets a CIRCUITPY make variable.
+ifneq ($(wildcard $(TOP)/py/circuitpy_mpconfig.h),)
+include $(USERMOD_DIR)/circuitpython.mk
+else
+
 MPAUDIO_MOD_DIR := $(USERMOD_DIR)
 MPAUDIO_SRC_DIR := $(MPAUDIO_MOD_DIR)/src
 
@@ -332,3 +341,5 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiomp3/MP3Decoder.c \
     $(MPAUDIO_SRC_DIR)/audiomp3/module.c
 endif
+
+endif # not CircuitPython
