@@ -294,15 +294,10 @@ static mp_obj_t audioecho_feedback_delay_deinit(mp_obj_t self_in) {
     self->wow_shape = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    // The line is freed here rather than when the object is collected: a
-    // class that keeps a reference to a released node should not go on
-    // holding it.
-    int16_t *line = self->state.line;
-    const size_t samples = (size_t)self->config.line_frames * 2u;
+    // The line goes at the next collection rather than when the object does:
+    // a class that keeps a reference to a released node should not go on
+    // holding it. Clearing the one pointer to it is what releases it.
     self->state.line = NULL;
-    if (line != NULL) {
-        m_del(int16_t, line, samples);
-    }
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioecho_feedback_delay_deinit_obj, audioecho_feedback_delay_deinit);

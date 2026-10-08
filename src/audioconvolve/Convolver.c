@@ -346,22 +346,16 @@ static mp_obj_t audioconvolve_convolver_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    // The kernel's storage is freed here rather than left to the collector.
-    // Dropping `storage` alone never released it: the state's first carved
-    // pointer is the start of the same block, so the block stayed reachable
-    // for as long as the object did (audiodsp#176, #181). Every pointer into
-    // it is cleared inside the lock, which a deinit() holds over its whole
-    // body (audiodsp#116); the free comes after, since nothing that can reach
-    // the allocator belongs inside the lock. Every method raises once the
-    // node is released, so nothing reads the state again.
-    float *storage = self->storage;
-    const size_t floats = audiodsp_convolve_float_count(&self->config);
+    // Every pointer into the kernel's storage goes, inside the lock with the
+    // rest (audiodsp#116), and the collector takes the storage back at its
+    // next pass. Dropping `storage` alone never released it: the state's
+    // first carved pointer is the start of the same block, so the block
+    // stayed reachable for as long as the object did (audiodsp#176, #181).
+    // Every method raises once the node is released, so nothing reads the
+    // state again.
     self->storage = NULL;
     memset(&self->state, 0, sizeof(self->state));
     audiodsp_pump_lock_release();
-    if (storage != NULL) {
-        m_del(float, storage, floats);
-    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_deinit_obj, audioconvolve_convolver_deinit);

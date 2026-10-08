@@ -377,22 +377,18 @@ MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_clear_obj,
 // this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
 //
-// The lines and the predelay are freed here as well, rather than when the
-// object is collected: a plate's are about 90 KB, and a class that keeps a
+// The lines and the predelay go too, at the next collection rather than when
+// the object does: a plate's are about 90 KB, and a class that keeps a
 // reference to a released tank should not go on holding them (audiodsp#181).
+// Clearing every pointer into the block is what releases it.
 static mp_obj_t audioverb_tank_deinit(mp_obj_t self_in) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    int16_t *lines = self->state.lines[0];
-    const uint32_t samples = audiodsp_tank_buffer_samples(&self->config);
     memset(self->state.lines, 0, sizeof(self->state.lines));
     self->state.predelay = NULL;
-    if (lines != NULL) {
-        m_del(int16_t, lines, samples);
-    }
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_deinit_obj, audioverb_tank_deinit);

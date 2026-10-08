@@ -391,12 +391,12 @@ static void audioverb_tank_reset_buffer(mp_obj_t self_in,
 // of a chain lets the GC reclaim the rest of it, and every borrowed pointer
 // into a source's buffer, so nothing dangles.
 //
-// The lines and the predelay go too, freed here rather than when the object is
-// collected: a plate's are about 90 KB, and a class that keeps a reference to
-// a released tank should not go on holding them (audiodsp#181). Every pointer
-// into them is cleared under the lock, and the free comes after it, since
-// nothing that can reach the allocator belongs inside the lock. Every method
-// raises once the node is released, so nothing reads them again.
+// The lines and the predelay go too, at the next collection rather than when
+// the object does: a plate's are about 90 KB, and a class that keeps a
+// reference to a released tank should not go on holding them (audiodsp#181).
+// Clearing every pointer into the block is what releases it, so nothing here
+// calls the allocator while the lock is held. Every method raises once the
+// node is released, so nothing reads the lines again.
 static mp_obj_t audioverb_tank_deinit(mp_obj_t self_in) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiodsp_pump_lock_acquire();
@@ -404,14 +404,9 @@ static mp_obj_t audioverb_tank_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    int16_t *lines = self->state.lines[0];
-    const uint32_t samples = audiodsp_tank_buffer_samples(&self->config);
     memset(self->state.lines, 0, sizeof(self->state.lines));
     self->state.predelay = NULL;
     audiodsp_pump_lock_release();
-    if (lines != NULL) {
-        m_del(int16_t, lines, samples);
-    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_deinit_obj, audioverb_tank_deinit);
