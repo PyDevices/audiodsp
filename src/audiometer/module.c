@@ -134,8 +134,8 @@ static mp_obj_t audiometer_meter_make_new(const mp_obj_type_t *type, size_t n_ar
         mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("audiometer: no memory for the meter"));
     }
     audiometer_configure_args(self, a[ARG_bands].u_int,
-        a[ARG_low_hz].u_obj == mp_const_none ? mp_obj_new_float(35.0f) : a[ARG_low_hz].u_obj,
-        a[ARG_high_hz].u_obj == mp_const_none ? mp_obj_new_float(20000.0f) : a[ARG_high_hz].u_obj);
+        a[ARG_low_hz].u_obj == mp_const_none ? mp_obj_new_float(MICROPY_FLOAT_CONST(35.0)) : a[ARG_low_hz].u_obj,
+        a[ARG_high_hz].u_obj == mp_const_none ? mp_obj_new_float(MICROPY_FLOAT_CONST(20000.0)) : a[ARG_high_hz].u_obj);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -152,8 +152,8 @@ static mp_obj_t audiometer_meter_configure(size_t n_args, const mp_obj_t *pos, m
     mp_arg_parse_all(n_args, pos, kw, MP_ARRAY_SIZE(allowed), allowed, a);
     audiometer_meter_obj_t *self = audiometer_get(a[ARG_self].u_obj);
     audiometer_configure_args(self, a[ARG_bands].u_int,
-        a[ARG_low_hz].u_obj == mp_const_none ? mp_obj_new_float(35.0f) : a[ARG_low_hz].u_obj,
-        a[ARG_high_hz].u_obj == mp_const_none ? mp_obj_new_float(20000.0f) : a[ARG_high_hz].u_obj);
+        a[ARG_low_hz].u_obj == mp_const_none ? mp_obj_new_float(MICROPY_FLOAT_CONST(35.0)) : a[ARG_low_hz].u_obj,
+        a[ARG_high_hz].u_obj == mp_const_none ? mp_obj_new_float(MICROPY_FLOAT_CONST(20000.0)) : a[ARG_high_hz].u_obj);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audiometer_meter_configure_obj, 2, audiometer_meter_configure);
