@@ -1,3 +1,15 @@
+## v0.6.4 (2026-10-08)
+
+- CI: run once per change, and skip documentation-only changes (#192)
+- audiopump on CPython: the service-mode engine, with the native module's names and bytes (#190)
+- Comments: reword notes for users (#188)
+- Add ROADMAP.md for planned work, and make public text stand on its own (#187)
+- Release PRs from publishing-v13: the description says what the PR changes and what merging does
+- audiometer: band levels for a spectrum meter, out of usbif (#186)
+- ci: bump actions/checkout (#175)
+- Fetch Adafruit_MP3 at its pin when it's missing, instead of stopping: a fresh clone builds outside any workspace (#185)
+- audiodsp brings no ulab: a build that wants ulab names it (#184)
+
 ## v0.6.3 (2026-09-29)
 
 - The same code as v0.6.3rc3. What changed since v0.6.2 is listed under the three release candidates below.
@@ -656,4 +668,3 @@ retires the last ceiling deviation. See
 - clean-build: USER_C_MODULES is the parent directory of the module
 - Standalone builds: pinned deps, owned patch queue, clean-build CI
 - Declare the CircuitPython oracle pin in a checked-in file
-
