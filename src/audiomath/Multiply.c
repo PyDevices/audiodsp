@@ -208,13 +208,12 @@ static void audiomath_multiply_reset_buffer(mp_obj_t self_in,
     bool single_channel_output, uint8_t channel) {
     (void)single_channel_output;
     (void)channel;
-    audiomath_multiply_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    self->pending_source = NULL;
-    self->pending_source_frames = 0;
-    // The modulator's cursor goes too, so a chain restarted mid-cycle begins
-    // at the top of the table rather than wherever it happened to stop.
-    self->pending_modulator = NULL;
-    self->pending_modulator_frames = 0;
+    (void)self_in;
+    // Nothing to clear: the product holds nothing between frames. The frames
+    // already taken from the source and from the modulator are kept, the rule
+    // CircuitPython's effects follow for a host reset: neither input was
+    // reset, so dropping them would skip that much of it and shift the
+    // modulator against the source.
 }
 
 // `deinit()` releases what this binding holds and marks the node

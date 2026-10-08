@@ -9,13 +9,13 @@
 
 void audioroute_midside_reset_buffer(audioroute_midside_obj_t *self,
     bool single_channel_output, uint8_t channel) {
+    (void)self;
     (void)single_channel_output;
     (void)channel;
-    // The cursor is all there is to reset: the matrix carries no state
-    // between frames, so a restarted chain has nothing of the last take in
-    // it and no filter or line to empty.
-    self->pending = NULL;
-    self->pending_frames = 0;
+    // Nothing to clear: the matrix carries no state between frames. The
+    // frames already taken from the source are kept, the rule CircuitPython's
+    // effects follow for a host reset: the source was not reset, so dropping
+    // them would skip that much of it.
 }
 
 audioio_get_buffer_result_t audioroute_midside_get_buffer(

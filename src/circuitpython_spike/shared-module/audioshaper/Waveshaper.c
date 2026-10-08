@@ -11,8 +11,10 @@ void audioshaper_waveshaper_reset_buffer(audioshaper_waveshaper_obj_t *self,
     bool single_channel_output, uint8_t channel) {
     (void)single_channel_output;
     (void)channel;
-    self->pending = NULL;
-    self->pending_frames = 0;
+    // A host reset clears what this node holds of its own and keeps the
+    // source frames it has already taken, the rule CircuitPython's effects
+    // follow and the one clear() always had: the source was not reset, so
+    // dropping them would skip that much of it.
     audiodsp_shaper_reset(&self->state);
 }
 

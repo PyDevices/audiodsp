@@ -212,6 +212,11 @@ PROBES = (
     ("multitap_time_probe.py", "audiodelays", {}, None),
     ("feedback_delay_frames_probe.py", "audioecho", {}, None),
     ("freeverb_filter_probe.py", "audiofreeverb", {}, None),
+    # A host reset mid-stream clears each node's own state and keeps the
+    # source frames it has already taken, as CircuitPython's effects do
+    # (audiodsp#181). The probe asserts it per node, and the PCM it prints
+    # holds the interpreters to the same bytes after the reset.
+    ("host_reset_probe.py", "audiocore", {}, None),
 )
 
 

@@ -244,8 +244,10 @@ static void audiobiquad_allpass_reset_buffer(mp_obj_t self_in,
     (void)single_channel_output;
     (void)channel;
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    self->pending = NULL;
-    self->pending_frames = 0;
+    // A host reset clears what this node holds of its own and keeps the
+    // source frames it has already taken, the rule CircuitPython's effects
+    // follow and the one clear() always had: the source was not reset, so
+    // dropping them would skip that much of it.
     audiodsp_allpass_f32_reset(&self->state);
 }
 

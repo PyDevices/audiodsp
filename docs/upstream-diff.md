@@ -1,5 +1,34 @@
 # Deltas from upstream CircuitPython
 
+## A host reset keeps the frames a node has already taken (audiodsp#181)
+
+`audiocore.reset_buffer(node)` clears what the node holds of its own, its
+history, its tail and its filter memory, and keeps the source frames it has
+already taken from its source. That is what CircuitPython's own effects
+(`Echo`, `Filter`, `MultiTapDelay` and the rest) do on a reset, in 10.3.0 and
+in 11.0.0-alpha.1, and what `clear()` always did here. The source is not
+reset, so a node that dropped its held frames skipped that much of it: 256
+frames with 512-frame source buffers, and a `RawSample` that had handed out
+its one buffer started again from the top.
+
+Until 2026-10-08 every node audiodsp wrote dropped them: `AllPass`, `Biquad`,
+`Convolver`, `Dynamics` (its key's frames too), `FeedbackDelay`, `Ladder`,
+`Multiply` (its modulator's frames too), `SubOctave`, `Bank`, `MidSide`,
+`Waveshaper` and `Tank`, on all three bindings. They keep them now.
+`SplitterTap` and `Port` never held frames of their own: a tap does nothing
+on a reset, and a port forwards it.
+
+`SampleHold` keeps its rewind, on purpose. It ends when its source ends and
+reports that end as its own, like CircuitPython's `audiospeed.SpeedChanger`,
+which rewinds its source on a reset too. A host that loops it starts it again
+with a reset, so a `SampleHold` that kept its place would loop nothing.
+
+Only a render with a reset in the middle of a stream moves. Verified by
+`tests/parity/host_reset_probe.py` through `verify_dsp.py`: each node is reset
+one block in and must render what a fresh node renders from the frames the
+first block had not used. On a build from before the change every one of the
+twelve fails it.
+
 ## `audiospeed`: the Q16 rate rounds here, upstream truncates (audiodsp#92)
 
 CircuitPython 10.3.0 converts a rate to 16.16 fixed point with a cast
@@ -1013,10 +1042,11 @@ Details worth recording:
   line that lands on the target exactly, so a static depth renders the same
   bytes it always did. Landing at once moved the read head by the whole
   change between two samples.
-- **`reset_buffer` really does drop everything**, unlike `audiodynamics`,
-  which keeps its sidechain filter and last gain. A delay's whole state is
-  audible: a chain restarted with the old repeats still in the line plays the
-  previous take over the new one.
+- **`reset_buffer` clears all of the node's own state**, unlike
+  `audiodynamics`, which keeps its sidechain filter and last gain. A delay's
+  whole state is audible: a chain restarted with the old repeats still in the
+  line plays the previous take over the new one. The source frames the node
+  has already taken are kept, as for every node (audiodsp#181).
 
 Verified by `tests/parity/feedback_delay_probe.py` through `verify_dsp.py`,
 with no oracle -- the golden is captured from the port. That is a weaker
@@ -2028,7 +2058,8 @@ that says so.
   is not a room, it is three rooms.
 - **`reset_buffer` drops the history and keeps the impulse.** One is audio in
   flight; the other is a setting, and reloading a room because playback
-  restarted would be both wrong and expensive.
+  restarted would be both wrong and expensive. The source frames already
+  taken are kept too (audiodsp#181).
 
 ### What it costs, which is the whole story on a board
 
@@ -2568,8 +2599,8 @@ between the channels; `midside_probe.py` holds that to 1 LSB per frame at
 every width, below the clamp.
 
 **Latency and state: none of either.** No line, no filter, no accumulator, so
-a block boundary is not observable, `reset_buffer` has only the source cursor
-to drop, and no option can add latency later without changing what the class
+a block boundary is not observable, `reset_buffer` has nothing to clear (the
+source frames already taken are kept, audiodsp#181), and no option can add latency later without changing what the class
 is. That is the trait a `FeedbackDelay` composition cannot hold: its delay
 clamps at one frame (`audiodsp_feedback_delay.c:81-83`).
 
@@ -2664,7 +2695,8 @@ Four things worth recording:
 
 - **`reset_buffer` restarts the count.** The divider holds no audio, so
   unlike a delay's reset this drops nothing anybody can hear; what it stops
-  is a restarted chain beginning on the inverted half of the count.
+  is a restarted chain beginning on the inverted half of the count. The
+  source frames already taken are kept (audiodsp#181).
 
 Verified by `tests/parity/suboctave_probe.py` through `verify_dsp.py`, with
 no oracle -- the golden is captured from the port under CPython and what it
@@ -3219,8 +3251,9 @@ Six details worth recording:
   `diffusion=0.75` therefore reproduces his 0.75 / 0.625 / 0.70 / 0.50
   exactly, and the knob moves all four together the way a diffusion control is
   expected to.
-- **`reset_buffer` really does drop everything**, unlike `audiodynamics`. A
-  reverberation tail is entirely state: a chain restarted with the old tail
+- **`reset_buffer` clears all of the node's own state**, unlike
+  `audiodynamics`, and keeps the source frames already taken
+  (audiodsp#181). A reverberation tail is entirely state: a chain restarted with the old tail
   still in the lines plays the previous take underneath the new one. And, like
   `audioecho.FeedbackDelay`, the lines only advance for frames that arrive --
   a starved chain gets silence and the tail stops with the source rather than
@@ -3258,9 +3291,9 @@ Six details worth recording:
   (a new public method, and a pointer into the source's memory handed across
   objects); and the old node leaving its frames somewhere a new node playing
   the same source would find them (hidden state shared between objects, and
-  wrong the moment anything pulls the source in between). `reset_buffer`
-  still drops the held frames, as every node in the family does;
-  `clear()` has always kept them.
+  wrong the moment anything pulls the source in between). Since
+  audiodsp#181 `reset_buffer` keeps the held frames too, as every node does;
+  `clear()` always kept them.
 
 **What it costs.** Counted from the source, with everything switched on and
 the default 14-tap table: about 62 multiplies per stereo frame -- input

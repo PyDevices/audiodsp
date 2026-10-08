@@ -369,11 +369,13 @@ static void audioverb_tank_reset_buffer(mp_obj_t self_in,
     (void)single_channel_output;
     (void)channel;
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    self->pending = NULL;
-    self->pending_frames = 0;
-    // Unlike audiodynamics, everything goes. A reverberation tail is entirely
-    // state: a chain restarted with the old tail still in the lines plays the
-    // previous take underneath the new one.
+    // A host reset clears what this node holds of its own and keeps the
+    // source frames it has already taken, the rule CircuitPython's effects
+    // follow and the one clear() always had: the source was not reset, so
+    // dropping them would skip that much of it.
+    // Unlike audiodynamics, all of its own state goes. A reverberation tail is
+    // entirely state: a chain restarted with the old tail still in the lines
+    // plays the previous take underneath the new one.
     audiodsp_tank_reset(&self->state, &self->config);
 }
 

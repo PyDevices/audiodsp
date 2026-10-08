@@ -198,8 +198,10 @@ static void audiomath_suboctave_reset_buffer(mp_obj_t self_in,
     (void)single_channel_output;
     (void)channel;
     audiomath_suboctave_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    self->pending = NULL;
-    self->pending_frames = 0;
+    // A host reset clears what this node holds of its own and keeps the
+    // source frames it has already taken, the rule CircuitPython's effects
+    // follow and the one clear() always had: the source was not reset, so
+    // dropping them would skip that much of it.
     // The divider holds no audio, so unlike a delay this drops nothing
     // anybody can hear; what it stops is a restarted chain beginning on the
     // inverted half of the count.

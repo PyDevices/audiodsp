@@ -15,6 +15,11 @@
 # flag somebody could forget to pass.
 src/shared/audiodsp_fp_contract.h	shared/audiodsp_fp_contract.h
 
+# The placement knob the pump's per-block path takes (audiodsp_hot.h): the
+# FFT under the convolver includes it, so the CircuitPython build does not
+# compile without it.
+src/shared/audiodsp_hot.h	shared/audiodsp_hot.h
+
 src/shared/audiodsp_dynamics.h	shared/audiodsp_dynamics.h
 src/shared/audiodsp_dynamics.c	shared/audiodsp_dynamics.c
 src/shared/audiodsp_splitter.h	shared/audiodsp_splitter.h

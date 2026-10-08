@@ -9,14 +9,14 @@
 
 void audiomath_multiply_reset_buffer(audiomath_multiply_obj_t *self,
     bool single_channel_output, uint8_t channel) {
+    (void)self;
     (void)single_channel_output;
     (void)channel;
-    self->pending_source = NULL;
-    self->pending_source_frames = 0;
-    // The modulator's cursor goes too, so a chain restarted mid-cycle begins
-    // at the top of the table rather than wherever it happened to stop.
-    self->pending_modulator = NULL;
-    self->pending_modulator_frames = 0;
+    // Nothing to clear: the product holds nothing between frames. The frames
+    // already taken from the source and from the modulator are kept, the rule
+    // CircuitPython's effects follow for a host reset: neither input was
+    // reset, so dropping them would skip that much of it and shift the
+    // modulator against the source.
 }
 
 audioio_get_buffer_result_t audiomath_multiply_get_buffer(

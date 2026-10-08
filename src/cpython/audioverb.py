@@ -184,9 +184,12 @@ class Tank(_AudioSample):
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
-        self._pending = b""
-        # Unlike audiodynamics, everything goes. A reverberation tail is
-        # entirely state: a chain restarted with the old tail still in the
+        # A host reset clears what this node holds of its own and keeps the
+        # source frames it has already taken, the rule CircuitPython's effects
+        # follow and the one clear() always had: the source was not reset, so
+        # dropping them would skip that much of it.
+        # Unlike audiodynamics, all of its own state goes. A reverberation tail
+        # is entirely state: a chain restarted with the old tail still in the
         # lines plays the previous take underneath the new one.
         self._state.reset()
 

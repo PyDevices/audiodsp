@@ -150,7 +150,10 @@ class _Node(_AudioSample):
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
-        self._pending = b""
+        # A host reset clears what this node holds of its own and keeps the
+        # source frames it has already taken, the rule CircuitPython's effects
+        # follow and the one clear() always had: the source was not reset, so
+        # dropping them would skip that much of it.
         self._state.reset()
 
     def _refresh(self):

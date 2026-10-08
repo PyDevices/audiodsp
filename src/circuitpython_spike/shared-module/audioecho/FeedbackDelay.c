@@ -12,10 +12,12 @@ void audioecho_feedback_delay_reset_buffer(
     uint8_t channel) {
     (void)single_channel_output;
     (void)channel;
-    self->pending = NULL;
-    self->pending_frames = 0;
-    // Unlike audiodynamics, everything goes. A delay's whole state is
-    // audible: a chain restarted with the old repeats still in the line
+    // A host reset clears what this node holds of its own and keeps the
+    // source frames it has already taken, the rule CircuitPython's effects
+    // follow and the one clear() always had: the source was not reset, so
+    // dropping them would skip that much of it.
+    // Unlike audiodynamics, all of its own state goes. A delay's whole state
+    // is audible: a chain restarted with the old repeats still in the line
     // plays the previous take over the new one.
     audiodsp_feedback_delay_reset(&self->state, &self->config);
 }
