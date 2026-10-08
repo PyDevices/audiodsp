@@ -215,8 +215,10 @@ class Dynamics(_AudioSample):
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
-        self._pending = b""
-        self._key_pending = b""
+        # A host reset clears what this node holds of its own and keeps the
+        # source frames it has already taken, the rule CircuitPython's effects
+        # follow and the one clear() always had: the source was not reset, so
+        # dropping them would skip that much of it.
         # `_state.reset()` is `audiodsp_dynamics_reset` in the shared C, so
         # this target and the two native ones drop the same things: every
         # thing the detector remembers, including the side-chain filter

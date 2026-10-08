@@ -11,11 +11,13 @@ void audiomodal_bank_reset_buffer(audiomodal_bank_obj_t *self,
     bool single_channel_output, uint8_t channel) {
     (void)single_channel_output;
     (void)channel;
-    self->pending = NULL;
-    self->pending_frames = 0;
-    // Everything goes, for the reverberation tank's reason: a bank restarted
-    // with the last take's partials still ringing plays the previous hit over
-    // the new one.
+    // A host reset clears what this node holds of its own and keeps the
+    // source frames it has already taken, the rule CircuitPython's effects
+    // follow and the one clear() always had: the source was not reset, so
+    // dropping them would skip that much of it.
+    // All of its own state goes, for the reverberation tank's reason: a bank
+    // restarted with the last take's partials still ringing plays the previous
+    // hit over the new one.
     audiodsp_modal_reset(&self->state);
 }
 

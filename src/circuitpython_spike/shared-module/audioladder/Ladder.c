@@ -11,9 +11,11 @@ void audioladder_ladder_reset_buffer(audioladder_ladder_obj_t *self,
     bool single_channel_output, uint8_t channel) {
     (void)single_channel_output;
     (void)channel;
-    self->pending = NULL;
-    self->pending_frames = 0;
-    // Like audioecho and unlike audiodynamics, everything goes: a
+    // A host reset clears what this node holds of its own and keeps the
+    // source frames it has already taken, the rule CircuitPython's effects
+    // follow and the one clear() always had: the source was not reset, so
+    // dropping them would skip that much of it.
+    // Like audioecho and unlike audiodynamics, all of its own state goes: a
     // self-oscillating filter restarted with its integrators still charged
     // carries the previous take's tone into the new one.
     audiodsp_ladder_reset(&self->state);

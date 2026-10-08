@@ -226,9 +226,10 @@ class MidSide(_AudioSample):
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
-        # The cursor is all there is to reset: the matrix carries no state
-        # between frames.
-        self._pending = b""
+        # Nothing to clear: the matrix carries no state between frames. The
+        # frames already taken from the source are kept, the rule
+        # CircuitPython's effects follow for a host reset: the source was not
+        # reset, so dropping them would skip that much of it.
 
     def _get_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()

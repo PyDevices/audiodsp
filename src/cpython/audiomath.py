@@ -129,10 +129,11 @@ class Multiply(_AudioSample):
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
-        self._pending_source = b""
-        # The modulator's cursor goes too, so a chain restarted mid-cycle
-        # begins at the top of the table rather than wherever it stopped.
-        self._pending_modulator = b""
+        # Nothing to clear: the product holds nothing between frames. The
+        # frames already taken from the source and from the modulator are
+        # kept, the rule CircuitPython's effects follow for a host reset:
+        # neither input was reset, so dropping them would skip that much of
+        # it and shift the modulator against the source.
 
     def _pull(self, sample):
         result, data = get_buffer(sample, False, 0)
@@ -246,7 +247,10 @@ class SubOctave(_AudioSample):
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
-        self._pending = b""
+        # A host reset clears what this node holds of its own and keeps the
+        # source frames it has already taken, the rule CircuitPython's effects
+        # follow and the one clear() always had: the source was not reset, so
+        # dropping them would skip that much of it.
         # The divider holds no audio, so unlike a delay this drops nothing
         # anybody can hear; what it stops is a restarted chain beginning on
         # the inverted half of the count.

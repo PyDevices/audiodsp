@@ -277,10 +277,13 @@ static void audiobiquad_biquad_reset_buffer(mp_obj_t self_in,
     (void)single_channel_output;
     (void)channel;
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    self->pending = NULL;
-    self->pending_frames = 0;
-    // Everything goes. A filter's memory is audible: a chain restarted with
-    // the previous take still in it plays that take's tail over the new one.
+    // A host reset clears what this node holds of its own and keeps the
+    // source frames it has already taken, the rule CircuitPython's effects
+    // follow and the one clear() always had: the source was not reset, so
+    // dropping them would skip that much of it.
+    // All of its own state goes. A filter's memory is audible: a chain
+    // restarted with the previous take still in it plays that take's tail over
+    // the new one.
     audiodsp_biquad_f32_reset(&self->state);
     // No unlock here, and there never was a lock to match it. reset_buffer is
     // reached through audiocore's funnel, which holds the pump lock across the
