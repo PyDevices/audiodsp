@@ -5,6 +5,7 @@
 #include "shared/audiodsp_convolve.h"
 
 #include <math.h>
+#include <stddef.h>
 
 #include "shared/audiodsp_trig.h"
 
@@ -92,8 +93,20 @@ void audiodsp_convolve_configure(audiodsp_convolve_config_t *config,
     }
 }
 
+uint32_t audiodsp_convolve_float_count_apart(
+    const audiodsp_convolve_config_t *config) {
+    return audiodsp_convolve_float_count(config)
+        - audiodsp_convolve_impulse_floats(config);
+}
+
 void audiodsp_convolve_state_init(audiodsp_convolve_state_t *state,
     const audiodsp_convolve_config_t *config, float *storage) {
+    audiodsp_convolve_state_init_apart(state, config, storage, NULL);
+}
+
+void audiodsp_convolve_state_init_apart(audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *storage,
+    float *impulse) {
     uint32_t parts = config->partitions;
     float *cursor = storage;
 
@@ -104,7 +117,11 @@ void audiodsp_convolve_state_init(audiodsp_convolve_state_t *state,
     state->pending = cursor;     cursor += 2u * FRAMES;
     state->emitted = cursor;     cursor += 2u * FRAMES;
     state->fdl = cursor;         cursor += 2u * parts * SPECTRUM;
-    state->impulse = cursor;     cursor += config->ir_channels * parts * SPECTRUM;
+    if (impulse != NULL) {
+        state->impulse = impulse;
+    } else {
+        state->impulse = cursor; cursor += config->ir_channels * parts * SPECTRUM;
+    }
     state->accumulator = cursor; cursor += SPECTRUM;
     state->scratch = cursor;     cursor += FFTN;
     state->block = cursor;
@@ -137,17 +154,23 @@ static void wet_block(const audiodsp_convolve_config_t *config,
 static float dry_of(float mix);
 static float wet_of(float mix);
 
-static void store_partition(audiodsp_convolve_state_t *state,
-    const audiodsp_convolve_config_t *config, uint32_t channel, uint32_t part) {
-    for (uint32_t i = FRAMES; i < FFTN; i++) state->block[i] = 0.0f;
-    audiodsp_rfft_forward(&state->rfft, state->block,
-        state->impulse + (channel * config->partitions + part) * SPECTRUM,
-        state->scratch);
+static void store_partition(const audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *impulse, float *block,
+    float *scratch, uint32_t channel, uint32_t part) {
+    for (uint32_t i = FRAMES; i < FFTN; i++) block[i] = 0.0f;
+    audiodsp_rfft_forward(&state->rfft, block,
+        impulse + (channel * config->partitions + part) * SPECTRUM, scratch);
 }
 
-void audiodsp_convolve_load_s16(audiodsp_convolve_state_t *state,
-    const audiodsp_convolve_config_t *config, const int16_t *taps,
-    uint32_t tap_frames, uint32_t channels, float gain) {
+uint32_t audiodsp_convolve_impulse_floats(
+    const audiodsp_convolve_config_t *config) {
+    return config->ir_channels * config->partitions * SPECTRUM;
+}
+
+uint32_t audiodsp_convolve_build_s16(const audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *impulse, float *block,
+    float *scratch, const int16_t *taps, uint32_t tap_frames,
+    uint32_t channels, float gain) {
     uint32_t parts = config->partitions;
     uint32_t capacity = parts * FRAMES;
     if (tap_frames > capacity) tap_frames = capacity;
@@ -162,20 +185,72 @@ void audiodsp_convolve_load_s16(audiodsp_convolve_state_t *state,
         for (uint32_t part = 0; part < parts; part++) {
             for (uint32_t i = 0; i < FRAMES; i++) {
                 uint32_t frame = part * FRAMES + i;
-                state->block[i] = frame < tap_frames
+                block[i] = frame < tap_frames
                     ? (float)taps[frame * channels + source] * scale : 0.0f;
             }
-            store_partition(state, config, ch, part);
+            store_partition(state, config, impulse, block, scratch, ch, part);
         }
     }
-    state->loaded = (tap_frames + FRAMES - 1u) / FRAMES;
-    if (state->loaded > parts) state->loaded = parts;
-    audiodsp_convolve_reset(state, config);
+    uint32_t loaded = (tap_frames + FRAMES - 1u) / FRAMES;
+    return loaded > parts ? parts : loaded;
 }
 
-void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
-    const audiodsp_convolve_config_t *config, float decay_seconds,
-    float damping_hz, float predelay_ms, float diffusion_ms, uint32_t seed) {
+void audiodsp_convolve_load_s16(audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, const int16_t *taps,
+    uint32_t tap_frames, uint32_t channels, float gain) {
+    uint32_t loaded = audiodsp_convolve_build_s16(state, config,
+        state->impulse, state->block, state->scratch, taps, tap_frames,
+        channels, gain);
+    (void)audiodsp_convolve_install(state, config, NULL, loaded, false);
+}
+
+// The block in flight's wet against the room loaded now, parked in the first
+// half of each channel's overlap-save window. The next block overwrites that
+// half without reading it, so this costs no memory.
+static void park_block_in_flight(const audiodsp_convolve_config_t *config,
+    audiodsp_convolve_state_t *state) {
+    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    for (uint32_t ch = 0; ch < channels; ch++) {
+        wet_block(config, state, ch);
+        float *old = state->window + ch * FFTN;
+        for (uint32_t i = 0; i < FRAMES; i++) {
+            old[i] = state->block[FRAMES + i];
+        }
+    }
+}
+
+// The block in flight, recomputed against the room loaded now and crossfaded
+// from the parked one across whatever of it has not been played.
+static void crossfade_block_in_flight(const audiodsp_convolve_config_t *config,
+    audiodsp_convolve_state_t *state) {
+    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    // The block in flight at the mix it was computed at, not the mix now: a
+    // Mix move acts on the input after it, and a room move must not bring
+    // it forward. `pending` from state->phase on still holds the input that
+    // block was made from, and the frames before state->phase have been
+    // played. A straight line from old to new over what is left, landing on
+    // the new room at its last frame.
+    float dry = dry_of(state->emitted_mix);
+    float wet = wet_of(state->emitted_mix);
+    uint32_t start = state->phase;
+    float span = (float)(FRAMES - start);
+    for (uint32_t ch = 0; ch < channels; ch++) {
+        wet_block(config, state, ch);
+        const float *old = state->window + ch * FFTN;
+        const float *pending = state->pending + ch * FRAMES;
+        float *emitted = state->emitted + ch * FRAMES;
+        for (uint32_t i = start; i < FRAMES; i++) {
+            float g = (float)(i - start + 1u) / span;
+            float y = old[i] + g * (state->block[FRAMES + i] - old[i]);
+            emitted[i] = dry * pending[i] + wet * y;
+        }
+    }
+}
+
+uint32_t audiodsp_convolve_build_room(const audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *impulse, float *block,
+    float *scratch, float decay_seconds, float damping_hz, float predelay_ms,
+    float diffusion_ms, uint32_t seed) {
     uint32_t parts = config->partitions;
     uint32_t capacity = parts * FRAMES;
     double rate = (double)config->sample_rate;
@@ -195,30 +270,6 @@ void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
     double damping = 1.0;
     if (damping_hz > 0.0f && (double)damping_hz < rate * 0.25) {
         damping = 1.0 - exp_small(-2.0 * AUDIODSP_PI * (double)damping_hz / rate);
-    }
-
-    // A node already carrying a room keeps its audio: the history, the input
-    // gathered into the block being built and the block being played out
-    // all stay, and only the impulse changes. The block in flight was
-    // computed against the old room, so its wet is recomputed against both
-    // rooms and crossfaded across whatever of it has not been played yet;
-    // from the next block on the new room convolves the whole history, as
-    // if it had always been loaded. The old room's wet waits in the first
-    // half of each channel's overlap-save window, which the next block
-    // overwrites without reading, so this costs no memory.
-    //
-    // A node with nothing loaded has been a bypass with no latency, and
-    // starts its latency here exactly as it always has: reset below.
-    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
-    const int keep = state->loaded != 0u;
-    if (keep) {
-        for (uint32_t ch = 0; ch < channels; ch++) {
-            wet_block(config, state, ch);
-            float *old = state->window + ch * FFTN;
-            for (uint32_t i = 0; i < FRAMES; i++) {
-                old[i] = state->block[FRAMES + i];
-            }
-        }
     }
 
     uint32_t predelay = (uint32_t)((double)predelay_ms * 0.001 * rate);
@@ -261,7 +312,7 @@ void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
             for (uint32_t part = 0; part < parts; part++) {
                 for (uint32_t i = 0; i < FRAMES; i++) {
                     uint32_t frame = part * FRAMES + i;
-                    if (frame < predelay) { state->block[i] = 0.0f; continue; }
+                    if (frame < predelay) { block[i] = 0.0f; continue; }
                     double sample = (double)noise_next(&rng) * envelope;
                     lowpass += damping * (sample - lowpass);
                     double shaped = lowpass;
@@ -275,10 +326,13 @@ void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
                     if (pass == 0) {
                         energy[ch] += shaped * shaped;
                     } else {
-                        state->block[i] = (float)(shaped * scale[ch]);
+                        block[i] = (float)(shaped * scale[ch]);
                     }
                 }
-                if (pass) store_partition(state, config, ch, part);
+                if (pass) {
+                    store_partition(state, config, impulse, block, scratch,
+                        ch, part);
+                }
             }
         }
         if (pass == 0) {
@@ -287,32 +341,60 @@ void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
             }
         }
     }
-    state->loaded = parts;
+    return parts;
+}
+
+float *audiodsp_convolve_install(audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *impulse,
+    uint32_t loaded, bool crossfade) {
+    const int keep = crossfade && state->loaded != 0u;
+    if (keep) {
+        park_block_in_flight(config, state);
+    }
+    float *previous = NULL;
+    if (impulse != NULL && impulse != state->impulse) {
+        previous = state->impulse;
+        state->impulse = impulse;
+    }
+    state->loaded = loaded;
+    if (!keep) {
+        audiodsp_convolve_reset(state, config);
+    } else {
+        crossfade_block_in_flight(config, state);
+    }
+    return previous;
+}
+
+// In place: the room is built straight into the node's own impulse, with the
+// node's own scratch, so nothing may pull the node until it returns. A
+// binding whose pump runs on another thread builds into a buffer of its own
+// with audiodsp_convolve_build_room and installs it under the lock instead.
+//
+// A node already carrying a room keeps its audio: the history, the input
+// gathered into the block being built and the block being played out all
+// stay, and only the impulse changes. The block in flight was computed
+// against the old room, so its wet is recomputed against both rooms and
+// crossfaded across whatever of it has not been played yet; from the next
+// block on the new room convolves the whole history, as if it had always
+// been loaded.
+//
+// A node with nothing loaded has been a bypass with no latency, and starts
+// its latency here exactly as it always has: reset.
+void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float decay_seconds,
+    float damping_hz, float predelay_ms, float diffusion_ms, uint32_t seed) {
+    const int keep = state->loaded != 0u;
+    if (keep) {
+        park_block_in_flight(config, state);
+    }
+    state->loaded = audiodsp_convolve_build_room(state, config,
+        state->impulse, state->block, state->scratch, decay_seconds,
+        damping_hz, predelay_ms, diffusion_ms, seed);
     if (!keep) {
         audiodsp_convolve_reset(state, config);
         return;
     }
-    // The block in flight at the mix it was computed at, not the mix now: a
-    // Mix move acts on the input after it, and a room move must not bring
-    // it forward. `pending` from state->phase on still holds the input that
-    // block was made from, and the frames before state->phase have been
-    // played. A straight line from old to new over what is left, landing on
-    // the new room at its last frame.
-    float dry = dry_of(state->emitted_mix);
-    float wet = wet_of(state->emitted_mix);
-    uint32_t start = state->phase;
-    float span = (float)(FRAMES - start);
-    for (uint32_t ch = 0; ch < channels; ch++) {
-        wet_block(config, state, ch);
-        const float *old = state->window + ch * FFTN;
-        const float *pending = state->pending + ch * FRAMES;
-        float *emitted = state->emitted + ch * FRAMES;
-        for (uint32_t i = start; i < FRAMES; i++) {
-            float g = (float)(i - start + 1u) / span;
-            float y = old[i] + g * (state->block[FRAMES + i] - old[i]);
-            emitted[i] = dry * pending[i] + wet * y;
-        }
-    }
+    crossfade_block_in_flight(config, state);
 }
 
 // The frequency-delay line of audio channel `ch`, as it stands at

@@ -35,9 +35,60 @@ static void convolver_allocate(audioconvolve_convolver_obj_t *self,
     }
     audiodsp_convolve_config_init(&self->config, sample_rate, partitions,
         ir_channels);
-    size_t floats = audiodsp_convolve_float_count(&self->config);
+    // The impulse in an allocation of its own, so load() and synthesize() can
+    // swap a new one in under the lock rather than copy it there.
+    size_t floats = audiodsp_convolve_float_count_apart(&self->config);
     self->storage = m_malloc(floats * sizeof(float));
-    audiodsp_convolve_state_init(&self->state, &self->config, self->storage);
+    float *impulse = m_malloc(
+        audiodsp_convolve_impulse_floats(&self->config) * sizeof(float));
+    audiodsp_convolve_state_init_apart(&self->state, &self->config,
+        self->storage, impulse);
+}
+
+// load() and synthesize() on a node the pump may be pulling. The new impulse
+// is built into an allocation of this call's own with no lock held, and only
+// the install runs under the lock: the node takes the new impulse in place of
+// the old, and on a re-synthesis crossfades the block in flight. Building in
+// place took no lock at all, and a pull's own transform shares the scratch a
+// build writes each partition through, so a pull that landed mid-build left
+// that partition wrong until the next load (audiodsp#166). Holding the lock
+// over the whole build instead holds the audio off for far longer than a
+// block: a stereo room of 0.08 s takes 53 ms to synthesize on an ESP32-S3,
+// against 5.3 ms of audio in a block at 48 kHz. Swapping rather than copying
+// keeps the held part short too: copying that room's 61 KB impulse takes
+// 3.6 ms on the same board.
+//
+// The cost is a second impulse while the call runs; the old one is freed when
+// it returns. Where there is not the memory for it, the build happens in
+// place with the lock held throughout: a gap in the audio rather than a
+// corrupted room.
+typedef struct {
+    float *impulse;
+    float *work;
+} convolver_build_t;
+
+static bool convolver_build_begin(audioconvolve_convolver_obj_t *self,
+    convolver_build_t *build) {
+    build->impulse = m_malloc_maybe(
+        audiodsp_convolve_impulse_floats(&self->config) * sizeof(float));
+    build->work = build->impulse == NULL ? NULL
+        : m_malloc_maybe(2u * AUDIODSP_CONVOLVE_FFT * sizeof(float));
+    if (build->work == NULL) {
+        m_del(float, build->impulse,
+            audiodsp_convolve_impulse_floats(&self->config));
+        return false;
+    }
+    return true;
+}
+
+static void convolver_build_end(audioconvolve_convolver_obj_t *self,
+    convolver_build_t *build, uint32_t loaded, bool crossfade) {
+    audiodsp_pump_lock_acquire();
+    float *previous = audiodsp_convolve_install(&self->state, &self->config,
+        build->impulse, loaded, crossfade);
+    audiodsp_pump_lock_release();
+    m_del(float, previous, audiodsp_convolve_impulse_floats(&self->config));
+    m_del(float, build->work, 2u * AUDIODSP_CONVOLVE_FFT);
 }
 
 static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
@@ -189,8 +240,18 @@ static mp_obj_t audioconvolve_convolver_load(size_t n_args,
     }
     float gain = parsed[ARG_gain].u_obj != mp_const_none
         ? (float)mp_obj_get_float(parsed[ARG_gain].u_obj) : 1.0f;
-    audiodsp_convolve_load_s16(&self->state, &self->config, taps, frames,
-        channels, gain);
+    convolver_build_t build;
+    if (convolver_build_begin(self, &build)) {
+        uint32_t loaded = audiodsp_convolve_build_s16(&self->state,
+            &self->config, build.impulse, build.work,
+            build.work + AUDIODSP_CONVOLVE_FFT, taps, frames, channels, gain);
+        convolver_build_end(self, &build, loaded, false);
+    } else {
+        audiodsp_pump_lock_acquire();
+        audiodsp_convolve_load_s16(&self->state, &self->config, taps, frames,
+            channels, gain);
+        audiodsp_pump_lock_release();
+    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_load_obj, 2,
@@ -221,8 +282,20 @@ static mp_obj_t audioconvolve_convolver_synthesize(size_t n_args,
         ? (float)mp_obj_get_float(parsed[ARG_predelay_ms].u_obj) : 0.0f;
     float diffusion = parsed[ARG_diffusion_ms].u_obj != mp_const_none
         ? (float)mp_obj_get_float(parsed[ARG_diffusion_ms].u_obj) : 0.0f;
-    audiodsp_convolve_synthesize(&self->state, &self->config, decay, damping,
-        predelay, diffusion, (uint32_t)parsed[ARG_seed].u_int);
+    const uint32_t seed = (uint32_t)parsed[ARG_seed].u_int;
+    convolver_build_t build;
+    if (convolver_build_begin(self, &build)) {
+        uint32_t loaded = audiodsp_convolve_build_room(&self->state,
+            &self->config, build.impulse, build.work,
+            build.work + AUDIODSP_CONVOLVE_FFT, decay, damping, predelay,
+            diffusion, seed);
+        convolver_build_end(self, &build, loaded, true);
+    } else {
+        audiodsp_pump_lock_acquire();
+        audiodsp_convolve_synthesize(&self->state, &self->config, decay,
+            damping, predelay, diffusion, seed);
+        audiodsp_pump_lock_release();
+    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_synthesize_obj, 1,
