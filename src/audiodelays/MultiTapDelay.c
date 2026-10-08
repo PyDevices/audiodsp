@@ -101,6 +101,11 @@ void common_hal_audiodelays_multi_tap_delay_deinit(audiodelays_multi_tap_delay_o
     // just become NULL. Detach under the lock, free afterwards.
     audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
+    // The source goes too, so releasing the tail of a chain lets the rest of
+    // it be collected, as it does for the nodes audiodsp wrote (audiodsp#177).
+    self->sample = NULL;
+    self->sample_remaining_buffer = NULL;
+    self->sample_buffer_length = 0;
     self->delay_buffer = NULL;
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
@@ -115,25 +120,33 @@ mp_float_t common_hal_audiodelays_multi_tap_delay_get_delay_ms(audiodelays_multi
     return self->delay_ms;
 }
 
-void common_hal_audiodelays_multi_tap_delay_set_delay_ms(audiodelays_multi_tap_delay_obj_t *self, mp_obj_t delay_ms) {
-    self->delay_ms = mp_obj_get_float(delay_ms);
+// The line length and the tap offsets a pull reads change together, under
+// the pump lock, and the tail beyond the new length is cleared after it: once
+// the new length is published no pull reads past it, so the clear needs no
+// lock, and a long line's tail is not cleared with the audio held off.
+void common_hal_audiodelays_multi_tap_delay_set_delay_ms(audiodelays_multi_tap_delay_obj_t *self, mp_obj_t delay_ms_in) {
+    mp_float_t delay_ms = mp_obj_get_float(delay_ms_in);
 
     // Require that delay is at least 1 sample long
-    self->delay_ms = MAX(self->delay_ms, self->sample_ms);
+    delay_ms = MAX(delay_ms, self->sample_ms);
 
-    self->delay_buffer_len = (uint32_t)(self->base.sample_rate / MICROPY_FLOAT_CONST(1000.0) * self->delay_ms) * (self->base.channel_count * sizeof(uint16_t));
+    uint32_t delay_buffer_len = (uint32_t)(self->base.sample_rate / MICROPY_FLOAT_CONST(1000.0) * delay_ms) * (self->base.channel_count * sizeof(uint16_t));
 
-    if (self->delay_buffer_len > self->max_delay_buffer_len) {
-        self->delay_buffer_len = self->max_delay_buffer_len;
-    } else if (self->delay_buffer_len < self->buffer_len) {
+    if (delay_buffer_len > self->max_delay_buffer_len) {
+        delay_buffer_len = self->max_delay_buffer_len;
+    } else if (delay_buffer_len < self->buffer_len) {
         // If the delay buffer is smaller than our audio buffer, weird things happen
-        self->delay_buffer_len = self->buffer_len;
+        delay_buffer_len = self->buffer_len;
     }
 
-    // Clear the now unused part of the buffer or some weird artifacts appear
-    memset(self->delay_buffer + self->delay_buffer_len, 0, self->max_delay_buffer_len - self->delay_buffer_len);
-
+    audiodsp_pump_lock_acquire();
+    self->delay_ms = delay_ms;
+    self->delay_buffer_len = delay_buffer_len;
     recalculate_tap_offsets(self);
+    audiodsp_pump_lock_release();
+
+    // Clear the now unused part of the buffer or some weird artifacts appear
+    memset(self->delay_buffer + delay_buffer_len, 0, self->max_delay_buffer_len - delay_buffer_len);
 }
 
 mp_obj_t common_hal_audiodelays_multi_tap_delay_get_decay(audiodelays_multi_tap_delay_obj_t *self) {
@@ -231,19 +244,14 @@ void common_hal_audiodelays_multi_tap_delay_set_taps(audiodelays_multi_tap_delay
         }
     }
 
-    self->tap_positions = m_renew(mp_float_t,
-        self->tap_positions,
-        self->tap_len,
-        len);
-    self->tap_levels = m_renew(double,
-        self->tap_levels,
-        self->tap_len,
-        len);
-    self->tap_offsets = m_renew(uint32_t,
-        self->tap_offsets,
-        self->tap_len,
-        len);
-    self->tap_len = len;
+    // New tables, filled before anything running changes, then swapped in
+    // under the pump lock with their length. Resizing the old ones in place
+    // freed them while a pull on the pump's thread could be reading them, and
+    // published a new length a moment apart from the tables it describes
+    // (audiodsp#177).
+    mp_float_t *positions = len ? m_new(mp_float_t, len) : NULL;
+    double *levels = len ? m_new(double, len) : NULL;
+    uint32_t *offsets = len ? m_new(uint32_t, len) : NULL;
 
     for (i = 0; i < len; i++) {
         mp_obj_t item = items[i];
@@ -252,15 +260,30 @@ void common_hal_audiodelays_multi_tap_delay_set_taps(audiodelays_multi_tap_delay
             mp_obj_t *items1;
             mp_obj_tuple_get(item, &len1, &items1);
 
-            self->tap_positions[i] = (mp_float_t)get_tap_value(items1[0]);
-            self->tap_levels[i] = get_tap_value(items1[1]);
+            positions[i] = (mp_float_t)get_tap_value(items1[0]);
+            levels[i] = get_tap_value(items1[1]);
         } else {
-            self->tap_positions[i] = (mp_float_t)get_tap_value(item);
-            self->tap_levels[i] = MICROPY_FLOAT_CONST(1.0);
+            positions[i] = (mp_float_t)get_tap_value(item);
+            levels[i] = MICROPY_FLOAT_CONST(1.0);
         }
     }
 
+    mp_float_t *old_positions = self->tap_positions;
+    double *old_levels = self->tap_levels;
+    uint32_t *old_offsets = self->tap_offsets;
+    size_t old_len = self->tap_len;
+
+    audiodsp_pump_lock_acquire();
+    self->tap_positions = positions;
+    self->tap_levels = levels;
+    self->tap_offsets = offsets;
+    self->tap_len = len;
     recalculate_tap_offsets(self);
+    audiodsp_pump_lock_release();
+
+    m_del(mp_float_t, old_positions, old_len);
+    m_del(double, old_levels, old_len);
+    m_del(uint32_t, old_offsets, old_len);
 }
 
 void recalculate_tap_offsets(audiodelays_multi_tap_delay_obj_t *self) {

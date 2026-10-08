@@ -3713,6 +3713,29 @@ a storm of macro moves. 180 storms over 45 classes — 4.4 M control moves
 against 16.7 M blocks — gave no crash and no bad digest; five runs out of five
 crash with the lock compiled out.
 
+## A released effect lets go of its source, and `MultiTapDelay` swaps its taps under the lock
+
+What a CircuitPython user would notice: nothing that plays. Both are about
+what the port's own pump thread needs, and neither changes a sample.
+
+Upstream's `deinit()` for the ported effects (`audiodelays`, `audiofilters`,
+`audiofreeverb`) drops the node's buffers and keeps `sample`. On a stock board
+that costs only memory until the object goes; here a pump at handover walks a
+graph through each node's `sources`, and a class that keeps a released node
+around kept the whole chain behind it. So each of those `deinit()` bodies also
+clears `sample` and the borrowed `sample_remaining_buffer`, as the nodes
+audiodsp wrote always did. `tests/parity/deinit_surface_probe.py` checks it
+for every node, by the memory the source gives back (audiodsp#177).
+
+Upstream's `MultiTapDelay.taps` setter resizes its three tables in place with
+`m_renew` and then writes the new length. With the pump pulling from another
+thread, that frees tables a pull may be reading and publishes a length a moment
+apart from the tables it describes. The port builds the new tables first and
+swaps them and the length in under the pump lock; `delay_ms` publishes its new
+length and tap offsets the same way and clears the tail after. The values are
+upstream's, computed the same way. `tests/pump/pump_probe.py writes` checks
+each write takes the lock.
+
 ## `Synthesizer` walks its free-running blocks as a list, not as an iterable
 
 Upstream's `synthio_synthesizer_get_buffer` iterates `self->blocks` with

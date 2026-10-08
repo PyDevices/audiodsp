@@ -202,6 +202,9 @@ PROBES = (
                        "it - fixed upstream after 10.3.0 and here; see "
                        "docs/upstream-diff.md"},
      None),
+    # A shorter Time and back again: every native build clears the line past
+    # the new length, and the CPython twin now does too (audiodsp#177).
+    ("multitap_time_probe.py", "audiodelays", {}, None),
     ("freeverb_filter_probe.py", "audiofreeverb", {}, None),
 )
 

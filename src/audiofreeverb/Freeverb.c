@@ -135,6 +135,11 @@ void common_hal_audiofreeverb_freeverb_deinit(audiofreeverb_freeverb_obj_t *self
     // just become NULL. Detach under the lock, free afterwards.
     audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
+    // The source goes too, so releasing the tail of a chain lets the rest of
+    // it be collected, as it does for the nodes audiodsp wrote (audiodsp#177).
+    self->sample = NULL;
+    self->sample_remaining_buffer = NULL;
+    self->sample_buffer_length = 0;
     audiofilters_deinit_filter_chain(&self->pre_filter);
     audiofilters_deinit_filter_chain(&self->post_filter);
     self->buffer[0] = NULL;

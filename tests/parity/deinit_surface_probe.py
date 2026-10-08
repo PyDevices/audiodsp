@@ -384,6 +384,79 @@ def check_storage(deinit):
     return rows, failures
 
 
+#: Native nodes that still hold their source after deinit(), each with the
+#: issue that tracks it (the CPython twins all let go). An entry that starts
+#: letting go fails the run, so the exception cannot outlive its reason:
+#: delete the line when it does.
+KEEPS_SOURCE = {
+    "audiomixer.Mixer": "audiodsp#178",
+}
+
+#: On CircuitPython these modules are CircuitPython's own, not this
+#: repository's, so what their deinit() keeps is not ours to check.
+CIRCUITPYTHON_OWN = ("audiodelays", "audiofilters", "audiofreeverb",
+                     "audiomixer", "synthio", "audiocore")
+
+
+def _armed(build, frames):
+    """A node playing a source of `frames` stereo frames, built in a frame of
+    its own so nothing on this one's stack still points at the source."""
+    node = build()
+    node.play(audiocore.RawSample(array.array("h", bytes(frames * 4)),
+                                  sample_rate=RATE, channel_count=CHANNELS))
+    return node
+
+
+def _scrub(depth=40):
+    """The native collectors scan the stack conservatively, so a word left
+    over from building the source, in a slot the collector's own frames leave
+    unwritten, can keep it alive. Calls nested deeper than building it went
+    overwrite that stretch of stack with small integers first."""
+    if depth:
+        return _scrub(depth - 1) + depth
+    return 0
+
+
+def check_sources(deinit):
+    """A released node lets go of its source, so releasing the tail of a
+    chain lets the rest of it be collected (audiodsp#177)."""
+    failures = []
+    rows = []
+    used = memory_meter()
+    frames = 50000                       # 200 KB of source
+    on_circuitpython = sys.implementation.name == "circuitpython"
+    for name, build in NODES:
+        module = name.split(".")[0]
+        if module in MISSING or (on_circuitpython
+                                 and module in CIRCUITPYTHON_OWN):
+            continue
+        try:
+            node = _armed(build, frames)
+        except (TypeError, ValueError, AttributeError):
+            continue                     # takes its source at construction
+        _scrub()
+        before = used()
+        if deinit:
+            node.deinit()
+        _scrub()
+        freed = before - used()
+        released = freed * 10 >= frames * 4 * 9
+        known = None if sys.implementation.name == "cpython" \
+            else KEEPS_SOURCE.get(name)
+        if known is not None:
+            ok = not released
+            note = "keeps it (%s)" % known if ok else \
+                "lets go now: remove it from KEEPS_SOURCE"
+        else:
+            ok = released
+            note = "lets go" if ok else "KEEPS IT"
+        rows.append("%-26s %s" % (name, note))
+        if not ok:
+            failures.append("%s: source after deinit(): %s" % (name, note))
+        del node
+    return rows, failures
+
+
 def main(argv):
     fault = "--fault" in argv
     deinit = not fault
@@ -416,6 +489,13 @@ def main(argv):
         row, bad = check_methods(name, build, deinit)
         print(row)
         failures.extend(bad)
+
+    print("-" * 66)
+    print("the source let go at deinit()")
+    rows, bad = check_sources(deinit)
+    for row in rows:
+        print(row)
+    failures.extend(bad)
 
     print("-" * 66)
     print("storage given back at deinit()")
