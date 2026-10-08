@@ -1,0 +1,32 @@
+name: Android wheels
+
+# The release builds Android wheels in the org's reusable workflow; this runs
+# the same steps without publishing, so a change to how they build is proved
+# before a release depends on it. Only changes that can affect that build
+# start it.
+on:
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'setup.py'
+      - 'tools/prefetch_android_python.py'
+      - '.github/workflows/android-wheels.yml'
+  workflow_dispatch:
+
+jobs:
+  android-wheels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v4
+      - name: Build Android wheels (no publish)
+        uses: pypa/cibuildwheel@v4.2.1
+        env:
+          CIBW_PLATFORM: android
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+      - run: ls -l wheelhouse/
