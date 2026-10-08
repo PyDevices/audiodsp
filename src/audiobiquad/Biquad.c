@@ -261,8 +261,8 @@ static audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
     }
     // A starved chain gets silence rather than a short block: this node sits
     // in the middle of a live graph and never reports itself finished. It
-    // does not tick the block layer on a starved block either -- the tail
-    // stops with the source, exactly as audioecho.FeedbackDelay's does.
+    // does not tick the block layer on a starved block either: the tail stops
+    // with the source.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
         produced = AUDIODSP_FILTER_F32_FRAMES;

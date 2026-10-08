@@ -26,6 +26,9 @@ typedef struct {
     int16_t buffer[AUDIODSP_CONVOLVE_FRAMES * 2];
     const int16_t *pending;
     uint32_t pending_frames;
+    // The source handed its last buffer with GET_BUFFER_DONE; it is let
+    // go of once that buffer is used up.
+    bool source_done;
 } audioconvolve_convolver_obj_t;
 
 void audioconvolve_convolver_reset_buffer(

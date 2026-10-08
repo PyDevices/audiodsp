@@ -343,10 +343,11 @@ everything at once, and `ringing` says whether any mode still holds energy.
 
 Two behaviours worth knowing before you use it. A bare `Bank()` is **silence**,
 not a passthrough — the default `mix` is fully wet and an unconfigured bank has
-no modes — so reach for `mix=0.0` if you want the untouched signal. And unlike
-`audioecho.FeedbackDelay` and `audioverb.Tank`, the tail keeps ringing after
-the source stops, because a drum whose decay ended the instant the stick left
-would be the one thing this node exists not to be.
+no modes — so reach for `mix=0.0` if you want the untouched signal. And the
+tail keeps ringing after the source stops, as `audioecho.FeedbackDelay`'s,
+`audioverb.Tank`'s and `audioconvolve.Convolver`'s do, because a drum whose
+decay ended the instant the stick left would be the one thing this node exists
+not to be.
 
 See [docs/upstream-diff.md](docs/upstream-diff.md) for why this is a node
 rather than a chain of `audiobiquad.Biquad`, measured rather than argued.
@@ -381,7 +382,10 @@ nothing added to it; `mix` follows `audiodelays.Echo`'s 0..2 convention, dry
 at unity until 1. `clear()` empties every line and every filter. Latency is
 zero dry-to-wet, and the tail reaches *exact* zero rather than sitting at one
 LSB — every line write is a magnitude truncation, which is the standard cure
-for a recirculating fixed-point network's limit cycles. See
+for a recirculating fixed-point network's limit cycles. When the source ends,
+the tail rings out on silence to that zero and the node rests, so a source
+played into it afterwards meets an empty plate; `audioecho.FeedbackDelay` and
+`audioconvolve.Convolver` do the same. See
 [docs/upstream-diff.md](docs/upstream-diff.md) for the measurement, the cost
 and the memory the default table needs.
 

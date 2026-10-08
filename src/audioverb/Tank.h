@@ -28,6 +28,9 @@ typedef struct {
     // blocks.
     const int16_t *pending;
     uint32_t pending_frames;
+    // The source handed its last buffer with GET_BUFFER_DONE; it is let
+    // go of once that buffer is used up.
+    bool source_done;
 } audioverb_tank_obj_t;
 
 extern const mp_obj_type_t audioverb_tank_type;

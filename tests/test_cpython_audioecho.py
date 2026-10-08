@@ -85,14 +85,28 @@ def alternating_words(count, level=20000, channels=CHANNELS):
             for index in range(count)]
 
 
+class _Repeating(audiocore._AudioSample):
+    """Hands the same short buffer on every pull and never ends."""
+
+    def __init__(self, values):
+        self.sample_rate = SAMPLE_RATE
+        self.channel_count = 1
+        self.bits_per_sample = 16
+        self._data = bytes(values)
+
+    def _get_buffer(self, single_channel_output=False, audio_channel=0):
+        return audiocore.GET_BUFFER_MORE_DATA, self._data
+
+
 def mono_short(frames=SHORT_FRAMES):
     """Mono, shorter than one DSP chunk, and never zero - so a gap in the
-    output is unambiguous."""
+    output is unambiguous. It hands the same buffer on every pull and never
+    ends, so a block is several short runs: a `RawSample` ends after one now
+    that the node sees `GET_BUFFER_DONE` (audiodsp#180)."""
     values = array("h")
     for frame in range(frames):
         values.append(((frame * 907) % 20000) - 10000)
-    return audiocore.RawSample(values, sample_rate=SAMPLE_RATE,
-                               channel_count=1)
+    return _Repeating(values)
 
 
 def silence(frames=4096, channels=CHANNELS):
@@ -352,7 +366,8 @@ class LiveSettingTest(unittest.TestCase):
         for feedback in (0.1, 0.9):
             node = delay(max_delay_ms=50, delay_ms=10.0, feedback=0.0,
                          mix=2.0)
-            node.play(alternating(256))
+            # Long enough to be playing still when the feedback moves.
+            node.play(alternating())
             words(node, 2)
             node.set(feedback=feedback)
             node.play(silence(8192))

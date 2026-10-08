@@ -144,6 +144,8 @@ void audiodsp_convolve_reset(audiodsp_convolve_state_t *state,
     state->phase = 0;
     state->cursor = 0;
     state->emitted_mix = config->mix;
+    state->resting = false;
+    state->quiet_frames = 0;
 }
 
 // Transforms one partition's worth of taps sitting in state->block[0..FRAMES)
@@ -466,7 +468,72 @@ static void process_block(const audiodsp_convolve_config_t *config,
     }
 }
 
+static void convolve_run(const audiodsp_convolve_config_t *config,
+    audiodsp_convolve_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames);
+
 void audiodsp_convolve_process_s16(const audiodsp_convolve_config_t *config,
+    audiodsp_convolve_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames) {
+    if (frames > 0u) {
+        state->resting = false;
+        state->quiet_frames = 0;
+    }
+    convolve_run(config, state, out, in, frames);
+}
+
+static bool convolve_all_zero(const float *values, uint32_t count) {
+    for (uint32_t i = 0; i < count; i++) {
+        if (values[i] != 0.0f) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Exactly zero everywhere audio is held: the overlap-save history, the block
+// being gathered, the block being played and every slot of the
+// frequency-delay line. Nothing loaded is a bypass, which holds no audio.
+static bool convolve_settled(const audiodsp_convolve_config_t *config,
+    const audiodsp_convolve_state_t *state) {
+    if (state->loaded == 0) {
+        return true;
+    }
+    return convolve_all_zero(state->window, 2u * FFTN) &&
+           convolve_all_zero(state->pending, 2u * FRAMES) &&
+           convolve_all_zero(state->emitted, 2u * FRAMES) &&
+           convolve_all_zero(state->fdl, 2u * config->partitions * SPECTRUM);
+}
+
+void audiodsp_convolve_process_silence(
+    const audiodsp_convolve_config_t *config,
+    audiodsp_convolve_state_t *state, int16_t *out, uint32_t frames) {
+    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    const uint32_t samples = frames * channels;
+    for (uint32_t i = 0; i < samples; i++) out[i] = 0;
+    if (state->resting || frames == 0u) {
+        return;
+    }
+    // `out` may alias `in`, so the zeros just written are the input.
+    convolve_run(config, state, out, out, frames);
+    for (uint32_t i = 0; i < samples; i++) {
+        if (out[i] != 0) {
+            state->quiet_frames = 0;
+            return;
+        }
+    }
+    state->quiet_frames += frames;
+    uint32_t length = (state->loaded + 1u) * FRAMES;
+    if (state->quiet_frames < length) {
+        return;
+    }
+    state->quiet_frames = 0;
+    if (convolve_settled(config, state)) {
+        state->resting = true;
+    }
+}
+
+static void convolve_run(const audiodsp_convolve_config_t *config,
     audiodsp_convolve_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {
     if (state->loaded == 0) {

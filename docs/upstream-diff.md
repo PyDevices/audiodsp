@@ -1,5 +1,44 @@
 # Deltas from upstream CircuitPython
 
+## Tails ring out when the source ends, then the node rests (audiodsp#180)
+
+`audioecho.FeedbackDelay`, `audioverb.Tank` and `audioconvolve.Convolver` used
+to advance only on frames their source handed them. When the source ran dry the
+tail froze, and when it came back the frozen tail played on over the new
+material: a note's echoes did not ring out after the note, they waited and
+played over the next one. Nor did the three see a source end: a one-shot
+`RawSample` hands its buffer with `GET_BUFFER_DONE`, and they fetched it again
+on every block and played it for ever. And a source that ran dry part-way
+through a block got a short block handed on downstream.
+
+They follow `audiodelays.MultiTapDelay` and `Echo` now, on all three bindings:
+
+- After the buffer that came with `GET_BUFFER_DONE` the node lets go of its
+  source, so `playing` goes false where a binding has it.
+- Whatever the source does not fill, because it has ended, has nothing this
+  time or was never there, is rendered from silence. The block is always full,
+  and the tail rings out exactly as it would if silence were fed in.
+- These kernels truncate toward zero in their loops, so their tails reach
+  exact zero. Once the whole state is zero (every line, and each filter to
+  within 1/1024 of an LSB, which is then set to zero) the node rests: it writes
+  zeros without running the kernel, which costs a resting `Tank` about 1/25 of
+  what processing silence does. The state is scanned only after a stretch of
+  all-zero output as long as the node's longest line, so the check costs
+  nothing until a tail is nearly over.
+- A source played into a resting node meets an empty one: it renders what a
+  newly built node renders, except that oscillators (`wow_hz`, `mod_rate_hz`)
+  resume from where they stopped rather than from the top.
+
+`audiomodal.Bank` already rang out. `audiobiquad`'s nodes, `audioladder.Ladder`
+and the others still stop with their source.
+
+What moves is any render in which a source ends or a one-shot sample is played
+into one of the three. Verified by `tests/parity/tail_rest_probe.py` through
+`verify_dsp.py`: a burst that ends part-way through a block, the ring to exact
+zero beside the same node fed explicit silence, a stretch at rest, and a second
+burst against a new node, in stereo and mono. A build from before the change
+fails it.
+
 ## A host reset keeps the frames a node has already taken (audiodsp#181)
 
 `audiocore.reset_buffer(node)` clears what the node holds of its own, its
@@ -3253,12 +3292,11 @@ Six details worth recording:
   expected to.
 - **`reset_buffer` clears all of the node's own state**, unlike
   `audiodynamics`, and keeps the source frames already taken
-  (audiodsp#181). A reverberation tail is entirely state: a chain restarted with the old tail
-  still in the lines plays the previous take underneath the new one. And, like
-  `audioecho.FeedbackDelay`, the lines only advance for frames that arrive --
-  a starved chain gets silence and the tail stops with the source rather than
-  ringing on. A class that wants the tail rung out feeds the tank silence for
-  as long as its `tail_samples` says.
+  (audiodsp#181). A reverberation tail is entirely state: a chain restarted
+  with the old tail still in the lines plays the previous take underneath the
+  new one.
+- **The tail rings out when the source ends, and then the tank rests**
+  (audiodsp#180). See the section on tails near the top of this file.
 - **The tilt's pole runs while `tone_db` is 0** (audiodsp#168, 2026-09-28).
   At 0 the output skips the tilt, because its gains are exactly 1 and
   `s + (v - s)` is not always `v` in `float`, so a node held at 0 renders what

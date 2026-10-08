@@ -56,8 +56,8 @@ audioio_get_buffer_result_t audioladder_ladder_get_buffer(
     }
     // A starved chain gets silence rather than a short block: this node sits
     // in the middle of a live graph and never reports itself finished. A
-    // self-oscillation stops with the source, for the same reason audioecho's
-    // repeats do -- the loop is only advanced by frames that arrive.
+    // self-oscillation stops with the source: the loop is only advanced by
+    // frames that arrive.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
         produced = AUDIODSP_LADDER_FRAMES;

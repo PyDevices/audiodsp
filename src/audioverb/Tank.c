@@ -151,6 +151,7 @@ static mp_obj_t audioverb_tank_make_new(const mp_obj_type_t *type,
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
 
     audiodsp_tank_config_init(&self->config, sample_rate,
         (float)max_predelay_ms);
@@ -192,6 +193,7 @@ static mp_obj_t audioverb_tank_play(mp_obj_t self_in, mp_obj_t sample) {
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     audiodsp_pump_lock_release();
     return mp_const_none;
 }
@@ -324,6 +326,13 @@ static audioio_get_buffer_result_t audioverb_tank_get_buffer(mp_obj_t self_in,
     uint32_t produced = 0;
     while (produced < AUDIODSP_TANK_FRAMES) {
         if (self->pending_frames == 0) {
+            // The buffer that came with GET_BUFFER_DONE was the source's
+            // last. Let go of it, as audiodelays' effects do, and ring the
+            // tail out on silence below (audiodsp#180).
+            if (self->source_done) {
+                self->source = MP_OBJ_NULL;
+                self->source_done = false;
+            }
             if (self->source == MP_OBJ_NULL) {
                 break;
             }
@@ -333,10 +342,16 @@ static audioio_get_buffer_result_t audioverb_tank_get_buffer(mp_obj_t self_in,
                 self->source, false, 0, &raw, &raw_bytes);
             const uint32_t width = 2u * self->base.channel_count;
             if (result == GET_BUFFER_ERROR || raw == NULL || raw_bytes < width) {
+                // A source that ends with nothing in hand is done with too.
+                // One that has nothing this time is asked again next block.
+                if (result == GET_BUFFER_DONE) {
+                    self->source = MP_OBJ_NULL;
+                }
                 break;
             }
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
+            self->source_done = (result == GET_BUFFER_DONE);
         }
         uint32_t run = AUDIODSP_TANK_FRAMES - produced;
         if (run > self->pending_frames) {
@@ -349,14 +364,15 @@ static audioio_get_buffer_result_t audioverb_tank_get_buffer(mp_obj_t self_in,
         self->pending_frames -= run;
         produced += run;
     }
-    // A starved chain gets silence rather than a short block: this node sits
-    // in the middle of a live graph and never reports itself finished. The
-    // tail stops with the source -- the lines only advance for frames that
-    // arrive -- which is `audioecho.FeedbackDelay`'s behaviour and
-    // `audiodelays.Echo`'s before it. A class that wants the tail rung out
-    // feeds the tank silence for as long as `tail_samples` says.
-    if (produced == 0) {
-        memset(self->buffer, 0, sizeof(self->buffer));
+    // Whatever the source did not fill is rendered from silence, so the block
+    // is always full and the tail rings out after the source ends instead of
+    // freezing until it comes back (audiodsp#180). Once it has ended, the node
+    // rests and silence costs nothing. A node in the middle of a live graph
+    // never reports itself finished.
+    if (produced < AUDIODSP_TANK_FRAMES) {
+        audiodsp_tank_process_silence(&self->config, &self->state,
+            &self->buffer[produced * self->base.channel_count],
+            AUDIODSP_TANK_FRAMES - produced);
         produced = AUDIODSP_TANK_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
@@ -406,6 +422,7 @@ static mp_obj_t audioverb_tank_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     memset(self->state.lines, 0, sizeof(self->state.lines));
     self->state.predelay = NULL;
     audiodsp_pump_lock_release();

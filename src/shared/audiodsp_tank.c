@@ -377,6 +377,8 @@ void audiodsp_tank_state_init(audiodsp_tank_state_t *state,
     state->tone_state[0] = state->tone_state[1] = 0.0f;
     state->mod_sine = 0.0f;
     state->mod_cosine = 1.0f;
+    state->resting = false;
+    state->quiet_frames = 0;
 }
 
 void audiodsp_tank_reset(audiodsp_tank_state_t *state,
@@ -473,7 +475,95 @@ static float tank_mod_allpass(int16_t *line, uint32_t length, uint32_t write,
     return delayed - gain * v;
 }
 
+static void tank_run(const audiodsp_tank_config_t *config,
+    audiodsp_tank_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames);
+
 void audiodsp_tank_process_s16(const audiodsp_tank_config_t *config,
+    audiodsp_tank_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames) {
+    if (frames > 0u) {
+        state->resting = false;
+        state->quiet_frames = 0;
+    }
+    tank_run(config, state, out, in, frames);
+}
+
+// Below this a filter state is a fraction of an LSB that no write can round
+// up to one, since every line write truncates toward zero: it is set to zero
+// when the tank rests rather than left in float32's denormals for ever.
+#define AUDIODSP_TANK_REST_FLOOR (1.0f / 1024.0f)
+
+static bool tank_below_floor(float value) {
+    return (value < 0.0f ? -value : value) < AUDIODSP_TANK_REST_FLOOR;
+}
+
+// Everything audible is zero: every line, the predelay, and the filters to
+// within a fraction of an LSB.
+static bool tank_settled(const audiodsp_tank_config_t *config,
+    const audiodsp_tank_state_t *state) {
+    if (!tank_below_floor(state->bandwidth_state) ||
+        !tank_below_floor(state->low_cut_state)) {
+        return false;
+    }
+    for (uint32_t ch = 0; ch < 2u; ++ch) {
+        if (!tank_below_floor(state->damping_state[ch]) ||
+            !tank_below_floor(state->tone_state[ch])) {
+            return false;
+        }
+    }
+    const uint32_t samples = audiodsp_tank_buffer_samples(config);
+    for (uint32_t i = 0; i < samples; ++i) {
+        if (state->lines[0][i] != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The longest line, predelay included: how much all-zero output the tank has
+// to hand on before its state is worth a look.
+static uint32_t tank_longest_line(const audiodsp_tank_config_t *config) {
+    uint32_t longest = config->predelay_frames_max;
+    for (uint32_t line = 0; line < AUDIODSP_TANK_LINES; ++line) {
+        if (config->line_frames[line] > longest) {
+            longest = config->line_frames[line];
+        }
+    }
+    return longest;
+}
+
+void audiodsp_tank_process_silence(const audiodsp_tank_config_t *config,
+    audiodsp_tank_state_t *state, int16_t *out, uint32_t frames) {
+    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    const size_t samples = (size_t)frames * channels;
+    memset(out, 0, samples * sizeof(int16_t));
+    if (state->resting || frames == 0u || state->lines[0] == NULL) {
+        return;
+    }
+    // `out` may alias `in`, so the zeros just written are the input.
+    tank_run(config, state, out, out, frames);
+    for (size_t i = 0; i < samples; ++i) {
+        if (out[i] != 0) {
+            state->quiet_frames = 0;
+            return;
+        }
+    }
+    state->quiet_frames += frames;
+    if (state->quiet_frames < tank_longest_line(config)) {
+        return;
+    }
+    state->quiet_frames = 0;
+    if (tank_settled(config, state)) {
+        state->bandwidth_state = 0.0f;
+        state->low_cut_state = 0.0f;
+        state->damping_state[0] = state->damping_state[1] = 0.0f;
+        state->tone_state[0] = state->tone_state[1] = 0.0f;
+        state->resting = true;
+    }
+}
+
+static void tank_run(const audiodsp_tank_config_t *config,
     audiodsp_tank_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {
     const uint32_t channels = config->channel_count == 1u ? 1u : 2u;

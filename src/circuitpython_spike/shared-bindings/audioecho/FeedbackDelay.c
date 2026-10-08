@@ -19,9 +19,9 @@
 //|
 //|     Processes signed 16-bit stereo, and hands out 256 frames at a time. It
 //|     sits in an audiosample chain like any other effect, and never reports
-//|     itself finished - a starved chain gets silence. The line only advances
-//|     with frames that arrive, so the repeats stop with the source rather
-//|     than ringing on, the same way `audiodelays.Echo` behaves."""
+//|     itself finished. When its source ends (or has nothing to hand over) the
+//|     repeats ring out on silence until the line is exactly zero, and then
+//|     the node rests, the way `audiodelays.MultiTapDelay` behaves."""
 //|
 //|     def __init__(
 //|         self,
@@ -237,6 +237,7 @@ static mp_obj_t audioecho_feedback_delay_make_new(const mp_obj_type_t *type,
     self->wow_shape = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
 
     uint32_t line_frames =
         (uint32_t)((mp_float_t)sample_rate * max_delay_ms / 1000);
@@ -270,6 +271,7 @@ static mp_obj_t audioecho_feedback_delay_play(mp_obj_t self_in,
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(audioecho_feedback_delay_play_obj,
@@ -316,6 +318,7 @@ static mp_obj_t audioecho_feedback_delay_deinit(mp_obj_t self_in) {
     self->wow_shape = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     // The line goes at the next collection rather than when the object does:
     // a class that keeps a reference to a released node should not go on
     // holding it. Clearing the one pointer to it is what releases it.

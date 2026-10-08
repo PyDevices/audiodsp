@@ -32,7 +32,8 @@ that has not arrived is a missing setting, not a null room.
 """
 
 from audiocore import (
-    GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
+    GET_BUFFER_DONE, GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample,
+    get_buffer,
 )
 import _audiodsp
 
@@ -93,6 +94,7 @@ class Convolver(_AudioSample):
         self._deinited = False
         self._source = None
         self._pending = b""
+        self._source_done = False
         self._max_taps = partitions * FRAMES
         self._state = _audiodsp.ConvolverState(
             sample_rate=self.sample_rate, partitions=partitions,
@@ -183,10 +185,12 @@ class Convolver(_AudioSample):
         self._check()
         self._source = sample
         self._pending = b""
+        self._source_done = False
 
     def stop(self):
         self._source = None
         self._pending = b""
+        self._source_done = False
 
     def _release(self):
         self.stop()
@@ -209,30 +213,39 @@ class Convolver(_AudioSample):
         self._check()
         output = bytearray()
         produced = 0
+        width = 2 * self.channel_count
         while produced < FRAMES:
             if not self._pending:
+                # The buffer that came with GET_BUFFER_DONE was the source's
+                # last. Let go of it, as audiodelays' effects do, and ring the
+                # room out on silence below (audiodsp#180).
+                if self._source_done:
+                    self._source = None
+                    self._source_done = False
                 if self._source is None:
                     break
                 result, data = get_buffer(self._source, False, 0)
                 data = bytes(data)
-                if result == GET_BUFFER_ERROR or len(data) < 2 * self.channel_count:
+                if result == GET_BUFFER_ERROR or len(data) < width:
+                    # A source that ends with nothing in hand is done with
+                    # too. One that has nothing this time is asked again
+                    # next block.
+                    if result == GET_BUFFER_DONE:
+                        self._source = None
                     break
-                width = 2 * self.channel_count
                 self._pending = data[:len(data) // width * width]
-            width = 2 * self.channel_count
+                self._source_done = result == GET_BUFFER_DONE
             run = min(FRAMES - produced, len(self._pending) // width)
             output += self._state.process(self._pending[:run * width])
             self._pending = self._pending[run * width:]
             produced += run
-        # A starved chain gets silence rather than a short block, and the tail
-        # stops with the source: only frames that arrive advance the
-        # convolution, so a reverb does not ring on into silence after its
-        # input ends. Same rule as audioecho and audiodelays, and for the same
-        # reason -- a node in the middle of a live graph never reports itself
-        # finished.
-        if produced == 0:
-            return GET_BUFFER_MORE_DATA, self._publish(
-                bytes(FRAMES * 2 * self.channel_count))
+        # Whatever the source did not fill is rendered from silence, so the
+        # block is always full and the room rings out after the source ends
+        # instead of freezing until it comes back (audiodsp#180). Once it has
+        # ended, the node rests and silence costs nothing. A node in the
+        # middle of a live graph never reports itself finished.
+        if produced < FRAMES:
+            output += self._state.process_silence(FRAMES - produced)
         return GET_BUFFER_MORE_DATA, self._publish(output)
 
 

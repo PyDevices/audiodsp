@@ -18,8 +18,9 @@
 //|
 //|     Processes signed 16-bit stereo, and hands out 256 frames at a time. It
 //|     sits in an audiosample chain like any other effect, and never reports
-//|     itself finished - a starved chain gets silence, and the tail stops with
-//|     the source rather than ringing on.
+//|     itself finished. When its source ends (or has nothing to hand over) the
+//|     room rings out on silence until its tail is exactly zero, and then the
+//|     node rests; a source played into it after that meets an empty room.
 //|
 //|     Once an impulse is loaded the output trails the input by 256 frames,
 //|     5.3 ms at 48 kHz: a block cannot be transformed before it is complete.
@@ -143,6 +144,7 @@ static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     self->storage = NULL;
 
     convolver_allocate(self, self->base.sample_rate, max_taps, ir_channels);
@@ -173,6 +175,7 @@ static mp_obj_t audioconvolve_convolver_play(mp_obj_t self_in,
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(audioconvolve_convolver_play_obj,
@@ -368,6 +371,7 @@ static mp_obj_t audioconvolve_convolver_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     // Every pointer into the kernel's storage goes, and the collector takes
     // it back at its next pass. Dropping `storage` alone never released it:
     // the state's first carved pointer is the start of the same block
