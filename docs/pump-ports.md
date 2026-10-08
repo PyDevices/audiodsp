@@ -146,7 +146,7 @@ because the firmware's module table holds an undefined reference to your
 module object, so your object is always pulled in, archive or not.
 
 That is an argument rather than a proof, so it is checked at run time on every
-build. Four of the six are proven by running them:
+build. Five of the seven are proven by running them:
 
 | build | `audiopump.driver()` | `threaded()` | `spawn()` returns | proof |
 |---|---|---|---|---|
@@ -154,6 +154,7 @@ build. Four of the six are proven by running them:
 | unix, driver not linked | `none` | False | −2, `service()` drives | run |
 | windows | `win32` | True | −1 | run |
 | webassembly | `none` | False | −2 | run |
+| CPython wheel | `none` | False | −2 | run |
 | ESP32-P4 | `esp32` | — | — | run, at an earlier commit |
 | ESP32-S3 | — | — | — | link map |
 

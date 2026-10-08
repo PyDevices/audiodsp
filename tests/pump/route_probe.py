@@ -13,8 +13,10 @@ case compares the tap's window against the tail of the same sink file, and
 the events case renders the same scheduled bar twice and compares the C's
 own FNV-1a digest.
 
-Written for the build ``clean-build.yml`` makes; it needs no platform
-driver.
+Written for the build ``clean-build.yml`` makes, and run on CPython too; it
+needs no platform driver. One planted fault is native-only: ``deep_loop
+--fault deeper`` proves audiocore's pull-depth cap, and CPython has no such
+cap -- a ring there is caught when Python's own recursion limit is reached.
 """
 
 import os
@@ -34,7 +36,13 @@ CHANNELS = 2
 BLOCK_FRAMES = 256
 BLOCK_BYTES = BLOCK_FRAMES * CHANNELS * 2
 
-TMP = os.getenv("PUMP_PROBE_TMP", "/tmp")
+TMP = os.getenv("PUMP_PROBE_TMP")
+if TMP is None:
+    try:
+        import tempfile
+        TMP = tempfile.gettempdir()
+    except ImportError:      # MicroPython
+        TMP = "/tmp"
 
 #: ``audiopump.fault()``'s code for a graph that leads back into itself.
 FAULT_LOOP = 5
