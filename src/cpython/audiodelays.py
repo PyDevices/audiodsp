@@ -16,7 +16,7 @@ class Echo(_Effect):
 
     def __init__(self, *, max_delay_ms=500, delay_ms=None, decay=None, filter=None, mix=None, buffer_size=512, sample_rate=8000, bits_per_sample=16, samples_signed=True, channel_count=1, freq_shift=True):
         if not 1 <= max_delay_ms <= 4000: raise ValueError("max_delay_ms must be from 1 to 4000")
-        self.max_delay_ms, self.delay_ms, self.decay, self.mix = max_delay_ms, 250 if delay_ms is None else delay_ms, 0.7 if decay is None else decay, 0.5 if mix is None else mix
+        self.max_delay_ms, self.delay_ms, self.decay, self.mix = max_delay_ms, 250 if delay_ms is None else delay_ms, 0.7 if decay is None else decay, 0.25 if mix is None else mix
         self.freq_shift = bool(freq_shift)
         self._init_format(buffer_size=buffer_size, sample_rate=sample_rate, bits_per_sample=bits_per_sample, samples_signed=samples_signed, channel_count=channel_count)
         self._maximum_samples = int(self.sample_rate / 1000.0 * self.max_delay_ms)

@@ -91,3 +91,13 @@ echo.play(source())
 emit("late-a", echo, 3)
 echo.filter = synthio.Biquad(synthio.FilterMode.LOW_PASS, 500, 0.7)
 emit("late-b", echo, 3)
+
+# Echo's defaults: mix and freq_shift unset. The twin once defaulted mix to
+# 0.5 where the native node and CircuitPython use 0.25, so a default Echo
+# returned its echo twice as loud on CPython (audiodsp#191). Every case above
+# sets mix, which is why none of them saw it.
+echo = delays.Echo(
+    max_delay_ms=80, delay_ms=40, decay=float32(0.7),
+    sample_rate=SAMPLE_RATE, channel_count=2, buffer_size=512)
+echo.play(source())
+emit("default", echo, 6)
