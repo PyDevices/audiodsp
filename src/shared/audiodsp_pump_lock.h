@@ -8,7 +8,7 @@
 // `AllPass.stop()` writes {source, pending, pending_frames} as three words
 // and the pull reads two of them, so a stop landing between them hands the
 // DSP a length as a pointer -- x86-64 and RISC-V, same statement, same
-// faulting value 0x400 (docs/spikes/live-audio-path-notes.md).
+// faulting value 0x400.
 //
 // The spike made that safe from Python, with `audiopump.park()` around every
 // call. If the pump is the ONLY audio path, nobody -- no user, no author of

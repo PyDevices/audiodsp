@@ -37,8 +37,8 @@
 ## v0.6.0 (2026-09-23)
 
 - docs: add audiodsp newcomer guide (#145)
-- AGENTS.md: the interpreters, the oracle and the CircuitPython checkout live in the workspace anchor, not cmods
-- tests: the oracle and the interpreters live in the workspace anchor's bin
+- AGENTS.md: the interpreters, the oracle and the CircuitPython checkout no longer live in cmods
+- tests: the oracle and the interpreters are found in the bin/ beside the checkout
 - ulab is named by the manifest, once, for every port (#144)
 - flake8: c_module is manifest vocabulary, not an undefined name
 - manifest: name this repo's C module with c_module() (MicroPython 1.29)
@@ -287,7 +287,7 @@
   The golden was **not** re-captured. It holds seven pieces from 2026-09-03
   and the soundtrack has grown since; whether that baseline is still the
   reference or should be re-taken against today's pieces and today's DSP is
-  Brad's call, not an agent's (audiodsp#88).
+  a human's call, never an automated one (audiodsp#88).
 - **`audiodsp_util.float32`, and the rule that a setting derived in Python
   goes through it.** A Python float is the interpreter's `mp_float_t` — a
   double here and on the desktop MicroPython, a **single** on every board and
