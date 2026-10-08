@@ -100,6 +100,27 @@ in [upstream-reports/speedchanger-phase-carry.md](upstream-reports/speedchanger-
 The PR is prepared and unfiled:
 [upstream-reports/prs/speedchanger-phase-carry/](upstream-reports/prs/speedchanger-phase-carry/PR.md).
 
+## `audiodelays.Echo`: a delay line shorter than one buffer stays inside its allocation
+
+With `freq_shift=False`, CircuitPython 10.3.0's `Echo` clamps the delay to the
+line it allocated and *then* raises it to the audio buffer's length
+(`shared-module/audiodelays/Echo.c`, `recalculate_delay`). When `max_delay_ms`
+is shorter than one buffer, the second step undoes the first: the line is
+longer than its memory, the "clear the unused part" `memset` gets a negative
+length as an unsigned one, and the line is read and written past its end. On
+the unix build, `Echo(max_delay_ms=8, delay_ms=4, sample_rate=1000,
+buffer_size=1024)` segfaults within a few buffers, on 10.3.0 and on this port
+before the fix alike.
+
+**This port clamps last** (`src/audiodelays/Echo.c`), which is what upstream
+did after 10.3.0: 6dddbda87, "audiodelays, audiofilters, audiofreeverb: buffer
+lengths and silence fills", in 11.0.0-alpha.1. The CPython twin always clamped
+last, and the fixed native node renders its bytes exactly.
+
+`verify_dsp` skips `echo_short_line_probe.py` on circuitpython, because the
+oracle is 10.3.0 and crashes on it. The skip and this entry expire when the
+oracle moves to a release containing 6dddbda87.
+
 ## `audiodelays.Flanger`: we do not reproduce upstream's int32 overflow (audiodsp#76)
 
 CircuitPython 10.3.0's `shared-module/audiodelays/Flanger.c:365` computes the

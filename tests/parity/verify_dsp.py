@@ -191,6 +191,17 @@ PROBES = (
                        "docs/upstream-diff.md"},
      None),
     ("echo_filter_probe.py", "audiodelays", {}, None),
+    # A delay line shorter than one audio buffer. CircuitPython 10.3.0 raises
+    # it to the buffer's length after clamping it to the allocation, so the
+    # line runs past its memory and the unix build segfaults; upstream fixed
+    # the order after 10.3.0 (6dddbda87, in 11.0.0-alpha.1) and so does this
+    # port. The skip expires when the oracle moves to a release with the fix.
+    ("echo_short_line_probe.py", "audiodelays",
+     {"circuitpython": "10.3.0's Echo clamps a short delay to its allocation "
+                       "before raising it to the buffer length, and overruns "
+                       "it - fixed upstream after 10.3.0 and here; see "
+                       "docs/upstream-diff.md"},
+     None),
     ("freeverb_filter_probe.py", "audiofreeverb", {}, None),
 )
 
