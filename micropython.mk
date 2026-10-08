@@ -28,13 +28,24 @@ CFLAGS_USERMOD += -I$(MPAUDIO_SRC_DIR)
 # throwaway source tree during a pin move, and the commit was not recoverable
 # from the working tree or from the .bin files left on disk.
 #
-# `--always --dirty` so a tree with uncommitted changes says so. Both default
-# to "unknown" rather than guessing if git is absent or this is a tarball --
-# see src/cp_compat/audiodsp_build.c.
+# `--tags --match 'v[0-9]*'` so it names the release: the release tags are
+# lightweight, and a plain `git describe` skips those for the last annotated
+# tag (v0.0.3). `--always --dirty` so a tree with uncommitted changes says so.
+# Both default to "unknown" rather than guessing if git is absent or this is a
+# tarball -- see src/cp_compat/audiodsp_build.c.
 MPAUDIO_VERSION := $(shell cat $(MPAUDIO_MOD_DIR)/VERSION 2>/dev/null || echo 0.0.0+unknown)
-MPAUDIO_REVISION := $(shell git -C $(MPAUDIO_MOD_DIR) describe --always --dirty --abbrev=7 2>/dev/null || echo unknown)
+MPAUDIO_REVISION := $(shell git -C $(MPAUDIO_MOD_DIR) describe --tags --match 'v[0-9]*' --always --dirty --abbrev=7 2>/dev/null || echo unknown)
 CFLAGS_USERMOD += -DAUDIODSP_VERSION='"$(MPAUDIO_VERSION)"'
 CFLAGS_USERMOD += -DAUDIODSP_REVISION='"$(MPAUDIO_REVISION)"'
+
+# Make recompiles nothing when only a -D value changes, so in a reused build
+# directory the strings above would stay those of the first build (#156). The
+# one object that carries them depends on a stamp, rewritten only when they
+# change. py.mk puts a module's objects under $(BUILD)/<module directory name>/.
+MPAUDIO_BUILD_STAMP := $(BUILD)/audiodsp_build.stamp
+$(shell mkdir -p $(BUILD) && echo '$(MPAUDIO_VERSION) $(MPAUDIO_REVISION)' > $(MPAUDIO_BUILD_STAMP).new && \
+    { cmp -s $(MPAUDIO_BUILD_STAMP).new $(MPAUDIO_BUILD_STAMP) && rm -f $(MPAUDIO_BUILD_STAMP).new || mv -f $(MPAUDIO_BUILD_STAMP).new $(MPAUDIO_BUILD_STAMP); })
+$(BUILD)/$(notdir $(MPAUDIO_MOD_DIR))/src/cp_compat/audiodsp_build.o: $(MPAUDIO_BUILD_STAMP)
 
 # --- cp_compat: small shims for CircuitPython-only helpers (mp_arg_validate_*,
 #     cp_enum, MP_PROPERTY_GETTER/GETSET, default___enter__/__exit__) that the

@@ -24,8 +24,8 @@ VERSION = Path(__file__).parent.joinpath("VERSION").read_text().strip()
 # "unknown" is the honest answer outside a checkout rather than an error.
 try:
     REVISION = subprocess.run(
-        ["git", "-C", str(Path(__file__).parent), "describe", "--always",
-         "--dirty", "--abbrev=7"],
+        ["git", "-C", str(Path(__file__).parent), "describe", "--tags",
+         "--match", "v[0-9]*", "--always", "--dirty", "--abbrev=7"],
         capture_output=True, text=True, check=True).stdout.strip() or "unknown"
 except (OSError, subprocess.CalledProcessError):
     REVISION = "unknown"
