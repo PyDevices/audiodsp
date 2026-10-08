@@ -105,6 +105,15 @@ void common_hal_audiomixer_mixer_deinit(audiomixer_mixer_obj_t *self) {
     audiosample_mark_deinit(&self->base);
     self->first_buffer = NULL;
     self->second_buffer = NULL;
+    // Let go of every voice's source, as the CPython twin does, so a released
+    // mixer does not keep whatever it was playing alive (audiodsp#178).
+    for (uint8_t i = 0; i < self->voice_count; i++) {
+        audiomixer_mixervoice_obj_t *voice = MP_OBJ_TO_PTR(self->voice[i]);
+        voice->sample = NULL;
+        voice->remaining_buffer = NULL;
+        voice->buffer_length = 0;
+        voice->more_data = false;
+    }
     audiodsp_pump_lock_release();
 }
 

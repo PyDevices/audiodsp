@@ -389,7 +389,6 @@ def check_storage(deinit):
 #: letting go fails the run, so the exception cannot outlive its reason:
 #: delete the line when it does.
 KEEPS_SOURCE = {
-    "audiomixer.Mixer": "audiodsp#178",
 }
 
 #: On CircuitPython these modules are CircuitPython's own, not this
