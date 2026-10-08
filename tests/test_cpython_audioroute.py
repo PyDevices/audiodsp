@@ -265,18 +265,15 @@ class MidSideTest(unittest.TestCase):
         self.assertEqual(len(data), audioroute.MIDSIDE_FRAMES * 4)
         self.assertNotEqual(data, bytes(len(data)))
 
-    def test_stop_and_play_are_symmetric(self):
+    def test_surface_is_the_native_one(self):
+        # The native MidSide has no stop() and no `playing`; the twin had
+        # both (audiodsp#178). A source is changed with play().
         node = audioroute.MidSide(source(), width=0.5)
-        self.assertTrue(node.playing)
-        node.stop()
-        self.assertFalse(node.playing)
-        self.assertEqual(bytes(audiocore.get_buffer(node)[1]),
-                         bytes(audioroute.MIDSIDE_FRAMES * 4))
+        self.assertFalse(hasattr(node, "stop"))
+        self.assertFalse(hasattr(node, "playing"))
         node.play(source())
-        self.assertTrue(node.playing)
         self.assertNotEqual(bytes(audiocore.get_buffer(node)[1]),
                             bytes(audioroute.MIDSIDE_FRAMES * 4))
-
 
 if __name__ == "__main__":
     unittest.main()
