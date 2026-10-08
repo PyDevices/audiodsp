@@ -187,6 +187,20 @@ jobs:
           done
           run pump_probe.py
           run route_probe.py
+      # Make recompiles nothing for a changed -D, so the revision once stayed
+      # that of a build directory's first build (audiodsp#156). Move HEAD,
+      # build again in the same directory, and the firmware must follow.
+      - name: A rebuild after the checkout moves reports the new revision
+        run: |
+          git -C audiodsp -c user.name=ci -c user.email=ci@localhost \
+              commit -q --allow-empty -m "move HEAD"
+          make -C micropython/ports/unix -j2 \
+            FROZEN_MANIFEST=$GITHUB_WORKSPACE/audiodsp/manifest.py \
+            CFLAGS_EXTRA="${{ matrix.float-impl.cflags }}"
+          want=$(git -C audiodsp describe --tags --match 'v[0-9]*' --always --dirty --abbrev=7)
+          got=$(./micropython/ports/unix/build-standard/micropython -c "import audioecho; print(audioecho.__revision__)")
+          echo "checkout $want, firmware $got"
+          [ "$got" = "$want" ]
 
   # Scenario S2: the *CMake* half of the standalone contract. Until this job
   # existed nothing in CI ran CMake at all - clean-build built through
@@ -227,3 +241,22 @@ jobs:
                 -DMICROPY_DIR="$GITHUB_WORKSPACE/micropython" \
                 -DMICROPY_FROZEN_MANIFEST="$GITHUB_WORKSPACE/audiodsp/manifest.py" \
                 -DUSER_C_MODULES="$GITHUB_WORKSPACE/audiodsp"
+      # The same for CMake, where the revision was fixed when CMake configured
+      # and stayed in CMakeCache.txt (audiodsp#156). Build, move HEAD, build
+      # again without reconfiguring.
+      - name: A rebuild after the checkout moves reports the new revision
+        run: |
+          cmake -S audiodsp/tests/cmake/revision -B revision-build \
+                -DAUDIODSP="$GITHUB_WORKSPACE/audiodsp"
+          cmake --build revision-build
+          revision() { git -C audiodsp describe --tags --match 'v[0-9]*' --always --dirty --abbrev=7; }
+          first=$(revision-build/firmware)
+          echo "first build: $first"
+          [ "$first" = "$(cat audiodsp/VERSION) $(revision)" ]
+          git -C audiodsp -c user.name=ci -c user.email=ci@localhost \
+              commit -q --allow-empty -m "move HEAD"
+          cmake --build revision-build
+          second=$(revision-build/firmware)
+          echo "after HEAD moved: $second"
+          [ "$second" = "$(cat audiodsp/VERSION) $(revision)" ]
+          [ "$second" != "$first" ]
