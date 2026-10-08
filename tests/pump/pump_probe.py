@@ -3,9 +3,9 @@
     <interpreter> tests/pump/pump_probe.py [case ...] [--fault WHICH]
 
 Cases: ``identity``, ``alloc``, ``storm``, ``driver``, ``unpumpable``,
-``swap`` (all by default).
+``swap``, ``writes`` (all by default).
 Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
-``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap). Each one must make this exit non-zero; a probe whose
+``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap, writes). Each one must make this exit non-zero; a probe whose
 failing mode is never run is not a gate.
 
 Runs on a MicroPython build carrying this repository as a usermod -- the one
@@ -60,6 +60,14 @@ What each case is for
     only the install is held. ``--fault unlocked`` counts across a call that
     takes no lock, and must fail. Skipped on CPython, whose extension has no
     pump lock: nothing there pulls from another thread.
+
+``writes``  The control writes a pull reads, on the delays: every
+    ``FeedbackDelay.set()`` option, and ``MultiTapDelay``'s ``taps`` and
+    ``delay_ms``. Each must take the pump lock. ``taps`` used to resize its
+    tables in place, freeing them while a pull on the pump's thread could be
+    reading them, and the rest wrote what a pull reads with no lock at all
+    (audiodsp#177). ``--fault unlocked`` writes ``mix`` instead, which takes
+    no lock, and must fail. Skipped on CPython, as ``swap`` is.
 """
 
 import gc
@@ -75,6 +83,7 @@ except ImportError:  # CPython: no heap lock, so no allocation gate
 import audioconvolve
 import audiocore
 import audiodelays
+import audioecho
 import audiofilters
 import audiofreeverb
 import audiomixer
@@ -605,8 +614,50 @@ def swap(fault):
     return ok
 
 
+# --- writes ----------------------------------------------------------------
+
+
+def writes(fault):
+    if sys.implementation.name == "cpython":
+        return say("writes", True, "skipped: the CPython extension has no "
+                   "pump lock, and nothing there pulls from another thread")
+    echo = audioecho.FeedbackDelay(max_delay_ms=200, sample_rate=RATE,
+                                   channel_count=CHANNELS)
+    taps = audiodelays.MultiTapDelay(
+        max_delay_ms=200, delay_ms=150, taps=(0.2, 0.5), sample_rate=RATE,
+        channel_count=CHANNELS, buffer_size=BLOCK_FRAMES * 4)
+    for node in (echo, taps):
+        node.play(raw())
+        for _ in range(4):
+            audiocore.get_buffer(node)
+    shape = array("h", [0, 16000, 0, -16000])
+    calls = [
+        ("echo.set(%s)" % name,
+         lambda name=name: echo.set(**{name: 0.25}))
+        for name in ("delay_ms", "feedback", "mix", "damping_hz", "cut_hz",
+                     "wow_hz", "wow_depth_ms", "cross_feed", "loop_drive",
+                     "input_pan", "delay_slew", "wow_am_depth",
+                     "loop_semitones", "loop_window_ms")
+    ]
+    calls.append(("echo.set(wow_shape)", lambda: echo.set(wow_shape=shape)))
+    calls.append(("taps.taps", lambda: setattr(taps, "taps", (0.1, 0.4, 0.7))))
+    calls.append(("taps.delay_ms", lambda: setattr(taps, "delay_ms", 90)))
+    ok = True
+    for name, call in calls:
+        if fault == "unlocked":
+            call = lambda: setattr(taps, "mix", 0.5)   # noqa: E731
+        audiopump.lock_reset()
+        call()
+        takes = audiopump.lock_stats()[3]
+        ok = say(name, takes >= 1, "%d lock take(s)" % takes) and ok
+    echo.deinit()
+    taps.deinit()
+    return ok
+
+
 CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
-         ("driver", driver), ("unpumpable", unpumpable), ("swap", swap))
+         ("driver", driver), ("unpumpable", unpumpable), ("swap", swap),
+         ("writes", writes))
 
 
 def main():

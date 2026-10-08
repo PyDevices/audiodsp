@@ -40,23 +40,38 @@ static const feedback_delay_option_name_t feedback_delay_option_names[] = {
 // object is kept on the instance because the config only *borrows* the
 // samples: a table the collector took would be read as whatever landed on it
 // next.
+//
+// Every write to the config is made under the pump lock, one option at a
+// time, because a pull on the pump's thread reads the config: an option
+// derives several fields from its value, and a pull between two of them
+// would play one block with half of the change (audiodsp#177). What can raise
+// -- reading the value, refusing a shape -- happens outside the lock.
 static void feedback_delay_set_shape(audioecho_feedback_delay_obj_t *self,
     mp_obj_t value) {
     if (value == mp_const_none) {
+        audiodsp_pump_lock_acquire();
         audiodsp_feedback_delay_set_wow_shape(&self->config, NULL, 0);
         self->wow_shape = MP_OBJ_NULL;
+        audiodsp_pump_lock_release();
         return;
     }
     mp_buffer_info_t info;
     mp_get_buffer_raise(value, &info, MP_BUFFER_READ);
-    if (info.len % sizeof(int16_t) != 0 ||
-        !audiodsp_feedback_delay_set_wow_shape(&self->config,
+    bool taken = false;
+    if (info.len % sizeof(int16_t) == 0) {
+        audiodsp_pump_lock_acquire();
+        taken = audiodsp_feedback_delay_set_wow_shape(&self->config,
             (const int16_t *)info.buf,
-            (uint32_t)(info.len / sizeof(int16_t)))) {
+            (uint32_t)(info.len / sizeof(int16_t)));
+        if (taken) {
+            self->wow_shape = value;
+        }
+        audiodsp_pump_lock_release();
+    }
+    if (!taken) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "wow_shape must be 2 to 4096 int16 samples, a power of two"));
     }
-    self->wow_shape = value;
 }
 
 static void feedback_delay_apply_kwargs(audioecho_feedback_delay_obj_t *self,
@@ -79,8 +94,10 @@ static void feedback_delay_apply_kwargs(audioecho_feedback_delay_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(feedback_delay_option_names); ++option) {
             if (feedback_delay_option_names[option].name == name) {
+                audiodsp_pump_lock_acquire();
                 audiodsp_feedback_delay_configure(&self->config,
                     feedback_delay_option_names[option].option, value);
+                audiodsp_pump_lock_release();
                 known = true;
                 break;
             }

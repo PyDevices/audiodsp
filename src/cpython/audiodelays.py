@@ -154,6 +154,28 @@ class MultiTapDelay(_Effect):
     def _reset_state(self):
         self._delay_buffer[:] = array("h", [0]) * len(self._delay_buffer)
 
+    def _delay_samples(self):
+        delay_ms = max(1000.0 / self.sample_rate, float(self.delay_ms))
+        delay_samples = int(self.sample_rate / 1000.0 * delay_ms)
+        minimum_samples = self.buffer_size // (self.channel_count * 2)
+        return min(self._maximum_samples,
+                   max(minimum_samples, delay_samples))
+
+    @property
+    def delay_ms(self):
+        return self._delay_ms
+
+    @delay_ms.setter
+    def delay_ms(self, value):
+        self._delay_ms = value
+        # Every write clears the line past the new length, as the native node
+        # does: a shorter Time and then a longer one reads silence where the
+        # old repeats were, not the old repeats (audiodsp#177).
+        line = getattr(self, "_delay_buffer", None)
+        if line is not None:
+            start = self._delay_samples() * self.channel_count
+            line[start:] = array("h", [0]) * (len(line) - start)
+
     @property
     def taps(self):
         return None if not self._tap_positions else tuple(zip(
@@ -185,11 +207,7 @@ class MultiTapDelay(_Effect):
         from synthio import _advance_blocks
         _advance_blocks(self.sample_rate,
                         len(data) // (self.channel_count * 2))
-        delay_ms = max(1000.0 / self.sample_rate, float(self.delay_ms))
-        delay_samples = int(self.sample_rate / 1000.0 * delay_ms)
-        minimum_samples = self.buffer_size // (self.channel_count * 2)
-        delay_samples = min(self._maximum_samples,
-                            max(minimum_samples, delay_samples))
+        delay_samples = self._delay_samples()
         offsets = array("I", (int(delay_samples * position)
                               for position in self._tap_positions))
         levels = array("d", self._tap_levels)

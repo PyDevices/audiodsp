@@ -67,6 +67,11 @@ void common_hal_audiofilters_filter_deinit(audiofilters_filter_obj_t *self) {
     // just become NULL. Detach under the lock, free afterwards.
     audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
+    // The source goes too, so releasing the tail of a chain lets the rest of
+    // it be collected, as it does for the nodes audiodsp wrote (audiodsp#177).
+    self->sample = NULL;
+    self->sample_remaining_buffer = NULL;
+    self->sample_buffer_length = 0;
     self->buffer[0] = NULL;
     self->buffer[1] = NULL;
     audiofilters_deinit_filter_chain(&self->filter);
