@@ -107,6 +107,7 @@ static mp_obj_t audiobiquad_allpass_make_new(const mp_obj_type_t *type,
 //|         ...
 static mp_obj_t audiobiquad_allpass_play(mp_obj_t self_in, mp_obj_t sample) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     (void)audiosample_check(sample);
     self->source = sample;
     self->pending = NULL;
@@ -121,6 +122,7 @@ MP_DEFINE_CONST_FUN_OBJ_2(audiobiquad_allpass_play_obj,
 //|         ...
 static mp_obj_t audiobiquad_allpass_stop(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
@@ -134,6 +136,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_stop_obj,
 //|         ...
 static mp_obj_t audiobiquad_allpass_clear(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_allpass_f32_reset(&self->state);
     return mp_const_none;
 }
@@ -144,6 +147,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_clear_obj,
 //|     """True while a source is attached."""
 static mp_obj_t audiobiquad_allpass_obj_get_playing(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return mp_obj_new_bool(self->source != MP_OBJ_NULL);
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_get_playing_obj,
@@ -156,6 +160,7 @@ MP_PROPERTY_GETTER(audiobiquad_allpass_playing_obj,
 //|     state."""
 static mp_obj_t audiobiquad_allpass_obj_get_stages(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return MP_OBJ_NEW_SMALL_INT(self->config.stages);
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_get_stages_obj,
@@ -175,6 +180,7 @@ MP_PROPERTY_GETTER(audiobiquad_allpass_stages_obj,
 #define ALLPASS_SLOT_PROPERTY(name) \
     static mp_obj_t audiobiquad_allpass_obj_get_##name(mp_obj_t self_in) { \
         audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in); \
+        audiosample_check_for_deinit(&self->base); \
         return self->name.obj; \
     } \
     MP_DEFINE_CONST_FUN_OBJ_1(audiobiquad_allpass_get_##name##_obj, \
@@ -182,6 +188,7 @@ MP_PROPERTY_GETTER(audiobiquad_allpass_stages_obj,
     static mp_obj_t audiobiquad_allpass_obj_set_##name(mp_obj_t self_in, \
         mp_obj_t value) { \
         audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in); \
+        audiosample_check_for_deinit(&self->base); \
         synthio_block_assign_slot(value, &self->name, MP_QSTR_##name); \
         return mp_const_none; \
     } \
@@ -204,6 +211,7 @@ ALLPASS_SLOT_PROPERTY(mix);
 //|
 static mp_obj_t audiobiquad_allpass_obj_get_coefficient(mp_obj_t self_in) {
     audiobiquad_allpass_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiobiquad_allpass_refresh(self);
     return mp_obj_new_float((mp_float_t)self->config.coefficient);
 }

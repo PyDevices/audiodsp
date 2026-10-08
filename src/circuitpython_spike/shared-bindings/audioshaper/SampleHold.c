@@ -100,6 +100,7 @@ static mp_obj_t audioshaper_samplehold_make_new(const mp_obj_type_t *type,
 static mp_obj_t audioshaper_samplehold_play(mp_obj_t self_in,
     mp_obj_t sample) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiosample_base_t *src = audiosample_check(sample);
     if (src->bits_per_sample != self->base.bits_per_sample ||
         src->channel_count != self->base.channel_count) {
@@ -135,6 +136,7 @@ static mp_obj_t audioshaper_samplehold_set(size_t n_args,
         allowed, parsed);
     samplehold_check_ratio(parsed[ARG_num].u_int, parsed[ARG_den].u_int);
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     if (audiodsp_samplehold_config_set(&self->config,
         (uint32_t)parsed[ARG_num].u_int, (uint32_t)parsed[ARG_den].u_int)) {
         audiodsp_samplehold_reset(&self->state, &self->config);
@@ -150,6 +152,7 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioshaper_samplehold_set_obj, 1,
 //|         ...
 static mp_obj_t audioshaper_samplehold_clear(mp_obj_t self_in) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_samplehold_reset(&self->state, &self->config);
     return mp_const_none;
 }

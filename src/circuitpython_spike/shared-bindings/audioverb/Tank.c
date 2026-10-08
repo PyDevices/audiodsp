@@ -245,6 +245,7 @@ static mp_obj_t audioverb_tank_make_new(const mp_obj_type_t *type,
 //|         ...
 static mp_obj_t audioverb_tank_play(mp_obj_t self_in, mp_obj_t sample) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     (void)audiosample_check(sample);
     self->source = sample;
     self->pending = NULL;
@@ -338,6 +339,7 @@ static void tank_recut(audioverb_tank_obj_t *self, mp_obj_t delays,
 static mp_obj_t audioverb_tank_set(size_t n_args, const mp_obj_t *args,
     mp_map_t *kw_args) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     (void)n_args;
     tank_check_options(kw_args);
     mp_map_elem_t *delays =
@@ -362,6 +364,7 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioverb_tank_set_obj, 1,
 //|
 static mp_obj_t audioverb_tank_clear(mp_obj_t self_in) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_tank_reset(&self->state, &self->config);
     return mp_const_none;
 }
@@ -373,12 +376,23 @@ MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_clear_obj,
 // binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
 // this copy did not, which is audiodsp#75: the two bindings are hand-written and
 // nothing held them to each other. Same fields, same order, deliberately.
+//
+// The lines and the predelay are freed here as well, rather than when the
+// object is collected: a plate's are about 90 KB, and a class that keeps a
+// reference to a released tank should not go on holding them (audiodsp#181).
 static mp_obj_t audioverb_tank_deinit(mp_obj_t self_in) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    int16_t *lines = self->state.lines[0];
+    const uint32_t samples = audiodsp_tank_buffer_samples(&self->config);
+    memset(self->state.lines, 0, sizeof(self->state.lines));
+    self->state.predelay = NULL;
+    if (lines != NULL) {
+        m_del(int16_t, lines, samples);
+    }
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_deinit_obj, audioverb_tank_deinit);

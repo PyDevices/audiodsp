@@ -19,6 +19,23 @@ every one audiodsp wrote rather than ported from CircuitPython -- had no
 no guard on the C protocol entry point, and pulling a released one dumped
 core (audiodsp#59).
 
+**Every method, on the nodes audiodsp wrote.** The audio path is not the
+only way back in. On the native builds `audioverb.Tank` still took `set()`,
+`clear()` and `play()` after `deinit()`, and `audioconvolve.Convolver` still
+took `clear()`, `load()` and `synthesize()`, writing through pointers into
+storage the collector was free to take back (audiodsp#176). So for every node
+type audiodsp wrote itself (`OWN`), every public method and property on that
+build's surface is called on a released node and must raise. Each call is
+first made on a live node of the same type and must succeed there, so a raise
+on the released one is the guard and not a bad argument. A method with no
+call recipe fails the run rather than going unchecked. The node types ported
+from CircuitPython keep CircuitPython's surface, which guards the audio path
+and leaves some properties and `stop()` open; they are checked on the audio
+path only.
+
+A module a target does not build (CircuitPython 11 has no `audiospeed`) is
+named in the output and its nodes are skipped.
+
 Run `--fault` to check the probe can fail: it skips the `deinit()` call, so
 every node reads as unreleased and the run must exit nonzero. A probe whose
 failing mode was never run is not a gate.
@@ -41,9 +58,17 @@ import audiomixer
 import audiomodal
 import audioroute
 import audioshaper
-import audiospeed
 import audioverb
 import synthio
+
+#: Modules some target does not build. CircuitPython has its own audio core
+#: and takes audiodsp's own modules on top; `audiospeed` is not among them.
+MISSING = []
+try:
+    import audiospeed
+except ImportError:
+    audiospeed = None
+    MISSING.append("audiospeed")
 
 RATE = 48000
 CHANNELS = 2
@@ -211,6 +236,154 @@ def check_splitter(deinit):
                "raises" if stale else "PULLS"), failures)
 
 
+#: The node types audiodsp wrote rather than ported from CircuitPython. These
+#: are held to every method, not just the audio path.
+OWN = (
+    "audiobiquad.AllPass", "audiobiquad.Biquad", "audioconvolve.Convolver",
+    "audiodynamics.Dynamics", "audioecho.FeedbackDelay", "audioladder.Ladder",
+    "audiomath.Multiply", "audiomath.SubOctave", "audiomodal.Bank",
+    "audioroute.MidSide", "audioshaper.SampleHold", "audioshaper.Waveshaper",
+    "audioverb.Tank",
+)
+
+#: How to call each method with arguments a live node accepts. Keyed by name,
+#: since the same name means the same call on every node that has it.
+CALLS = {
+    "play": lambda n: n.play(source()),
+    "key": lambda n: n.key(source()),
+    "modulate": lambda n: n.modulate(source()),
+    "stop": lambda n: n.stop(),
+    "clear": lambda n: n.clear(),
+    "set": lambda n: n.set(),
+    "load": lambda n: n.load(_IMPULSE),
+    "synthesize": lambda n: n.synthesize(decay=0.01),
+    "set_mode": lambda n: n.set_mode(0, 440.0, 0.1, 0.5),
+    "set_modes": lambda n: n.set_modes([(440.0, 0.1, 0.5)]),
+    "gain_reduction_db": lambda n: n.gain_reduction_db(),
+}
+
+#: Methods whose live call needs the node's own arguments.
+NODE_CALLS = {
+    ("audioshaper.SampleHold", "set"): lambda n: n.set(num=400, den=217),
+}
+
+#: Not checked: releasing is the one call a released node must still take.
+UNCHECKED = ("deinit",)
+
+
+def surface(node):
+    """Public (methods, properties) of this build's node."""
+    methods, properties = [], []
+    for attr in sorted(dir(node)):
+        if attr.startswith("_") or attr in UNCHECKED:
+            continue
+        try:
+            value = getattr(node, attr)
+        except Exception:
+            properties.append(attr)
+            continue
+        if callable(value):
+            methods.append(attr)
+        else:
+            properties.append(attr)
+    return methods, properties
+
+
+def check_methods(name, build, deinit):
+    """Every public method and property of a released node must raise."""
+    failures = []
+    methods, properties = surface(build())
+    checks = []
+    for method in methods:
+        call = NODE_CALLS.get((name, method), CALLS.get(method))
+        if call is None:
+            failures.append("%s.%s has no call recipe in this probe"
+                            % (name, method))
+            continue
+        checks.append((method + "()", call))
+    for prop in properties:
+        checks.append((prop, lambda n, prop=prop: getattr(n, prop)))
+
+    open_ = []
+    for label, call in checks:
+        try:
+            call(build())
+        except Exception as error:
+            failures.append("%s.%s fails on a live node, so the probe cannot "
+                            "tell a guard from a bad call: %r"
+                            % (name, label, error))
+            continue
+        node = build()
+        if deinit:
+            node.deinit()
+        try:
+            call(node)
+        except Exception:
+            continue
+        open_.append(label)
+        failures.append("%s.%s still works after deinit()" % (name, label))
+    return ("%-26s %d checked, %s"
+            % (name, len(checks),
+               "all raise" if not open_ else "OPEN: " + " ".join(open_)),
+            failures)
+
+
+#: The nodes whose storage is most of what they cost: a reverb's lines, a
+#: convolver's kernel, a delay's line. Releasing one gives that memory back
+#: at `deinit()`, not when the last reference to the object goes, so a class
+#: that keeps a released node around does not keep its storage (audiodsp#181).
+HEAVY = (
+    ("audioverb.Tank", lambda: audioverb.Tank(**PCM)),
+    ("audioconvolve.Convolver", lambda: audioconvolve.Convolver(
+        impulse=_IMPULSE, **PCM)),
+    ("audioecho.FeedbackDelay", lambda: audioecho.FeedbackDelay(
+        max_delay_ms=500, **PCM)),
+)
+
+
+def memory_meter():
+    """Bytes in use after a collection: the heap on the native builds, what
+    tracemalloc has seen on CPython (the twins' state is `PyMem_` memory)."""
+    import gc
+    if hasattr(gc, "mem_alloc"):
+        def used():
+            gc.collect()
+            return gc.mem_alloc()
+        return used
+    import tracemalloc
+    tracemalloc.start()
+
+    def used():
+        gc.collect()
+        return tracemalloc.get_traced_memory()[0]
+    return used
+
+
+def check_storage(deinit):
+    failures = []
+    rows = []
+    used = memory_meter()
+    for name, build in HEAVY:
+        if name.split(".")[0] in MISSING:
+            continue
+        before = used()
+        node = build()
+        held = used() - before
+        if deinit:
+            node.deinit()
+        freed = held - (used() - before)
+        # The object itself and its inline buffers stay until it is dropped,
+        # so most of it is the bar, not all of it.
+        ok = freed * 10 >= held * 9
+        rows.append("%-26s %6d bytes, %6d freed by deinit()%s"
+                    % (name, held, freed, "" if ok else "  KEPT"))
+        if not ok:
+            failures.append("%s keeps %d of its %d bytes after deinit()"
+                            % (name, held - freed, held))
+        del node
+    return rows, failures
+
+
 def main(argv):
     fault = "--fault" in argv
     deinit = not fault
@@ -221,16 +394,40 @@ def main(argv):
     print("-" * 66)
 
     failures = []
+    checked = 0
     for name, build in NODES:
+        if name.split(".")[0] in MISSING:
+            continue
         row, bad = check_node(name, build, deinit)
         print(row)
         failures.extend(bad)
-    row, bad = check_splitter(deinit)
-    print(row)
+        checked += 1
+    if "audioroute" not in MISSING:
+        row, bad = check_splitter(deinit)
+        print(row)
+        failures.extend(bad)
+        checked += 1
+
+    print("-" * 66)
+    print("every method and property of the node types audiodsp wrote")
+    for name, build in NODES:
+        if name not in OWN or name.split(".")[0] in MISSING:
+            continue
+        row, bad = check_methods(name, build, deinit)
+        print(row)
+        failures.extend(bad)
+
+    print("-" * 66)
+    print("storage given back at deinit()")
+    rows, bad = check_storage(deinit)
+    for row in rows:
+        print(row)
     failures.extend(bad)
 
     print("-" * 66)
-    print("%d node types checked" % (len(NODES) + 1))
+    print("%d node types checked" % checked)
+    if MISSING:
+        print("not built here, skipped: %s" % ", ".join(MISSING))
     if failures:
         print("FAIL: %d" % len(failures))
         for line in failures:

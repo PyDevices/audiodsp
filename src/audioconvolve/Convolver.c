@@ -120,6 +120,7 @@ static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
 static mp_obj_t audioconvolve_convolver_play(mp_obj_t self_in,
     mp_obj_t sample) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiosample_base_t *base = audiosample_check(sample);
     if (base->channel_count != self->base.channel_count) {
         mp_raise_ValueError(MP_ERROR_TEXT(
@@ -138,6 +139,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audioconvolve_convolver_play_obj,
 static mp_obj_t audioconvolve_convolver_set(size_t n_args,
     const mp_obj_t *args, mp_map_t *kw_args) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     (void)n_args;
     for (size_t i = 0; i < kw_args->alloc; ++i) {
         if (!mp_map_slot_is_filled(kw_args, i)) {
@@ -165,6 +167,7 @@ static mp_obj_t audioconvolve_convolver_load(size_t n_args,
         { MP_QSTR_gain, MP_ARG_OBJ, { .u_obj = MP_ROM_NONE } },
     };
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     mp_arg_val_t parsed[MP_ARRAY_SIZE(allowed)];
     mp_arg_parse_all(n_args - 1, args + 1, kw_args, MP_ARRAY_SIZE(allowed),
         allowed, parsed);
@@ -205,6 +208,7 @@ static mp_obj_t audioconvolve_convolver_synthesize(size_t n_args,
         { MP_QSTR_seed, MP_ARG_INT, { .u_int = 1 } },
     };
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     mp_arg_val_t parsed[MP_ARRAY_SIZE(allowed)];
     mp_arg_parse_all(n_args - 1, args + 1, kw_args, MP_ARRAY_SIZE(allowed),
         allowed, parsed);
@@ -226,6 +230,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_synthesize_obj, 1,
 
 static mp_obj_t audioconvolve_convolver_clear(mp_obj_t self_in) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_pump_lock_acquire();
     audiodsp_convolve_reset(&self->state, &self->config);
     audiodsp_pump_lock_release();
@@ -236,6 +241,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_clear_obj,
 
 static mp_obj_t audioconvolve_convolver_get_taps(mp_obj_t self_in) {
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return MP_OBJ_NEW_SMALL_INT(self->state.loaded * AUDIODSP_CONVOLVE_FRAMES);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_get_taps_obj,
@@ -250,6 +256,7 @@ static mp_obj_t audioconvolve_convolver_get_latency(mp_obj_t self_in) {
     // that compensates to compensate for a delay that was not there
     // (audiodsp#44's class-side clause, the half that costs no kernel change).
     audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return MP_OBJ_NEW_SMALL_INT(
         self->state.loaded != 0 ? AUDIODSP_CONVOLVE_FRAMES : 0);
 }
@@ -339,12 +346,22 @@ static mp_obj_t audioconvolve_convolver_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
-    // Inside the lock with the rest: `storage` is the sole GC root for the
-    // eight interior pointers the pull holds, and the audit's rule is that a
-    // deinit() holds the lock over its whole body rather than over the part
-    // someone argued was the dangerous one. audiodsp#116.
+    // The kernel's storage is freed here rather than left to the collector.
+    // Dropping `storage` alone never released it: the state's first carved
+    // pointer is the start of the same block, so the block stayed reachable
+    // for as long as the object did (audiodsp#176, #181). Every pointer into
+    // it is cleared inside the lock, which a deinit() holds over its whole
+    // body (audiodsp#116); the free comes after, since nothing that can reach
+    // the allocator belongs inside the lock. Every method raises once the
+    // node is released, so nothing reads the state again.
+    float *storage = self->storage;
+    const size_t floats = audiodsp_convolve_float_count(&self->config);
     self->storage = NULL;
+    memset(&self->state, 0, sizeof(self->state));
     audiodsp_pump_lock_release();
+    if (storage != NULL) {
+        m_del(float, storage, floats);
+    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_deinit_obj, audioconvolve_convolver_deinit);

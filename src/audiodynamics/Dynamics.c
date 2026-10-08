@@ -177,6 +177,7 @@ static mp_obj_t audiodynamics_dynamics_make_new(const mp_obj_type_t *type,
 
 static mp_obj_t audiodynamics_dynamics_play(mp_obj_t self_in, mp_obj_t sample) {
     audiodynamics_dynamics_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     (void)audiosample_check(sample);
     audiodsp_pump_lock_acquire();
     self->source = sample;
@@ -192,6 +193,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiodynamics_dynamics_play_obj,
 // whatever play() is playing. None goes back to reading the audio.
 static mp_obj_t audiodynamics_dynamics_key(mp_obj_t self_in, mp_obj_t sample) {
     audiodynamics_dynamics_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     if (sample == mp_const_none) {
         self->key_source = MP_OBJ_NULL;
     } else {
@@ -210,6 +212,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiodynamics_dynamics_key_obj,
 static mp_obj_t audiodynamics_dynamics_set(size_t n_args,
     const mp_obj_t *args, mp_map_t *kw_args) {
     audiodynamics_dynamics_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     (void)n_args;
     dynamics_apply_kwargs(self, kw_args);
     return mp_const_none;
@@ -219,6 +222,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audiodynamics_dynamics_set_obj, 1,
 
 static mp_obj_t audiodynamics_dynamics_gain_reduction_db(mp_obj_t self_in) {
     audiodynamics_dynamics_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     return mp_obj_new_float((mp_float_t)self->state.gain_reduction_db);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiodynamics_dynamics_gain_reduction_db_obj,

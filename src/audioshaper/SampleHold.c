@@ -72,6 +72,7 @@ static mp_obj_t audioshaper_samplehold_make_new(const mp_obj_type_t *type,
 static mp_obj_t audioshaper_samplehold_play(mp_obj_t self_in,
     mp_obj_t sample) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiosample_base_t *src = audiosample_check(sample);
     // The format is fixed at construction -- everything downstream has read it
     // already -- so a source in a different one is refused rather than
@@ -106,6 +107,7 @@ static mp_obj_t audioshaper_samplehold_set(size_t n_args,
         allowed, parsed);
     samplehold_check_ratio(parsed[ARG_num].u_int, parsed[ARG_den].u_int);
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     if (audiodsp_samplehold_config_set(&self->config,
         (uint32_t)parsed[ARG_num].u_int, (uint32_t)parsed[ARG_den].u_int)) {
         // A ratio that actually moved re-arms the accumulator, so the next
@@ -124,6 +126,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioshaper_samplehold_set_obj, 1,
 
 static mp_obj_t audioshaper_samplehold_clear(mp_obj_t self_in) {
     audioshaper_samplehold_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_pump_lock_acquire();
     audiodsp_samplehold_reset(&self->state, &self->config);
     audiodsp_pump_lock_release();

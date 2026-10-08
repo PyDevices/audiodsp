@@ -178,6 +178,9 @@ class Tank(_AudioSample):
 
     def _release(self):
         self.stop()
+        # The lines go with the node, not with the object: a class that keeps
+        # a reference to a released tank should not go on holding them.
+        self._state = None
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()

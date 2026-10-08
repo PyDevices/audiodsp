@@ -179,6 +179,9 @@ class FeedbackDelay(_AudioSample):
 
     def _release(self):
         self.stop()
+        # The line goes with the node, not with the object: a class that
+        # keeps a reference to a released node should not go on holding it.
+        self._state = None
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()

@@ -148,6 +148,7 @@ static mp_obj_t audioshaper_waveshaper_make_new(const mp_obj_type_t *type,
 static mp_obj_t audioshaper_waveshaper_play(mp_obj_t self_in,
     mp_obj_t sample) {
     audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     (void)audiosample_check(sample);
     audiodsp_pump_lock_acquire();
     self->source = sample;
@@ -162,6 +163,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audioshaper_waveshaper_play_obj,
 static mp_obj_t audioshaper_waveshaper_set(size_t n_args,
     const mp_obj_t *args, mp_map_t *kw_args) {
     audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
     (void)n_args;
     waveshaper_apply_kwargs(self, kw_args);
     return mp_const_none;
@@ -171,6 +173,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audioshaper_waveshaper_set_obj, 1,
 
 static mp_obj_t audioshaper_waveshaper_clear(mp_obj_t self_in) {
     audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
     audiodsp_pump_lock_acquire();
     audiodsp_shaper_reset(&self->state);
     audiodsp_pump_lock_release();
