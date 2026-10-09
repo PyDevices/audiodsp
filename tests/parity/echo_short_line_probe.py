@@ -3,12 +3,11 @@
     echo_short_line_probe.py audiodelays
 
 With freq_shift=False, Echo raises a delay shorter than its audio buffer to
-the buffer's length. Upstream CircuitPython 10.3.0 does that after clamping
-to the allocation rather than before, so a max_delay_ms shorter than one
-buffer gives a line longer than the memory behind it: it writes past the end
-of the allocation, and on the unix port it segfaults. This port clamps last
-(docs/upstream-diff.md), and the twin always did, so this probe runs on
-MicroPython and CPython and is skipped on CircuitPython.
+the buffer's length. CircuitPython 10.3.0 did that after clamping to the
+allocation rather than before, so a max_delay_ms shorter than one buffer gave
+a line longer than the memory behind it, and the unix port segfaulted.
+Upstream clamps last since 6dddbda87 (11.0.0-alpha.1), as this port and the
+twin do, so the probe runs on all three interpreters.
 """
 
 import sys

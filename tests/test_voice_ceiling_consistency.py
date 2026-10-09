@@ -44,7 +44,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: The pinned CircuitPython oracle binary, and its hash.
 #:
 #: The oracle is built at the SAME ceiling this port ships (64) and at the same
-#: CircuitPython version the port tracks (10.3.0). It is rebuilt deliberately
+#: CircuitPython version the port tracks (11.0.0-alpha.1). It is rebuilt deliberately
 #: whenever either moves, and re-pinned in that change -- the old rule
 #: ("built at 14 and must never be rebuilt") is retired: an oracle at a
 #: different configuration cannot answer the only question worth asking, which
@@ -117,9 +117,23 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: previous oracle predated audioshaper.SampleHold (PR #98) and verify_dsp's
 #: three-way run aborted on its samplehold probe. Still 64 voices; the
 #: build script refused to install anything that answered otherwise.
-ORACLE = ROOT.parent / "bin" / "circuitpython-oracle-10.3.0"
+#:
+#: MOVED 2026-10-08 to CircuitPython 11.0.0-alpha.1 (520805e12) for
+#: audiodsp#201, whose upstream fixes (6dddbda87) are first released there.
+#: Built by `build_interpreters.sh --only cp-oracle`, now micropython-pydevices'
+#: `build_mp.py --interpreter circuitpython`, at 64 voices with audiodsp at
+#: a948993 and CircuitPython's own `audiospeed`. Verified: it answers 64
+#: voices; `effects_component` matches the port byte for byte (re-captured in
+#: the same change); `synthtools_acceptance`, `mixdown_knee` and
+#: `streaming_component` still reproduce their stored captures; and
+#: `verify_dsp` agrees three ways. Two CircuitPython-side moves are written
+#: down rather than re-captured: `midi_component`'s one-byte track (upstream's
+#: 904e7a7a55, not ported yet) and `biquad_component`'s Note.filter cascades
+#: (this port's extension). Previous: 9ac258304347341875208813b510145a0dbf45ff,
+#: still on disk as bin/circuitpython-oracle-10.3.0.
+ORACLE = ROOT.parent / "bin" / "circuitpython-oracle-11.0.0-alpha.1"
 ORACLE_SHA256 = (
-    "9ac258304347341875208813b510145a0dbf45ffd910b39457749fa165dd7920")
+    "70c3475983c2f76c1ddc91a4b8544a4922f2e13793b4d6fb11c550b1aea5d33b")
 
 
 def _search(relative, pattern):

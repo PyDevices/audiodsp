@@ -77,7 +77,7 @@ of this repository in the parent workspace, same pattern as
   `.venv/bin/python tests/parity/verify_dsp.py --micropython ../micropython/ports/unix/build-pydevices/micropython`
   is the first. There is **no stored digest** — the gate is the comparison, and
   it **refuses a run with fewer than two interpreters** rather than passing one
-  that cannot fail. Add `--circuitpython ../bin/circuitpython-oracle-10.3.0`
+  that cannot fail. Add `--circuitpython ../bin/circuitpython-oracle-11.0.0-alpha.1`
   for the three-way. The arithmetic is all in `src/shared/`, so two
   interpreters disagreeing is never a difference of intent: it is a width, an
   undefined shift, a compiler's choice or an architecture.

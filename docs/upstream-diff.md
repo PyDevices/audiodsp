@@ -1,5 +1,53 @@
 # Deltas from upstream CircuitPython
 
+## The oracle is CircuitPython 11.0.0-alpha.1 (audiodsp#201)
+
+The oracle moved from 10.3.0 to 11.0.0-alpha.1 (520805e12) on 2026-10-08,
+with the binary at `bin/circuitpython-oracle-11.0.0-alpha.1`
+(`CIRCUITPYTHON_ORACLE`, `tests/test_voice_ceiling_consistency.py`). It moved
+to take upstream's 6dddbda87, "audiodelays, audiofilters, audiofreeverb:
+buffer lengths and silence fills", which this port now has in full:
+
+- `Freeverb` in stereo runs each channel through its own bank of combs and
+  all-passes. 10.3.0 declared the channel offsets inside the per-sample loop,
+  so both channels went through the left bank. The bank starts on the left
+  for each source run, as upstream's loop does. Its lines are also cleared
+  whole at construction, not by half.
+- `MultiTapDelay` and `Echo` apply the buffer-length floor before the
+  allocation's ceiling, and `Chorus` clamps its delay to the line it
+  allocated.
+- `PitchShift` refuses a window too small to hold one frame.
+- Unsigned 16-bit silence is the midpoint 0x8000 in `PitchShift`,
+  `GranularPitchShift` and `Distortion`; `memset(..., 32768, ...)` had written
+  zeros.
+- `Distortion`'s hard clip tops out at 32767, not 32768 wrapped to -32768.
+- The filter chain counts its length in a `size_t`.
+
+`effects_bounds_probe.py` covers all of it except the Freeverb banks, which
+`effects_component_probe.py` covers, and every interpreter and the oracle
+print the same bytes; 10.3.0 segfaults on it. The moved digest is
+`effects_component`'s, re-captured from the oracle: `544d29ca…` became
+`ff57b9ea…` (freeverb case 2, blocks 4 to 11).
+
+The move also closes three departures that were only ahead of the old pin:
+the `Echo` order below, the PEAKING_EQ `b2` sign (8fabdbbfb1) and the full
+biquad reset (8a3deace5c) are all in 11.0.0-alpha.1, and the oracle renders
+this port's bytes for each.
+
+**Not ported yet.** 11.0.0-alpha.1 carries other upstream audio changes this
+port has not taken. One is visible to a stored capture: since 904e7a7a55
+("synthio: a freed track buffer, a ring modulation sign flip, reads past the
+end") the MIDI decoder stops at the end of the track. A one-byte track
+(`b"\x80"`) used to read one byte past it and report the error at 2; 11.0
+reports it at 1, where the missing data byte is. This port still reads past
+the end, so `midi_component`'s stored digest (`3bb7aeea…`) is 10.3.0's answer
+and differs from the oracle on that one line. The same commit's ring
+modulation clamp and loop-length Nyquist test move synthesized audio. That
+commit, b34aa34c19 (arguments validated before narrowing, the odd-count mono
+mixer write, MP3 underflow at end of file), `PitchShift.freeze` (9bef7b7606)
+and the WaveFile 8-bit padding fixes (34441b1af5, bd9b603c9c) are tracked in
+audiodsp#214.
+
 ## Tails ring out when the source ends, then the node rests (audiodsp#180)
 
 `audioecho.FeedbackDelay`, `audioverb.Tank` and `audioconvolve.Convolver` used
@@ -185,9 +233,9 @@ did after 10.3.0: 6dddbda87, "audiodelays, audiofilters, audiofreeverb: buffer
 lengths and silence fills", in 11.0.0-alpha.1. The CPython twin always clamped
 last, and the fixed native node renders its bytes exactly.
 
-`verify_dsp` skips `echo_short_line_probe.py` on circuitpython, because the
-oracle is 10.3.0 and crashes on it. The skip and this entry expire when the
-oracle moves to a release containing 6dddbda87.
+Since the oracle moved to 11.0.0-alpha.1 this is no longer a departure:
+`echo_short_line_probe.py` runs on all three interpreters and the oracle
+renders the port's bytes.
 
 ## `audiodelays.Flanger`: we do not reproduce upstream's int32 overflow (audiodsp#76)
 
@@ -239,11 +287,11 @@ three-option ask.
 
 **Merged upstream is not the same as released.** `peaking-eq-sign`
 (8fabdbbfb1) and `biquad-reset` (8a3deace5c) are on CircuitPython `main` and in
-no tag -- 10.3.0 is the newest, and predates both. So this port is *ahead of*
-the pinned oracle in exactly those two places, and each is a named departure
-that `verify_dsp` records and that expires when upstream cuts a release
-containing them. They are the reason `biquad_component_probe.py` compares only
-the CPython twin against MicroPython and skips CircuitPython. **The numbers here were measured on this port and are not
+no tag -- 10.3.0 is the newest, and predates both. So this port was *ahead of*
+the 10.3.0 oracle in exactly those two places. Both are in 11.0.0-alpha.1, and
+since the oracle moved there they are no longer departures:
+`biquad_component_probe.py` now differs from the oracle only on `Note.filter`
+cascades, this port's extension, which is why it still skips CircuitPython. **The numbers here were measured on this port and are not
 upstream's** -- the reports carry figures measured on a build of upstream
 `main`, which differ.
 
@@ -394,7 +442,8 @@ notes:
   error; it has apparently never been caught because unix is the only
   build that enables that warning and unix never compiles this module by
   default).
-- **`audiofreeverb.Freeverb`** ported unchanged, including upstream's own
+- **`audiofreeverb.Freeverb`** ported unchanged (its stereo bank switch and
+  line clearing now follow 11.0.0-alpha.1; see the top of this page), including upstream's own
   `combfitlers` identifier typo and the type's lowercase `MP_QSTR_freeverb`
   name (so `type(x).__name__` prints `"freeverb"` even though the class is
   `audiofreeverb.Freeverb`) -- both kept verbatim for parity, confirmed
@@ -403,11 +452,11 @@ notes:
 - **`audiofilters.Distortion`** originally had two verbatim-kept upstream
   oddities; one was later reversed (see "Distortion soft_clip" below, phase
   8d) once it turned out to be architecture-dependent rather than a stable
-  quirk. The one still kept verbatim: the unsigned-16-bit silence path's
-  `memset(word_buffer, 32768, ...)`, which -- because `memset`'s fill value
-  truncates to an `unsigned char` -- actually writes zero bytes, not the
-  intended `0x8000` "quiet" level. `audiodelays.PitchShift` has the same
-  `memset(..., 32768, ...)` quirk in its own silence path, plus a separate
+  quirk. The other, the unsigned-16-bit silence path's
+  `memset(word_buffer, 32768, ...)`, which wrote zero bytes rather than the
+  `0x8000` "quiet" level, was kept verbatim until upstream fixed it in
+  6dddbda87 and this port followed (see the top of this page).
+  `audiodelays.PitchShift` had the same silence quirk, and has a separate
   one: its per-sample `buf_offset` calculation ignores
   `single_channel_output` entirely (`channel == 1 || i % channel_count == 1`,
   unlike every sibling effect's
@@ -1537,6 +1586,10 @@ Still present in upstream `main` as of 2026-08-27, not just in the pinned
 10.2.1, so this one is worth reporting rather than waiting out. Drafted:
 `docs/upstream-reports/peaking-eq-sign.md`.
 
+**Closed as a departure.** Upstream merged the fix (8fabdbbfb1) and released
+it in 11.0.0-alpha.1, the oracle since 2026-10-08, which renders this port's
+`PEAKING_EQ` bytes.
+
 ## A stereo `Filter` shared one biquad state between the channels (effects-extension tier)
 
 A biquad is a recursion: each output sample is computed from the two input and
@@ -1711,9 +1764,9 @@ The README's `audiobiquad` section links here rather than repeating any of it.
 > Two smaller entries are **not** in this deviation's scope and stay applied
 > everywhere, because upstream has already merged them: PEAKING_EQ's `b2` sign
 > (CircuitPython `main` 8fabdbbfb1) and `synthio_biquad_filter_reset()` clearing
-> all four state words rather than two (8a3deace5c). Neither is in a release
-> yet, so each is a named departure from the pinned 10.3.0 oracle that expires
-> when CircuitPython cuts a release containing it.
+> all four state words rather than two (8a3deace5c). Both are in
+> 11.0.0-alpha.1, the oracle since 2026-10-08, so neither is a departure any
+> more.
 >
 > The rest of this section is the original write-up. Read it as the case for
 > `audiobiquad`'s arithmetic and as the record of a failure worth recognising
@@ -1989,6 +2042,9 @@ what happens in the one case upstream leaves undefined and nothing else.
 `apply_cp_patches.sh` only *adds* modules, and `synthio`/`audiofilters` on a
 CP board are upstream's. `bin/circuitpython` therefore still exhibits the bug,
 which is correct -- it is the oracle.
+
+**Closed as a departure.** Upstream merged the fix (8a3deace5c) and released it
+in 11.0.0-alpha.1, the oracle since 2026-10-08.
 
 Note that `common_hal_audiofilters_filter_play()` does *not* call
 `audiofilters_filter_reset_buffer()`; it resets the source only. So a plain
