@@ -238,6 +238,12 @@ PROBES = (
     # mid-frame) is cp11_files_probe.py. It cannot be compared here: CPython
     # has no audiomp3, which leaves one interpreter in CI. It checks itself
     # against CircuitPython's answers instead, in clean-build.yml.
+    #
+    # PitchShift.freeze, upstream's one audio addition in 11.0.0-alpha.1
+    # (9bef7b7606). Held to CircuitPython's bytes here, and it checks the
+    # sustain itself and exits 1 without it, so a build where every target
+    # ignores `freeze` together still fails.
+    ("pitchshift_freeze_probe.py", "audiodelays", {}, None),
 )
 
 

@@ -236,8 +236,22 @@ class PitchShift(_Effect):
         self._overlap_buffer = array("h", (0 for _ in range(
             self._overlap_samples * self.channel_count)))
         self._window_index = self._overlap_index = self._read_index = 0
+        self._freeze = False
+
+    @property
+    def freeze(self):
+        """If True, the window buffer won't accept new audio information and
+        will be "frozen" in its current state, resulting in a sustaining tone.
+        Normal operation is resumed when set to False. If the audio buffer is
+        reset, this value will also be reset to False."""
+        return self._freeze
+
+    @freeze.setter
+    def freeze(self, value):
+        self._freeze = bool(value)
 
     def _reset_state(self):
+        self._freeze = False
         self._window_buffer[:] = array("h", [0]) * len(self._window_buffer)
         self._overlap_buffer[:] = array("h", [0]) * len(self._overlap_buffer)
 
@@ -255,6 +269,7 @@ class PitchShift(_Effect):
                 self.channel_count, read_rate, self._window_index,
                 self._overlap_index, self._read_index,
                 min(1.0, max(0.0, _value(self.mix))) * 2.0,
+                self._freeze,
             )
         )
         return result
