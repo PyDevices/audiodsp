@@ -26,6 +26,9 @@ its own output.
 | R10 | `set()` moves the width mid-stream | exact |
 | R11 | A mono source passes through | exact |
 | R12 | A block bigger than the ring survives whole | exact, frame for frame |
+| R13 | A Port hands back its source's own bytes and result | exact |
+| R14 | A Port re-points only to a matching source, and forwards a reset | raises / exact |
+| R15 | A mono tap's buffer is the tap's own: its next pull rewrites it | exact |
 
 R7 is this module's form of the identity trait
 (`docs/correctness-standard.md`): an exact answer through the DSP rather than a
@@ -274,6 +277,71 @@ class MidSideTest(unittest.TestCase):
         node.play(source())
         self.assertNotEqual(bytes(audiocore.get_buffer(node)[1]),
                             bytes(audioroute.MIDSIDE_FRAMES * 4))
+
+
+class PortTest(unittest.TestCase):
+    def test_a_port_is_its_source(self):
+        """R13: the bytes and the result are the source's, pull for pull."""
+        direct = source()
+        port = audioroute.Port(source())
+        for _ in range(3):
+            want = audiocore.get_buffer(direct)
+            got = audiocore.get_buffer(port)
+            self.assertEqual(got[0], want[0])
+            self.assertEqual(bytes(got[1]), bytes(want[1]))
+        self.assertEqual(port.sample_rate, SAMPLE_RATE)
+        self.assertEqual(port.channel_count, 2)
+
+    def test_play_re_points_and_refuses_a_mismatch(self):
+        """R14: play() swaps the source, keeps the object, and refuses a
+        source of another rate or width; a reset reaches the source."""
+        first, second = source(400), source(400, level=3000)
+        port = audioroute.Port(first)
+        audiocore.get_buffer(port)
+        port.play(second)
+        self.assertIs(port.source, second)
+        self.assertEqual(bytes(audiocore.get_buffer(port)[1]),
+                         bytes(audiocore.get_buffer(source(400, 3000))[1]))
+        audiocore.reset_buffer(port)
+        self.assertEqual(bytes(audiocore.get_buffer(port)[1]),
+                         bytes(audiocore.get_buffer(source(400, 3000))[1]))
+        mono = audiocore.RawSample(array("h", [0] * 64),
+                                   sample_rate=SAMPLE_RATE)
+        with self.assertRaises(ValueError):
+            port.play(mono)
+        with self.assertRaises(ValueError):
+            port.play(audiocore.RawSample(array("h", [0] * 64),
+                                          sample_rate=22050, channel_count=2))
+        with self.assertRaises(ValueError):
+            audioroute.Port(None)
+        self.assertIs(port.source, second)
+
+    def test_deinit_lets_the_source_go(self):
+        port = audioroute.Port(source())
+        port.deinit()
+        with self.assertRaises(ValueError):
+            audiocore.get_buffer(port)
+        with self.assertRaises(ValueError):
+            port.play(source())
+
+
+class MonoTapTest(unittest.TestCase):
+    def test_the_next_pull_rewrites_the_buffer_a_borrower_holds(self):
+        """R15, audiodsp#178: the native mono tap hands out one buffer of its
+        own, so a buffer taken from it reads the NEXT pull's frames once the
+        tap is pulled again. This target used to hand out a fresh copy."""
+        values = array("h", [frame for frame in range(1024)])
+        split = audioroute.Splitter(audiocore.RawSample(
+            values, sample_rate=SAMPLE_RATE), taps=1)
+        tap = split.tap(0)
+        # `_borrow` is how one node takes another's buffer inside a graph
+        # (a mixer voice's priming fetch); `get_buffer` hands a script a
+        # copy on every target.
+        held = audiocore._borrow(tap)[1]
+        first = bytes(held)
+        second = bytes(audiocore.get_buffer(tap)[1])
+        self.assertNotEqual(first, second)
+        self.assertEqual(bytes(held), second)
 
 if __name__ == "__main__":
     unittest.main()

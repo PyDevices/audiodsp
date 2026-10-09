@@ -160,6 +160,9 @@ PROBES = (
     ("mixer_short_buffer_probe.py", "audiomixer", {}, None),
     # Routing and mixer events nothing else covered (audiodsp#178).
     ("route_edge_probe.py", "audioroute", {}, None),
+    # A mixer voice borrowing a mono tap's buffer, a looping voice over a
+    # double-buffered RawSample, and a Port's pass-through (audiodsp#178).
+    ("route_borrow_probe.py", "audioroute", {}, None),
     ("tank_probe.py", "audioverb", {}, None),
     # The node's own state: Tone out and back through 0 (#168) and the
     # network re-cut in place on a playing node (#169). Its own file, so the
