@@ -148,6 +148,20 @@ jobs:
           fi
           MICROPYPATH=audiodsp "$MP" "$PROBE"
 
+      # MP3 looping: a rewound file decodes its second lap exactly like its
+      # first. CPython has no audiomp3, so this is the only place it runs. The
+      # PASS line is required, not just the exit code, so a skip can't pass.
+      - name: An MP3 rewound for a loop plays its second lap like its first
+        run: |
+          MP=./micropython/ports/unix/build-standard/micropython
+          PROBE=audiodsp/tests/parity/mp3_rewind_probe.py
+          if "$MP" "$PROBE" --fault; then
+            echo "the planted fault passed, so this probe proves nothing" >&2
+            exit 1
+          fi
+          "$MP" "$PROBE" | tee /tmp/mp3_rewind.txt
+          grep -q "MP3 REWIND PASS" /tmp/mp3_rewind.txt
+
       # The pump. Everything above proves the DSP nodes; these prove the
       # thing that pulls them, and they can only run here, because they
       # need a MicroPython build and this is the job that makes one.
