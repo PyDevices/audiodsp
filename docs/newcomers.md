@@ -130,8 +130,8 @@ modify the CircuitPython oracle, casually update parity goldens, or move the
 dependency pins. Start with a documentation correction, a focused CPython
 fixture, or a well-bounded module change; then consult
 [the porting plan](porting-plan.md) and
-[the upstream-diff record](upstream-diff.md) for the module's intended
-behavior and known deliberate deviations.
+[the upstream-sync record](upstream-sync.md) for the module's intended
+behavior and known deliberate differences.
 
 For a first tour of the implementation, follow one simple source through
 `audiocore`'s sample interface, a `synthio.Synthesizer`, and `audiomixer` or

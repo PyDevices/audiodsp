@@ -45,9 +45,12 @@ for source compatibility; only this repo's own name differs.
   way round.
 - `docs/porting-plan.md` — the full phased porting history, architecture,
   and target layout
-- `docs/upstream-diff.md` — every deliberate deviation from upstream
-  CircuitPython, with rationale (verbatim-kept quirks vs. genuine port bugs
-  found and fixed)
+- `docs/upstream-sync.md` — when and how to resync the CircuitPython-derived
+  modules with upstream, what the last resync took, and the list of every
+  deliberate difference (the pump, `deinit`, the recorded deviations)
+- `docs/upstream-diff.md` — the reasons and measurements behind each
+  deviation from upstream CircuitPython (verbatim-kept quirks vs. genuine port
+  bugs found and fixed)
 - `tests/parity/` — oracle-diff scripts, run unchanged against both this
   port and `bin/circuitpython`
 - `tests/vendor/` — vendored third-party test fixtures (e.g. `synthtools`)
@@ -201,7 +204,9 @@ parity golden is measured against. The rule, for any agent working here:
   failing anything. Its *pin* is a different matter: it moves when this port
   moves to a new CircuitPython release, deliberately, in a change that re-reads
   every CP-shared gate and re-pins the binary's hash with the reason written
-  down. The oracle is built at the same version and the same ceiling this port
+  down. **Every pin move is a resync**: take every audio fix upstream made
+  since the old pin, following `docs/upstream-sync.md`, and update its record
+  of what was taken, what was held back and what differs on purpose. The oracle is built at the same version and the same ceiling this port
   ships — an oracle at a different configuration cannot answer the only question
   worth asking. See `docs/correctness-standard.md` and
   `tests/test_voice_ceiling_consistency.py`.
