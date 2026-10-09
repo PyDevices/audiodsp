@@ -132,11 +132,15 @@ void common_hal_audiodelays_multi_tap_delay_set_delay_ms(audiodelays_multi_tap_d
 
     uint32_t delay_buffer_len = (uint32_t)(self->base.sample_rate / MICROPY_FLOAT_CONST(1000.0) * delay_ms) * (self->base.channel_count * sizeof(uint16_t));
 
-    if (delay_buffer_len > self->max_delay_buffer_len) {
-        delay_buffer_len = self->max_delay_buffer_len;
-    } else if (delay_buffer_len < self->buffer_len) {
+    // The floor first and the ceiling last, as upstream has it since
+    // 6dddbda87 (11.0.0-alpha.1): 10.3.0 raised a short maximum back above
+    // the allocation, and the memset below then ran past the line.
+    if (delay_buffer_len < self->buffer_len) {
         // If the delay buffer is smaller than our audio buffer, weird things happen
         delay_buffer_len = self->buffer_len;
+    }
+    if (delay_buffer_len > self->max_delay_buffer_len) {
+        delay_buffer_len = self->max_delay_buffer_len;
     }
 
     audiodsp_pump_lock_acquire();

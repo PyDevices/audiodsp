@@ -100,23 +100,31 @@ class _Effect(_AudioSample):
                         self._sample = None
                         break
         valid_length = len(output)
-        output += bytes(self.buffer_size - valid_length)
+        output += self._silence(self.buffer_size - valid_length)
         if self._process_during_pull:
             if getattr(self, "_process_silence", False) and valid_length < self.buffer_size:
                 output[valid_length:] = self._process(
-                    bytes(self.buffer_size - valid_length))
+                    self._silence(self.buffer_size - valid_length))
             processed = bytes(output)
         elif getattr(self, "_process_silence", False):
             processed = self._process(bytes(output))
         else:
             processed = (self._process(bytes(output[:valid_length]))
-                         + bytes(self.buffer_size - valid_length))
+                         + self._silence(self.buffer_size - valid_length))
         # Two, as `audiofilters/Filter.h`'s `int8_t *buffer[2]` is -- the
         # shape every ported CircuitPython effect shares.
         return GET_BUFFER_MORE_DATA, self._publish(processed, 2)
 
     def _process(self, data):
         return data
+
+    def _silence(self, size):
+        """`size` bytes of silence. Unsigned 16-bit silence is the midpoint,
+        0x8000 a word at a time, as the native effects write it since
+        upstream's 6dddbda87 (memset() had made it zero there)."""
+        if not self.samples_signed and self.bits_per_sample == 16:
+            return b"\x00\x80" * (size // 2)
+        return bytes(size)
 
 
 class Filter(_Effect):

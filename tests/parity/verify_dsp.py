@@ -135,13 +135,11 @@ PROBES = (
     # and MicroPython ran CircuitPython's Q15, 11 LSB apart by the eighth
     # sample of an 800 Hz low-pass. Comparing the interpreters is what sees it.
     ("biquad_component_probe.py", "audiofilters",
-     {"circuitpython": "two named departures from the pinned 10.3.0 build, "
-                       "both from PRs upstream has already merged and not yet "
-                       "released: PEAKING_EQ's b2 sign (8fabdbbfb1) and the "
-                       "half-cleared filter reset (8a3deace5c). This probe "
-                       "also covers Note.filter cascades, which are this "
-                       "port's extension and which 10.3.0 refuses. See "
-                       "docs/upstream-diff.md"},
+     {"circuitpython": "this probe also covers Note.filter cascades, which "
+                       "are this port's extension and which CircuitPython "
+                       "refuses. Everything else in it matches 11.0.0-alpha.1 "
+                       "byte for byte, PEAKING_EQ and the filter reset "
+                       "included. See docs/upstream-diff.md"},
      None),
     # audiomixer is CircuitPython's, so like biquad_component_probe.py it is
     # held to the interpreters agreeing rather than to a capture. The twin
@@ -196,17 +194,15 @@ PROBES = (
                        "docs/upstream-diff.md"},
      None),
     ("echo_filter_probe.py", "audiodelays", {}, None),
-    # A delay line shorter than one audio buffer. CircuitPython 10.3.0 raises
+    # A delay line shorter than one audio buffer. CircuitPython 10.3.0 raised
     # it to the buffer's length after clamping it to the allocation, so the
-    # line runs past its memory and the unix build segfaults; upstream fixed
-    # the order after 10.3.0 (6dddbda87, in 11.0.0-alpha.1) and so does this
-    # port. The skip expires when the oracle moves to a release with the fix.
-    ("echo_short_line_probe.py", "audiodelays",
-     {"circuitpython": "10.3.0's Echo clamps a short delay to its allocation "
-                       "before raising it to the buffer length, and overruns "
-                       "it - fixed upstream after 10.3.0 and here; see "
-                       "docs/upstream-diff.md"},
-     None),
+    # line ran past its memory; upstream fixed the order in 6dddbda87
+    # (11.0.0-alpha.1) and so does this port.
+    ("echo_short_line_probe.py", "audiodelays", {}, None),
+    # The rest of 6dddbda87: Chorus and MultiTapDelay lengths, PitchShift's
+    # smallest window, unsigned 16-bit silence and Distortion's hard clip
+    # (audiodsp#201). 10.3.0 segfaults on it.
+    ("effects_bounds_probe.py", "audiodelays", {}, None),
     # A shorter Time and back again: every native build clears the line past
     # the new length, and the CPython twin now does too (audiodsp#177).
     ("multitap_time_probe.py", "audiodelays", {}, None),

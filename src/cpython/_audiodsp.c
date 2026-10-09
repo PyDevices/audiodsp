@@ -3238,16 +3238,20 @@ static PyObject *audiodsp_freeverb_s16(PyObject *module, PyObject *args) {
     Py_buffer input = {0}, comb = {0}, comb_indices = {0}, filters = {0};
     Py_buffer allpass = {0}, allpass_indices = {0};
     double roomsize, damp, mix;
-    if (!PyArg_ParseTuple(args, "y*w*w*w*w*w*ddd:freeverb_s16", &input,
+    unsigned int channel_count = 1;
+    if (!PyArg_ParseTuple(args, "y*w*w*w*w*w*ddd|I:freeverb_s16", &input,
         &comb, &comb_indices, &filters, &allpass, &allpass_indices,
-        &roomsize, &damp, &mix)) return NULL;
+        &roomsize, &damp, &mix, &channel_count)) return NULL;
+    // One bank of combs and all-passes per channel (6dddbda87).
+    const Py_ssize_t banks = channel_count == 2u ? 2 : 1;
     if (input.len % sizeof(int16_t) ||
-        comb.len < AUDIODSP_FREEVERB_COMB_SAMPLES * (Py_ssize_t)sizeof(int16_t) ||
-        comb_indices.len < 8 * (Py_ssize_t)sizeof(uint32_t) ||
-        filters.len < 8 * (Py_ssize_t)sizeof(int16_t) ||
-        allpass.len < AUDIODSP_FREEVERB_ALLPASS_SAMPLES *
+        comb.len < banks * AUDIODSP_FREEVERB_COMB_SAMPLES *
             (Py_ssize_t)sizeof(int16_t) ||
-        allpass_indices.len < 4 * (Py_ssize_t)sizeof(uint32_t)) {
+        comb_indices.len < banks * 8 * (Py_ssize_t)sizeof(uint32_t) ||
+        filters.len < banks * 8 * (Py_ssize_t)sizeof(int16_t) ||
+        allpass.len < banks * AUDIODSP_FREEVERB_ALLPASS_SAMPLES *
+            (Py_ssize_t)sizeof(int16_t) ||
+        allpass_indices.len < banks * 4 * (Py_ssize_t)sizeof(uint32_t)) {
         PyBuffer_Release(&input); PyBuffer_Release(&comb);
         PyBuffer_Release(&comb_indices); PyBuffer_Release(&filters);
         PyBuffer_Release(&allpass); PyBuffer_Release(&allpass_indices);
@@ -3257,7 +3261,7 @@ static PyObject *audiodsp_freeverb_s16(PyObject *module, PyObject *args) {
     PyObject *result = PyBytes_FromStringAndSize(NULL, input.len);
     if (result != NULL) {
         audiodsp_freeverb_process_s16((int16_t *)PyBytes_AS_STRING(result),
-            input.buf, input.len / sizeof(int16_t), comb.buf,
+            input.buf, input.len / sizeof(int16_t), (uint32_t)banks, comb.buf,
             comb_indices.buf, filters.buf, allpass.buf, allpass_indices.buf,
             roomsize, damp, mix);
     }

@@ -21,14 +21,17 @@ class Freeverb(_Effect):
         self.damp = 0.5 if damp is None else damp
         self.mix = 0.5 if mix is None else mix
         self._init_format(buffer_size=buffer_size, sample_rate=sample_rate, bits_per_sample=bits_per_sample, samples_signed=samples_signed, channel_count=channel_count)
-        # CircuitPython allocates separate right-channel banks, but its
-        # current processing loop resets the channel offsets for every
-        # sample and therefore uses the first banks for both channels.
-        self._comb = array("h", (0 for _ in range(11024)))
-        self._comb_indices = array("I", (0 for _ in range(8)))
-        self._comb_filters = array("h", (0 for _ in range(8)))
-        self._allpass = array("h", (0 for _ in range(1563)))
-        self._allpass_indices = array("I", (0 for _ in range(4)))
+        # One bank of combs and all-passes per channel. CircuitPython 10.3.0
+        # allocated the right-channel bank and then ran both channels
+        # through the left one; upstream fixed that in 6dddbda87
+        # (11.0.0-alpha.1), and so does this.
+        banks = 2 if self.channel_count == 2 else 1
+        self._banks = banks
+        self._comb = array("h", (0 for _ in range(11024 * banks)))
+        self._comb_indices = array("I", (0 for _ in range(8 * banks)))
+        self._comb_filters = array("h", (0 for _ in range(8 * banks)))
+        self._allpass = array("h", (0 for _ in range(1563 * banks)))
+        self._allpass_indices = array("I", (0 for _ in range(4 * banks)))
         self.pre_filter = pre_filter
         self.post_filter = post_filter
 
@@ -69,19 +72,25 @@ class Freeverb(_Effect):
         wet = int((mix2 if mix2 < 1.0 else 1.0) * 32767)
         comb_offsets = []
         offset = 0
-        for size in self._COMB_SIZES:
-            comb_offsets.append(offset)
-            offset += size
+        for _bank in range(self._banks):
+            for size in self._COMB_SIZES:
+                comb_offsets.append(offset)
+                offset += size
         allpass_offsets = []
         offset = 0
-        for size in self._ALLPASS_SIZES:
-            allpass_offsets.append(offset)
-            offset += size
+        for _bank in range(self._banks):
+            for size in self._ALLPASS_SIZES:
+                allpass_offsets.append(offset)
+                offset += size
         for index, sample in enumerate(samples):
+            # Even samples take the left bank and odd ones the right, starting
+            # on the left for each run, as the native loop does.
+            bank = index % self._banks
             filtered = self._pre_filter.process(filter_channel, sample)
             reverb_input = _sat16(int(filtered) * 8738, 17)
             total = 0
-            for comb in range(8):
+            for comb in range(8 * bank, 8 * bank + 8):
+                size = self._COMB_SIZES[comb % 8]
                 pos = comb_offsets[comb] + self._comb_indices[comb]
                 delayed = self._comb[pos]
                 total += delayed
@@ -90,17 +99,17 @@ class Freeverb(_Effect):
                 self._comb[pos] = _sat16(
                     reverb_input + _sat16(self._comb_filters[comb] * feedback, 15), 0)
                 nxt = self._comb_indices[comb] + 1
-                self._comb_indices[comb] = 0 if nxt >= self._COMB_SIZES[comb] else nxt
+                self._comb_indices[comb] = 0 if nxt >= size else nxt
             effect = _sat16(total * 31457, 17)
-            for allpass in range(4):
+            for allpass in range(4 * bank, 4 * bank + 4):
+                size = self._ALLPASS_SIZES[allpass % 4]
                 pos = allpass_offsets[allpass] + self._allpass_indices[allpass]
                 delayed = self._allpass[pos]
                 self._allpass[pos] = (
                     (effect + (delayed >> 1) + 32768) & 0xffff) - 32768
                 effect = _sat16(delayed - effect, 1)
                 nxt = self._allpass_indices[allpass] + 1
-                self._allpass_indices[allpass] = (
-                    0 if nxt >= self._ALLPASS_SIZES[allpass] else nxt)
+                self._allpass_indices[allpass] = 0 if nxt >= size else nxt
             effect = self._post_filter.process(filter_channel, effect)
             word = effect * 30
             word = _sat16(sample * dry, 15) + _sat16(word * wet, 15)
@@ -123,6 +132,7 @@ class Freeverb(_Effect):
         return _audiodsp.freeverb_s16(
             data, self._comb, self._comb_indices, self._comb_filters,
             self._allpass, self._allpass_indices, roomsize, damp, mix,
+            self._banks,
         )
 
 

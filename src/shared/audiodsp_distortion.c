@@ -44,7 +44,9 @@ int32_t audiodsp_distortion_sample(int32_t sample, double drive,
     }
     if (!soft_clip) {
         if (word < -32767) word = -32767;
-        if (word > 32768) word = 32768;
+        // 32767, not 32768, which wraps to -32768 on the way to int16
+        // (upstream 6dddbda87).
+        if (word > 32767) word = 32767;
     }
     return (int32_t)(sample * (1.0 - mix) + word * mix);
 }

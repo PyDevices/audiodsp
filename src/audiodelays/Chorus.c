@@ -124,6 +124,11 @@ void chorus_recalculate_delay(audiodelays_chorus_obj_t *self, mp_float_t f_delay
 
     uint32_t new_chorus_buffer_len = (uint32_t)(self->base.sample_rate / MICROPY_FLOAT_CONST(1000.0) * f_delay_ms) * (self->base.channel_count * sizeof(uint16_t));
 
+    // Never longer than the line allocated (upstream 6dddbda87).
+    if (new_chorus_buffer_len > self->max_chorus_buffer_len) {
+        new_chorus_buffer_len = self->max_chorus_buffer_len;
+    }
+
     self->chorus_buffer_len = new_chorus_buffer_len;
 
     self->current_delay_ms = f_delay_ms;
