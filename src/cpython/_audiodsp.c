@@ -3169,11 +3169,11 @@ static PyObject *audiodsp_chorus_s16(PyObject *module, PyObject *args) {
 
 static PyObject *audiodsp_multitap_s16(PyObject *module, PyObject *args) {
     Py_buffer input = {0}, delay = {0}, offsets = {0}, levels = {0};
-    unsigned int position, delay_samples, channels;
+    unsigned int position, delay_samples, channels, first_channel = 0;
     double decay, mix;
-    if (!PyArg_ParseTuple(args, "y*w*IIIw*w*dd:multitap_s16", &input,
+    if (!PyArg_ParseTuple(args, "y*w*IIIw*w*dd|I:multitap_s16", &input,
         &delay, &position, &delay_samples, &channels, &offsets, &levels,
-        &decay, &mix)) return NULL;
+        &decay, &mix, &first_channel)) return NULL;
     size_t tap_count = (size_t)offsets.len / sizeof(uint32_t);
     if (input.len % sizeof(int16_t) || channels < 1 || channels > 2 ||
         delay_samples < 1 || offsets.len % sizeof(uint32_t) ||
@@ -3193,7 +3193,8 @@ static PyObject *audiodsp_multitap_s16(PyObject *module, PyObject *args) {
     position = audiodsp_multitap_process_s16(
         (int16_t *)PyBytes_AS_STRING(result), input.buf,
         input.len / sizeof(int16_t), delay.buf, position, delay_samples,
-        (uint8_t)channels, offsets.buf, levels.buf, tap_count, decay, mix);
+        (uint8_t)channels, (uint8_t)(first_channel % channels), offsets.buf,
+        levels.buf, tap_count, decay, mix);
     PyBuffer_Release(&input); PyBuffer_Release(&delay);
     PyBuffer_Release(&offsets); PyBuffer_Release(&levels);
     return Py_BuildValue("(NI)", result, position);
