@@ -225,6 +225,12 @@ PROBES = (
     # wow_hz and loop_semitones taken to 0 park at their next zero crossing
     # instead of freezing mid-swing (audiodsp#177).
     ("feedback_delay_park_probe.py", "audioecho", {}, None),
+    # The delay nodes' lifecycle matrix: feedback to 0 and back with a tail
+    # ringing, delay_slew to 0 mid-glide, mix back from 0, and several
+    # settings before one pull, on every delay node (audiodsp#218). Echo and
+    # MultiTapDelay are CircuitPython's own on CircuitPython, and agree.
+    ("delay_lifecycle_probe.py", "audioecho", {}, None),
+    ("delay_lifecycle_probe.py", "audiodelays", {}, None),
     ("feedback_delay_frames_probe.py", "audioecho", {}, None),
     ("freeverb_filter_probe.py", "audiofreeverb", {}, None),
     # A host reset mid-stream clears each node's own state and keeps the
