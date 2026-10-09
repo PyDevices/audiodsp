@@ -36,9 +36,15 @@ else. That matters: a staged bundle also carries *copies* of the component
 packages, and `harness.py` puts the bundle ahead of PYTHONPATH, so pointing at
 a real install would silently render `--components-lib` inert and grade a
 stale copy. Set `MPVST_BUNDLE` yourself to override.
+
+A capture stamps each piece it writes with `captured_from`: the date and the
+mpvst, audiocomponents and audiodsp commits it rendered with. Pieces captured
+at different times can then sit in one golden without a single file-wide note
+claiming to describe them all.
 """
 
 import argparse
+import datetime
 import difflib
 import hashlib
 import json
@@ -182,6 +188,39 @@ def each_piece(args):
             yield piece, render(args, piece, destination, bundle)
 
 
+def commit(path):
+    """The commit a checkout is at, or None when it is not a git checkout."""
+    result = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"],
+                            capture_output=True, check=False)
+    if result.returncode:
+        return None
+    return result.stdout.decode().strip() or None
+
+
+def provenance(args):
+    """What a capture rendered with, recorded beside each piece it captures.
+
+    mpvst and the component packages come from checkouts, so their commits are
+    read from git. audiodsp is whatever the rendering interpreter has installed,
+    so it is asked: the extension carries the `git describe` of the tree it was
+    built from. A source that cannot say is recorded as None rather than
+    guessed.
+    """
+    result = subprocess.run(
+        [args.python, "-c",
+         "import _audiodsp; print(_audiodsp.__revision__)"],
+        capture_output=True, check=False)
+    audiodsp = result.stdout.decode().strip() if not result.returncode else ""
+    components = (commit(Path(args.components_lib).resolve().parent)
+                  if args.components_lib else None)
+    return {
+        "date": datetime.date.today().isoformat(),
+        "mpvst": commit(args.mpvst),
+        "audiocomponents": components,
+        "audiodsp": audiodsp or None,
+    }
+
+
 def capture(args):
     # Merge, never replace. `--pieces` narrows what gets rendered, and a
     # capture that then wrote only those would quietly drop every piece it
@@ -194,6 +233,9 @@ def capture(args):
     if GOLDEN.exists():
         fixture = json.loads(GOLDEN.read_text())
         fixture.setdefault("pieces", {})
+    source = provenance(args)
+    print("captured from %s\n" % ", ".join(
+        "%s %s" % item for item in sorted(source.items())))
     unrendered = []
     for piece, outcome in each_piece(args):
         if isinstance(outcome, Unrendered):
@@ -209,6 +251,7 @@ def capture(args):
             "wav_bytes": size,
             "levels": levels(report),
             "report": report,
+            "captured_from": source,
         }
         print("captured %-18s %s  %d bytes" % (piece, digest[:16], size))
     GOLDEN.parent.mkdir(exist_ok=True)
