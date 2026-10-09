@@ -288,8 +288,10 @@ static void mp3file_skip_id3v2(audiomp3_mp3file_obj_t *self, bool block_ok) {
     // stream_lseek takes (offset, whence) and returns the new position. With
     // the two swapped, a tag already wholly in the buffer (size 0) seeked the
     // file to absolute offset 1, so the next refill re-read the file's start
-    // and the decoder got the same bytes twice.
-    if (stream_lseek(self->stream, size, SEEK_CUR) >= 0) {
+    // and the decoder got the same bytes twice. This is CircuitPython 11's
+    // form of the call.
+    off_t before = stream_lseek(self->stream, 0, SEEK_CUR);
+    if (before >= 0 && stream_lseek(self->stream, size, SEEK_CUR) == before + size) {
         return;
     }
 
