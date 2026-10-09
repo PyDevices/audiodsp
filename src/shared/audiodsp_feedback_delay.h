@@ -153,13 +153,6 @@ typedef struct {
     // Turns per frame in Q32 for the crossfade, from `loop_semitones` and the
     // window. Signed: shifting down runs it backwards.
     int32_t shift_step;
-    // The last moving steps of the wow oscillator and the pitch shifter.
-    // When `wow_hz` or `loop_semitones` goes to 0, each runs on at these
-    // until its next zero crossing and parks there, rather than freezing
-    // wherever the write left it (audiodsp#177).
-    float wow_coast_step;
-    uint32_t wow_coast_phase_step;
-    int32_t shift_coast_step;
 } audiodsp_feedback_delay_config_t;
 
 typedef struct {
@@ -198,6 +191,15 @@ typedef struct {
     // all the gain, so turning it off and on never steps the read head.
     bool shift_engaged;
     bool shift_parked;
+    // The steps the wow oscillator and the pitch shifter last *played* at.
+    // When `wow_hz` or `loop_semitones` goes to 0, each runs on at these
+    // until its next zero crossing and parks there, rather than freezing
+    // wherever the write left it (audiodsp#177). Taken in the process loop,
+    // not by `set()`: a rate set and replaced before a pull never played, so
+    // it is not the one to coast at (audiodsp#218).
+    float wow_coast_step;
+    uint32_t wow_coast_phase_step;
+    int32_t shift_coast_step;
     // True once the tail has ended with nothing coming in, so silence costs
     // no work; `quiet_frames` counts all-zero output since the last look at
     // the state (audiodsp#180).

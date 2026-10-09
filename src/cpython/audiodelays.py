@@ -58,6 +58,15 @@ class Echo(_Effect):
         _advance_blocks(self.sample_rate,
                         len(data) // (self.channel_count * 2))
         delay_samples, rate, decay, mix = self._echo_args()
+        if mix <= 0.01:
+            # Upstream's Echo passes its input straight through at a mix of 0
+            # and holds the line still: nothing is written and the read head
+            # stays put, so a mix brought back plays the repeats the line held
+            # when it went to 0. The native node does the same; this twin used
+            # to run the loop on (audiodsp#218).
+            if self._filter_chain:
+                self._filter_chain.tick(self.sample_rate)
+            return data
         if not self._filter_chain:
             result, self._left_position, self._right_position = _audiodsp.echo_s16(
                 data, self._echo_buffer, self._left_position, self._right_position,

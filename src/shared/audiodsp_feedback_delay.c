@@ -121,9 +121,6 @@ void audiodsp_feedback_delay_config_init(
     config->loop_semitones = 0.0f;
     config->loop_window_ms = 25.0f;
     config->shift_step = 0;
-    config->wow_coast_step = 0.0f;
-    config->wow_coast_phase_step = 0;
-    config->shift_coast_step = 0;
     shift_window_finish(config);
     audiodsp_feedback_delay_configure(config,
         AUDIODSP_FEEDBACK_DELAY_OPT_INPUT_PAN, 0.0f);
@@ -191,10 +188,6 @@ void audiodsp_feedback_delay_configure(audiodsp_feedback_delay_config_t *config,
             // magic circle, so the two stay in step and `wow_am_depth` reads
             // the same cycle the delay is moving on.
             config->wow_phase_step = phase_step_for(value, rate);
-            if (config->wow_step != 0.0f || config->wow_phase_step != 0u) {
-                config->wow_coast_step = config->wow_step;
-                config->wow_coast_phase_step = config->wow_phase_step;
-            }
             break;
         case AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_MS:
             config->wow_depth_frames =
@@ -223,17 +216,11 @@ void audiodsp_feedback_delay_configure(audiodsp_feedback_delay_config_t *config,
             // than the signal is.
             config->loop_semitones = clampf(value, -24.0f, 24.0f);
             config->shift_step = shift_step_for(config);
-            if (config->shift_step != 0) {
-                config->shift_coast_step = config->shift_step;
-            }
             break;
         case AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS:
             config->loop_window_ms = clampf(value, 1.0f, 250.0f);
             shift_window_finish(config);
             config->shift_step = shift_step_for(config);
-            if (config->shift_step != 0) {
-                config->shift_coast_step = config->shift_step;
-            }
             break;
         case AUDIODSP_FEEDBACK_DELAY_OPT_INPUT_PAN: {
             // -1 sends both channels into the left line and nothing into the
@@ -312,6 +299,9 @@ void audiodsp_feedback_delay_state_init(audiodsp_feedback_delay_state_t *state,
     state->wow_parked = false;
     state->shift_engaged = false;
     state->shift_parked = false;
+    state->wow_coast_step = 0.0f;
+    state->wow_coast_phase_step = 0;
+    state->shift_coast_step = 0;
     state->resting = false;
     state->quiet_frames = 0;
 }
@@ -539,13 +529,15 @@ static void feedback_delay_run(
         config->wow_step == 0.0f && config->wow_phase_step == 0u;
     if (!wow_stopped) {
         state->wow_parked = false;
+        state->wow_coast_step = config->wow_step;
+        state->wow_coast_phase_step = config->wow_phase_step;
     }
     const bool wow_coasting = wow_stopped && !state->wow_parked &&
-        (config->wow_coast_step != 0.0f || config->wow_coast_phase_step != 0u);
-    const float wow_step = wow_coasting ? config->wow_coast_step :
+        (state->wow_coast_step != 0.0f || state->wow_coast_phase_step != 0u);
+    const float wow_step = wow_coasting ? state->wow_coast_step :
         config->wow_step;
     const uint32_t wow_phase_step = wow_coasting ?
-        config->wow_coast_phase_step : config->wow_phase_step;
+        state->wow_coast_phase_step : config->wow_phase_step;
     // The pitch shifter the same way. Once it has run, `loop_semitones` at 0
     // turns its crossfade on to the next point where one tap carries all the
     // gain (a phase of 0 or one half) and holds it there, so the read head
@@ -554,10 +546,13 @@ static void feedback_delay_run(
     if (shifting) {
         state->shift_engaged = true;
         state->shift_parked = false;
+        if (config->shift_step != 0) {
+            state->shift_coast_step = config->shift_step;
+        }
     }
     const bool shift_path = shifting || state->shift_engaged;
     const int32_t shift_step = shifting ? config->shift_step :
-        (state->shift_parked ? 0 : config->shift_coast_step);
+        (state->shift_parked ? 0 : state->shift_coast_step);
     // With no slew the read head is wherever it was told to be, so `offset`
     // below is the same float it always was and every existing golden holds.
     // A state that has never run is primed the same way, so turning the slew
