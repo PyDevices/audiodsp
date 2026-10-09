@@ -102,7 +102,7 @@ void common_hal_audiofreeverb_freeverb_construct(audiofreeverb_freeverb_obj_t *s
             common_hal_audiofreeverb_freeverb_deinit(self);
             m_malloc_fail(self->combbuffersizes[i]);
         }
-        memset(self->combbuffers[i], 0, self->combbuffersizes[i]);
+        memset(self->combbuffers[i], 0, self->combbuffersizes[i] * sizeof(uint16_t));
 
         self->combbufferindex[i] = 0;
         self->combfitlers[i] = 0;
@@ -118,7 +118,7 @@ void common_hal_audiofreeverb_freeverb_construct(audiofreeverb_freeverb_obj_t *s
             common_hal_audiofreeverb_freeverb_deinit(self);
             m_malloc_fail(self->allpassbuffersizes[i]);
         }
-        memset(self->allpassbuffers[i], 0, self->allpassbuffersizes[i]);
+        memset(self->allpassbuffers[i], 0, self->allpassbuffersizes[i] * sizeof(uint16_t));
 
         self->allpassbufferindex[i] = 0;
     }
@@ -302,7 +302,8 @@ audioio_get_buffer_result_t audiofreeverb_freeverb_get_buffer(audiofreeverb_free
         audiofilters_tick_filter_chain(&self->post_filter);
         if (self->pre_filter.objs_len == 0 && self->post_filter.objs_len == 0) {
             audiodsp_freeverb_process_s16_banks(word_buffer,
-                self->sample == NULL ? NULL : sample_src, n, self->combbuffers,
+                self->sample == NULL ? NULL : sample_src, n,
+                self->base.channel_count, self->combbuffers,
                 self->combbuffersizes, self->combbufferindex, self->combfitlers,
                 self->allpassbuffers, self->allpassbuffersizes,
                 self->allpassbufferindex, roomsize, damp, mix);
@@ -312,6 +313,7 @@ audioio_get_buffer_result_t audiofreeverb_freeverb_get_buffer(audiofreeverb_free
             int16_t mix_sample, mix_effect;
             audiofreeverb_freeverb_get_mix_fixedpoint(mix, &mix_sample, &mix_effect);
             int16_t feedback = audiofreeverb_freeverb_get_roomsize_fixedpoint(roomsize);
+            uint32_t channel_comb_offset = 0, channel_allpass_offset = 0;
             for (uint32_t i = 0; i < n; i++) {
                 int32_t sample_word = 0;
                 if (self->sample != NULL) {
@@ -319,7 +321,6 @@ audioio_get_buffer_result_t audiofreeverb_freeverb_get_buffer(audiofreeverb_free
                 }
                 int32_t word, sum;
                 int16_t input, bufout, output;
-                uint32_t channel_comb_offset = 0, channel_allpass_offset = 0;
                 input = (int16_t)audiofilters_process_filter_chain(
                     &self->pre_filter, self->base.channel_count,
                     n % self->base.channel_count, sample_word);

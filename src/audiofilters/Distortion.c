@@ -17,11 +17,9 @@
 // produced a genuinely wrong `soft_clip` value -- and every real
 // CircuitPython board is 32-bit ARM, not x86-64, so the byte-exact-on-unix
 // result was the unrepresentative case, not the type-pun's "real" upstream
-// behavior. Fixed to `.u_bool` here; still `memset(word_buffer, 32768,
-// ...)` kept verbatim in the unsigned-16-bit silence path below (that one
-// truncates to an `unsigned char` per the C standard on every architecture
-// this project builds for, so it stays a genuine, portable, verbatim
-// upstream quirk, not an ABI accident).
+// behavior. Fixed to `.u_bool` here. The unsigned-16-bit silence fill and
+// the hard clip's upper bound follow upstream's 6dddbda87 (11.0.0-alpha.1),
+// which fixed both after 10.3.0.
 //
 // Based on Godot's AudioEffectDistortion
 // (https://docs.godotengine.org/en/stable/classes/class_audioeffectdistortion.html,
@@ -231,7 +229,11 @@ audioio_get_buffer_result_t audiofilters_distortion_get_buffer(audiofilters_dist
             } else {
                 // For unsigned samples set to the middle which is "quiet"
                 if (MP_LIKELY(self->base.bits_per_sample == 16)) {
-                    memset(word_buffer, 32768, length * (self->base.bits_per_sample / 8));
+                    // The midpoint, a word at a time: memset() repeats one
+                    // byte, so 32768 wrote zeros (upstream 6dddbda87).
+                    for (uint32_t si = 0; si < length; si++) {
+                        word_buffer[si] = (int16_t)0x8000;
+                    }
                 } else {
                     memset(hword_buffer, 128, length * (self->base.bits_per_sample / 8));
                 }

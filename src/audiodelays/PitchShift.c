@@ -3,10 +3,9 @@
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
 // equivalent, see docs/upstream-diff.md). `attr, cp_compat_attr` added for
 // semitones/mix/playing. The custom `__exit__` is kept verbatim, same as
-// Chorus (see that file's comment). Kept verbatim (not fixed): the
-// unsigned-16-bit silence path's `memset(word_buffer, 32768, ...)` has the
-// same fill-value-truncates-to-a-byte quirk as Distortion's (see that
-// file's comment) -- reproduced exactly, not corrected. Also kept verbatim:
+// Chorus (see that file's comment). The unsigned-16-bit silence fill and the
+// window's lower bound follow upstream's 6dddbda87 (11.0.0-alpha.1), which
+// fixed both after 10.3.0. Kept verbatim:
 // `buf_offset` in the per-sample loop ignores `single_channel_output`
 // (`channel == 1 || i % channel_count == 1`, unlike every sibling effect's
 // `(single_channel_output && channel == 1) || (!single_channel_output && ...)`
@@ -62,6 +61,8 @@ void common_hal_audiodelays_pitch_shift_construct(audiodelays_pitch_shift_obj_t 
     synthio_block_assign_slot(semitones, &self->semitones, MP_QSTR_semitones);
     synthio_block_assign_slot(mix, &self->mix, MP_QSTR_mix);
 
+    // A window must hold at least one frame (upstream 6dddbda87).
+    mp_arg_validate_int_min(window, sizeof(uint16_t) * channel_count, MP_QSTR_window);
     self->window_len = window; // bytes
     self->window_buffer = m_malloc(self->window_len);
     memset(self->window_buffer, 0, self->window_len);
@@ -219,7 +220,11 @@ audioio_get_buffer_result_t audiodelays_pitch_shift_get_buffer(audiodelays_pitch
             } else {
                 // For unsigned samples set to the middle which is "quiet"
                 if (MP_LIKELY(self->base.bits_per_sample == 16)) {
-                    memset(word_buffer, 32768, length * (self->base.bits_per_sample / 8));
+                    // The midpoint, a word at a time: memset() repeats one
+                    // byte, so 32768 wrote zeros (upstream 6dddbda87).
+                    for (uint32_t si = 0; si < length; si++) {
+                        word_buffer[si] = (int16_t)0x8000;
+                    }
                 } else {
                     memset(hword_buffer, 128, length * (self->base.bits_per_sample / 8));
                 }

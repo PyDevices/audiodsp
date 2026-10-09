@@ -223,6 +223,9 @@ class MultiTapDelay(_Effect):
 class PitchShift(_Effect):
     def __init__(self, *, semitones=0, mix=1, window=1024, overlap=128, buffer_size=512, sample_rate=8000, bits_per_sample=16, samples_signed=True, channel_count=1):
         self.semitones, self.mix, self.window, self.overlap = semitones, mix, int(window), int(overlap)
+        # A window must hold at least one frame (upstream 6dddbda87).
+        if self.window < 2 * int(channel_count):
+            raise ValueError("window must be >= %d" % (2 * int(channel_count)))
         self._init_format(buffer_size=buffer_size, sample_rate=sample_rate, bits_per_sample=bits_per_sample, samples_signed=samples_signed, channel_count=channel_count)
         self._window_samples = self.window // 2 // self.channel_count
         self._overlap_samples = self.overlap // 2 // self.channel_count
