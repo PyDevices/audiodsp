@@ -6,7 +6,7 @@
 // character is what a nonlinearity inside a feedback loop does and which a
 // cascade of linear biquads therefore cannot be. Adding it to `Filter` would
 // have made audiodsp's copy of a CircuitPython module diverge from the one on
-// a stock board, which is the one thing apply_cp_patches.sh is built to
+// a stock board, which is the one thing audiodsp's CircuitPython build is designed to
 // avoid.
 //
 // SPDX-License-Identifier: MIT

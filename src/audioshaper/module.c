@@ -6,7 +6,7 @@
 // curve arrives as data and whose shaping happens above the sample rate.
 // Adding either to `Distortion` would have made audiodsp's copy of a
 // CircuitPython module diverge from the one on a stock board, which is the
-// one thing apply_cp_patches.sh is built to avoid.
+// one thing audiodsp's CircuitPython build is designed to avoid.
 //
 // SPDX-License-Identifier: MIT
 

@@ -6,7 +6,7 @@
 // `Distortion` is CircuitPython's, and an argument added to audiodsp's copy of
 // it would not exist on a stock board -- so an `Overdrive` written against it
 // would silently be a different effect there. A new module either installs
-// whole, via apply_cp_patches.sh, or is absent and says so on import.
+// whole, as a user C module, or is absent and says so on import.
 //
 // SPDX-License-Identifier: MIT
 

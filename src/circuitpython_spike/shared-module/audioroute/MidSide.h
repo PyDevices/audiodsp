@@ -1,6 +1,6 @@
 // audioroute.MidSide for CircuitPython. See audiodsp's src/audioroute/MidSide.h
 // for the MicroPython twin; the DSP is the same shared/audiodsp_midside.c in
-// both, copied into this tree by audiodsp/apply_cp_patches.sh.
+// both, built into CircuitPython by audiodsp's circuitpython.mk.
 //
 // SPDX-License-Identifier: MIT
 

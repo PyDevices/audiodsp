@@ -6,7 +6,7 @@
 // output taps are handed in from Python rather than compiled in. Adding those
 // to `Freeverb` would have made audiodsp's copy of a CircuitPython module
 // diverge from the one on a stock board, which is the one thing
-// apply_cp_patches.sh is built to avoid.
+// audiodsp's CircuitPython build is designed to avoid.
 //
 // SPDX-License-Identifier: MIT
 

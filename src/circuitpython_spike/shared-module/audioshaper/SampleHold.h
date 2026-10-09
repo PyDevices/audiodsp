@@ -2,8 +2,8 @@
 // src/audioshaper/SampleHold.h for the MicroPython twin and for why an exact
 // rational hold is a node of audiodsp's own rather than a rate form added to
 // `audiospeed.SpeedChanger`; the arithmetic is the same
-// shared/audiodsp_samplehold.c in both, copied into this tree by
-// audiodsp/apply_cp_patches.sh.
+// shared/audiodsp_samplehold.c in both, built into CircuitPython by
+// audiodsp's circuitpython.mk.
 //
 // SPDX-License-Identifier: MIT
 

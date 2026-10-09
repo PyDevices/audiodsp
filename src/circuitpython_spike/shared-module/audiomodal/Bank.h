@@ -1,6 +1,6 @@
 // audiomodal.Bank for CircuitPython. See audiodsp's src/audiomodal/Bank.h for
 // the MicroPython twin; the DSP is the same shared/audiodsp_modal.c in both,
-// copied into this tree by audiodsp/apply_cp_patches.sh.
+// built into CircuitPython by audiodsp's circuitpython.mk.
 //
 // SPDX-License-Identifier: MIT
 

@@ -123,7 +123,7 @@ PROBES = (
     ("filter_f32_probe.py", "audiobiquad", {}, None),
     ("modal_probe.py", "audiomodal", {}, None),
     # audiometer reads levels rather than rendering PCM; the bytes it prints
-    # are the comparison. Not added to CircuitPython by apply_cp_patches.sh.
+    # are the comparison. Not built into CircuitPython (circuitpython.mk).
     ("meter_probe.py", "audiometer",
      {"circuitpython": "audiometer is not added to CircuitPython (the meter's "
                        "sources are the sound card's and the pump's, neither of "

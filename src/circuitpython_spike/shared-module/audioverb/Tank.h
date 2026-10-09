@@ -1,6 +1,6 @@
 // audioverb.Tank for CircuitPython. See audiodsp's src/audioverb/Tank.h for the
-// MicroPython twin; the DSP is the same shared/audiodsp_tank.c in both, copied
-// into this tree by audiodsp/apply_cp_patches.sh.
+// MicroPython twin; the DSP is the same shared/audiodsp_tank.c in both, built
+// into CircuitPython by audiodsp's circuitpython.mk.
 //
 // SPDX-License-Identifier: MIT
 

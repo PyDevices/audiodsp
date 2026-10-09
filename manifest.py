@@ -10,7 +10,8 @@ every interpreter in the workspace. There is nothing to put here:
   ``audiomodal``
   and the rest) are compiled into the firmware by
   ``micropython.mk`` /
-  ``micropython.cmake`` (or, for CircuitPython, by ``apply_cp_patches.sh``).
+  ``micropython.cmake`` (for CircuitPython, ``micropython.mk`` hands over to
+  ``circuitpython.mk``).
   A manifest never sees them.
 - ``lib/audiorender`` renders a whole composition offline with numpy and holds
   the finished song in memory, which is a desktop's job, not a board's. It

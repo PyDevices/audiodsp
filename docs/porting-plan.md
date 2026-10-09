@@ -129,7 +129,8 @@ and their source is micropython-vst3 rather than CircuitPython:
   raises `RecursionError`).
 
   CircuitPython has no equivalent to
-  any of them, so `apply_cp_patches.sh` adds them to a CircuitPython tree —
+  any of them, so this repository builds them into CircuitPython as a user C
+  module (`circuitpython.mk`) —
   the only direction in this repo where CircuitPython is the recipient. See
   `docs/upstream-diff.md` for what changed in the moves and what was kept.
 - **tier 8** is pure Python under `lib/`. `audioinstruments` — 53 classic
