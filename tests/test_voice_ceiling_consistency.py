@@ -140,9 +140,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: `synthtools_acceptance`, `mixdown_knee` and `streaming_component` reproduce
 #: their stored captures; and `verify_dsp` agrees three ways. Previous:
 #: 70c3475983c2f76c (audiodsp a948993).
+#:
+#: Re-pinned 2026-10-09 again: rebuilt with the cp-oracle build_mp.py command
+#: from main at 12cf627, so the oracle carries #221, #222, #225, #226, #227
+#: and #228 (the resync with 11.0.0-alpha.1, PitchShift's freeze, the trig
+#: reduction, the delay lifecycle, the Tank filter return, the mono tap).
+#: CircuitPython's own sources are unchanged for this build. Verified: it answers 64 voices;
+#: `effects_component`, `streaming_component`, `midi_component`,
+#: `synthtools_acceptance` and `mixdown_knee` reproduce their stored captures;
+#: `verify_dsp` agrees three ways (87 comparisons, 0 failures, where the
+#: previous binary stops at `tank_return_probe`); and `cp11_files_probe`
+#: passes. Previous: 8b8aacebdaff738a (audiodsp 43a871e).
 ORACLE = ROOT.parent / "bin" / "circuitpython-oracle-11.0.0-alpha.1"
 ORACLE_SHA256 = (
-    "8b8aacebdaff738a12d796cc5f30c771c28b8a39bebda923688543973d48efb9")
+    "34ca4b524bd7d9b1d81759974a8823adb21e4428994fda2d2afcb596d252961d")
 
 
 def _search(relative, pattern):
