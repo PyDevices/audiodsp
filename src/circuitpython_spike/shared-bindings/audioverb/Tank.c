@@ -18,9 +18,9 @@
 //|
 //|     Processes signed 16-bit audio and hands out 256 frames at a time. It
 //|     sits in an audiosample chain like any other effect, and never reports
-//|     itself finished - a starved chain gets silence. The lines only advance
-//|     with frames that arrive, so the tail stops with the source rather than
-//|     ringing on, the same way `audiodelays.Echo` and
+//|     itself finished. When its source ends (or has nothing to hand over) the
+//|     tail rings out on silence until it is exactly zero, and then the node
+//|     rests, the way `audiodelays.MultiTapDelay` and
 //|     `audioecho.FeedbackDelay` behave."""
 //|
 //|     def __init__(
@@ -207,6 +207,7 @@ static mp_obj_t audioverb_tank_make_new(const mp_obj_type_t *type,
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
 
     audiodsp_tank_config_init(&self->config, sample_rate,
         (float)max_predelay_ms);
@@ -250,6 +251,7 @@ static mp_obj_t audioverb_tank_play(mp_obj_t self_in, mp_obj_t sample) {
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(audioverb_tank_play_obj, audioverb_tank_play);
@@ -387,6 +389,7 @@ static mp_obj_t audioverb_tank_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     memset(self->state.lines, 0, sizeof(self->state.lines));
     self->state.predelay = NULL;
     return mp_const_none;

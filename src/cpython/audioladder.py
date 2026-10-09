@@ -148,9 +148,8 @@ class Ladder(_AudioSample):
             produced += run
         # A starved chain gets silence rather than a short block: this node
         # sits in the middle of a live graph and never reports itself
-        # finished. A self-oscillation stops with the source, for the same
-        # reason audioecho's repeats do -- the loop is only advanced by
-        # frames that arrive.
+        # finished. A self-oscillation stops with the source: the loop is
+        # only advanced by frames that arrive.
         if produced == 0:
             return GET_BUFFER_MORE_DATA, self._publish(
                 bytes(FRAMES * 2 * self.channel_count))

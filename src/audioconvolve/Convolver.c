@@ -149,6 +149,7 @@ static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     self->storage = NULL;
 
     convolver_allocate(self, self->base.sample_rate, max_taps, ir_channels);
@@ -181,6 +182,7 @@ static mp_obj_t audioconvolve_convolver_play(mp_obj_t self_in,
     self->source = sample;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     audiodsp_pump_lock_release();
     return mp_const_none;
 }
@@ -347,6 +349,13 @@ static audioio_get_buffer_result_t audioconvolve_convolver_get_buffer(
     uint32_t produced = 0;
     while (produced < AUDIODSP_CONVOLVE_FRAMES) {
         if (self->pending_frames == 0) {
+            // The buffer that came with GET_BUFFER_DONE was the source's
+            // last. Let go of it, as audiodelays' effects do, and ring the
+            // room out on silence below (audiodsp#180).
+            if (self->source_done) {
+                self->source = MP_OBJ_NULL;
+                self->source_done = false;
+            }
             if (self->source == MP_OBJ_NULL) {
                 break;
             }
@@ -356,10 +365,16 @@ static audioio_get_buffer_result_t audioconvolve_convolver_get_buffer(
                 self->source, false, 0, &raw, &raw_bytes);
             const uint32_t width = 2u * self->base.channel_count;
             if (result == GET_BUFFER_ERROR || raw == NULL || raw_bytes < width) {
+                // A source that ends with nothing in hand is done with too.
+                // One that has nothing this time is asked again next block.
+                if (result == GET_BUFFER_DONE) {
+                    self->source = MP_OBJ_NULL;
+                }
                 break;
             }
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
+            self->source_done = (result == GET_BUFFER_DONE);
         }
         uint32_t run = AUDIODSP_CONVOLVE_FRAMES - produced;
         if (run > self->pending_frames) {
@@ -372,13 +387,15 @@ static audioio_get_buffer_result_t audioconvolve_convolver_get_buffer(
         self->pending_frames -= run;
         produced += run;
     }
-    // A starved chain gets silence rather than a short block, and the tail
-    // stops with the source: only frames that arrive advance the convolution,
-    // so a reverb does not ring on into silence after its input ends. Same
-    // rule as audioecho and audiodelays, and for the same reason -- a node in
-    // the middle of a live graph never reports itself finished.
-    if (produced == 0) {
-        memset(self->buffer, 0, sizeof(self->buffer));
+    // Whatever the source did not fill is rendered from silence, so the block
+    // is always full and the room rings out after the source ends instead of
+    // freezing until it comes back (audiodsp#180). Once it has ended, the node
+    // rests and silence costs nothing. A node in the middle of a live graph
+    // never reports itself finished.
+    if (produced < AUDIODSP_CONVOLVE_FRAMES) {
+        audiodsp_convolve_process_silence(&self->config, &self->state,
+            &self->buffer[produced * self->base.channel_count],
+            AUDIODSP_CONVOLVE_FRAMES - produced);
         produced = AUDIODSP_CONVOLVE_FRAMES;
     }
     *buffer = (uint8_t *)self->buffer;
@@ -421,6 +438,7 @@ static mp_obj_t audioconvolve_convolver_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->source_done = false;
     // Every pointer into the kernel's storage goes, inside the lock with the
     // rest (audiodsp#116), and the collector takes the storage back at its
     // next pass. Dropping `storage` alone never released it: the state's

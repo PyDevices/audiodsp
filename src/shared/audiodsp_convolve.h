@@ -93,6 +93,11 @@ typedef struct {
     uint32_t cursor;   // newest slot in the frequency-delay line
     uint32_t loaded;   // partitions actually carrying impulse; 0 == bypass
     float emitted_mix; // config->mix as `emitted` was computed at
+    // True once the tail has ended with nothing coming in, so silence costs
+    // no work; `quiet_frames` counts all-zero output since the last look at
+    // the history (audiodsp#180).
+    bool resting;
+    uint32_t quiet_frames;
 } audiodsp_convolve_state_t;
 
 // Floats the caller must hand to audiodsp_convolve_state_init for this
@@ -214,3 +219,15 @@ float *audiodsp_convolve_install(audiodsp_convolve_state_t *state,
 void audiodsp_convolve_process_s16(const audiodsp_convolve_config_t *config,
     audiodsp_convolve_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames);
+
+// The end of a tail (audiodsp#180). A node whose source has ended or run dry
+// renders `frames` of output from silence, so the room rings out instead of
+// freezing until the source comes back, and the block it hands on is full.
+// Silence transforms to exact zeros, so once the history holds nothing but
+// silence the whole state is exactly zero and the node rests: the transforms
+// stop running and this writes zeros. The history is scanned only after a
+// stretch of all-zero output as long as the loaded impulse, so the check
+// costs nothing until a tail is nearly over. A frame of real input wakes it.
+void audiodsp_convolve_process_silence(
+    const audiodsp_convolve_config_t *config,
+    audiodsp_convolve_state_t *state, int16_t *out, uint32_t frames);

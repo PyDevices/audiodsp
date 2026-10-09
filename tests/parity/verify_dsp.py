@@ -217,6 +217,9 @@ PROBES = (
     # (audiodsp#181). The probe asserts it per node, and the PCM it prints
     # holds the interpreters to the same bytes after the reset.
     ("host_reset_probe.py", "audiocore", {}, None),
+    # A burst, a stop, the tail rung out to exact zero, and a second burst
+    # into a node at rest, on the three nodes with tails (audiodsp#180).
+    ("tail_rest_probe.py", "audioecho", {}, None),
 )
 
 

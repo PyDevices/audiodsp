@@ -181,6 +181,11 @@ typedef struct {
     float wow_depth_target;
     float wow_depth_step;
     uint32_t wow_depth_left;
+    // True once the tail has ended with nothing coming in, so silence costs
+    // no work; `quiet_frames` counts all-zero output since the last look at
+    // the state (audiodsp#180).
+    bool resting;
+    uint32_t quiet_frames;
 } audiodsp_feedback_delay_state_t;
 
 //: How long a change of `wow_depth_ms` takes to land: 20 ms, a fiftieth of
@@ -226,3 +231,14 @@ void audiodsp_feedback_delay_process_s16(
     const audiodsp_feedback_delay_config_t *config,
     audiodsp_feedback_delay_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames);
+
+// The end of a tail (audiodsp#180). A node whose source has ended or run dry
+// renders `frames` of output from silence, so its repeats ring out instead of
+// freezing until the source comes back, and the block it hands on is full.
+// Once the whole state is exactly zero the node rests: the kernel stops
+// running and this writes zeros. The state is scanned only after a stretch of
+// all-zero output as long as the longest line, so the check costs nothing
+// until a tail is nearly over. A frame of real input wakes it.
+void audiodsp_feedback_delay_process_silence(
+    const audiodsp_feedback_delay_config_t *config,
+    audiodsp_feedback_delay_state_t *state, int16_t *out, uint32_t frames);

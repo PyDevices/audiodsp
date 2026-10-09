@@ -295,6 +295,8 @@ void audiodsp_feedback_delay_state_init(audiodsp_feedback_delay_state_t *state,
     state->wow_depth_target = 0.0f;
     state->wow_depth_step = 0.0f;
     state->wow_depth_left = 0;
+    state->resting = false;
+    state->quiet_frames = 0;
 }
 
 void audiodsp_feedback_delay_reset(audiodsp_feedback_delay_state_t *state,
@@ -426,7 +428,80 @@ static float read_tap(const int16_t *lane, const feedback_delay_tap_t *tap) {
         tap->fraction * ((float)lane[tap->far_frame] - near_sample);
 }
 
+static void feedback_delay_run(
+    const audiodsp_feedback_delay_config_t *config,
+    audiodsp_feedback_delay_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames);
+
 void audiodsp_feedback_delay_process_s16(
+    const audiodsp_feedback_delay_config_t *config,
+    audiodsp_feedback_delay_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames) {
+    if (frames > 0u) {
+        state->resting = false;
+        state->quiet_frames = 0;
+    }
+    feedback_delay_run(config, state, out, in, frames);
+}
+
+// Below this a filter state is a fraction of an LSB that no write can round
+// up to one: the line holds it at zero, so it is set to zero when the node
+// rests rather than left to decay through float32's denormals for ever.
+#define AUDIODSP_FEEDBACK_DELAY_REST_FLOOR (1.0f / 1024.0f)
+
+static bool feedback_delay_below_floor(float value) {
+    return (value < 0.0f ? -value : value) < AUDIODSP_FEEDBACK_DELAY_REST_FLOOR;
+}
+
+// Everything audible is zero: the whole line, both lanes, and the two loop
+// filters to within a fraction of an LSB.
+static bool feedback_delay_settled(
+    const audiodsp_feedback_delay_config_t *config,
+    const audiodsp_feedback_delay_state_t *state) {
+    for (uint32_t ch = 0; ch < 2u; ++ch) {
+        if (!feedback_delay_below_floor(state->damping_state[ch]) ||
+            !feedback_delay_below_floor(state->cut_state[ch])) {
+            return false;
+        }
+    }
+    const size_t samples = (size_t)config->line_frames * 2u;
+    for (size_t i = 0; i < samples; ++i) {
+        if (state->line[i] != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void audiodsp_feedback_delay_process_silence(
+    const audiodsp_feedback_delay_config_t *config,
+    audiodsp_feedback_delay_state_t *state, int16_t *out, uint32_t frames) {
+    const size_t samples = (size_t)frames * config->channel_count;
+    memset(out, 0, samples * sizeof(int16_t));
+    if (state->resting || frames == 0u || state->line == NULL) {
+        return;
+    }
+    // `out` may alias `in`, so the zeros just written are the input.
+    feedback_delay_run(config, state, out, out, frames);
+    for (size_t i = 0; i < samples; ++i) {
+        if (out[i] != 0) {
+            state->quiet_frames = 0;
+            return;
+        }
+    }
+    state->quiet_frames += frames;
+    if (state->quiet_frames < config->line_frames) {
+        return;
+    }
+    state->quiet_frames = 0;
+    if (feedback_delay_settled(config, state)) {
+        state->damping_state[0] = state->damping_state[1] = 0.0f;
+        state->cut_state[0] = state->cut_state[1] = 0.0f;
+        state->resting = true;
+    }
+}
+
+static void feedback_delay_run(
     const audiodsp_feedback_delay_config_t *config,
     audiodsp_feedback_delay_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {

@@ -28,6 +28,9 @@ typedef struct {
     // blocks.
     const int16_t *pending;
     uint32_t pending_frames;
+    // The source handed its last buffer with GET_BUFFER_DONE; it is let
+    // go of once that buffer is used up.
+    bool source_done;
 } audioecho_feedback_delay_obj_t;
 
 void audioecho_feedback_delay_reset_buffer(

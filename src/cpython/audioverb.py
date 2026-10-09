@@ -54,7 +54,8 @@ there. This either installs whole or is absent and says so on import.
 """
 
 from audiocore import (
-    GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
+    GET_BUFFER_DONE, GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample,
+    get_buffer,
 )
 import _audiodsp
 
@@ -114,6 +115,7 @@ class Tank(_AudioSample):
         self._deinited = False
         self._source = None
         self._pending = b""
+        self._source_done = False
         self._state = _audiodsp.TankState(
             sample_rate=self.sample_rate,
             max_predelay_ms=float(max_predelay_ms),
@@ -171,10 +173,12 @@ class Tank(_AudioSample):
         self._check()
         self._source = sample
         self._pending = b""
+        self._source_done = False
 
     def stop(self):
         self._source = None
         self._pending = b""
+        self._source_done = False
 
     def _release(self):
         self.stop()
@@ -200,27 +204,36 @@ class Tank(_AudioSample):
         width = 2 * self.channel_count
         while produced < FRAMES:
             if not self._pending:
+                # The buffer that came with GET_BUFFER_DONE was the source's
+                # last. Let go of it, as audiodelays' effects do, and ring the
+                # tail out on silence below (audiodsp#180).
+                if self._source_done:
+                    self._source = None
+                    self._source_done = False
                 if self._source is None:
                     break
                 result, data = get_buffer(self._source, False, 0)
                 data = bytes(data)
                 if result == GET_BUFFER_ERROR or len(data) < width:
+                    # A source that ends with nothing in hand is done with
+                    # too. One that has nothing this time is asked again
+                    # next block.
+                    if result == GET_BUFFER_DONE:
+                        self._source = None
                     break
                 self._pending = data[:len(data) // width * width]
+                self._source_done = result == GET_BUFFER_DONE
             run = min(FRAMES - produced, len(self._pending) // width)
             output += self._state.process(self._pending[:run * width])
             self._pending = self._pending[run * width:]
             produced += run
-        # A starved chain gets silence rather than a short block: this node
-        # sits in the middle of a live graph and never reports itself
-        # finished. The tail stops with the source -- the lines only advance
-        # for frames that arrive -- which is `audioecho.FeedbackDelay`'s
-        # behaviour and `audiodelays.Echo`'s before it. A class that wants the
-        # tail rung out feeds the tank silence for as long as `tail_samples`
-        # says.
-        if produced == 0:
-            return GET_BUFFER_MORE_DATA, self._publish(
-                bytes(FRAMES * 2 * self.channel_count))
+        # Whatever the source did not fill is rendered from silence, so the
+        # block is always full and the tail rings out after the source ends
+        # instead of freezing until it comes back (audiodsp#180). Once it has
+        # ended, the node rests and silence costs nothing. A node in the
+        # middle of a live graph never reports itself finished.
+        if produced < FRAMES:
+            output += self._state.process_silence(FRAMES - produced)
         return GET_BUFFER_MORE_DATA, self._publish(output)
 
 

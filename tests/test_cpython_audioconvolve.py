@@ -252,23 +252,6 @@ def noise_source(frames, channels, level=8000, seed=12345, rate=SAMPLE_RATE,
     return values
 
 
-class Once(audiocore._AudioSample):
-    """A source that hands its frames over once and then has none, so a
-    pull can stop part way through the node's block."""
-
-    def __init__(self, values, channels):
-        self.sample_rate = SAMPLE_RATE
-        self.channel_count = channels
-        self.bits_per_sample = 16
-        self._data = bytes(values)
-
-    def _get_buffer(self, single_channel_output=False, audio_channel=0):
-        data, self._data = self._data, b""
-        if not data:
-            return audiocore.GET_BUFFER_ERROR, b""
-        return audiocore.GET_BUFFER_MORE_DATA, data
-
-
 class Resynthesis:
     """One stream through a synthesized room, with calls between pulls."""
 
@@ -284,6 +267,16 @@ class Resynthesis:
     def play(self, values):
         self.node.play(audiocore.RawSample(values, sample_rate=self.rate,
                                            channel_count=self.channels))
+
+    def feed(self, values):
+        """`values` straight through the node's kernel, in one call of
+        whatever length, without a pull."""
+        data = self.node._state.process(bytes(values))
+        out = []
+        for position in range(0, len(data), 2):
+            word = data[position] | (data[position + 1] << 8)
+            out.append(word - 65536 if word >= 32768 else word)
+        return out
 
     def pull(self, blocks, calls=None):
         """`blocks` pulls; `calls` maps a pull index to what runs before it."""
@@ -348,25 +341,26 @@ class ResynthesisTest(unittest.TestCase):
                     self.assertEqual(got, want)
 
     def test_a_resynthesis_mid_block_drops_nothing(self):
-        """The same with the call landing part way through a block, where
-        the input gathered so far and the unplayed rest of the block in
-        flight both have to survive it."""
+        """The same with the call landing part way through the kernel's
+        block, where the input gathered so far and the unplayed rest of the
+        block in flight both have to survive it. A node hands on whole blocks
+        whatever its source does (audiodsp#180), so between two pulls its
+        kernel is never part way through one; the kernel is driven directly
+        here instead, in the uneven calls it accepts from a binding."""
         for channels in (2, 1):
             values = noise_source(BLOCKS * PARTITION_FRAMES, channels)
             head = 1000                    # not a whole number of blocks
             first = values[:head * channels]
-            rest = values[head * channels:]
+            rest = values[head * channels:(head + 8 * 256) * channels]
             for tag, change in MOVES[1:]:
                 with self.subTest(channels=channels, move=tag):
                     outs = []
                     for call in (False, True):
                         stream = Resynthesis(ROOM, channels=channels, mix=0.0)
-                        stream.node.play(Once(first, channels))
-                        out = stream.pull(4)          # 3 whole + 232 frames
+                        out = stream.feed(first)      # 3 whole + 232 frames
                         if call:
                             stream.node.synthesize(**moved(change))
-                        stream.play(rest)
-                        out += stream.pull(8)
+                        out += stream.feed(rest)
                         outs.append(out)
                     self.assertEqual(outs[1], outs[0])
                     self.assertEqual(len(outs[1]),
@@ -376,12 +370,10 @@ class ResynthesisTest(unittest.TestCase):
                     wet = []
                     for room in (moved(change), None):
                         stream = Resynthesis(room or ROOM, channels=channels)
-                        stream.node.play(Once(first, channels))
-                        out = stream.pull(4)
+                        out = stream.feed(first)
                         if room is None:
                             stream.node.synthesize(**moved(change))
-                        stream.play(rest)
-                        wet.append(out + stream.pull(8))
+                        wet.append(out + stream.feed(rest))
                     after = (4 * 256) * channels
                     self.assertEqual(wet[1][after:], wet[0][after:])
 

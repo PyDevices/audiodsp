@@ -1137,12 +1137,32 @@ static PyObject *feedback_delay_state_process(
     return result;
 }
 
+// `frames` of output from silence: the node's source has ended or run dry,
+// so its tail rings out, and once it has ended the node rests (audiodsp#180).
+static PyObject *feedback_delay_state_process_silence(
+    audiodsp_feedback_delay_object_t *self, PyObject *argument) {
+    const Py_ssize_t frames = PyLong_AsSsize_t(argument);
+    if (frames == -1 && PyErr_Occurred()) return NULL;
+    if (frames < 0) {
+        PyErr_SetString(PyExc_ValueError, "frames must not be negative");
+        return NULL;
+    }
+    const Py_ssize_t width = 2 * (Py_ssize_t)(self->config.channel_count);
+    PyObject *result = PyBytes_FromStringAndSize(NULL, frames * width);
+    if (result != NULL) {
+        audiodsp_feedback_delay_process_silence(&self->config, &self->state,
+            (int16_t *)PyBytes_AS_STRING(result), (uint32_t)frames);
+    }
+    return result;
+}
+
 static PyMethodDef feedback_delay_state_methods[] = {
     {"configure", (PyCFunction)feedback_delay_state_configure, METH_VARARGS, NULL},
     {"set_wow_shape", (PyCFunction)feedback_delay_state_wow_shape, METH_O, NULL},
     {"finish", (PyCFunction)feedback_delay_state_finish, METH_NOARGS, NULL},
     {"reset", (PyCFunction)feedback_delay_state_reset, METH_NOARGS, NULL},
     {"process", (PyCFunction)feedback_delay_state_process, METH_O, NULL},
+    {"process_silence", (PyCFunction)feedback_delay_state_process_silence, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
@@ -2006,12 +2026,32 @@ static PyObject *tank_state_process(audiodsp_tank_object_t *self,
     return result;
 }
 
+// `frames` of output from silence: the node's source has ended or run dry,
+// so its tail rings out, and once it has ended the node rests (audiodsp#180).
+static PyObject *tank_state_process_silence(
+    audiodsp_tank_object_t *self, PyObject *argument) {
+    const Py_ssize_t frames = PyLong_AsSsize_t(argument);
+    if (frames == -1 && PyErr_Occurred()) return NULL;
+    if (frames < 0) {
+        PyErr_SetString(PyExc_ValueError, "frames must not be negative");
+        return NULL;
+    }
+    const Py_ssize_t width = 2 * (Py_ssize_t)(self->config.channel_count == 1u ? 1u : 2u);
+    PyObject *result = PyBytes_FromStringAndSize(NULL, frames * width);
+    if (result != NULL) {
+        audiodsp_tank_process_silence(&self->config, &self->state,
+            (int16_t *)PyBytes_AS_STRING(result), (uint32_t)frames);
+    }
+    return result;
+}
+
 static PyMethodDef tank_state_methods[] = {
     {"configure", (PyCFunction)tank_state_configure, METH_VARARGS, NULL},
     {"finish", (PyCFunction)tank_state_finish, METH_NOARGS, NULL},
     {"reset", (PyCFunction)tank_state_reset, METH_NOARGS, NULL},
     {"recut", (PyCFunction)tank_state_recut, METH_VARARGS, NULL},
     {"process", (PyCFunction)tank_state_process, METH_O, NULL},
+    {"process_silence", (PyCFunction)tank_state_process_silence, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
@@ -2343,6 +2383,25 @@ static PyObject *convolver_state_process(audiodsp_convolver_object_t *self,
     return result;
 }
 
+// `frames` of output from silence: the node's source has ended or run dry,
+// so its tail rings out, and once it has ended the node rests (audiodsp#180).
+static PyObject *convolver_state_process_silence(
+    audiodsp_convolver_object_t *self, PyObject *argument) {
+    const Py_ssize_t frames = PyLong_AsSsize_t(argument);
+    if (frames == -1 && PyErr_Occurred()) return NULL;
+    if (frames < 0) {
+        PyErr_SetString(PyExc_ValueError, "frames must not be negative");
+        return NULL;
+    }
+    const Py_ssize_t width = 2 * (Py_ssize_t)(self->config.channel_count == 1u ? 1u : 2u);
+    PyObject *result = PyBytes_FromStringAndSize(NULL, frames * width);
+    if (result != NULL) {
+        audiodsp_convolve_process_silence(&self->config, &self->state,
+            (int16_t *)PyBytes_AS_STRING(result), (uint32_t)frames);
+    }
+    return result;
+}
+
 static PyMethodDef convolver_state_methods[] = {
     {"configure", (PyCFunction)convolver_state_configure, METH_VARARGS, NULL},
     {"load", (PyCFunction)convolver_state_load, METH_VARARGS, NULL},
@@ -2350,6 +2409,7 @@ static PyMethodDef convolver_state_methods[] = {
     {"reset", (PyCFunction)convolver_state_reset, METH_NOARGS, NULL},
     {"taps", (PyCFunction)convolver_state_taps, METH_NOARGS, NULL},
     {"process", (PyCFunction)convolver_state_process, METH_O, NULL},
+    {"process_silence", (PyCFunction)convolver_state_process_silence, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
