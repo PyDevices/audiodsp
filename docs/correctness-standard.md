@@ -236,6 +236,28 @@ proofs of 2026-09-17 name it as one of the three causes of a drive class's
 digests differing. The derivation ends in `float32` there too, or the board and
 the desktop are not running the same filter.
 
+**`float32` cannot round away a different libm.** A class deriving a setting
+with `**`, `math.exp` or `math.log` calls the C library underneath the
+interpreter: newlib on the ESP32 boards, glibc on a Linux desktop. Their `powf`
+are not the same function. At `500 * 32 ** (59 / 127)`, the Damping macro of
+`audioeffects.rebuilt.Reverb` at patch 7, newlib's `powf(32, 0.46456692)`
+returns `0x40a019be` and glibc's returns `0x40a019bf`, the correctly rounded
+answer. Both legs are single precision, so `float32` is the identity on both,
+and the node is handed `damping_hz` one ULP apart. That one ULP moves the
+loop one-pole's coefficient by one ULP, and the render by one LSB in 9 samples
+of 65 536: the whole of audiodsp#183, which had looked like the Tank
+computing differently on the boards.
+
+It is not the Tank. Fed a board's own settings and input, read off the board
+through `uctypes` (the config struct at `id(tank) & 0x7FFFFFFF` plus 20 bytes on
+the ESP32-P4), `audiodsp_tank.c` compiled for x86-64 renders the board's bytes
+exactly, all 128 blocks; given glibc's `damping_hz` instead, it renders the
+single-precision desktop's. **This is accepted, as audiocomponents#75 accepted
+the width case**: a setting derived in Python through libm may differ by a
+last bit between a board and a desktop, and the nodes below it agree. A class
+that needs the legs to agree hands the node a number it did not compute
+through libm.
+
 ## The third way: the twin keeping what the native borrows
 
 Contraction is the compiler choosing, a derived setting is the interpreter
