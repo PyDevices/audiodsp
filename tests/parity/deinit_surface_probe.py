@@ -122,6 +122,7 @@ NODES = (
     ("audiomixer.Mixer", lambda: audiomixer.Mixer(voice_count=2, **PCM)),
     ("audiomodal.Bank", lambda: audiomodal.Bank(modes=4, **PCM)),
     ("audioroute.MidSide", lambda: audioroute.MidSide(**PCM)),
+    ("audioroute.Port", lambda: audioroute.Port(source())),
     ("audioroute.SplitterTap", lambda: audioroute.Splitter(
         source(), taps=2).tap(0)),
     ("audioshaper.SampleHold", lambda: audioshaper.SampleHold(
@@ -242,8 +243,8 @@ OWN = (
     "audiobiquad.AllPass", "audiobiquad.Biquad", "audioconvolve.Convolver",
     "audiodynamics.Dynamics", "audioecho.FeedbackDelay", "audioladder.Ladder",
     "audiomath.Multiply", "audiomath.SubOctave", "audiomodal.Bank",
-    "audioroute.MidSide", "audioshaper.SampleHold", "audioshaper.Waveshaper",
-    "audioverb.Tank",
+    "audioroute.MidSide", "audioroute.Port", "audioshaper.SampleHold",
+    "audioshaper.Waveshaper", "audioverb.Tank",
 )
 
 #: How to call each method with arguments a live node accepts. Keyed by name,

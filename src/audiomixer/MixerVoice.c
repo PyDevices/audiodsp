@@ -33,7 +33,18 @@ static mp_obj_t audiomixer_mixervoice_make_new(const mp_obj_type_t *type, size_t
 }
 
 void common_hal_audiomixer_mixervoice_construct(audiomixer_mixervoice_obj_t *self) {
+    // Every field, not just three: mp_obj_malloc zeroes a new object only
+    // where a port keeps MICROPY_GC_CONSERVATIVE_CLEAR on (the default), and
+    // a voice that started with a garbage `buffer_length` or active level
+    // would mix from nowhere or open at a level it was never set to.
+    self->parent = NULL;
     self->sample = NULL;
+    self->loop = false;
+    self->more_data = false;
+    self->remaining_buffer = NULL;
+    self->buffer_length = 0;
+    self->active_lo_level = 0;
+    self->active_hi_level = 0;
     common_hal_audiomixer_mixervoice_set_level(self, mp_obj_new_float(1.0));
     common_hal_audiomixer_mixervoice_set_panning(self, mp_obj_new_float(0.0));
 }

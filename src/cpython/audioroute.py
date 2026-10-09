@@ -77,13 +77,22 @@ class SplitterTap(_AudioSample):
         data = owner._ring.take(self._index)
         if not data:
             # Still nothing: the source is dry, or another tap has already
-            # read past what one pull could supply. A buffer of this tap's
-            # own, where the native hands out the Splitter's shared
-            # `silence` -- one zeroed block either way, so a borrower reads
-            # the same bytes; see `audiocore._AudioSample._publish`.
-            return GET_BUFFER_MORE_DATA, self._publish(
-                bytes(CHUNK_FRAMES * 2 * self.channel_count))
-        # Not published: the ring IS this tap's storage, exactly as the
+            # read past what one pull could supply. The Splitter's shared
+            # block of silence, zeroed again, as the native hands out its
+            # `silence`: a tap's own buffer is not touched by it.
+            silence = owner._silence
+            silence[:] = bytes(len(silence))
+            return GET_BUFFER_MORE_DATA, memoryview(silence)[
+                :CHUNK_FRAMES * 2 * self.channel_count]
+        if self.channel_count == 1:
+            # A mono tap copies its frames out of the stereo ring into one
+            # buffer of its own (`tap->mono`) and hands that out, so the
+            # next pull of this tap rewrites what a borrower still holds:
+            # a mixer voice primed from the tap mixes the later block, as on
+            # every native build. A fresh copy here mixed the earlier one
+            # (audiodsp#178).
+            return GET_BUFFER_MORE_DATA, self._publish(data)
+        # Not published: the ring IS a stereo tap's storage, exactly as the
         # native hands back `&state.ring[start * 2]`, and a second take
         # lands on the next region rather than rewriting this one.
         return GET_BUFFER_MORE_DATA, memoryview(data)
@@ -108,6 +117,9 @@ class Splitter:
                                        self.channel_count)
                            for index in range(taps))
         self._deinited = False
+        #: The block of silence every tap hands out when it has nothing,
+        #: shared as the native Splitter's `silence` is.
+        self._silence = bytearray(CHUNK_FRAMES * 4)
         #: What one pull from the source did not fit in the ring, offered
         #: before the source is asked again. audiodsp#87.
         self._pending = b""
