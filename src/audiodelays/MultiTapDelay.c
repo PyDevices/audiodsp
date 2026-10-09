@@ -367,12 +367,22 @@ audioio_get_buffer_result_t audiodelays_multi_tap_delay_get_buffer(audiodelays_m
     }
 
     int32_t mix_down_scale = SYNTHIO_MIX_DOWN_SCALE(self->tap_len);
+    const uint32_t block_samples = length;
+    // Set once a source has handed back nothing that this pull can use: it
+    // said it has more and gave 0 bytes, or a looping source came back empty
+    // straight after its reset. Upstream CircuitPython goes round again with
+    // n == 0 and never leaves the loop; here the rest of the block is
+    // rendered from silence and the source is asked again next pull (a
+    // recorded deviation, docs/upstream-diff.md).
+    bool starved = false;
 
     while (length != 0) {
-        if (self->sample_buffer_length == 0) {
+        if (self->sample_buffer_length == 0 && !starved) {
+            bool reset = false;
             if (!self->more_data) {
                 if (self->loop && self->sample) {
                     audiosample_reset_buffer(self->sample, false, 0);
+                    reset = true;
                 } else {
                     self->sample = NULL;
                 }
@@ -381,11 +391,20 @@ audioio_get_buffer_result_t audiodelays_multi_tap_delay_get_buffer(audiodelays_m
                 audioio_get_buffer_result_t result = audiosample_get_buffer(self->sample, false, 0, (uint8_t **)&self->sample_remaining_buffer, &self->sample_buffer_length);
                 self->sample_buffer_length /= (self->base.bits_per_sample / 8);
                 self->more_data = result == GET_BUFFER_MORE_DATA;
+                if (self->sample_buffer_length == 0 && (self->more_data || reset)) {
+                    starved = true;
+                }
             }
         }
+        // Silence in for this stretch: no source, or one with nothing to give.
+        const bool silent = self->sample == NULL || self->sample_buffer_length == 0;
+        // Which lane the stretch starts on. Every stretch used to start on
+        // the left; one after an odd-length source buffer starts on the right
+        // (a recorded deviation, docs/upstream-diff.md).
+        const uint8_t lane = (uint8_t)((block_samples - length) % self->base.channel_count);
 
         uint32_t n;
-        if (self->sample == NULL) {
+        if (silent) {
             n = MIN(length, (uint32_t)(SYNTHIO_MAX_DUR * self->base.channel_count));
         } else {
             n = MIN(MIN(self->sample_buffer_length, length), (uint32_t)(SYNTHIO_MAX_DUR * self->base.channel_count));
@@ -397,7 +416,7 @@ audioio_get_buffer_result_t audiodelays_multi_tap_delay_get_buffer(audiodelays_m
 
         int16_t *sample_src = NULL;
         int8_t *sample_hsrc = NULL;
-        if (self->sample != NULL) {
+        if (!silent) {
             sample_src = (int16_t *)self->sample_remaining_buffer;
             sample_hsrc = (int8_t *)self->sample_remaining_buffer;
         }
@@ -405,20 +424,21 @@ audioio_get_buffer_result_t audiodelays_multi_tap_delay_get_buffer(audiodelays_m
         if (self->base.bits_per_sample == 16 && self->base.samples_signed &&
             !single_channel_output) {
             int16_t silence[SYNTHIO_MAX_DUR * 2] = {0};
-            const int16_t *input = self->sample != NULL ? sample_src : silence;
+            const int16_t *input = !silent ? sample_src : silence;
             delay_buffer_pos = audiodsp_multitap_process_s16(
                 word_buffer, input, n, delay_buffer, delay_buffer_pos,
-                delay_buffer_len, self->base.channel_count,
+                delay_buffer_len, self->base.channel_count, lane,
                 self->tap_offsets, self->tap_levels, self->tap_len,
                 decay, mix);
             goto multitap_samples_done;
         }
 
         for (uint32_t i = 0; i < n; i++) {
-            uint32_t delay_buffer_offset = delay_buffer_len * ((single_channel_output && channel == 1) || (!single_channel_output && (i % self->base.channel_count) == 1));
+            const uint32_t sample_lane = (i + lane) % self->base.channel_count;
+            uint32_t delay_buffer_offset = delay_buffer_len * ((single_channel_output && channel == 1) || (!single_channel_output && sample_lane == 1));
 
             int32_t sample_word = 0;
-            if (self->sample != NULL) {
+            if (!silent) {
                 if (MP_LIKELY(self->base.bits_per_sample == 16)) {
                     sample_word = sample_src[i];
                 } else {
@@ -483,7 +503,7 @@ audioio_get_buffer_result_t audiodelays_multi_tap_delay_get_buffer(audiodelays_m
                 }
             }
 
-            if ((self->base.channel_count == 1 || single_channel_output || (!single_channel_output && (i % self->base.channel_count) == 1))
+            if ((self->base.channel_count == 1 || single_channel_output || (!single_channel_output && sample_lane == 1))
                 && ++delay_buffer_pos >= delay_buffer_len) {
                 delay_buffer_pos = 0;
             }
@@ -494,7 +514,7 @@ audioio_get_buffer_result_t audiodelays_multi_tap_delay_get_buffer(audiodelays_m
         length -= n;
         word_buffer += n;
         hword_buffer += n;
-        if (self->sample != NULL) {
+        if (!silent) {
             self->sample_remaining_buffer += (n * (self->base.bits_per_sample / 8));
             self->sample_buffer_length -= n;
         }

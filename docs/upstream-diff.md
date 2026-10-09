@@ -48,6 +48,36 @@ mixer write, MP3 underflow at end of file), `PitchShift.freeze` (9bef7b7606)
 and the WaveFile 8-bit padding fixes (34441b1af5, bd9b603c9c) are tracked in
 audiodsp#214.
 
+## `audiodelays.MultiTapDelay`: the lanes hold, and a pull always returns (audiodsp#177)
+
+Two departures from the oracle, both bugs upstream still has in
+11.0.0-alpha.1, fixed here and owed upstream:
+
+- **A stereo source that hands an odd number of samples swaps the lanes.**
+  Upstream processes each source buffer as `i % channel_count` from 0, so a
+  buffer that starts on the right lane is read as left, and the write
+  position advances on the wrong sample. From there on each sample goes
+  through the other channel's line. Here the lane is carried across buffers
+  within a block: the shared kernel takes the lane of its first sample
+  (`audiodsp_multitap_process_s16`'s `first_channel`), the 8-bit and
+  single-channel loop in `MultiTapDelay.c` counts from it too, and the twin
+  hands it over the same way.
+- **A source that hands back nothing spins the pull loop for ever.** When a
+  source says it has more and gives 0 bytes, or a looping source comes back
+  empty right after its reset, upstream goes round again with `n == 0` and
+  never leaves `get_buffer`. Here the rest of the block is rendered from
+  silence and the source is kept and asked again on the next pull. The twin
+  does the same for this node only (`_stop_on_empty_pull`). The other
+  effects ported from CircuitPython share upstream's loop shape and are left
+  as upstream has them.
+
+`multitap_edges_probe.py` holds both on MicroPython and CPython and is
+skipped on CircuitPython, where the lanes swap (1,216 wrong samples in its
+six blocks) and the empty loop never returns.
+`tests/test_cpython_multitap_empty_source.py` covers the empty buffer with
+more to come, which no native source here produces. Nothing stored moved:
+no golden reaches either case.
+
 ## Tails ring out when the source ends, then the node rests (audiodsp#180)
 
 `audioecho.FeedbackDelay`, `audioverb.Tank` and `audioconvolve.Convolver` used
@@ -1217,10 +1247,22 @@ that no arrangement of the existing nodes reaches, and the program's vision
   click at 48 kHz, `delay_ms=200`, the shift on: the repeat lands at
   **212.49 ms** with a 25 ms window and **229.98 ms** with a 60 ms one,
   against 200.00 ms with the shift off. The consequence to state plainly:
-  turning `loop_semitones` on or off *mid-stream* steps the read position by
-  that half window, which is the same class of discontinuity `delay_slew`
-  exists to remove from `delay_ms` and is not smoothed here. Set it when the
-  node is built, or between takes.
+  turning `loop_semitones` on for the first time *mid-stream* steps the read
+  position by that half window, which is the same class of discontinuity
+  `delay_slew` exists to remove from `delay_ms` and is not smoothed here. Set
+  it when the node is built, or between takes.
+
+  Turning it off no longer steps back, and turning it on again no longer
+  resumes a stale phase (audiodsp#177). Once the shifter has run,
+  `loop_semitones=0` keeps the two-tap read and lets the crossfade run on at
+  its last rate to the next phase of 0 or one half, where one tap carries all
+  the gain, and holds it there: the loop is unshifted from then on but still
+  reads half a window late, and a new `loop_semitones` turns on from that
+  phase. A reset or `clear()` goes back to the single-tap read. `wow_hz=0`
+  follows the same rule: the oscillator runs on at its last rate to its next
+  zero crossing and parks the read head at centre, where before it froze
+  mid-swing and left the echo off pitch (a 20 ms echo at 8 kHz measured at
+  frame 148, not 160). A new `wow_hz` starts it again from centre.
 
 **The option enum is appended, never renumbered.** `src/cpython/audioecho.py`
 maps option names to those integers and `_audiodsp.c` range-checks against the

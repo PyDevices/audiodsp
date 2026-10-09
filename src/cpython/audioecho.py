@@ -18,7 +18,9 @@ loses a little more top and bottom than the last - which is what makes tape
 sound like tape rather than like a delay with a tone control after it.
 `loop_drive` softens each pass the same way. `wow_hz`/`wow_depth_ms` modulate
 the delay per sample, so the repeats get the doppler an LFO at block rate
-cannot reach. `cross_feed` sends each channel's repeats into the other
+cannot reach. `wow_hz=0` lets the oscillator finish its swing to the next zero
+crossing and parks the read head at centre, so the echo never sticks off
+pitch. `cross_feed` sends each channel's repeats into the other
 channel's line, and `input_pan` steers the *input* to one line only: hard
 over with full cross-feed is a real ping-pong, where the first repeat is on
 one side alone.
@@ -71,9 +73,13 @@ A shifted loop repeats half a window later than an unshifted one - the two
 taps' gains sum to one, so their weighted mean read is `delay_ms +
 loop_window_ms / 2` at every point of the cycle. Measured at 48 kHz with
 `delay_ms=200`: 212.49 ms with the default window, 229.98 ms with a 60 ms
-one, 200.00 ms with the shift off. So switching `loop_semitones` on or off
-mid-stream steps the read by that half window, and nothing smooths it. Set
-it when you build the node, or between takes.
+one, 200.00 ms with the shift off. So turning `loop_semitones` on for the
+first time mid-stream steps the read by that half window; set it when you
+build the node if that matters. After that, `loop_semitones=0` doesn't step
+back: the crossfade finishes its turn to the point where one tap carries all
+the gain and stays there, so the loop stops shifting and goes on repeating
+half a window late, and a new `loop_semitones` carries on from that point.
+`clear()` and a reset go back to the unshifted read.
 
 `delay_frames` gives the delay in frames instead of milliseconds, and the line
 is read exactly that far back. Milliseconds become frames in single precision,

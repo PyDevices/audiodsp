@@ -35,6 +35,11 @@ class DistortionMode(_CircuitEnum):
 
 class _Effect(_AudioSample):
     _process_during_pull = True
+    # Upstream CircuitPython's effects go round their pull loop for ever when
+    # a source says it has more and hands back 0 bytes. MultiTapDelay stops
+    # (a recorded deviation, docs/upstream-diff.md); the rest match upstream.
+    _stop_on_empty_pull = False
+    _lane = 0
 
     def _init_format(self, *, buffer_size, sample_rate, bits_per_sample, samples_signed, channel_count):
         if channel_count not in (1, 2): raise ValueError("channel_count must be 1 or 2")
@@ -79,6 +84,8 @@ class _Effect(_AudioSample):
                 take = min(take, 256 * self.channel_count *
                            (self.bits_per_sample // 8))
             segment = bytes(self._remaining[:take])
+            # The lane the segment starts on, for a node that carries it.
+            self._lane = (len(output) // (self.bits_per_sample // 8)) % self.channel_count
             output += self._process(segment) if self._process_during_pull else segment
             self._remaining = self._remaining[take:]
             if len(output) == self.buffer_size:
@@ -99,10 +106,16 @@ class _Effect(_AudioSample):
                     if not self._remaining and not self._source_more:
                         self._sample = None
                         break
+                    if not self._remaining and self._stop_on_empty_pull:
+                        # More promised and nothing handed: the rest of the
+                        # block is silence, and the source is asked again on
+                        # the next pull.
+                        break
         valid_length = len(output)
         output += self._silence(self.buffer_size - valid_length)
         if self._process_during_pull:
             if getattr(self, "_process_silence", False) and valid_length < self.buffer_size:
+                self._lane = (valid_length // (self.bits_per_sample // 8)) % self.channel_count
                 output[valid_length:] = self._process(
                     self._silence(self.buffer_size - valid_length))
             processed = bytes(output)

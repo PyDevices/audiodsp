@@ -206,6 +206,19 @@ PROBES = (
     # A shorter Time and back again: every native build clears the line past
     # the new length, and the CPython twin now does too (audiodsp#177).
     ("multitap_time_probe.py", "audiodelays", {}, None),
+    # A stereo source handing an odd number of samples, and a looped source
+    # that comes back empty (audiodsp#177). Upstream swaps the lanes on the
+    # first and never returns from the second.
+    ("multitap_edges_probe.py", "audiodelays",
+     {"circuitpython": "upstream's MultiTapDelay swaps the lanes after an "
+                       "odd-length source buffer and spins for ever on a "
+                       "source with nothing to give, and ours does neither - "
+                       "audiodsp#177, both deliberate departures recorded in "
+                       "docs/upstream-diff.md"},
+     None),
+    # wow_hz and loop_semitones taken to 0 park at their next zero crossing
+    # instead of freezing mid-swing (audiodsp#177).
+    ("feedback_delay_park_probe.py", "audioecho", {}, None),
     ("feedback_delay_frames_probe.py", "audioecho", {}, None),
     ("freeverb_filter_probe.py", "audiofreeverb", {}, None),
     # A host reset mid-stream clears each node's own state and keeps the

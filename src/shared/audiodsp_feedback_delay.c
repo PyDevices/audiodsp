@@ -121,6 +121,9 @@ void audiodsp_feedback_delay_config_init(
     config->loop_semitones = 0.0f;
     config->loop_window_ms = 25.0f;
     config->shift_step = 0;
+    config->wow_coast_step = 0.0f;
+    config->wow_coast_phase_step = 0;
+    config->shift_coast_step = 0;
     shift_window_finish(config);
     audiodsp_feedback_delay_configure(config,
         AUDIODSP_FEEDBACK_DELAY_OPT_INPUT_PAN, 0.0f);
@@ -188,6 +191,10 @@ void audiodsp_feedback_delay_configure(audiodsp_feedback_delay_config_t *config,
             // magic circle, so the two stay in step and `wow_am_depth` reads
             // the same cycle the delay is moving on.
             config->wow_phase_step = phase_step_for(value, rate);
+            if (config->wow_step != 0.0f || config->wow_phase_step != 0u) {
+                config->wow_coast_step = config->wow_step;
+                config->wow_coast_phase_step = config->wow_phase_step;
+            }
             break;
         case AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_MS:
             config->wow_depth_frames =
@@ -216,11 +223,17 @@ void audiodsp_feedback_delay_configure(audiodsp_feedback_delay_config_t *config,
             // than the signal is.
             config->loop_semitones = clampf(value, -24.0f, 24.0f);
             config->shift_step = shift_step_for(config);
+            if (config->shift_step != 0) {
+                config->shift_coast_step = config->shift_step;
+            }
             break;
         case AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS:
             config->loop_window_ms = clampf(value, 1.0f, 250.0f);
             shift_window_finish(config);
             config->shift_step = shift_step_for(config);
+            if (config->shift_step != 0) {
+                config->shift_coast_step = config->shift_step;
+            }
             break;
         case AUDIODSP_FEEDBACK_DELAY_OPT_INPUT_PAN: {
             // -1 sends both channels into the left line and nothing into the
@@ -295,6 +308,10 @@ void audiodsp_feedback_delay_state_init(audiodsp_feedback_delay_state_t *state,
     state->wow_depth_target = 0.0f;
     state->wow_depth_step = 0.0f;
     state->wow_depth_left = 0;
+    state->wow_value = 0.0f;
+    state->wow_parked = false;
+    state->shift_engaged = false;
+    state->shift_parked = false;
     state->resting = false;
     state->quiet_frames = 0;
 }
@@ -514,6 +531,33 @@ static void feedback_delay_run(
     const float am_depth = config->wow_am_depth;
     const float window = config->shift_window_frames;
     const bool shifting = config->loop_semitones != 0.0f;
+    // `wow_hz` at 0 does not freeze the oscillator mid-swing, which left the
+    // read head displaced and the echo off pitch for as long as it stayed
+    // there (audiodsp#177). It runs on at its last rate to the next zero
+    // crossing and parks at centre; a new rate starts it again from there.
+    const bool wow_stopped =
+        config->wow_step == 0.0f && config->wow_phase_step == 0u;
+    if (!wow_stopped) {
+        state->wow_parked = false;
+    }
+    const bool wow_coasting = wow_stopped && !state->wow_parked &&
+        (config->wow_coast_step != 0.0f || config->wow_coast_phase_step != 0u);
+    const float wow_step = wow_coasting ? config->wow_coast_step :
+        config->wow_step;
+    const uint32_t wow_phase_step = wow_coasting ?
+        config->wow_coast_phase_step : config->wow_phase_step;
+    // The pitch shifter the same way. Once it has run, `loop_semitones` at 0
+    // turns its crossfade on to the next point where one tap carries all the
+    // gain (a phase of 0 or one half) and holds it there, so the read head
+    // never steps by the half window between the taps; back on, it continues
+    // from that phase rather than from wherever it stopped.
+    if (shifting) {
+        state->shift_engaged = true;
+        state->shift_parked = false;
+    }
+    const bool shift_path = shifting || state->shift_engaged;
+    const int32_t shift_step = shifting ? config->shift_step :
+        (state->shift_parked ? 0 : config->shift_coast_step);
     // With no slew the read head is wherever it was told to be, so `offset`
     // below is the same float it always was and every existing golden holds.
     // A state that has never run is primed the same way, so turning the slew
@@ -572,8 +616,10 @@ static void feedback_delay_run(
         // stable indefinitely; the naive pair drifts in amplitude. It is
         // stepped whether or not a shape table is in use: `wow_am_depth`
         // reads it, and skipping it would move the default path.
-        state->wow_sine += config->wow_step * state->wow_cosine;
-        state->wow_cosine -= config->wow_step * state->wow_sine;
+        if (!state->wow_parked) {
+            state->wow_sine += wow_step * state->wow_cosine;
+            state->wow_cosine -= wow_step * state->wow_sine;
+        }
 
         // A bucket brigade's delay is the line over its clock, so the Small
         // Clone's triangle on the clock arrives as a reciprocal on the delay
@@ -581,7 +627,7 @@ static void feedback_delay_run(
         // and this only looks it up.
         float wow = state->wow_sine;
         if (config->wow_shape != NULL) {
-            state->wow_phase += config->wow_phase_step;
+            state->wow_phase += state->wow_parked ? 0u : wow_phase_step;
             const uint32_t bits = config->wow_shape_shift;
             const uint32_t index = state->wow_phase >> (32u - bits);
             const uint32_t mask = (1u << bits) - 1u;
@@ -593,6 +639,21 @@ static void feedback_delay_run(
             // index.
             wow = (low + fraction * (high - low)) * (1.0f / 32768.0f);
         }
+        if (wow_coasting && !state->wow_parked) {
+            const float last = state->wow_value;
+            if (last == 0.0f || (last > 0.0f) != (wow > 0.0f) || wow == 0.0f) {
+                // The crossing: park at centre. The circle restarts from 0
+                // in the direction it was going, so a new rate carries on
+                // from here.
+                state->wow_parked = true;
+                state->wow_sine = 0.0f;
+                state->wow_cosine = state->wow_cosine < 0.0f ? -1.0f : 1.0f;
+            }
+        }
+        if (state->wow_parked) {
+            wow = 0.0f;
+        }
+        state->wow_value = wow;
 
         // Walk the read head toward the delay it was asked for instead of
         // jumping to it. A constant rate is a constant pitch offset for as
@@ -621,13 +682,42 @@ static void feedback_delay_run(
             depth = depth_left == 0u ? depth_target : depth + depth_step;
         }
         const float offset = state->delay_current + depth * wow;
-        if (shifting) {
+        if (shift_path) {
             // Two taps half a window apart, each walking one window per
             // crossfade turn, mixed with a triangular fade whose two halves
             // sum to exactly one. That is a resampled read: the head advances
             // at the pitch ratio while the line is written at unity, and the
             // shift is inside the loop, so every pass rises again.
-            state->shift_phase += (uint32_t)config->shift_step;
+            const uint32_t before = state->shift_phase;
+            if (!state->shift_parked) {
+                state->shift_phase += (uint32_t)shift_step;
+            }
+            if (!shifting && !state->shift_parked) {
+                // Coasting to a phase of 0 or one half, whichever comes
+                // first in the direction the crossfade turns.
+                const uint32_t after = state->shift_phase;
+                const uint32_t half = 0x80000000u;
+                if (before == 0u || before == half) {
+                    state->shift_phase = before;
+                    state->shift_parked = true;
+                } else if (shift_step > 0) {
+                    if (after < before) {
+                        state->shift_phase = 0u;
+                        state->shift_parked = true;
+                    } else if (before < half && after >= half) {
+                        state->shift_phase = half;
+                        state->shift_parked = true;
+                    }
+                } else if (shift_step < 0) {
+                    if (after > before) {
+                        state->shift_phase = 0u;
+                        state->shift_parked = true;
+                    } else if (before > half && after <= half) {
+                        state->shift_phase = half;
+                        state->shift_parked = true;
+                    }
+                }
+            }
             const float turn =
                 (float)state->shift_phase * (1.0f / 4294967296.0f);
             const float opposite =
@@ -649,7 +739,7 @@ static void feedback_delay_run(
         for (uint32_t channel = 0; channel < channels; ++channel) {
             const int16_t *lane = state->line + (size_t)channel * length;
             float delayed = read_tap(lane, &near_tap);
-            if (shifting) {
+            if (shift_path) {
                 delayed = delayed * near_gain +
                     read_tap(lane, &far_tap) * far_gain;
             }

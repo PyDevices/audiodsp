@@ -138,6 +138,7 @@ class Chorus(_Effect):
 
 class MultiTapDelay(_Effect):
     _process_silence = True
+    _stop_on_empty_pull = True
 
     def __init__(self, *, max_delay_ms=500, delay_ms=250, decay=None, mix=None, taps=None, buffer_size=512, sample_rate=8000, bits_per_sample=16, samples_signed=True, channel_count=1):
         if not 1 <= max_delay_ms <= 4000: raise ValueError("max_delay_ms must be from 1 to 4000")
@@ -216,6 +217,7 @@ class MultiTapDelay(_Effect):
             self.channel_count, offsets, levels,
             min(1.0, max(0.0, _value(self.decay))),
             min(1.0, max(0.0, _value(self.mix))) * 2.0,
+            self._lane,
         )
         return result
 
