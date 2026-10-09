@@ -12,8 +12,8 @@
   "cpython_stdout_sha256_by_arch": {},
   "cpython_stdout_sha256_reproduced_by": {
     "aarch64": {
-      "since": "2026-09-17",
-      "evidence": "Reproduces cpython_stdout_sha256 (544d29ca31973613163977b2f1ef7b6e2ab04bc4881cc25f3df3acafcdfd95a3) exactly. Eight ubuntu-24.04-arm cells -- Python 3.11, 3.12, 3.13 and 3.14 in each of CI runs 35269077774 and 35269087728, on PR #86 at 71b917e -- all report the same digest and '0 of 882 numeric fields differ' against the committed effects_component_stdout.txt. Every field, not a sum or a sample: the whole probe stdout hashes the same on both architectures. The cause of the old divergence was compiler contraction and nothing else, which is now settled rather than inferred -- the accepted 2026-09-03 baseline said the deviation was 'confined to the two delay-line interpolators, consistent with fused multiply-add rounding', and forbidding contraction closed exactly it. The gate remains exact here: with no entry in cpython_stdout_sha256_by_arch, aarch64 is compared against cpython_stdout_sha256 itself."
+      "since": "2026-10-08",
+      "evidence": "Reproduces cpython_stdout_sha256 (ff57b9ea0989dbbfe2357cd05f38beb83bf6468839aa7969ad7c37cf52644ebc), re-captured for audiodsp#201 when the oracle moved to CircuitPython 11.0.0-alpha.1, exactly: the four ubuntu-24.04-arm cells (Python 3.11 to 3.14) of CI run 37877744831 on PR #215 pass verify_effects.py, which holds aarch64 to this hash with no allowance. Before that, from 2026-09-17, it reproduced the previous hash (544d29ca31973613163977b2f1ef7b6e2ab04bc4881cc25f3df3acafcdfd95a3) the same way, in CI runs 35269077774 and 35269087728 on PR #86: the old divergence was compiler contraction and nothing else, closed by audiodsp#79's fp-contract header."
     }
   }
 }
