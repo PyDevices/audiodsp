@@ -280,6 +280,134 @@ class ToneStateTest(unittest.TestCase):
                     self.assertEqual(outputs[0], outputs[1])
 
 
+class FilterStateTest(unittest.TestCase):
+    """F1-F3 and M1, audiodsp#207: a filter or the modulation taken to 0 and
+    brought back plays nothing stale.
+
+    A corner of 0 takes `bandwidth_hz`, `low_cut_hz` or `damping_hz` out.
+    Their states used to stop where they were, and a corner brought back
+    started from that old value; the modulation oscillator stopped at a rate
+    of 0 and started again from wherever it was. Now, while a filter is out,
+    a low-pass's state follows the signal and the high-pass's rests at zero,
+    and the oscillator waits at the phase a new node starts from.
+
+    F1  A filter out while the input plays, silence until the wet is exact
+        zero, the filter back in with nothing playing: every output sample is
+        0. Main puts the frozen state out of silence.
+    F2  While a filter is out, the node renders byte for byte what a node
+        that never had it renders. Following the signal must not leak into
+        what plays.
+    F3  A filter brought back is a filter put in for the first time: after
+        both tails die, the switched node and one that never had the filter
+        are fed the same input and given the filter at the same moment, and
+        from there they render the same bytes.
+    M1  The same for `mod_rate_hz`, against a node built at a rate of 0.
+    """
+
+    RATE = 8000
+    FILTERS = (("bandwidth_hz", 1800.0), ("low_cut_hz", 300.0),
+               ("damping_hz", 900.0))
+    OPTIONS = dict(decay=0.6, diffusion=0.7, mix=1.0, max_predelay_ms=20.0)
+
+    def _node(self, channels, **options):
+        merged = dict(self.OPTIONS)
+        merged.update(options)
+        return audioverb.Tank(sample_rate=self.RATE, channel_count=channels,
+                              **merged)
+
+    def _play(self, node, material, channels):
+        node.play(audiocore.RawSample(material, sample_rate=self.RATE,
+                                      channel_count=channels))
+
+    def _silence(self, channels, blocks=1):
+        return array("h", bytes(2 * blocks * audioverb.FRAMES * channels))
+
+    def _until_quiet(self, nodes):
+        """Pull every node until all of them have put out four blocks of
+        exact zero in a row."""
+        quiet = 0
+        for _ in range(400):
+            blocks = [render(node, 1) for node in nodes]
+            quiet = quiet + 1 if not any(any(b) for b in blocks) else 0
+            if quiet == 4:
+                return
+        self.fail("a tail never died")
+
+    def test_a_filter_back_in_after_silence_plays_nothing(self):
+        for option, corner in self.FILTERS:
+            for channels in (2, 1):
+                with self.subTest(option=option, channels=channels):
+                    node = self._node(channels, **{option: corner})
+                    self._play(node, noise(10 * audioverb.FRAMES, channels),
+                               channels)
+                    # Eight blocks, so the damping has seen the tank's long
+                    # lines come round (about 1200 frames at 8 kHz).
+                    render(node, 8)
+                    node.set(**{option: 0.0})
+                    render(node, 1)
+                    # Long enough that the node never rests: a resting
+                    # node clears its filters, which would hide this.
+                    self._play(node, self._silence(channels, 200), channels)
+                    self._until_quiet([node])
+                    node.set(**{option: corner})
+                    peak = max(abs(value) for value in
+                               samples(render(node, 3)))
+                    self.assertEqual(peak, 0)
+
+    def test_a_filter_out_renders_as_no_filter(self):
+        for option, corner in self.FILTERS:
+            with self.subTest(option=option):
+                material = noise(8 * audioverb.FRAMES, 2, seed=5)
+                plain = self._node(2)
+                switched = self._node(2, **{option: corner})
+                switched.set(**{option: 0.0})
+                self._play(plain, material, 2)
+                self._play(switched, material, 2)
+                out = render(switched, 8)
+                self.assertTrue(any(out))
+                self.assertEqual(out, render(plain, 8))
+
+    def _back_as_new(self, channels, built, switched_on, off, on):
+        """The switched node had `on` and lost it; the fresh one was built
+        with `off`. Both die out, take the same input, and get `on`."""
+        switched = self._node(channels, **built, **switched_on)
+        fresh = self._node(channels, **built, **off)
+        self._play(switched, noise(10 * audioverb.FRAMES, channels), channels)
+        self._play(fresh, noise(10 * audioverb.FRAMES, channels), channels)
+        render(switched, 8)
+        render(fresh, 8)
+        switched.set(**off)
+        render(switched, 1)
+        render(fresh, 1)
+        for node in (switched, fresh):
+            self._play(node, self._silence(channels, 200), channels)
+        self._until_quiet([switched, fresh])
+        material = noise(6 * audioverb.FRAMES, channels, seed=13)
+        for node in (switched, fresh):
+            self._play(node, material, channels)
+        before = [render(node, 2) for node in (switched, fresh)]
+        self.assertEqual(before[0], before[1])
+        switched.set(**on)
+        fresh.set(**on)
+        after = [render(node, 4) for node in (switched, fresh)]
+        self.assertTrue(any(after[0]))
+        self.assertEqual(after[0], after[1])
+
+    def test_a_filter_back_in_is_a_filter_put_in_for_the_first_time(self):
+        for option, corner in self.FILTERS:
+            for channels in (2, 1):
+                with self.subTest(option=option, channels=channels):
+                    self._back_as_new(channels, {}, {option: corner},
+                                      {option: 0.0}, {option: corner})
+
+    def test_a_rate_brought_back_starts_as_a_new_node(self):
+        for channels in (2, 1):
+            with self.subTest(channels=channels):
+                self._back_as_new(channels, {"mod_depth_ms": 2.0},
+                                  {"mod_rate_hz": 1.7}, {"mod_rate_hz": 0.0},
+                                  {"mod_rate_hz": 1.7})
+
+
 class RecutTest(unittest.TestCase):
     """R1-R4, audiodsp#169: `set(delays=..., taps=...)` re-cuts a playing
     node in place, so a class that changes a reverb's size or character no

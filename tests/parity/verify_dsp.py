@@ -165,6 +165,9 @@ PROBES = (
     # network re-cut in place on a playing node (#169). Its own file, so the
     # probe above keeps rendering what it rendered.
     ("tank_state_probe.py", "audioverb", {}, None),
+    # A filter or the modulation taken to 0 and brought back starts from what
+    # is playing, not from a state left from before (audiodsp#207).
+    ("tank_return_probe.py", "audioverb", {}, None),
     ("flanger_probe.py", "audiodelays",
      {"circuitpython": "upstream's own Flanger overflows int32 in its wet "
                        "interpolation on full-scale material and ours does "

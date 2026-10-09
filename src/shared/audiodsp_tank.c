@@ -586,8 +586,18 @@ static void tank_run(const audiodsp_tank_config_t *config,
         // stable indefinitely; the naive pair drifts in amplitude. The two
         // outputs are a quarter cycle apart, which is the quadrature pair the
         // two halves wobble against.
-        state->mod_sine += config->mod_step * state->mod_cosine;
-        state->mod_cosine -= config->mod_step * state->mod_sine;
+        //
+        // At a rate of 0 the depth is out (below) and the oscillator waits at
+        // the phase a new node starts from, rather than stopping wherever it
+        // was: a rate brought back then starts the wobble as a node built
+        // with it does, not from a phase left over from before (audiodsp#207).
+        if (config->mod_step != 0.0f) {
+            state->mod_sine += config->mod_step * state->mod_cosine;
+            state->mod_cosine -= config->mod_step * state->mod_sine;
+        } else {
+            state->mod_sine = 0.0f;
+            state->mod_cosine = 1.0f;
+        }
         const float lfo[2] = { state->mod_sine, state->mod_cosine };
 
         // The tank is fed one signal. A stereo input is summed to it, and the
@@ -615,15 +625,25 @@ static void tank_run(const audiodsp_tank_config_t *config,
             x = delayed;
         }
 
+        // A corner of 0 takes a filter out. While it is out the low-pass's
+        // state follows the signal and the high-pass's rests at zero, the
+        // state at which its output is its input, so putting either back in
+        // starts from what is playing rather than from what it held when it
+        // went out (audiodsp#207, as FeedbackDelay does since #158 and #159).
+        // Nothing that plays with the filter out reads the state.
         if (config->bandwidth_coef > 0.0f) {
             state->bandwidth_state +=
                 config->bandwidth_coef * (x - state->bandwidth_state);
             x = state->bandwidth_state;
+        } else {
+            state->bandwidth_state = x;
         }
         if (config->low_cut_coef > 0.0f) {
             state->low_cut_state +=
                 config->low_cut_coef * (x - state->low_cut_state);
             x -= state->low_cut_state;
+        } else {
+            state->low_cut_state = 0.0f;
         }
         if (config->drive > 0.0f) {
             x = tank_soft_clip(x, config->drive);
@@ -655,6 +675,9 @@ static void tank_run(const audiodsp_tank_config_t *config,
                 state->damping_state[half] +=
                     config->damping_coef * (v - state->damping_state[half]);
                 v = state->damping_state[half];
+            } else {
+                // Out: follows, as the bandwidth low-pass does above.
+                state->damping_state[half] = v;
             }
             v *= decay;
             v = tank_allpass(state->lines[base + 2u], state->write[base + 2u],
