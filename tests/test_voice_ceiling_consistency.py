@@ -131,9 +131,18 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: 904e7a7a55, not ported yet) and `biquad_component`'s Note.filter cascades
 #: (this port's extension). Previous: 9ac258304347341875208813b510145a0dbf45ff,
 #: still on disk as bin/circuitpython-oracle-10.3.0.
+#:
+#: Re-pinned 2026-10-09: rebuilt with `build_interpreters.sh --only
+#: cp-oracle` from main at 43a871e, so the oracle carries audiodsp's own
+#: modules as they are after #211, #213, #215 and #216 (host resets, tails
+#: that rest, the FeedbackDelay parks). CircuitPython's own sources are
+#: unchanged. Verified: it answers 64 voices; `effects_component`,
+#: `synthtools_acceptance`, `mixdown_knee` and `streaming_component` reproduce
+#: their stored captures; and `verify_dsp` agrees three ways. Previous:
+#: 70c3475983c2f76c (audiodsp a948993).
 ORACLE = ROOT.parent / "bin" / "circuitpython-oracle-11.0.0-alpha.1"
 ORACLE_SHA256 = (
-    "70c3475983c2f76c1ddc91a4b8544a4922f2e13793b4d6fb11c550b1aea5d33b")
+    "8b8aacebdaff738a12d796cc5f30c771c28b8a39bebda923688543973d48efb9")
 
 
 def _search(relative, pattern):
