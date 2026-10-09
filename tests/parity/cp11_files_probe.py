@@ -1,6 +1,7 @@
 """CircuitPython 11.0.0-alpha.1's WaveFile and MP3Decoder fixes.
 
-    cp11_files_probe.py audiocore
+    cp11_files_probe.py            # PASS, or FAIL and exit 1
+    cp11_files_probe.py --fault    # alters one observed line: must FAIL
 
 The file-backed half of what this port took when it resynced with
 11.0.0-alpha.1 (audiodsp#220). Each case prints something different on a
@@ -15,10 +16,12 @@ build without its fix:
   and not GET_BUFFER_ERROR, so a looping player starts it again instead of
   stopping (b34aa34c19).
 
+Every line is compared with what CircuitPython 11.0.0-alpha.1 prints for the
+same script, which is EXPECTED below, and the oracle passes it too.
 MicroPython and CircuitPython only. The CPython package reads WAV files
 through the standard library in its own block sizes and has no audiomp3, so
 the release job's run of every probe under CPython finds this one standing
-aside.
+aside, and CI runs it on the MicroPython build and requires the PASS line.
 """
 
 import os
@@ -32,16 +35,31 @@ except ImportError:
     print("CP11 FILES SKIPPED: no audiomp3 here")
     sys.exit(0)
 
+EXPECTED = (
+    "wav8_5 0 0 8 10 11 12 13 14 80 80 80",
+    "wav8_6 0 0 8 10 11 12 13 14 15 80 80",
+    "wav8_7 0 0 8 10 11 12 13 14 15 16 80",
+    "wav8_buffer16 0 1 8 20 21 22 23 24 25 26 27",
+    "wav8_buffer16 1 1 8 28 29 2a 2b 2c 2d 2e 2f",
+    "wav8_buffer16 2 0 8 30 31 32 33 34 80 80 80",
+    "wav_buffer_12 refused ValueError",
+    "wav_buffer_8 accepted",
+    "mp3_cut lap 1 result 0 buffers 79",
+    "mp3_cut lap 2 result 0 buffers 79",
+)
+seen = []
+
+
+def emit(*fields):
+    line = " ".join(str(field) for field in fields)
+    print(line)
+    seen.append(line)
+
+
 HERE = __file__.replace("\\", "/").rsplit("/", 1)[0]
 FIXTURE = HERE + "/fixtures/rewind.mp3"
 WAV = "cp11_files_probe.wav"
 MP3 = "cp11_files_probe.mp3"
-
-
-def checksum(value, data):
-    for byte in data:
-        value = ((value ^ byte) * 16777619) & 0xffffffff
-    return value
 
 
 def le(value, size):
@@ -65,7 +83,8 @@ def drain(tag, sample, limit=64):
     for index in range(limit):
         result, view = audiocore.get_buffer(sample)
         data = bytes(view)
-        print(tag, index, result, len(data), " ".join("%02x" % b for b in data[-8:]))
+        emit(tag, index, result, len(data),
+             " ".join("%02x" % b for b in data[-8:]))
         if result != 1:
             return
 
@@ -74,9 +93,9 @@ def refused(tag, action):
     try:
         action()
     except Exception as error:  # noqa: BLE001 - the type is what is printed
-        print(tag, "refused", type(error).__name__)
+        emit(tag, "refused", type(error).__name__)
     else:
-        print(tag, "accepted")
+        emit(tag, "accepted")
 
 
 try:
@@ -100,19 +119,17 @@ try:
         handle.write(whole[:len(whole) * 2 // 3 + 77])
     with open(MP3, "rb") as handle:
         decoder = audiomp3.MP3Decoder(handle)
+        # Only how each lap ends is compared, not its bytes: this port clears
+        # the decoder's state on a rewind and 11.0.0-alpha.1 does not yet
+        # (docs/upstream-sync.md), so the second laps differ by design.
         for lap in (1, 2):
-            value, buffers = 2166136261, 0
+            buffers = 0
             while True:
                 result, view = audiocore.get_buffer(decoder)
-                value = checksum(value, bytes(view))
                 buffers += 1
                 if result != 1:
                     break
-            # The second lap's bytes are not compared: this port clears the
-            # decoder's state on a rewind and 11.0.0-alpha.1 does not yet
-            # (docs/upstream-sync.md), so only its ending is.
-            print("mp3_cut lap", lap, "result", result, buffers,
-                  value if lap == 1 else "")
+            emit("mp3_cut lap", lap, "result", result, "buffers", buffers)
             audiocore.reset_buffer(decoder)
 finally:
     for name in (WAV, MP3):
@@ -120,3 +137,16 @@ finally:
             os.remove(name)
         except OSError:
             pass
+
+if "--fault" in sys.argv:
+    seen[0] = seen[0][:-3]
+if tuple(seen) == EXPECTED:
+    print("CP11 FILES PASS")
+else:
+    for want, got in zip(EXPECTED, seen):
+        if want != got:
+            print("expected:", want)
+            print("got:     ", got)
+            break
+    print("CP11 FILES FAIL")
+    sys.exit(1)

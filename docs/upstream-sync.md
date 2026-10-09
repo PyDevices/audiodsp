@@ -45,7 +45,10 @@ to turn up.
    API, and anything in the list of deliberate differences below, and say
    which in the pull request.
 5. Add a probe under `tests/parity/` whose output changes with each fix, and
-   add it to `verify_dsp.py`. Run it against a build from before the change
+   add it to `verify_dsp.py`. A probe CPython can't run (no `audiomp3`, say)
+   can't be compared there, because CI has only CPython and MicroPython; have
+   it check itself against the oracle's answers and run it in
+   `clean-build.yml` instead. Run each against a build from before the change
    and see it fail.
 6. Rebuild unix MicroPython and the CPython wheel from the change and run the
    gates: `verify_dsp.py` three ways (`--micropython`, `--circuitpython` with
@@ -89,8 +92,10 @@ took the rest:
   worked out in `mp_float_t`. The swapped `stream_lseek` arguments were
   already fixed here in audiodsp#219, in upstream's form.
 
-`tests/parity/cp11_fixes_probe.py` and `cp11_files_probe.py` cover them, and
-every interpreter prints the oracle's bytes for both. One stored digest moved:
+`tests/parity/cp11_fixes_probe.py` covers them in `verify_dsp.py`, where
+CircuitPython, MicroPython and CPython print the same bytes.
+`cp11_files_probe.py` covers `WaveFile` and `audiomp3`, which CPython lacks, by
+checking itself against the oracle's answers on MicroPython in CI. One stored digest moved:
 `midi_component`, whose one-byte track now reports its error at 1, where the
 data ends, as the oracle does.
 
