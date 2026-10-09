@@ -2,10 +2,11 @@
 // PitchShift.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
 // equivalent, see docs/upstream-diff.md). `attr, cp_compat_attr` added for
-// semitones/mix/playing. The custom `__exit__` is kept verbatim, same as
+// semitones/mix/freeze/playing. The custom `__exit__` is kept verbatim, same as
 // Chorus (see that file's comment). The unsigned-16-bit silence fill and the
 // window's lower bound follow upstream's 6dddbda87 (11.0.0-alpha.1), which
-// fixed both after 10.3.0. Kept verbatim:
+// fixed both after 10.3.0, and `freeze` is upstream's 9bef7b7606 from the same
+// release. Kept verbatim:
 // `buf_offset` in the per-sample loop ignores `single_channel_output`
 // (`channel == 1 || i % channel_count == 1`, unlike every sibling effect's
 // `(single_channel_output && channel == 1) || (!single_channel_output && ...)`
@@ -60,6 +61,7 @@ void common_hal_audiodelays_pitch_shift_construct(audiodelays_pitch_shift_obj_t 
 
     synthio_block_assign_slot(semitones, &self->semitones, MP_QSTR_semitones);
     synthio_block_assign_slot(mix, &self->mix, MP_QSTR_mix);
+    self->freeze = false;
 
     // A window must hold at least one frame (upstream 6dddbda87).
     mp_arg_validate_int_min(window, sizeof(uint16_t) * channel_count, MP_QSTR_window);
@@ -128,11 +130,20 @@ void common_hal_audiodelays_pitch_shift_set_mix(audiodelays_pitch_shift_obj_t *s
     synthio_block_assign_slot(arg, &self->mix, MP_QSTR_mix);
 }
 
+bool common_hal_audiodelays_pitch_shift_get_freeze(audiodelays_pitch_shift_obj_t *self) {
+    return self->freeze;
+}
+
+void common_hal_audiodelays_pitch_shift_set_freeze(audiodelays_pitch_shift_obj_t *self, bool freeze) {
+    self->freeze = freeze;
+}
+
 void audiodelays_pitch_shift_reset_buffer(audiodelays_pitch_shift_obj_t *self,
     bool single_channel_output,
     uint8_t channel) {
     (void)single_channel_output;
     (void)channel;
+    self->freeze = false;
 
     memset(self->buffer[0], 0, self->buffer_len);
     memset(self->buffer[1], 0, self->buffer_len);
@@ -256,7 +267,8 @@ audioio_get_buffer_result_t audiodelays_pitch_shift_get_buffer(audiodelays_pitch
                     self->window_index, self->overlap_index, self->read_index};
                 audiodsp_pitchshift_process_s16(word_buffer, sample_src, n,
                     window_buffer, window_size, overlap_buffer, overlap_size,
-                    self->base.channel_count, self->read_rate, mix, &positions);
+                    self->base.channel_count, self->read_rate, mix,
+                    self->freeze, &positions);
                 self->window_index = positions.window_index;
                 self->overlap_index = positions.overlap_index;
                 self->read_index = positions.read_index;
@@ -278,13 +290,15 @@ audioio_get_buffer_result_t audiodelays_pitch_shift_get_buffer(audiodelays_pitch
                     }
                 }
 
-                if (overlap_size) {
-                    // Copy last sample from overlap and store in buffer
-                    window_buffer[self->window_index + window_size * buf_offset] = overlap_buffer[self->overlap_index + overlap_size * buf_offset];
-                    // Save current sample in overlap
-                    overlap_buffer[self->overlap_index + overlap_size * buf_offset] = (int16_t)sample_word;
-                } else {
-                    window_buffer[self->window_index + window_size * buf_offset] = (int16_t)sample_word;
+                if (!self->freeze) {
+                    if (overlap_size) {
+                        // Copy last sample from overlap and store in buffer
+                        window_buffer[self->window_index + window_size * buf_offset] = overlap_buffer[self->overlap_index + overlap_size * buf_offset];
+                        // Save current sample in overlap
+                        overlap_buffer[self->overlap_index + overlap_size * buf_offset] = (int16_t)sample_word;
+                    } else {
+                        window_buffer[self->window_index + window_size * buf_offset] = (int16_t)sample_word;
+                    }
                 }
 
                 uint32_t read_index = self->read_index >> PITCH_READ_SHIFT;
@@ -316,15 +330,17 @@ audioio_get_buffer_result_t audiodelays_pitch_shift_get_buffer(audiodelays_pitch
                 }
 
                 if (self->base.channel_count == 1 || buf_offset) {
-                    self->window_index++;
-                    if (self->window_index >= window_size) {
-                        self->window_index = 0;
-                    }
+                    if (!self->freeze) {
+                        self->window_index++;
+                        if (self->window_index >= window_size) {
+                            self->window_index = 0;
+                        }
 
-                    if (overlap_size) {
-                        self->overlap_index++;
-                        if (self->overlap_index >= overlap_size) {
-                            self->overlap_index = 0;
+                        if (overlap_size) {
+                            self->overlap_index++;
+                            if (self->overlap_index >= overlap_size) {
+                                self->overlap_index = 0;
+                            }
                         }
                     }
 
@@ -454,6 +470,27 @@ MP_PROPERTY_GETSET(audiodelays_pitch_shift_mix_obj,
     (mp_obj_t)&audiodelays_pitch_shift_get_mix_obj,
     (mp_obj_t)&audiodelays_pitch_shift_set_mix_obj);
 
+// If True, the window buffer won't accept new audio information and will be
+// "frozen" in its current state, resulting in a sustaining tone. Normal
+// operation is resumed when set to False. If the audio buffer is reset, this
+// value will also be reset to False.
+static mp_obj_t audiodelays_pitch_shift_obj_get_freeze(mp_obj_t self_in) {
+    return mp_obj_new_bool(common_hal_audiodelays_pitch_shift_get_freeze(self_in));
+}
+MP_DEFINE_CONST_FUN_OBJ_1(audiodelays_pitch_shift_get_freeze_obj, audiodelays_pitch_shift_obj_get_freeze);
+
+static mp_obj_t audiodelays_pitch_shift_obj_set_freeze(mp_obj_t self_in, mp_obj_t freeze_in) {
+    audiodelays_pitch_shift_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    bool freeze = mp_obj_is_true(freeze_in);
+    common_hal_audiodelays_pitch_shift_set_freeze(self, freeze);
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(audiodelays_pitch_shift_set_freeze_obj, audiodelays_pitch_shift_obj_set_freeze);
+
+MP_PROPERTY_GETSET(audiodelays_pitch_shift_freeze_obj,
+    (mp_obj_t)&audiodelays_pitch_shift_get_freeze_obj,
+    (mp_obj_t)&audiodelays_pitch_shift_set_freeze_obj);
+
 static mp_obj_t audiodelays_pitch_shift_obj_get_playing(mp_obj_t self_in) {
     audiodelays_pitch_shift_obj_t *self = MP_OBJ_TO_PTR(self_in);
     check_for_deinit(self);
@@ -499,6 +536,7 @@ static const mp_rom_map_elem_t audiodelays_pitch_shift_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_playing), MP_ROM_PTR(&audiodelays_pitch_shift_playing_obj) },
     { MP_ROM_QSTR(MP_QSTR_semitones), MP_ROM_PTR(&audiodelays_pitch_shift_semitones_obj) },
     { MP_ROM_QSTR(MP_QSTR_mix), MP_ROM_PTR(&audiodelays_pitch_shift_mix_obj) },
+    { MP_ROM_QSTR(MP_QSTR_freeze), MP_ROM_PTR(&audiodelays_pitch_shift_freeze_obj) },
     AUDIOSAMPLE_FIELDS,
 };
 static MP_DEFINE_CONST_DICT(audiodelays_pitch_shift_locals_dict, audiodelays_pitch_shift_locals_dict_table);

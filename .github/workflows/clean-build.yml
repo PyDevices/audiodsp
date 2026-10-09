@@ -177,6 +177,20 @@ jobs:
           "$MP" "$PROBE" | tee /tmp/cp11_files.txt
           grep -q "CP11 FILES PASS" /tmp/cp11_files.txt
 
+      # PitchShift.freeze's own checks run in verify_dsp above. This is the
+      # proof they can fail: --fault never hands the node the flag, which is
+      # what a build that ignores it renders.
+      - name: PitchShift.freeze, and proof its probe can fail
+        run: |
+          MP=./micropython/ports/unix/build-standard/micropython
+          PROBE=audiodsp/tests/parity/pitchshift_freeze_probe.py
+          if "$MP" "$PROBE" audiodelays --fault; then
+            echo "the planted fault passed, so this probe proves nothing" >&2
+            exit 1
+          fi
+          "$MP" "$PROBE" audiodelays | tee /tmp/pitchshift_freeze.txt
+          grep -q "PITCHSHIFT FREEZE PASS" /tmp/pitchshift_freeze.txt
+
       # The pump. Everything above proves the DSP nodes; these prove the
       # thing that pulls them, and they can only run here, because they
       # need a MicroPython build and this is the job that makes one.

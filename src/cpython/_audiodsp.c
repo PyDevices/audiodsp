@@ -3187,9 +3187,11 @@ static PyObject *audiodsp_pitchshift_s16(PyObject *module, PyObject *args) {
     unsigned int window_samples, overlap_samples, channels, read_rate;
     unsigned int window_index, overlap_index, read_index;
     double mix;
-    if (!PyArg_ParseTuple(args, "y*w*w*IIIIIIId:pitchshift_s16", &input,
+    int freeze = 0;
+    if (!PyArg_ParseTuple(args, "y*w*w*IIIIIIId|p:pitchshift_s16", &input,
         &window, &overlap, &window_samples, &overlap_samples, &channels,
-        &read_rate, &window_index, &overlap_index, &read_index, &mix)) return NULL;
+        &read_rate, &window_index, &overlap_index, &read_index, &mix,
+        &freeze)) return NULL;
     if (input.len % sizeof(int16_t) || channels < 1 || channels > 2 ||
         window_samples < 1 || window.len <
             (Py_ssize_t)((size_t)window_samples * channels * sizeof(int16_t)) ||
@@ -3210,7 +3212,7 @@ static PyObject *audiodsp_pitchshift_s16(PyObject *module, PyObject *args) {
     audiodsp_pitchshift_process_s16((int16_t *)PyBytes_AS_STRING(result),
         input.buf, input.len / sizeof(int16_t), window.buf, window_samples,
         overlap.buf, overlap_samples, (uint8_t)channels, read_rate, mix,
-        &positions);
+        freeze != 0, &positions);
     PyBuffer_Release(&input); PyBuffer_Release(&window);
     PyBuffer_Release(&overlap);
     return Py_BuildValue("(NIII)", result, positions.window_index,

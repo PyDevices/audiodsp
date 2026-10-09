@@ -8,9 +8,10 @@ and how and when to resync with upstream, start at
 ## Resynced with 11.0.0-alpha.1 (audiodsp#220)
 
 Every audio fix CircuitPython made between 10.3.0 and 11.0.0-alpha.1 is in
-this port now, except two that add behaviour: `PitchShift.freeze` and
-finalisers on every audio object. What was taken, module by module, and what
-was held back is in [upstream-sync.md](upstream-sync.md#the-last-resync-1100-alpha1-audiodsp220).
+this port now, and so is its one audio addition, `PitchShift.freeze`, which
+followed in audiodsp#222. The finalisers upstream gave every audio object
+are left out on purpose. What was taken, module by module, and what was left
+out is in [upstream-sync.md](upstream-sync.md#the-last-resync-1100-alpha1-audiodsp220).
 
 It retires five differences recorded below, because upstream now does the
 same: the stream I/O in `WaveFile` and `synthio.from_file` (upstream switched

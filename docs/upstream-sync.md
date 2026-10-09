@@ -2,9 +2,10 @@
 
 Eight of audiodsp's modules are ports of CircuitPython's: `audiocore`,
 `synthio`, `audiomixer`, `audiospeed`, `audiodelays`, `audiofilters`,
-`audiofreeverb` and `audiomp3`. Upstream keeps fixing them, and every fix made
-here that upstream has also made on its own is two copies of one change
-waiting to disagree. This page is how the two stay in step: when to resync,
+`audiofreeverb` and `audiomp3`. Upstream keeps fixing them and adding to them,
+and every fix made here that upstream has also made on its own is two copies
+of one change waiting to disagree. A program written for CircuitPython's
+modules should run on these unchanged, so what upstream adds comes in too. This page is how the two stay in step: when to resync,
 how, what the last one took, and every place this port differs from upstream
 on purpose, so the next resync can tell intent from drift.
 
@@ -16,8 +17,8 @@ The reasons behind each difference, with their measurements, are in
 **Resync whenever the oracle pin moves.** The pin is `CIRCUITPYTHON_ORACLE`
 at the repository root, and every CircuitPython-compatible gate is measured
 against the release it names. Moving the pin and resyncing are one change: the
-resync takes every fix upstream made between the old pin and the new one, and
-the pin moves so the oracle can confirm them. A resync is never left for a bug
+resync takes every fix and every addition upstream made between the old pin
+and the new one, and the pin moves so the oracle can confirm them. A resync is never left for a bug
 to turn up.
 
 ## How
@@ -41,11 +42,13 @@ to turn up.
    is `src/cpython/<module>.py` beside `_audiodsp.c`. A fix usually lands in
    two or three of those places.
 4. Take each fix in upstream's own words where the code is still upstream's,
-   so the next diff is short. Leave out anything that adds or changes public
-   API, and anything in the list of deliberate differences below, and say
-   which in the pull request.
-5. Add a probe under `tests/parity/` whose output changes with each fix, and
-   add it to `verify_dsp.py`. A probe CPython can't run (no `audiomp3`, say)
+   so the next diff is short. Take upstream's additions the same way: a new
+   property, argument or class comes in as upstream has it, docstring and
+   all, in both the native module and the CPython target. Leave out only what
+   the list of deliberate differences below says this port does otherwise,
+   and say which in the pull request.
+5. Add a probe under `tests/parity/` whose output changes with each fix or
+   addition, and add it to `verify_dsp.py`. A probe CPython can't run (no `audiomp3`, say)
    can't be compared there, because CI has only CPython and MicroPython; have
    it check itself against the oracle's answers and run it in
    `clean-build.yml` instead. Run each against a build from before the change
@@ -99,12 +102,18 @@ checking itself against the oracle's answers on MicroPython in CI. One stored di
 `midi_component`, whose one-byte track now reports its error at 1, where the
 data ends, as the oracle does.
 
-**Held back, because each adds or changes behaviour rather than fixing it:**
+**Taken after the resync:** `audiodelays.PitchShift.freeze` (9bef7b7606),
+a new property, once additions came in with a resync as fixes do
+(audiodsp#222). A frozen PitchShift stops writing its window and holds its
+write position while the read position keeps going round, so the window
+sustains; a reset of its buffer clears it. `pitchshift_freeze_probe.py` holds
+it to the oracle's bytes in `verify_dsp.py`, and checks the sustain itself,
+so a build that ignores `freeze` fails in CI too, where the oracle isn't run.
+No stored digest moved.
 
-- `audiodelays.PitchShift.freeze` (9bef7b7606), a new property.
-- Finalisers on every audio object (7f1de43480), which make the garbage
-  collector call `deinit()`. See [No finalisers](#no-finalisers) below for
-  why this port can't take them as they are.
+**Left out on purpose:** finalisers on every audio object (7f1de43480), which
+make the garbage collector call `deinit()`. See
+[No finalisers](#no-finalisers) below.
 
 Already here before the resync, because upstream took them from this port:
 the oscillator's `>=` wrap (d02aed45a4), the full biquad reset (8a3deace5c),
@@ -170,7 +179,8 @@ gives one to every audio object (7f1de43480), so a collected object is
 its own, and it relies on no finaliser tearing down a graph node first: a soft
 reset runs every finaliser, reachable or not, so a node's `deinit()` could
 free it under a pump that is still pulling (`src/audiopump/audiopump.c`,
-"teardown"). Taking upstream's change needs that ordering solved first.
+"teardown"). This port leaves upstream's finalisers out on purpose for that
+reason, and a resync should not take them.
 
 ### By module
 

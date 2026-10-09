@@ -204,9 +204,10 @@ parity golden is measured against. The rule, for any agent working here:
   failing anything. Its *pin* is a different matter: it moves when this port
   moves to a new CircuitPython release, deliberately, in a change that re-reads
   every CP-shared gate and re-pins the binary's hash with the reason written
-  down. **Every pin move is a resync**: take every audio fix upstream made
-  since the old pin, following `docs/upstream-sync.md`, and update its record
-  of what was taken, what was held back and what differs on purpose. The oracle is built at the same version and the same ceiling this port
+  down. **Every pin move is a resync**: take every audio fix and every
+  addition (a new property, argument or class) upstream made since the old
+  pin, following `docs/upstream-sync.md`, and update its record of what was
+  taken and what differs on purpose. The oracle is built at the same version and the same ceiling this port
   ships — an oracle at a different configuration cannot answer the only question
   worth asking. See `docs/correctness-standard.md` and
   `tests/test_voice_ceiling_consistency.py`.

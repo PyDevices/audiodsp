@@ -10,20 +10,27 @@
 void audiodsp_pitchshift_process_s16(int16_t *output, const int16_t *input,
     size_t sample_count, int16_t *window, uint32_t window_samples,
     int16_t *overlap, uint32_t overlap_samples, uint8_t channel_count,
-    uint32_t read_rate, double mix, audiodsp_pitchshift_positions_t *positions) {
+    uint32_t read_rate, double mix, bool freeze,
+    audiodsp_pitchshift_positions_t *positions) {
     int32_t scale = 0xfffffff / (32768 * 2 - 28000);
     for (size_t i = 0; i < sample_count; i++) {
         uint8_t channel = (uint8_t)(i % channel_count);
         uint32_t window_plane = window_samples * channel;
         uint32_t overlap_plane = overlap_samples * channel;
         int32_t sample = input[i];
-        if (overlap_samples) {
-            window[positions->window_index + window_plane] =
-                overlap[positions->overlap_index + overlap_plane];
-            overlap[positions->overlap_index + overlap_plane] =
-                (int16_t)sample;
-        } else {
-            window[positions->window_index + window_plane] = (int16_t)sample;
+        // A frozen window takes no new audio and its write pointers stand
+        // still, so the read pointer keeps cycling over what it holds
+        // (upstream 9bef7b7606).
+        if (!freeze) {
+            if (overlap_samples) {
+                window[positions->window_index + window_plane] =
+                    overlap[positions->overlap_index + overlap_plane];
+                overlap[positions->overlap_index + overlap_plane] =
+                    (int16_t)sample;
+            } else {
+                window[positions->window_index + window_plane] =
+                    (int16_t)sample;
+            }
         }
         uint32_t read = positions->read_index >> READ_SHIFT;
         uint32_t overlap_offset = read +
@@ -43,12 +50,14 @@ void audiodsp_pitchshift_process_s16(int16_t *output, const int16_t *input,
         word = (int32_t)(sample * dry + word * wet);
         output[i] = audiodsp_mix_down_sample(word, scale, -28000, 28000);
         if (channel_count == 1 || channel == 1) {
-            if (++positions->window_index >= window_samples) {
-                positions->window_index = 0;
-            }
-            if (overlap_samples &&
-                ++positions->overlap_index >= overlap_samples) {
-                positions->overlap_index = 0;
+            if (!freeze) {
+                if (++positions->window_index >= window_samples) {
+                    positions->window_index = 0;
+                }
+                if (overlap_samples &&
+                    ++positions->overlap_index >= overlap_samples) {
+                    positions->overlap_index = 0;
+                }
             }
             positions->read_index += read_rate;
             if (positions->read_index >= window_samples << READ_SHIFT) {
