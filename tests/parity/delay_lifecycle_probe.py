@@ -24,6 +24,11 @@ the PCM, so the interpreters are held to the same bytes and to the right ones:
   a value set and replaced before the pull leaves no trace.
 
 A new delay node gets these checks by adding an entry to NODES.
+
+Every level here is a power-of-two fraction. The CircuitPython-derived nodes
+work out `mix` and `decay` in `mp_float_t`, which is single precision on a
+float build, where the CPython twin uses a double: 0.4 is two different
+numbers there, and 0.375 is one.
 """
 
 import sys
@@ -242,12 +247,12 @@ def mix_event(kind):
     frames = BLOCK * 14
     values = source(frames, impulses=(10, 300, BLOCK * 6 + 5),
                     tone=(BLOCK * 2, BLOCK * 9))
-    node = kind.make(feedback=0.7, mix=0.4)
+    node = kind.make(feedback=0.75, mix=0.375)
     node.play(raw(values))
     before = pulls(node, 1)
     kind.set(node, mix=0.0)
     muted = pulls(node, 3)
-    kind.set(node, mix=0.4)
+    kind.set(node, mix=0.375)
     back = pulls(node, 8)
     print(tag, [checksum(b) for b in before + muted + back])
     check(tag + " passes the input at 0",
@@ -261,7 +266,7 @@ def mix_event(kind):
         # blocks cut out plays the same from there.
         reference_values = values[:BLOCK] + values[BLOCK * 4:]
         offset = 1
-    reference = kind.make(feedback=0.7, mix=0.4)
+    reference = kind.make(feedback=0.75, mix=0.375)
     reference.play(raw(reference_values))
     expected = pulls(reference, offset + 8)
     check(tag + " comes back where the loop is",
@@ -292,9 +297,9 @@ def settings_event(kind):
         out = render([{name: value}, {name: built}])
         print(tag, name, checksum(b"".join(out)))
         check("%s %s there and back" % (tag, name), out == untouched)
-    one = render([dict(feedback=0.3, mix=0.8)])
-    split = render([dict(feedback=0.3), dict(mix=0.8)])
-    swapped = render([dict(mix=0.8), dict(feedback=0.3)])
+    one = render([dict(feedback=0.25, mix=0.75)])
+    split = render([dict(feedback=0.25), dict(mix=0.75)])
+    swapped = render([dict(mix=0.75), dict(feedback=0.25)])
     print(tag, "one", checksum(b"".join(one)))
     check(tag + " split as one", split == one)
     check(tag + " either order", swapped == one)
