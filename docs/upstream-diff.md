@@ -1,5 +1,30 @@
 # Deltas from upstream CircuitPython
 
+The reasons and measurements behind each place this port departs from
+CircuitPython, newest first. For the current list of deliberate differences,
+and how and when to resync with upstream, start at
+[upstream-sync.md](upstream-sync.md).
+
+## Resynced with 11.0.0-alpha.1 (audiodsp#220)
+
+Every audio fix CircuitPython made between 10.3.0 and 11.0.0-alpha.1 is in
+this port now, except two that add behaviour: `PitchShift.freeze` and
+finalisers on every audio object. What was taken, module by module, and what
+was held back is in [upstream-sync.md](upstream-sync.md#the-last-resync-1100-alpha1-audiodsp220).
+
+It retires five differences recorded below, because upstream now does the
+same: the stream I/O in `WaveFile` and `synthio.from_file` (upstream switched
+in 150230d3e4 and cf227dc184, and this port now carries its code), the
+oscillator's `>=` wrap (d02aed45a4), the re-pressed finished note
+(e1b52a39af), `Distortion`'s `soft_clip` read through `.u_bool` (cb2cdbb129),
+and the cast on `MP3Decoder.rms_level`, which upstream computes in
+`mp_float_t` now (bf73aaf2af).
+
+`midi_component`'s stored digest moved from `3bb7aeea…` to `268020be…`,
+re-captured from the oracle: the one-byte track reports its error at 1, where
+the data ends. Every other stored digest held, and so did all 53 instruments
+in audiocomponents' parity sequences on CPython and on MicroPython.
+
 ## The oracle is CircuitPython 11.0.0-alpha.1 (audiodsp#201)
 
 The oracle moved from 10.3.0 to 11.0.0-alpha.1 (520805e12) on 2026-10-08,
@@ -34,8 +59,8 @@ the `Echo` order below, the PEAKING_EQ `b2` sign (8fabdbbfb1) and the full
 biquad reset (8a3deace5c) are all in 11.0.0-alpha.1, and the oracle renders
 this port's bytes for each.
 
-**Not ported yet.** 11.0.0-alpha.1 carries other upstream audio changes this
-port has not taken. One is visible to a stored capture: since 904e7a7a55
+**Not ported yet** (ported since, in audiodsp#220; see above). 11.0.0-alpha.1
+carries other upstream audio changes this port has not taken. One is visible to a stored capture: since 904e7a7a55
 ("synthio: a freed track buffer, a ring modulation sign flip, reads past the
 end") the MIDI decoder stops at the end of the track. A one-byte track
 (`b"\x80"`) used to read one byte past it and report the error at 2; 11.0
@@ -355,6 +380,10 @@ this; use them as the reference when porting `Note`, `Synthesizer`, `Mixer`,
 
 ## WaveFile: portable stream I/O instead of direct FatFS calls (tier 1)
 
+> **Retired by audiodsp#220.** CircuitPython 11 reads `WaveFile` through the
+> stream protocol too (cf227dc184), and this port now carries upstream's code
+> for it. What follows is the history.
+
 CircuitPython's `audiocore.WaveFile` reads its file via raw FatFS calls
 (`f_read`/`f_lseek`/`f_tell` against a `pyb_file_obj_t`'s embedded `.fp`),
 and its constructor hard-requires `mp_obj_is_type(arg, &mp_type_vfs_fat_fileio)`.
@@ -382,6 +411,9 @@ buffer/refill logic itself is unmodified, but it hasn't been checked yet
 that way.
 
 ## `synthio.from_file`: same portable-stream deviation as WaveFile (tier 2)
+
+> **Retired by audiodsp#220**, as `WaveFile` above (150230d3e4). Opening a
+> path as well as a file is the one difference left.
 
 `synthio.from_file()` (loads a `MidiTrack` from an SMF file) has the exact
 same FatFS coupling as `audiocore.WaveFile` — same fix, same rationale: see
@@ -949,6 +981,9 @@ oracle diff matches this cleanly, the port is source-faithful, not just
 "looks right."
 
 ## The oscillator wraps its accumulator one sample late, and reads off the end of the waveform (instruments tier)
+
+> **Upstream since 11.0.0-alpha.1** (d02aed45a4), so no longer a deviation
+> from the oracle.
 
 Upstream's DDS loop (`shared-module/synthio/__init__.c`, and the ring
 modulator beside it) advances a fixed-point accumulator and wraps it with
@@ -2265,6 +2300,9 @@ per-note cost is one biquad pass per stage, and the resident state is
 four biquad states per note on MicroPython (`SYNTHIO_NOTE_MAX_FILTER_STAGES`).
 
 ## Re-pressing a finished note drops it entirely (2026-09-02)
+
+> **Upstream since 11.0.0-alpha.1** (e1b52a39af), so no longer a deviation
+> from the oracle.
 
 **Deviation from the oracle** (the sixth), and reported upstream.
 

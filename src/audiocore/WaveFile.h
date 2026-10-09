@@ -1,16 +1,7 @@
 // Adapted from CircuitPython's shared-bindings/audiocore/WaveFile.h and
 // shared-module/audiocore/WaveFile.h (upstream repo:
-// https://github.com/adafruit/circuitpython, MIT).
-//
-// Deliberate deviation from upstream: CP reads the wave file through raw
-// FatFS calls (`f_read`/`f_lseek` directly against a `pyb_file_obj_t`'s
-// `.fp`), which only works when the underlying filesystem happens to be
-// FatFS. This port instead reads through MicroPython's generic stream
-// protocol (`mp_stream_read_exactly` + an ioctl(MP_STREAM_SEEK)), so a
-// WaveFile works over any VFS backend a port has mounted (POSIX files on
-// unix/windows, littlefs or FAT on mcu boards) -- a portable superset of
-// upstream's behavior, not a narrower one. The WAV parsing algorithm and
-// audiosample_get_buffer semantics are otherwise unchanged; see WaveFile.c.
+// https://github.com/adafruit/circuitpython, MIT). The file is any object
+// with the stream protocol, as upstream has it since CircuitPython 11.
 //
 // SPDX-FileCopyrightText: Copyright (c) 2018 Scott Shawcroft
 // SPDX-FileCopyrightText: Copyright (c) 2018 Scott Shawcroft for Adafruit Industries
@@ -37,8 +28,7 @@ typedef struct {
     uint32_t bytes_remaining;
 
     uint32_t len;
-    mp_obj_t file;              // any object implementing the stream protocol
-    const mp_stream_p_t *file_stream_p;
+    mp_obj_t file;
 
     uint32_t read_count;
     uint32_t left_read_count;

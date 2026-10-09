@@ -13,6 +13,9 @@ int16_t audiodsp_mix_down_sample(int32_t sample, int32_t scale,
 bool audiodsp_oscillator_fill(int32_t *output, const int16_t *waveform,
     uint32_t waveform_start, uint32_t waveform_end, uint32_t dds_rate,
     uint32_t *accumulator, uint16_t duration, uint8_t frequency_shift);
+bool audiodsp_ring_modulate(int32_t *voice, const int16_t *ring,
+    uint32_t ring_start, uint32_t ring_end, uint32_t dds_rate,
+    uint32_t *accumulator, uint16_t duration, uint8_t frequency_shift);
 void audiodsp_assign_loudness(int32_t word, int32_t *last_word,
     int16_t active_loudness[2], const int16_t pending_loudness[2]);
 void audiodsp_assign_packed_level(uint32_t word, uint32_t *last_word,

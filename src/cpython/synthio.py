@@ -571,6 +571,11 @@ class Synthesizer(_AudioSample):
                 loudness_left = (envelope_level * left_pan) >> 15
                 loudness_right = (envelope_level * right_pan) >> 15
 
+            # Past Nyquist for its loop, a note is not played at all: the
+            # usermod skips its filter and its loudness too, not just the
+            # oscillator (audiodsp_oscillator_fill returns false).
+            if dds_rate > ((end - start) << 16) // 2:
+                continue
             voice_data, note._accum = _audiodsp.oscillator_raw_i32(
                 waveform, note._accum, dds_rate, start, end, sample_count,
             )
@@ -595,14 +600,12 @@ class Synthesizer(_AudioSample):
                 ring_dds_rate = (
                     self.sample_rate // 2 + ring_bent * (ring_end - ring_start)
                 ) // self.sample_rate
-                # Two guards, both from the usermod and both kept as written
-                # there. The first bounds the rate against the RING table;
-                # the second - easy to misread - bounds it against the MAIN
-                # waveform's limit, and skips ringing entirely rather than
-                # clamping.
+                # The usermod's first guard, against the whole ring table.
+                # The second, against the ring's own loop, is inside the
+                # shared stage ring_multiply_i32 calls.
                 if ring_dds_rate > (ring_end << 16) // 2:
                     ring_dds_rate = 0
-                if ring_dds_rate and ring_dds_rate <= (end << 16) // 2:
+                if ring_dds_rate:
                     voice_data, note._ring_accum = _audiodsp.ring_multiply_i32(
                         voice_data, ring_waveform, note._ring_accum,
                         ring_dds_rate, ring_start, ring_end,
@@ -658,7 +661,10 @@ class MidiTrack(Synthesizer):
     def __init__(self, buffer, tempo, *, sample_rate=11025, waveform=None, envelope=None):
         super().__init__(sample_rate=sample_rate, waveform=waveform, envelope=envelope)
         self.buffer = bytes(buffer)
-        self._tempo = int(tempo)
+        tempo = int(tempo)
+        if tempo < 1:
+            raise ValueError("tempo must be at least 1")
+        self._tempo = tempo
         self._position = 0
         self._error_location = -1
         self._duration = 0
@@ -704,13 +710,7 @@ class MidiTrack(Synthesizer):
             delta = (delta << 7) | (byte & 0x7f)
             continued = bool(byte & 0x80)
         if continued:
-            # The upstream decoder's do/while cursor reports one byte beyond
-            # the truncated variable-length quantity.
-            self._position += 1
             self._record_error()
-        if self._tempo == 0:
-            self._record_error()
-            return 0
         return delta * self.sample_rate // self._tempo
 
     def _decode_until_pause(self):
@@ -770,6 +770,7 @@ def from_file(file, *, sample_rate=11025, waveform=None, envelope=None):
     stream = open(file, "rb") if isinstance(file, (str, bytes)) else file
     close = stream is not file
     try:
+        stream.seek(0)
         header = stream.read(14)
         if len(header) != 14 or header[:12] != b"MThd\0\0\0\x06\0\0\0\x01": raise ValueError("invalid file")
         if header[12] & 0x80:

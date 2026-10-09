@@ -588,12 +588,13 @@ against `bin/circuitpython` on unix; DSP parity re-verified on windows and
 wasm; built and measured on two real mcu targets, ESP32-P4
 (hardware-confirmed by ear) and RP2040 (build-only). See
 [docs/porting-plan.md](docs/porting-plan.md) for the full phased history
-and [docs/upstream-diff.md](docs/upstream-diff.md) for every deliberate
-deviation from upstream CircuitPython.
+and [docs/upstream-sync.md](docs/upstream-sync.md) for every deliberate
+difference from upstream CircuitPython and how the port is kept in step with
+it.
 
 **CPython:** the public surface and wheel plumbing are present, and the
 committed synthesis, mixer, MIDI, streaming, and effects fixtures match
-CircuitPython 10.3.0 PCM byte-for-byte — built at the same voice ceiling this
+CircuitPython 11.0.0-alpha.1 PCM byte-for-byte — built at the same voice ceiling this
 port ships, which is the only comparison worth making. Import/API smoke success
 is not used as a substitute for those comparisons.
 

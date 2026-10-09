@@ -174,8 +174,16 @@ class Mixer(_AudioSample):
             if getattr(sample, name) != getattr(self, name):
                 raise ValueError("The sample's %s does not match" % name)
 
-    def play(self, sample, *, voice=0, loop=False): self.voice[voice].play(sample, loop=loop)
-    def stop_voice(self, voice=0): self.voice[voice].stop()
+    def _voice_at(self, voice):
+        # Checked as a whole int before it picks a voice, as CircuitPython 11
+        # does (b34aa34c19): no negative index, and voice=256 is not voice 0.
+        voice = int(voice)
+        if not 0 <= voice < len(self.voice):
+            raise ValueError("voice must be %d-%d" % (0, len(self.voice) - 1))
+        return self.voice[voice]
+
+    def play(self, sample, *, voice=0, loop=False): self._voice_at(voice).play(sample, loop=loop)
+    def stop_voice(self, voice=0): self._voice_at(voice).stop()
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         # Deviation from upstream, which stops every voice here instead of

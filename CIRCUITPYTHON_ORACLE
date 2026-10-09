@@ -1,8 +1,9 @@
 # The CircuitPython oracle pin. Every parity golden is measured against
 # this exact commit (tag 11.0.0-alpha.1; the pin moved from 10.3.0 on
 # 2026-10-08 with audiodsp#201, from 10.2.1 to 10.3.0 on 2026-09-09).
-# Moving it is a re-port, not a bump; see AGENTS.md "The CircuitPython
-# oracle" and docs/upstream-diff.md. The 64-voice oracle binary built from
+# Moving it is a re-port, not a bump: every move is a resync with upstream
+# (docs/upstream-sync.md; the last was audiodsp#220). See also AGENTS.md
+# "The CircuitPython oracle" and docs/upstream-diff.md. The 64-voice oracle binary built from
 # it lives at bin/circuitpython-oracle-11.0.0-alpha.1 (build_interpreters.sh
 # cp-oracle); tests/test_voice_ceiling_consistency.py pins its sha256.
 11.0.0-alpha.1 520805e12127bdb51722ba1caa5c670ecd8c4f72

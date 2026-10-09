@@ -4,9 +4,7 @@
 // Docstrings dropped. See docs/upstream-diff.md: every type using
 // MP_PROPERTY_GETTER/GETSET needs `attr, cp_compat_attr` wired in. This
 // file's own byte-buffer-based construction (`MidiTrack(buffer, tempo)`)
-// needs no file-I/O adaptation -- only `synthio.from_file()`
-// (synthio/__init__.c) reads an actual MIDI file, and that's where the
-// FatFS-vs-generic-stream deviation lives.
+// reads no file -- `synthio.from_file()` (synthio/__init__.c) does.
 //
 // SPDX-FileCopyrightText: Copyright (c) 2021 Artyom Skrobov
 // SPDX-FileCopyrightText: Copyright (c) 2026 PyDevices
@@ -36,6 +34,7 @@ static mp_obj_t parse_note(synthio_miditrack_obj_t *self) {
     size_t len = self->track.len;
     if (self->pos + 1 >= len) {
         record_midi_stream_error(self);
+        return MP_OBJ_NEW_SMALL_INT(0);
     }
     uint8_t note = buffer[(self->pos)++];
     if (note > 127 || buffer[(self->pos)++] > 127) {
@@ -68,6 +67,9 @@ static void decode_until_pause(synthio_miditrack_obj_t *self) {
     uint8_t *buffer = self->track.buf;
     size_t len = self->track.len;
     do {
+        if (self->pos >= len) {
+            break;
+        }
         switch (buffer[self->pos++] >> 4) {
             case 8: { // Note Off
                 mp_obj_t note = parse_note(self);
@@ -193,7 +195,7 @@ static mp_obj_t synthio_miditrack_make_new(const mp_obj_type_t *type, size_t n_a
     synthio_miditrack_obj_t *self = mp_obj_malloc(synthio_miditrack_obj_t, &synthio_miditrack_type);
     common_hal_synthio_miditrack_construct(self,
         (uint8_t *)bufinfo.buf, bufinfo.len,
-        args[ARG_tempo].u_int,
+        mp_arg_validate_int_min(args[ARG_tempo].u_int, 1, MP_QSTR_tempo),
         args[ARG_sample_rate].u_int,
         args[ARG_waveform].u_obj,
         mp_const_none,

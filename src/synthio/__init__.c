@@ -3,11 +3,9 @@
 // https://github.com/adafruit/circuitpython, MIT), merged into one file.
 // Docstrings dropped. `m_malloc_without_collect` -> `m_malloc` (mainline
 // has no "won't be GC-scanned" allocation variant; see docs/upstream-diff.md
-// tier-1 notes on the same substitution in audiocore's WaveFile). The
-// `synthio.from_file()` MIDI-SMF loader is adapted to read through
-// MicroPython's generic stream protocol instead of CP's direct FatFS
-// calls, exactly like this port's audiocore.WaveFile -- same rationale,
-// see docs/upstream-diff.md. `lfo_tick()` is ported unconditionally (CP
+// tier-1 notes on the same substitution in audiocore's WaveFile).
+// `synthio.from_file()` is upstream's stream-protocol body (CircuitPython
+// 11), and also opens a path. `lfo_tick()` is ported unconditionally (CP
 // gates it behind CIRCUITPY_AUDIOCORE_DEBUG) since it's exactly the
 // primitive this port's oracle-diff test strategy needs for Math/LFO, the
 // same reasoning as audiocore.get_buffer in tier 1.
@@ -180,41 +178,19 @@ static bool synth_note_into_buffer(synthio_synth_t *synth, int chan, int32_t *ou
         }
     }
 
-    uint32_t lim = waveform_length << SYNTHIO_FREQUENCY_SHIFT;
     if (!audiodsp_oscillator_fill(out_buffer32, waveform, waveform_start,
         waveform_length, dds_rate, &synth->accum[chan], dur,
         SYNTHIO_FREQUENCY_SHIFT)) {
+        // beyond nyquist, can't play note
         return false;
     }
 
     if (ring_dds_rate) {
-        uint32_t offset;
-        uint32_t accum;
-        if (ring_dds_rate > lim / 2) {
-            return true;
-        }
-
-        accum = synth->ring_accum[chan];
-        offset = ring_waveform_start << SYNTHIO_FREQUENCY_SHIFT;
-        lim = ring_waveform_length << SYNTHIO_FREQUENCY_SHIFT;
-
-        // Wrap on `>=`, not CircuitPython's `>`; see the note in
-        // audiodsp_oscillator_fill() and docs/upstream-diff.md.
-        uint32_t ring_span = lim - offset;
-        if (accum >= lim) {
-            accum = offset + (accum - offset) % ring_span;
-        }
-
-        for (uint16_t i = 0; i < dur; i++) {
-            accum += ring_dds_rate;
-            if (accum >= lim) {
-                accum -= ring_span;
-            }
-            int16_t idx = accum >> SYNTHIO_FREQUENCY_SHIFT;
-            int16_t wi = (ring_waveform[idx] * out_buffer32[i]) / 32768;
-            out_buffer32[i] = wi;
-        }
-        synth->ring_accum[chan] = accum;
+        // A ring past its own Nyquist is not played, but the main sound was,
+        // so this still returns true. See audiodsp_ring_modulate().
+        (void)audiodsp_ring_modulate(out_buffer32, ring_waveform,
+            ring_waveform_start, ring_waveform_length, ring_dds_rate,
+            &synth->ring_accum[chan], dur, SYNTHIO_FREQUENCY_SHIFT);
     }
     return true;
 }
@@ -439,8 +415,9 @@ bool synthio_span_change_note(synthio_synth_t *synth, mp_obj_t old_note, mp_obj_
         // init path below and works.
         //
         // Treating a finished note as a fresh press fixes it at the cause
-        // and matches what the CPython target already does. See
-        // docs/upstream-diff.md; reported upstream.
+        // and matches what the CPython target already does. Upstream took
+        // the same fix in 11.0.0-alpha.1 (e1b52a39af); this port keeps its
+        // pump lock around it.
         if (synth->envelope_state[channel].level == 0) {
             synthio_envelope_state_init(&synth->envelope_state[channel],
                 synthio_synth_get_note_envelope(synth, new_note));
@@ -626,22 +603,11 @@ const mp_obj_namedtuple_type_t synthio_envelope_type_obj = {
     },
 };
 
-// Deviation from upstream: reads through the generic stream protocol
-// instead of raw FatFS calls (mirrors audiocore.WaveFile -- see
-// docs/upstream-diff.md). Small local read/seek helpers instead of sharing
-// audiocore/WaveFile.c's static ones (kept file-local on both sides,
-// same as upstream keeps this logic file-local too).
-static void midi_read_exactly(mp_obj_t file, void *buf, size_t size) {
-    int errcode = 0;
-    mp_uint_t n = mp_stream_read_exactly(file, buf, size, &errcode);
-    if (errcode != 0) {
-        mp_raise_OSError(errcode);
-    }
-    if (n != size) {
-        mp_raise_OSError(MP_EIO);
-    }
-}
-
+// CircuitPython 11 reads through the generic stream protocol too (150230d3e4),
+// and this is its body. Two differences: a path is opened here, where upstream
+// takes only an open file, and the track buffer is an ordinary m_malloc
+// (mainline has no m_malloc_without_collect). The buffer is not freed: the
+// track keeps the pointer and parses it as it plays (904e7a7a55).
 static mp_obj_t synthio_from_file(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_file, ARG_sample_rate, ARG_waveform, ARG_envelope };
     static const mp_arg_t allowed_args[] = {
@@ -652,16 +618,28 @@ static mp_obj_t synthio_from_file(size_t n_args, const mp_obj_t *pos_args, mp_ma
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
-
-    mp_obj_t file = args[ARG_file].u_obj;
-    if (mp_obj_is_str(file)) {
-        file = mp_call_function_2(MP_OBJ_FROM_PTR(&mp_builtin_open_obj), file, MP_ROM_QSTR(MP_QSTR_rb));
+    mp_obj_t file_obj = args[ARG_file].u_obj;
+    if (mp_obj_is_str(file_obj)) {
+        file_obj = mp_call_function_2(MP_OBJ_FROM_PTR(&mp_builtin_open_obj), file_obj, MP_ROM_QSTR(MP_QSTR_rb));
     }
-    mp_get_stream_raise(file, MP_STREAM_OP_READ);
+    // Any readable, seekable binary stream works, regardless of which
+    // filesystem it came from.
+    const mp_stream_p_t *stream_p = mp_get_stream_raise(file_obj, MP_STREAM_OP_READ | MP_STREAM_OP_IOCTL);
+    if (stream_p->is_text) {
+        mp_raise_TypeError(MP_ERROR_TEXT("file must be a file opened in byte mode"));
+    }
 
     uint8_t chunk_header[14];
-    midi_read_exactly(file, chunk_header, sizeof(chunk_header));
-    if (memcmp(chunk_header, "MThd\0\0\0\6\0\0\0\1", 12)) {
+    int errcode;
+    if (mp_stream_seek(file_obj, 0, MP_SEEK_SET, &errcode) == (mp_off_t)-1) {
+        mp_raise_OSError(errcode);
+    }
+    mp_uint_t bytes_read = mp_stream_rw(file_obj, chunk_header, sizeof(chunk_header), &errcode, MP_STREAM_RW_READ);
+    if (bytes_read == MP_STREAM_ERROR) {
+        mp_raise_OSError(errcode);
+    }
+    if (bytes_read != sizeof(chunk_header) ||
+        memcmp(chunk_header, "MThd\0\0\0\6\0\0\0\1", 12)) {
         mp_arg_error_invalid(MP_QSTR_file);
         // TODO: for a multi-track MIDI (type 1), return an AudioMixer
     }
@@ -673,14 +651,23 @@ static mp_obj_t synthio_from_file(size_t n_args, const mp_obj_t *pos_args, mp_ma
         tempo = 2 * ((chunk_header[12] << 8) | chunk_header[13]);
     }
 
-    midi_read_exactly(file, chunk_header, 8);
-    if (memcmp(chunk_header, "MTrk", 4)) {
+    bytes_read = mp_stream_rw(file_obj, chunk_header, 8, &errcode, MP_STREAM_RW_READ);
+    if (bytes_read == MP_STREAM_ERROR) {
+        mp_raise_OSError(errcode);
+    }
+    if (bytes_read != 8 || memcmp(chunk_header, "MTrk", 4)) {
         mp_arg_error_invalid(MP_QSTR_file);
     }
     uint32_t track_size = (chunk_header[4] << 24) |
         (chunk_header[5] << 16) | (chunk_header[6] << 8) | chunk_header[7];
     uint8_t *buffer = m_malloc(track_size);
-    midi_read_exactly(file, buffer, track_size);
+    bytes_read = mp_stream_rw(file_obj, buffer, track_size, &errcode, MP_STREAM_RW_READ);
+    if (bytes_read == MP_STREAM_ERROR) {
+        mp_raise_OSError(errcode);
+    }
+    if (bytes_read != track_size) {
+        mp_arg_error_invalid(MP_QSTR_file);
+    }
 
     synthio_miditrack_obj_t *result = mp_obj_malloc(synthio_miditrack_obj_t, &synthio_miditrack_type);
     common_hal_synthio_miditrack_construct(result, buffer, track_size,
@@ -688,12 +675,6 @@ static mp_obj_t synthio_from_file(size_t n_args, const mp_obj_t *pos_args, mp_ma
         mp_const_none,
         args[ARG_envelope].u_obj
         );
-
-    #if MICROPY_MALLOC_USES_ALLOCATED_SIZE
-    m_free(buffer, track_size);
-    #else
-    m_free(buffer);
-    #endif
 
     return MP_OBJ_FROM_PTR(result);
 }

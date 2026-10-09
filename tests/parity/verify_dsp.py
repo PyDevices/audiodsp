@@ -229,6 +229,15 @@ PROBES = (
     # A burst, a stop, the tail rung out to exact zero, and a second burst
     # into a node at rest, on the three nodes with tails (audiodsp#180).
     ("tail_rest_probe.py", "audioecho", {}, None),
+    # The fixes this port took when it resynced with CircuitPython
+    # 11.0.0-alpha.1 (audiodsp#220): synthio's ring modulation, loop Nyquist
+    # and MIDI parsing, and the arguments refused before they are narrowed.
+    # CircuitPython's own modules, so held to CircuitPython's bytes.
+    ("cp11_fixes_probe.py", "synthio", {}, None),
+    # The file-backed half (WaveFile's pad and buffer length, an MP3 cut off
+    # mid-frame) is cp11_files_probe.py. It cannot be compared here: CPython
+    # has no audiomp3, which leaves one interpreter in CI. It checks itself
+    # against CircuitPython's answers instead, in clean-build.yml.
 )
 
 
