@@ -4,7 +4,7 @@
 
 #include "shared/audiodsp_trig.h"
 
-#include <math.h>
+#include <float.h>
 #include <stdbool.h>
 
 void audiodsp_sincos_quarter(double x, audiodsp_sincos_t *result) {
@@ -31,12 +31,46 @@ void audiodsp_sincos_reflect(double theta, audiodsp_sincos_t *result) {
     if (reflected) result->c = -result->c;
 }
 
+// fmod(x, y) for y > 0, to the bit, without calling libm.
+//
+// Some builds have no double-precision fmod to call. CircuitPython's RP2040
+// port links with the pico-sdk's --wrap=fmod but compiles none of the SDK's
+// double math, so a call to fmod has nothing to resolve to and the firmware
+// does not link.
+//
+// The result is the one fmod gives, because fmod's result is exact: it is
+// x - n*y with nothing rounded. This takes it the same way, by long division
+// in binary. Each step subtracts the largest y*2^k that fits. Doubling and
+// halving a double are exact, and a - m is exact whenever m <= a < 2m
+// (Sterbenz), so nothing is ever rounded here either. The loop runs about
+// twice per binary order of magnitude between x and y, so a large angle costs
+// a few dozen steps and an angle already in range costs none.
+static double audiodsp_fmod_positive(double x, double y) {
+    double a = x < 0 ? -x : x;
+    if (!(a <= DBL_MAX)) {
+        return x - x;  // inf or NaN: NaN, as fmod returns
+    }
+    if (a >= y) {
+        double m = y;
+        while (m * 2.0 <= a) {
+            m *= 2.0;
+        }
+        while (a >= y) {
+            while (m > a) {
+                m *= 0.5;
+            }
+            a -= m;
+        }
+    }
+    return x < 0 ? -a : a;
+}
+
 void audiodsp_sincos(double theta, audiodsp_sincos_t *result) {
-    // Reduce into [0, 2pi). fmod rather than a subtraction loop: a twiddle
-    // table for a large transform walks a long way round, and the loop's cost
-    // would grow with the angle while its accuracy fell.
+    // Reduce into [0, 2pi). A remainder rather than a subtraction loop: a
+    // twiddle table for a large transform walks a long way round, and the
+    // loop's cost would grow with the angle while its accuracy fell.
     double turns = 2 * AUDIODSP_PI;
-    theta = fmod(theta, turns);
+    theta = audiodsp_fmod_positive(theta, turns);
     if (theta < 0) theta += turns;
 
     // Quadrant, then the signs. The comparisons are against exact multiples
