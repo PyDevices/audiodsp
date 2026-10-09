@@ -8,7 +8,7 @@
 // around `play()` and `deinit()` because on that build a C pump thread may be
 // inside a pull at the moment a setter re-points the port. CircuitPython has
 // no pump: its audio output pulls the graph from an interrupt or from the
-// same thread, `audiodsp_pump_lock.c` is not in `copy_manifest.txt`, and
+// same thread, `audiodsp_pump_lock.c` is not in `circuitpython.mk`, and
 // nothing in this tree declares the hooks. So the lock is ABSENT here rather
 // than being a fourth platform branch of it -- which is also the shape the planned
 // restructure wants, with the lock reduced to hooks that default to no-ops.
