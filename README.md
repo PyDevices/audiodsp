@@ -74,8 +74,8 @@ python -m pip install pydevices-audiodsp
 This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiodelays`, `audiofreeverb`, `audiospeed`, `audiodynamics`, `audioroute`,
 `audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audioconvolve`,
-`audiobiquad`, `audioverb`, `audiomodal`, `audiometer`, and the
-`audiorender` package.
+`audiobiquad`, `audioverb`, `audiomodal`, `audiometer`, `audiopump`, and
+the `audiorender` package.
 `audiomp3` remains firmware-only. The distribution declares no *required*
 runtime dependencies and does not itself publish an `audiodsp` import; its
 version is the `VERSION` file, which is also what `_audiodsp.__version__`
@@ -128,7 +128,7 @@ those packages installed.
 
 ## Additions beyond CircuitPython
 
-Ten things here are not CircuitPython's. `audiodynamics` (compression,
+These are not CircuitPython's. `audiodynamics` (compression,
 limiting, expansion, gating, transient shaping) and `audioroute.Splitter`
 (fan one stream out to parallel branches) come from micropython-vst3's audio
 engine, which had them and CircuitPython does not. `audiomath` (multiply one
@@ -246,8 +246,8 @@ pair intermodulates its channels, so a saturator that wants to keep its image
 drives the mid and leaves the side alone.
 
 `audioshaper.Waveshaper(sample_rate=…, curve=…, oversample=4,
-channel_count=2, **options)` is the newest of them, and everything but the
-first four moves in `set()`. `curve` is int16 Q15, at least two points,
+channel_count=2, **options)` moves everything but its first four arguments
+in `set()`. `curve` is int16 Q15, at least two points,
 spanning −1..+1 of input: compute it once on a desktop and ship it as data,
 never rebuild it on a board, whose float is single-precision where the
 desktop's is double. `oversample` is 1, 2, 4 or 8 — the shaping happens there,
@@ -288,7 +288,7 @@ argument added here would not exist on a board —
 [docs/upstream-diff.md](docs/upstream-diff.md), "`audioshaper.SampleHold`:
 lo-fi's other half".
 
-`audioladder` is the newest, and the one whose reason for existing is least
+`audioladder` is the one whose reason for existing is least
 obvious next to a module CircuitPython already has. `audiofilters.Filter`
 is a better *resonant low-pass* than this: a cascade of biquads tracks the
 analytic response to a fraction of a decibel. It is also linear, so it never
@@ -469,6 +469,13 @@ thread on unix and Windows, and the calling thread on a port that has no
 threads at all. A graph pulled that way keeps an exact clock while a screen
 redraws, a USB stack runs and Python does whatever it likes.
 
+The thread and the output it writes to come from a platform driver, which
+this repository doesn't carry; the end of this section says where it comes
+from. The example below is for a board whose driver has opened its output. On
+a build without one, such as unix built from this repository alone,
+`sink=True` raises `ValueError: no i2s sink open`, and the `service()` form
+under **Which builds carry it** is the one to use.
+
 ```python
 import audiopump, audiomixer, synthio
 
@@ -584,7 +591,7 @@ is [docs/pump-ports.md](docs/pump-ports.md).
 ## Status
 
 **MicroPython:** all module tiers ported and oracle-diffed byte-for-byte
-against `bin/circuitpython` on unix; DSP parity re-verified on windows and
+against CircuitPython's own unix build; DSP parity re-verified on windows and
 wasm; built and measured on two real mcu targets, ESP32-P4
 (hardware-confirmed by ear) and RP2040 (build-only). See
 [docs/porting-plan.md](docs/porting-plan.md) for the full phased history
@@ -600,8 +607,8 @@ is not used as a substitute for those comparisons.
 
 `mp3` (the Adafruit_MP3/Helix decoder `audiomp3` depends on,
 RPSL/RCSL-licensed — not MIT, carried unmodified per upstream's own terms) is
-consumed as a cloned sibling dependency in the parent workspace, same pattern
-as `pygraphics`/`displayif`, not vendored into this repo.
+fetched by [scripts/fetch_deps.sh](scripts/fetch_deps.sh) at the commit
+[DEPENDENCIES.lock](DEPENDENCIES.lock) pins, not vendored into this repo.
 
 The playback-facing pull protocol (`audiocore.get_buffer`/`reset_buffer`)
 is consumed by `pydevices`' `lib/audiodev` package (`AudioOut` in
@@ -612,7 +619,7 @@ implementation is built to satisfy.
 
 Acceptance target: todbot's
 [`synthtools`](https://github.com/todbot/CircuitPython_SynthTools) running
-unmodified, with rendered PCM diffed against `bin/circuitpython`'s own unix
+unmodified, with rendered PCM diffed against CircuitPython's own unix
 coverage build (which already contains the entire DSP stack — the parity
 oracle for this whole port).
 
@@ -622,8 +629,9 @@ What's planned next is in [ROADMAP.md](ROADMAP.md).
 
 The API is our contract with you: class names, signatures, metadata, and
 macro surfaces stay stable and change only deliberately. The *sound* is
-not part of that contract. These components sound great, but they are not
-all as accurate as they could be, and implementations will keep being
+not part of that contract for the instruments and effects built on it (the
+[audiocomponents](https://github.com/PyDevices/audiocomponents) packages).
+They sound great, but they are not all as accurate as they could be, and implementations will keep being
 refined as the library matures — so a component may render audibly
 differently from one release to the next. If a composition depends on the
 exact sound of a release, pin that release rather than tracking the
@@ -653,5 +661,5 @@ the MIT text and nothing else, so please do not fold NOTICE back into it.
 wheel and sdist alongside `LICENSE`.
 
 The Helix MP3 decoder that `audiomp3` wraps is RPSL/RCSL-licensed, not MIT;
-it is a cloned sibling dependency, not part of this repository. See
+`scripts/fetch_deps.sh` fetches it; it is not part of this repository. See
 [docs/upstream-diff.md](docs/upstream-diff.md).

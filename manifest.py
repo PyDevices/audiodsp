@@ -1,8 +1,8 @@
-"""audiodsp's freeze manifest: deliberately empty.
+"""audiodsp's manifest: it names the C module and freezes no Python.
 
-The parent workspace's freeze manifests (one per interpreter) include this
-file for every build they make, so anything unconditional here would land in
-every interpreter in the workspace. There is nothing to put here:
+A build includes this file from its own manifest (see the README), so
+anything unconditional here would land in every firmware that includes it.
+There is no Python to freeze:
 
 - The native modules (``audiocore``, ``synthio``, ``audiodynamics``,
   ``audioroute``, ``audiomath``, ``audioecho``, ``audioshaper``,
