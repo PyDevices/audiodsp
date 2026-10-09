@@ -285,7 +285,11 @@ static void mp3file_skip_id3v2(audiomp3_mp3file_obj_t *self, bool block_ok) {
     size -= to_consume;
 
     // Next, seek in the file after the header
-    if (stream_lseek(self->stream, SEEK_CUR, size) == 0) {
+    // stream_lseek takes (offset, whence) and returns the new position. With
+    // the two swapped, a tag already wholly in the buffer (size 0) seeked the
+    // file to absolute offset 1, so the next refill re-read the file's start
+    // and the decoder got the same bytes twice.
+    if (stream_lseek(self->stream, size, SEEK_CUR) >= 0) {
         return;
     }
 
@@ -394,6 +398,26 @@ void common_hal_audiomp3_mp3file_construct(audiomp3_mp3file_obj_t *self,
     common_hal_audiomp3_mp3file_set_file(self, stream);
 }
 
+// Clear the state the decoder carries from frame to frame (overlap-add
+// history, the last frame header and the rest), so a file starts decoding the
+// way a fresh one does. A new file needs it, and so does a rewind for a loop:
+// without it, the first frames of the second lap were decoded against the
+// last frames of the first, and came out different.
+static void mp3file_reset_decoder(audiomp3_mp3file_obj_t *self) {
+    memset(self->pcm_buffer[0], 0, MAX_BUFFER_LEN);
+    memset(self->pcm_buffer[1], 0, MAX_BUFFER_LEN);
+
+    /* important to do this - DSP primitives assume a bunch of state variables are 0 on first use */
+    struct _MP3DecInfo *decoder = self->decoder;
+    memset(decoder->FrameHeaderPS, 0, sizeof(FrameHeader));
+    memset(decoder->SideInfoPS, 0, sizeof(SideInfo));
+    memset(decoder->ScaleFactorInfoPS, 0, sizeof(ScaleFactorInfo));
+    memset(decoder->HuffmanInfoPS, 0, sizeof(HuffmanInfo));
+    memset(decoder->DequantInfoPS, 0, sizeof(DequantInfo));
+    memset(decoder->IMDCTInfoPS, 0, sizeof(IMDCTInfo));
+    memset(decoder->SubbandInfoPS, 0, sizeof(SubbandInfo));
+}
+
 void common_hal_audiomp3_mp3file_set_file(audiomp3_mp3file_obj_t *self, mp_obj_t stream) {
     background_callback_prevent();
 
@@ -409,23 +433,7 @@ void common_hal_audiomp3_mp3file_set_file(audiomp3_mp3file_obj_t *self, mp_obj_t
     self->other_channel = -1;
     mp3file_update_inbuf_half(self, true);
     mp3file_find_sync_word(self, true);
-    // It **SHOULD** not be necessary to do this; the buffer should be filled
-    // with fresh content before it is returned by get_buffer().  The fact that
-    // this is necessary to avoid a glitch at the start of playback of a second
-    // track using the same decoder object means there's still a bug in
-    // get_buffer() that I didn't understand.
-    memset(self->pcm_buffer[0], 0, MAX_BUFFER_LEN);
-    memset(self->pcm_buffer[1], 0, MAX_BUFFER_LEN);
-
-    /* important to do this - DSP primitives assume a bunch of state variables are 0 on first use */
-    struct _MP3DecInfo *decoder = self->decoder;
-    memset(decoder->FrameHeaderPS, 0, sizeof(FrameHeader));
-    memset(decoder->SideInfoPS, 0, sizeof(SideInfo));
-    memset(decoder->ScaleFactorInfoPS, 0, sizeof(ScaleFactorInfo));
-    memset(decoder->HuffmanInfoPS, 0, sizeof(HuffmanInfo));
-    memset(decoder->DequantInfoPS, 0, sizeof(DequantInfo));
-    memset(decoder->IMDCTInfoPS, 0, sizeof(IMDCTInfo));
-    memset(decoder->SubbandInfoPS, 0, sizeof(SubbandInfo));
+    mp3file_reset_decoder(self);
 
     MP3FrameInfo fi;
     bool result = mp3file_get_next_frame_info(self, &fi, true);
@@ -485,11 +493,12 @@ void audiomp3_mp3file_reset_buffer(audiomp3_mp3file_obj_t *self,
     // We don't reset the buffer index in case we're looping and we have an odd number of buffer
     // loads
     background_callback_prevent();
-    if (self->eof && stream_lseek(self->stream, SEEK_SET, 0) == 0) {
+    if (self->eof && stream_lseek(self->stream, 0, SEEK_SET) == 0) {
         INPUT_BUFFER_CLEAR(self->inbuf);
         self->eof = 0;
         self->samples_decoded = 0;
         self->other_channel = -1;
+        mp3file_reset_decoder(self);
         mp3file_skip_id3v2(self, false);
         mp3file_find_sync_word(self, false);
     }
