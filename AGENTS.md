@@ -114,8 +114,10 @@ of this repository in the parent workspace, same pattern as
   `--components-lib <checkout>/lib`); they are no longer in this tree. Slow
   (~30 min) and not part of the default gate, but **re-capture it after any
   DSP change here** or it stops meaning anything. The stored golden holds
-  seven pieces against the state of the workspace on 2026-09-03; the
-  soundtrack has grown since, and a piece the golden has never seen is
+  seven pieces. Each re-captured piece names the mpvst, audiocomponents and
+  audiodsp commits it was rendered from in its `captured_from`; a piece
+  without one is still the 2026-09-03 capture. The soundtrack has grown
+  since, and a piece the golden has never seen is
   reported as new rather than compared. A piece that cannot be rendered at all
   is reported and the run carries on — as of 2026-09-18 two of them cannot,
   because their effect racks predate audiocomponents' effects rebuild
