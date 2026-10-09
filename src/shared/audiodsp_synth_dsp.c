@@ -34,21 +34,51 @@ bool audiodsp_oscillator_fill(int32_t *output, const int16_t *waveform,
     uint32_t limit = waveform_end << frequency_shift;
     uint32_t span = limit - offset;
     uint32_t accum = *accumulator;
-    if (dds_rate > limit / 2) return false;
-    // Deviation from CircuitPython: it wraps on `accum > limit`, which lets an
-    // accumulator landing exactly on the loop end index waveform[waveform_end]
-    // - one past the samples it may read, and off the end of the buffer
-    // entirely for a note looping the whole waveform. Any table advancing an
-    // exact number of samples per frame hits it, so a render's output depended
-    // on whatever the allocator had left after the array. The playable index
-    // range is [waveform_start, waveform_end), so wrap on `>=`.
-    // See docs/upstream-diff.md.
-    if (accum >= limit) accum = offset + (accum - offset) % span;
+    // As CircuitPython 11.0.0-alpha.1 has it (904e7a7a55): the rate is worked
+    // out from the loop's length, so Nyquist is half the loop, not half the
+    // whole waveform. A note past it is not played.
+    if (dds_rate > span / 2) return false;
+    // Wrap on `>=`: the playable index range is [waveform_start,
+    // waveform_end), and `>` read one sample past the loop (d02aed45a4).
+    if (accum >= limit) accum = accum < offset ? offset : offset + (accum - offset) % span;
 
     for (uint16_t i = 0; i < duration; i++) {
         accum += dds_rate;
         if (accum >= limit) accum -= span;
         output[i] = waveform[accum >> frequency_shift];
+    }
+    *accumulator = accum;
+    return true;
+}
+
+// The ring modulator: a second oscillator multiplied into the voice the main
+// one rendered, before the filter. Both bindings call this, so they cannot
+// drift apart. As CircuitPython 11.0.0-alpha.1 has it (904e7a7a55):
+// - Nyquist is half the ring's own loop. 10.3.0 compared the rate with the
+//   main waveform's limit, so a ring past its own Nyquist could play and one
+//   inside it could be dropped.
+// - The product is formed in 32 bits and clamped. Two troughs give
+//   -32768 * -32768 / 32768 = +32768, which narrowed to int16_t was -32768, a
+//   full-scale sign flip.
+// The accumulator advances before the sample is read, as in the main
+// oscillator. Returns false, touching nothing, when the ring is not played.
+bool audiodsp_ring_modulate(int32_t *voice, const int16_t *ring,
+    uint32_t ring_start, uint32_t ring_end, uint32_t dds_rate,
+    uint32_t *accumulator, uint16_t duration, uint8_t frequency_shift) {
+    uint32_t offset = ring_start << frequency_shift;
+    uint32_t limit = ring_end << frequency_shift;
+    uint32_t span = limit - offset;
+    if (dds_rate > span / 2) return false;
+    uint32_t accum = *accumulator;
+    if (accum >= limit) accum = accum < offset ? offset : offset + (accum - offset) % span;
+
+    for (uint16_t i = 0; i < duration; i++) {
+        accum += dds_rate;
+        if (accum >= limit) accum -= span;
+        // Upstream declares the index int16_t; this is identical for every
+        // table synthio accepts (16384 samples at most) and cannot overflow.
+        int32_t product = (ring[accum >> frequency_shift] * voice[i]) / 32768;
+        voice[i] = product > 32767 ? 32767 : product;
     }
     *accumulator = accum;
     return true;

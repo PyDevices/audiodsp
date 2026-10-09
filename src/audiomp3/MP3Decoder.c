@@ -569,8 +569,9 @@ audioio_get_buffer_result_t audiomp3_mp3file_get_buffer(audiomp3_mp3file_obj_t *
         if (self->eof || (err != ERR_MP3_INDATA_UNDERFLOW && err != ERR_MP3_MAINDATA_UNDERFLOW)) {
             memset(buffer, 0, self->base.max_buffer_length);
             *buffer_length = 0;
+            bool underflow = (err == ERR_MP3_INDATA_UNDERFLOW || err == ERR_MP3_MAINDATA_UNDERFLOW);
             self->eof = true;
-            return GET_BUFFER_ERROR;
+            return underflow ? GET_BUFFER_DONE : GET_BUFFER_ERROR;
         }
     }
 
@@ -595,14 +596,14 @@ audioio_get_buffer_result_t audiomp3_mp3file_get_buffer(audiomp3_mp3file_obj_t *
     return result;
 }
 
-float common_hal_audiomp3_mp3file_get_rms_level(audiomp3_mp3file_obj_t *self) {
-    float sumsq = 0.f;
+mp_float_t common_hal_audiomp3_mp3file_get_rms_level(audiomp3_mp3file_obj_t *self) {
+    mp_float_t sumsq = MICROPY_FLOAT_CONST(0.0);
     // Assumes no DC component to the audio.  Is that a safe assumption?
     int16_t *buffer = (int16_t *)(void *)self->pcm_buffer[self->buffer_index];
     for (size_t i = 0; i < self->base.max_buffer_length / sizeof(int16_t); i++) {
-        sumsq += (float)buffer[i] * buffer[i];
+        sumsq += (mp_float_t)buffer[i] * buffer[i];
     }
-    return sqrtf(sumsq) / (self->base.max_buffer_length / sizeof(int16_t));
+    return MICROPY_FLOAT_C_FUN(sqrt)(sumsq) / (self->base.max_buffer_length / sizeof(int16_t));
 }
 
 uint32_t common_hal_audiomp3_mp3file_get_samples_decoded(audiomp3_mp3file_obj_t *self) {
@@ -700,12 +701,7 @@ MP_PROPERTY_GETSET(audiomp3_mp3file_file_obj,
 static mp_obj_t audiomp3_mp3file_obj_get_rms_level(mp_obj_t self_in) {
     audiomp3_mp3file_obj_t *self = MP_OBJ_TO_PTR(self_in);
     check_for_deinit(self);
-    // Deviation from upstream: explicit cast. common_hal_..._get_rms_level
-    // returns C `float`; mp_obj_new_float takes mp_float_t (double on every
-    // build in this workspace, see docs/porting-plan.md's mp_float_t note),
-    // so the implicit widening trips -Wdouble-promotion -Werror under
-    // emscripten (phase 8d) though not unix/windows.
-    return mp_obj_new_float((mp_float_t)common_hal_audiomp3_mp3file_get_rms_level(self));
+    return mp_obj_new_float(common_hal_audiomp3_mp3file_get_rms_level(self));
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audiomp3_mp3file_get_rms_level_obj, audiomp3_mp3file_obj_get_rms_level);
 

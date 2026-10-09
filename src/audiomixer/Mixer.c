@@ -181,10 +181,8 @@ static mp_obj_t audiomixer_mixer_obj_play(size_t n_args, const mp_obj_t *pos_arg
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    uint8_t v = args[ARG_voice].u_int;
-    if (v > (self->voice_count - 1)) {
-        mp_arg_error_invalid(MP_QSTR_voice);
-    }
+    uint8_t v = mp_arg_validate_int_range(args[ARG_voice].u_int, 0, self->voice_count - 1,
+        MP_QSTR_voice);
     audiomixer_mixervoice_obj_t *voice = MP_OBJ_TO_PTR(self->voice[v]);
     mp_obj_t sample = args[ARG_sample].u_obj;
     common_hal_audiomixer_mixervoice_play(voice, sample, args[ARG_loop].u_bool);
@@ -203,10 +201,8 @@ static mp_obj_t audiomixer_mixer_obj_stop_voice(size_t n_args, const mp_obj_t *p
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    uint8_t v = args[ARG_voice].u_int;
-    if (v > (self->voice_count - 1)) {
-        mp_arg_error_invalid(MP_QSTR_voice);
-    }
+    uint8_t v = mp_arg_validate_int_range(args[ARG_voice].u_int, 0, self->voice_count - 1,
+        MP_QSTR_voice);
     audiomixer_mixervoice_obj_t *voice = MP_OBJ_TO_PTR(self->voice[v]);
     common_hal_audiomixer_mixervoice_stop(voice);
     return mp_const_none;
@@ -453,7 +449,7 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                             word_buffer[i] = mult16signed(word, active_lo_level, active_hi_level);
                         }
                     } else {
-                        for (uint32_t i = 0; i < n; i += 2) {
+                        for (uint32_t i = 0; i + 1 < n; i += 2) {
                             uint32_t word = src[i >> 1];
                             uint32_t word_lsb = copy16lsb(word);
                             audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);

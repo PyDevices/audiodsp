@@ -2895,7 +2895,8 @@ static PyObject *audiodsp_ring_multiply_i32(PyObject *module, PyObject *args) {
     if (!PyArg_ParseTuple(args, "y*OIIII:ring_multiply_i32", &voice,
         &waveform_object, &accumulator, &dds_rate, &waveform_start,
         &waveform_end)) return NULL;
-    if (voice.len % sizeof(int32_t)) {
+    if (voice.len % sizeof(int32_t) ||
+        voice.len / sizeof(int32_t) > UINT16_MAX) {
         PyBuffer_Release(&voice);
         PyErr_SetString(PyExc_ValueError, "invalid ring voice buffer");
         return NULL;
@@ -2924,32 +2925,13 @@ static PyObject *audiodsp_ring_multiply_i32(PyObject *module, PyObject *args) {
     }
     memcpy(PyBytes_AS_STRING(data), voice.buf, (size_t)voice.len);
 
-    // Mirrors the ring stage of the MicroPython usermod's
-    // synth_note_into_buffer() exactly, including two details that are easy
-    // to lose: the accumulator advances BEFORE the sample is read, and the
-    // product is narrowed to int16 before it goes back into the int32 voice
-    // buffer. Dropping either makes the ring sound close but not identical.
-    const int16_t *ring = (const int16_t *)waveform.buf;
-    int32_t *out = (int32_t *)PyBytes_AS_STRING(data);
-    uint32_t offset = waveform_start << 16;
-    uint32_t lim = waveform_end << 16;
-    uint32_t span = lim - offset;
+    // The same shared stage the MicroPython usermod's synth_note_into_buffer()
+    // calls. A ring past its own Nyquist leaves the voice and the accumulator
+    // as they were, as the usermod does.
     uint32_t accum = accumulator;
-    if (accum >= lim) {
-        accum = offset + (accum - offset) % span;
-    }
-    for (Py_ssize_t i = 0; i < duration; i++) {
-        accum += dds_rate;
-        if (accum >= lim) {
-            accum -= span;
-        }
-        // The usermod declares this index int16_t; a wider type is used here
-        // because it is identical for every table below 32768 samples and
-        // avoids signed overflow above that.
-        uint32_t index = accum >> 16;
-        int16_t narrowed = (int16_t)((ring[index] * out[i]) / 32768);
-        out[i] = narrowed;
-    }
+    (void)audiodsp_ring_modulate((int32_t *)PyBytes_AS_STRING(data),
+        (const int16_t *)waveform.buf, waveform_start, waveform_end, dds_rate,
+        &accum, (uint16_t)duration, 16);
     PyBuffer_Release(&waveform);
     PyBuffer_Release(&voice);
     return Py_BuildValue("(NI)", data, accum);

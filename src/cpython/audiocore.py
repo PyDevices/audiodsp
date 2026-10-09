@@ -39,6 +39,22 @@ class _AudioSample:
         if getattr(self, "_deinited", False):
             raise_deinited_error()
 
+    # The setter every native sample shares refuses a rate below 1, as
+    # CircuitPython 11's does (b34aa34c19): a rate is a divisor, and the
+    # setter could otherwise undo the constructor's own check.
+    @property
+    def sample_rate(self):
+        try:
+            return object.__getattribute__(self, "__dict__")["_sample_rate"]
+        except KeyError:
+            raise AttributeError("sample_rate") from None
+
+    @sample_rate.setter
+    def sample_rate(self, value):
+        if value < 1:
+            raise ValueError("sample_rate must be at least 1")
+        self.__dict__["_sample_rate"] = value
+
     def deinit(self):
         if object.__getattribute__(self, "__dict__").get("_deinited", False):
             return
@@ -100,6 +116,15 @@ RawSample = _audiodsp.RawSample
 
 class WaveFile(_AudioSample):
     def __init__(self, file, buffer=None):
+        if buffer is not None:
+            # The native binding's checks. Each half has to hold whole 32-bit
+            # words, so the length is a multiple of 8 (CircuitPython 11,
+            # bd9b603c9c).
+            size = memoryview(buffer).nbytes
+            if not 8 <= size <= 1024:
+                raise ValueError("buffer length must be 8-1024")
+            if size % 8:
+                raise ValueError("Buffer must be a multiple of 8 bytes")
         self._file_owner = file
         self._stream = open(file, "rb") if isinstance(file, (str, bytes)) else file
         self._close_stream = self._stream is not file

@@ -17,7 +17,8 @@
 // produced a genuinely wrong `soft_clip` value -- and every real
 // CircuitPython board is 32-bit ARM, not x86-64, so the byte-exact-on-unix
 // result was the unrepresentative case, not the type-pun's "real" upstream
-// behavior. Fixed to `.u_bool` here. The unsigned-16-bit silence fill and
+// behavior. Fixed to `.u_bool` here, as upstream has it since
+// 11.0.0-alpha.1 (cb2cdbb129). The unsigned-16-bit silence fill and
 // the hard clip's upper bound follow upstream's 6dddbda87 (11.0.0-alpha.1),
 // which fixed both after 10.3.0.
 //
