@@ -163,6 +163,13 @@ PROBES = (
     # A mixer voice borrowing a mono tap's buffer, a looping voice over a
     # double-buffered RawSample, and a Port's pass-through (audiodsp#178).
     ("route_borrow_probe.py", "audioroute", {}, None),
+    # A host reset of a Mixer keeps its voices where they are (audiodsp#178).
+    ("mixer_reset_probe.py", "audiomixer",
+     {"circuitpython": "CircuitPython's own Mixer stops every voice on a "
+                       "reset, which this port deliberately does not - "
+                       "docs/upstream-diff.md, \"Resetting a Mixer silenced "
+                       "it\""},
+     None),
     ("tank_probe.py", "audioverb", {}, None),
     # The node's own state: Tone out and back through 0 (#168) and the
     # network re-cut in place on a playing node (#169). Its own file, so the

@@ -195,7 +195,8 @@ reason, and a resync should not take them.
   `Note.filter` takes a tuple of `Biquad`s as a serial cascade
   ([extension](upstream-diff.md#extension-notefilter-accepts-a-serial-biquad-cascade-2026-09-01)).
   `from_file` opens a path as well as a file. `lfo_tick()` is always built.
-- **audiomixer**: a reset rewinds the voices instead of stopping them
+- **audiomixer**: a reset keeps every voice playing where it was instead of
+  stopping them
   ([why](upstream-diff.md#resetting-a-mixer-silenced-it-permanently-audioeffects-tier)).
   A voice at level 1.0 is a wire
   ([why](upstream-diff.md#a-voice-at-level-10-is-a-wire-audiodsp95)).
