@@ -27,6 +27,11 @@ typedef struct {
     uint32_t right_read_count;
 
     uint8_t voice_count;
+    // True while this mixer is inside its own get_buffer. A graph that leads
+    // back into the mixer (Mixer -> Port -> Mixer) is refused at the second
+    // entry rather than mixing a voice the outer pull is still using
+    // (audiodsp#178).
+    bool in_pull;
     mp_obj_tuple_t *voice_tuple;
     mp_obj_t voice[];
 } audiomixer_mixer_obj_t;

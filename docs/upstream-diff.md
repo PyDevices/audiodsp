@@ -1555,6 +1555,19 @@ buffer — for each voice that is still playing. A stopped voice stays stopped.
 Every committed parity fixture still matches its recorded hash, because none
 of them reset a Mixer with voices playing.
 
+**Since audiodsp#178 a reset keeps the voices where they are** instead of
+rewinding them. Rewinding came first; then the rule every node here follows on
+a host reset was settled (audiodsp#181): clear what the node holds of its own,
+and keep the source frames it has already taken, because the source was not
+reset. A Mixer holds nothing of its own that a reset should clear, so its
+reset is now a no-op. Rewinding had two costs the rule names: a voice over a
+`RawSample`, which hands out its whole buffer at once, started the sample
+again from its top, and a voice over a source that can't rewind, such as a
+`SplitterTap`, lost the frames it was holding when the priming fetch replaced
+them. `MixerVoice.play()` still starts its source from the top, as a new
+source should. `tests/parity/mixer_reset_probe.py` holds a reset Mixer to the
+bytes of one never reset.
+
 **Not applied to the CircuitPython target.** `apply_cp_patches.sh` only adds
 modules; the one CircuitPython source it rewrites is `audiocore.get_buffer`'s
 return type, which the parity harness needs to compare like with like. Fixing

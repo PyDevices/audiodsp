@@ -74,6 +74,7 @@ void common_hal_audiomixer_mixer_construct(audiomixer_mixer_obj_t *self,
     uint8_t channel_count,
     uint32_t sample_rate) {
     self->len = buffer_size / 2 / sizeof(uint32_t) * sizeof(uint32_t);
+    self->in_pull = false;
 
     self->first_buffer = m_malloc(self->len);
     if (self->first_buffer == NULL) {
@@ -226,16 +227,25 @@ static MP_DEFINE_CONST_DICT(audiomixer_mixer_locals_dict, audiomixer_mixer_local
 
 // --- mixdown engine (shared-module) -------------------------------------
 
-// Deviation from upstream, which stops every voice here instead of rewinding
-// them -- see docs/upstream-diff.md, "Resetting a Mixer silenced it". Anything
-// that pulls from a Mixer resets it first (every effect's play() does), so
-// upstream's version makes a Mixer feeding an effect render silence forever.
+// Deviation from upstream, which stops every voice here -- see
+// docs/upstream-diff.md, "Resetting a Mixer silenced it". Anything that pulls
+// from a Mixer resets it first (every effect's play() does), so upstream's
+// version makes a Mixer feeding an effect render silence forever.
+//
+// A host reset keeps every voice as it is: its source, and the frames it has
+// already taken from it. That is the rule every node here follows on a reset
+// (audiodsp#181): clear what the node holds of its own and keep the source
+// frames, because the source was not reset. A Mixer holds nothing of its own
+// that a reset should clear. It used to rewind each voice's source and fetch
+// again, which dropped the frames a voice held and played a rewindable source
+// from its top (audiodsp#178). `MixerVoice.play()` still starts its source
+// from the top, as a new source should.
 void audiomixer_mixer_reset_buffer(audiomixer_mixer_obj_t *self,
     bool single_channel_output,
     uint8_t channel) {
-    for (uint8_t i = 0; i < self->voice_count; i++) {
-        common_hal_audiomixer_mixervoice_reset(self->voice[i]);
-    }
+    (void)self;
+    (void)single_channel_output;
+    (void)channel;
 }
 
 static inline uint32_t add16signed(uint32_t a, uint32_t b) {
@@ -608,6 +618,19 @@ audioio_get_buffer_result_t audiomixer_mixer_get_buffer(audiomixer_mixer_obj_t *
     uint8_t channel,
     uint8_t **buffer,
     uint32_t *buffer_length) {
+    // The loop guard. A mixer pulled from inside its own pull is a ring in
+    // the graph, and mixing on would let the inner pull rewrite the voice the
+    // outer one is part way through (a crash on a desktop build). Until a
+    // host reset stopped rewinding the voices, the ring was caught on that
+    // rewind instead, at the Port's guard; now it reaches the pull, and is
+    // refused here the same way the Port refuses it: the fault register says
+    // why, and the consumer turns GET_BUFFER_ERROR into silence.
+    if (self->in_pull) {
+        audiodsp_pump_fault_set(AUDIODSP_PUMP_FAULT_LOOP);
+        *buffer = NULL;
+        *buffer_length = 0;
+        return GET_BUFFER_ERROR;
+    }
     if (!single_channel_output) {
         channel = 0;
     }
@@ -632,6 +655,7 @@ audioio_get_buffer_result_t audiomixer_mixer_get_buffer(audiomixer_mixer_obj_t *
         bool voices_active = false;
         uint32_t length = self->len / sizeof(uint32_t);
 
+        self->in_pull = true;
         for (int32_t v = 0; v < self->voice_count; v++) {
             audiomixer_mixervoice_obj_t *voice = MP_OBJ_TO_PTR(self->voice[v]);
             if (voice->sample) {
@@ -639,6 +663,7 @@ audioio_get_buffer_result_t audiomixer_mixer_get_buffer(audiomixer_mixer_obj_t *
                 voices_active = true;
             }
         }
+        self->in_pull = false;
 
         if (!voices_active) {
             for (uint32_t i = 0; i < length; i++) {
