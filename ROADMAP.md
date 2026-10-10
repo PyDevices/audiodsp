@@ -3,11 +3,6 @@
 audiodsp is heading toward more of the audio graph on more boards, with the
 audio pump holding up under live use such as a stompbox or a stage rig.
 
-## Next
-
-- Patch changes that take longer than the audio ring fade out and back in,
-  rather than holding the audio while a new effect or rack is built.
-
 ## Later
 
 - `Convolver.load()` on a playing node keeps the audio in flight and
