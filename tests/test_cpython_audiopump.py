@@ -182,6 +182,32 @@ class ParkStopAndRetarget(Base):
         self.assertEqual(audiopump.service(10) >> audiopump.SERVICE_SHIFT, 10)
         self.assertTrue(audiopump.running())
 
+    def test_a_fading_retarget_ramps_out_then_in(self):
+        # The native pump's ramps, to the sample: the old tail's next block
+        # down to silence, then the new tail's first block up from it.
+        def flat(level, frames=256):
+            return audiocore.RawSample(array("h", [level] * frames * 2),
+                                       sample_rate=RATE, channel_count=2)
+
+        def ramp(level, n, up):
+            return [(level * (((k + 1) << 15) // n if up else
+                              (32768 * (n - 1 - k)) // n)) >> 15
+                    for k in range(n)]
+
+        old, new = flat(8000), flat(-6000)
+        audiopump.spawn(old, 1000, status(), ring=bytearray(65536), loop=True)
+        audiopump.service(2)
+        self.assertFalse(audiopump.retarget(new, loop=True, fade=True))
+        audiopump.service(4)
+        out = bytearray(65536)
+        got = array("h", bytes(out[:audiopump.drain(out)]))
+        frames = list(got[::2])
+        self.assertEqual(frames[:512], [8000] * 512)
+        self.assertEqual(frames[512:1024],
+                         ramp(8000, 256, False) + ramp(-6000, 256, True))
+        self.assertEqual(frames[1024:], [-6000] * (len(frames) - 1024))
+        self.assertEqual(audiopump.fades(), (1, 0, 0))
+
     def test_a_released_tail_is_a_fault_not_an_exception(self):
         mixer, _source = graph()
         block = status()
