@@ -1,3 +1,17 @@
+## v0.6.5 (2026-10-10)
+
+- ROADMAP: the patch-change fade has landed (#234) (#235)
+- audiopump: a swap that outlasts the ring fades out and back in (park and retarget take fade=) (#234)
+- A set() lands whole: options are staged off the lock and swapped in at once (#109) (#233)
+- Re-capture the render reference for Perihelion, Automata and ShimmerLab, and record what each capture came from (#232)
+- Re-pin the CircuitPython 11.0.0-alpha.1 oracle, rebuilt with audiodsp at 12cf627 (#231)
+- audiomixer: a host reset keeps every voice where it was (#178) (#229)
+- Delay nodes: one lifecycle matrix, and the two things it found (#218) (#226)
+- audioroute: a mono tap's buffer is the tap's own on CPython too, and Port gets its tests (#178) (#228)
+- audioverb.Tank: a filter or the modulation brought back from 0 starts from what is playing (#207) (#227)
+- Correctness standard: a setting derived through libm differs on the boards, and that is audiodsp#183 (#230)
+- audiodsp_trig: reduce angles without fmod, so CircuitPython links on the RP2040 (#210) (#225)
+
 ## v0.6.5.dev1 (2026-10-09)
 
 - audiodelays.PitchShift: freeze, from CircuitPython 11.0.0-alpha.1 (#222)
