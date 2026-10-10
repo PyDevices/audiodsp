@@ -52,44 +52,38 @@ static void feedback_delay_check_one_delay(const mp_map_t *kw) {
 // `sample_rate` and `max_delay_ms` rather than from the table above. The
 // object is kept on the instance because the config only *borrows* the
 // samples: a table the collector took would be read as whatever landed on it
-// next.
-//
-// Every write to the config is made under the pump lock, one option at a
-// time, because a pull on the pump's thread reads the config: an option
-// derives several fields from its value, and a pull between two of them
-// would play one block with half of the change (audiodsp#177). What can raise
-// -- reading the value, refusing a shape -- happens outside the lock.
-static void feedback_delay_set_shape(audioecho_feedback_delay_obj_t *self,
+// next. It is checked into `next` here and kept by the caller, at the swap.
+static mp_obj_t feedback_delay_stage_shape(audiodsp_feedback_delay_config_t *next,
     mp_obj_t value) {
     if (value == mp_const_none) {
-        audiodsp_pump_lock_acquire();
-        audiodsp_feedback_delay_set_wow_shape(&self->config, NULL, 0);
-        self->wow_shape = MP_OBJ_NULL;
-        audiodsp_pump_lock_release();
-        return;
+        audiodsp_feedback_delay_set_wow_shape(next, NULL, 0);
+        return MP_OBJ_NULL;
     }
     mp_buffer_info_t info;
     mp_get_buffer_raise(value, &info, MP_BUFFER_READ);
-    bool taken = false;
-    if (info.len % sizeof(int16_t) == 0) {
-        audiodsp_pump_lock_acquire();
-        taken = audiodsp_feedback_delay_set_wow_shape(&self->config,
+    if (info.len % sizeof(int16_t) != 0 ||
+        !audiodsp_feedback_delay_set_wow_shape(next,
             (const int16_t *)info.buf,
-            (uint32_t)(info.len / sizeof(int16_t)));
-        if (taken) {
-            self->wow_shape = value;
-        }
-        audiodsp_pump_lock_release();
-    }
-    if (!taken) {
+            (uint32_t)(info.len / sizeof(int16_t)))) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "wow_shape must be 2 to 4096 int16 samples, a power of two"));
     }
+    return value;
 }
 
+// A pull on the pump's thread reads the config, and an option derives several
+// fields from its value. So every option -- and the shape -- is read, checked
+// and applied to a copy first, where raising is free, and the finished copy
+// goes in with one store under the lock. Taking the lock once per option
+// (audiodsp#177) kept each option whole, but a pull could still land between
+// two options of one call and play a block of half of it (audiodsp#109); and a
+// bad keyword after a good one left the good one applied.
 static void feedback_delay_apply_kwargs(audioecho_feedback_delay_obj_t *self,
-    const mp_map_t *kw) {
+    const mp_map_t *kw, bool live) {
     feedback_delay_check_one_delay(kw);
+    audiodsp_feedback_delay_config_t next = self->config;
+    bool shaped = false;
+    mp_obj_t shape = MP_OBJ_NULL;
     for (size_t i = 0; i < kw->alloc; ++i) {
         if (!mp_map_slot_is_filled(kw, i)) {
             continue;
@@ -100,7 +94,8 @@ static void feedback_delay_apply_kwargs(audioecho_feedback_delay_obj_t *self,
             continue;
         }
         if (name == MP_QSTR_wow_shape) {
-            feedback_delay_set_shape(self, kw->table[i].value);
+            shape = feedback_delay_stage_shape(&next, kw->table[i].value);
+            shaped = true;
             continue;
         }
         float value = (float)mp_obj_get_float(kw->table[i].value);
@@ -108,10 +103,8 @@ static void feedback_delay_apply_kwargs(audioecho_feedback_delay_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(feedback_delay_option_names); ++option) {
             if (feedback_delay_option_names[option].name == name) {
-                audiodsp_pump_lock_acquire();
-                audiodsp_feedback_delay_configure(&self->config,
+                audiodsp_feedback_delay_configure(&next,
                     feedback_delay_option_names[option].option, value);
-                audiodsp_pump_lock_release();
                 known = true;
                 break;
             }
@@ -120,6 +113,18 @@ static void feedback_delay_apply_kwargs(audioecho_feedback_delay_obj_t *self,
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown FeedbackDelay option '%q'"), name);
         }
+    }
+    // `live` is false from the constructor: nothing can be pulling a node
+    // that does not exist yet.
+    if (live) {
+        audiodsp_pump_lock_acquire();
+    }
+    self->config = next;
+    if (shaped) {
+        self->wow_shape = shape;
+    }
+    if (live) {
+        audiodsp_pump_lock_release();
     }
 }
 
@@ -182,7 +187,7 @@ static mp_obj_t audioecho_feedback_delay_make_new(const mp_obj_type_t *type,
     audiodsp_feedback_delay_configure(&self->config,
         AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_MS, (float)max_delay_ms * 0.5f);
 
-    feedback_delay_apply_kwargs(self, &kw_map);
+    feedback_delay_apply_kwargs(self, &kw_map, false);
     audiodsp_feedback_delay_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
@@ -208,7 +213,7 @@ static mp_obj_t audioecho_feedback_delay_set(size_t n_args,
     audioecho_feedback_delay_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     audiosample_check_for_deinit(&self->base);
     (void)n_args;
-    feedback_delay_apply_kwargs(self, kw_args);
+    feedback_delay_apply_kwargs(self, kw_args, true);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioecho_feedback_delay_set_obj, 1,

@@ -76,7 +76,10 @@ static uint32_t tank_read_floats(mp_obj_t sequence, float *out, uint32_t max) {
     return count;
 }
 
-static void tank_apply_kwargs(audioverb_tank_obj_t *self, const mp_map_t *kw) {
+// Applies the float options to `config`, which is never the running one once
+// the node exists: set() stages them into a copy and swaps it in whole.
+static void tank_apply_kwargs(audiodsp_tank_config_t *config,
+    const mp_map_t *kw) {
     for (size_t i = 0; i < kw->alloc; ++i) {
         if (!mp_map_slot_is_filled(kw, i)) {
             continue;
@@ -90,7 +93,7 @@ static void tank_apply_kwargs(audioverb_tank_obj_t *self, const mp_map_t *kw) {
         for (size_t option = 0; option < MP_ARRAY_SIZE(tank_option_names);
              ++option) {
             if (tank_option_names[option].name == name) {
-                audiodsp_tank_configure(&self->config,
+                audiodsp_tank_configure(config,
                     tank_option_names[option].option, value);
                 known = true;
                 break;
@@ -180,7 +183,7 @@ static mp_obj_t audioverb_tank_make_new(const mp_obj_type_t *type,
     memset(lines, 0, (size_t)samples * sizeof(int16_t));
     audiodsp_tank_state_init(&self->state, &self->config, lines);
 
-    tank_apply_kwargs(self, &kw_map);
+    tank_apply_kwargs(&self->config, &kw_map);
     audiodsp_tank_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
@@ -238,7 +241,9 @@ static void tank_check_options(const mp_map_t *kw) {
     }
 }
 
-static void tank_recut(audioverb_tank_obj_t *self, mp_obj_t delays,
+// Reads `delays` and `taps` and re-cuts `next` from them. Raises on anything
+// it refuses, before anything running has changed.
+static void tank_stage_recut(audiodsp_tank_config_t *next, mp_obj_t delays,
     mp_obj_t taps) {
     uint32_t frames[AUDIODSP_TANK_LINES];
     uint32_t frame_count = 0;
@@ -256,33 +261,18 @@ static void tank_recut(audioverb_tank_obj_t *self, mp_obj_t delays,
             AUDIODSP_TANK_MAX_TAPS * 4u);
     }
     audiodsp_tank_config_t recut;
-    tank_raise_status(audiodsp_tank_recut(&recut, &self->config,
+    tank_raise_status(audiodsp_tank_recut(&recut, next,
         delays != MP_OBJ_NULL ? frames : NULL, frame_count,
         taps != MP_OBJ_NULL ? tap_values : NULL, tap_count));
-    const uint32_t old_samples = audiodsp_tank_buffer_samples(&self->config);
-    const uint32_t samples = audiodsp_tank_buffer_samples(&recut);
-    int16_t *old_lines = self->state.lines[0];
-    int16_t *lines = old_lines;
-    if (samples != old_samples) {
-        // Allocated and cleared before the pump is held off, so a refused
-        // allocation leaves the node as it was, and the pump waits only for
-        // the swap.
-        lines = m_malloc((size_t)samples * sizeof(int16_t));
-        memset(lines, 0, (size_t)samples * sizeof(int16_t));
-    }
-    audiodsp_pump_lock_acquire();
-    self->config = recut;
-    if (lines == old_lines) {
-        // The same size: cleared where it is, under the lock, as clear() is.
-        memset(lines, 0, (size_t)samples * sizeof(int16_t));
-    }
-    audiodsp_tank_state_init(&self->state, &self->config, lines);
-    audiodsp_pump_lock_release();
-    if (lines != old_lines) {
-        m_del(int16_t, old_lines, old_samples);
-    }
+    *next = recut;
 }
 
+// One call, one swap. The re-cut, every float option and the finish are all
+// staged into a copy of the config -- with the new lines allocated and cleared
+// -- before the pump is held off, so a pull sees the whole call or none of it
+// (audiodsp#109) and a refused keyword or allocation leaves the node as it
+// was. Until this, the options were written straight into the running config
+// with no lock at all and only the finish was held.
 static mp_obj_t audioverb_tank_set(size_t n_args, const mp_obj_t *args,
     mp_map_t *kw_args) {
     audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(args[0]);
@@ -293,14 +283,40 @@ static mp_obj_t audioverb_tank_set(size_t n_args, const mp_obj_t *args,
         mp_map_lookup(kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_delays), MP_MAP_LOOKUP);
     mp_map_elem_t *taps =
         mp_map_lookup(kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_taps), MP_MAP_LOOKUP);
-    if (delays != NULL || taps != NULL) {
-        tank_recut(self, delays != NULL ? delays->value : MP_OBJ_NULL,
+    const bool recut = delays != NULL || taps != NULL;
+    audiodsp_tank_config_t next = self->config;
+    if (recut) {
+        tank_stage_recut(&next, delays != NULL ? delays->value : MP_OBJ_NULL,
             taps != NULL ? taps->value : MP_OBJ_NULL);
     }
-    tank_apply_kwargs(self, kw_args);
+    tank_apply_kwargs(&next, kw_args);
+    audiodsp_tank_config_finish(&next);
+    const uint32_t old_samples = audiodsp_tank_buffer_samples(&self->config);
+    const uint32_t samples = audiodsp_tank_buffer_samples(&next);
+    int16_t *old_lines = self->state.lines[0];
+    int16_t *lines = old_lines;
+    if (recut && samples != old_samples) {
+        // Allocated and cleared before the pump is held off, so a refused
+        // allocation leaves the node as it was, and the pump waits only for
+        // the swap.
+        lines = m_malloc((size_t)samples * sizeof(int16_t));
+        memset(lines, 0, (size_t)samples * sizeof(int16_t));
+    }
     audiodsp_pump_lock_acquire();
-    audiodsp_tank_config_finish(&self->config);
+    self->config = next;
+    if (recut) {
+        // A re-cut network starts empty, exactly as a newly built node's
+        // does (audiodsp#169). The same size is cleared where it is, under
+        // the lock, as clear() is.
+        if (lines == old_lines) {
+            memset(lines, 0, (size_t)samples * sizeof(int16_t));
+        }
+        audiodsp_tank_state_init(&self->state, &self->config, lines);
+    }
     audiodsp_pump_lock_release();
+    if (lines != old_lines) {
+        m_del(int16_t, old_lines, old_samples);
+    }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioverb_tank_set_obj, 1,

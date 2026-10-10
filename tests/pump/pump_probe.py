@@ -3,9 +3,10 @@
     <interpreter> tests/pump/pump_probe.py [case ...] [--fault WHICH]
 
 Cases: ``identity``, ``alloc``, ``storm``, ``driver``, ``unpumpable``,
-``swap``, ``writes`` (all by default).
+``swap``, ``writes``, ``tear`` (all by default).
 Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
-``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap, writes). Each one must make this exit non-zero; a probe whose
+``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap, writes),
+``split`` (tear). Each one must make this exit non-zero; a probe whose
 failing mode is never run is not a gate.
 
 Runs on a MicroPython build carrying this repository as a usermod -- the one
@@ -68,6 +69,24 @@ What each case is for
     reading them, and the rest wrote what a pull reads with no lock at all
     (audiodsp#177). ``--fault unlocked`` writes ``mix`` instead, which takes
     no lock, and must fail. Skipped on CPython, as ``swap`` is.
+
+``tear``    One ``set()`` is one change. The six nodes whose ``set()``
+    takes a table of options -- ``Waveshaper``, ``Ladder``, ``Bank``,
+    ``Dynamics``, ``FeedbackDelay`` and ``Tank`` -- used to write each option
+    into the running config as it was read, so a pull landing between two
+    options of one call played a block of a filter nobody asked for: a click
+    (audiodsp#109). The pull is put exactly there, on every build: the second
+    option's value is an object whose ``__float__`` pulls a block from the
+    node, which is the moment the pump's thread would land. That block must
+    be the one a twin with the same history renders with the whole OLD
+    setting. Each class first shows the first option alone changes the block,
+    so a match is not a comparison the material cannot fail. A ``set()`` that
+    raises on a bad keyword must change nothing at all. Where the pump has a
+    thread, a stateless ``Waveshaper`` is then flipped between two settings
+    while the pump pulls it, and every sample must belong to one setting or
+    the other. ``--fault split`` applies the first option in a call of its
+    own -- the shape of the old code -- and must fail. Skipped on CPython,
+    whose extension has no pump.
 """
 
 import gc
@@ -86,8 +105,13 @@ import audiodelays
 import audioecho
 import audiofilters
 import audiofreeverb
+import audiodynamics
 import audiomixer
+import audiomodal
 import audiopump
+import audioladder
+import audioshaper
+import audioverb
 import synthio
 from array import array
 
@@ -655,9 +679,196 @@ def writes(fault):
     return ok
 
 
+# --- tear ------------------------------------------------------------------
+
+
+class _Midway:
+    """A value whose float conversion pulls a block from `node` first -- the
+    moment a pull on the pump's thread lands in the middle of a set()."""
+
+    def __init__(self, node, value):
+        self.node = node
+        self.value = value
+        self.block = None
+
+    def __float__(self):
+        self.block = bytes(audiocore.get_buffer(self.node)[1])
+        return self.value
+
+
+_LINEAR = array("h", [-32767, 32767])
+
+
+def _tear_nodes():
+    """(name, build, set): building twice gives two nodes with identical
+    history. `set(node, **extra)` calls set() with a first option and then
+    `extra`, as literal keywords, because a keyword call keeps its order and a
+    `**dict` does not: MicroPython's dict is unordered, and a probe that splat
+    one put the hook ahead of the option it was meant to follow on five of six
+    classes, and passed the unfixed code."""
+    def shaper():
+        return audioshaper.Waveshaper(curve=_LINEAR, sample_rate=RATE,
+                                      channel_count=CHANNELS)
+
+    def ladder():
+        return audioladder.Ladder(sample_rate=RATE, channel_count=CHANNELS,
+                                  cutoff_hz=2000)
+
+    def bank():
+        node = audiomodal.Bank(modes=2, sample_rate=RATE,
+                               channel_count=CHANNELS, mix=0.5)
+        node.set_mode(0, 220.0, 0.5, 1.0)
+        node.set_mode(1, 660.0, 0.3, 0.5)
+        return node
+
+    def dynamics():
+        return audiodynamics.Dynamics(sample_rate=RATE, channel_count=CHANNELS,
+                                      threshold_db=-40, ratio=2)
+
+    def echo():
+        return audioecho.FeedbackDelay(max_delay_ms=20, delay_ms=5,
+                                       sample_rate=RATE,
+                                       channel_count=CHANNELS)
+
+    def tank():
+        return audioverb.Tank(sample_rate=RATE, channel_count=CHANNELS)
+
+    return (
+        ("Waveshaper", shaper,
+         lambda n, **k: n.set(pre_gain=2.0, **k), "post_gain", 0.5),
+        ("Ladder", ladder,
+         lambda n, **k: n.set(cutoff_hz=300.0, **k), "resonance", 1.5),
+        ("Bank", bank, lambda n, **k: n.set(mix=1.0, **k), "gain", 2.0),
+        ("Dynamics", dynamics,
+         lambda n, **k: n.set(threshold_db=-30.0, **k), "ratio", 8.0),
+        ("FeedbackDelay", echo,
+         lambda n, **k: n.set(mix=0.9, **k), "feedback", 0.6),
+        ("Tank", tank, lambda n, **k: n.set(mix=0.8, **k), "decay", 0.3),
+    )
+
+
+def _twins(build):
+    nodes = []
+    for _ in range(2):
+        node = build()
+        node.play(raw())
+        for _ in range(6):
+            audiocore.get_buffer(node)
+        nodes.append(node)
+    return nodes
+
+
+def _tear_race(fault, rounds=4000):
+    """A stateless Waveshaper flipped between two settings while the pump
+    pulls it: every output sample belongs to one setting or to the other."""
+    level = 8000
+    flat = array("h", [level] * (BLOCK_FRAMES * CHANNELS))
+    a = {"pre_gain": 1.0, "post_gain": 1.0}
+    b = {"pre_gain": 0.5, "post_gain": 0.5}
+
+    def node_at(setting):
+        node = audioshaper.Waveshaper(curve=_LINEAR, oversample=1,
+                                      sample_rate=RATE,
+                                      channel_count=CHANNELS, **setting)
+        node.play(audiocore.RawSample(flat, sample_rate=RATE,
+                                      channel_count=CHANNELS))
+        return node
+
+    def value_at(setting):
+        node = node_at(setting)
+        block = array("h", bytes(audiocore.get_buffer(node)[1]))
+        node.deinit()
+        return set(block)
+
+    good = value_at(a) | value_at(b)
+    node = node_at(a)
+    ring = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 64)
+    out = bytearray(len(ring))
+    block = status()
+    audiopump.spawn(node, 1 << 30, block, ring=ring)
+    torn = 0
+    seen = 0
+    for round_ in range(rounds):
+        if fault == "split":
+            node.set(pre_gain=b["pre_gain"] if round_ % 2 else a["pre_gain"])
+            node.set(post_gain=b["post_gain"] if round_ % 2 else a["post_gain"])
+        else:
+            node.set(**(b if round_ % 2 else a))
+        if round_ % 16 == 15:
+            got = audiopump.drain(out)
+            samples = array("h", out[:got - got % 2])
+            seen += len(samples)
+            for sample in samples:
+                if sample not in good:
+                    torn += 1
+    audiopump.stop()
+    audiopump.join()
+    audiopump.shutdown()
+    node.deinit()
+    return torn, seen
+
+
+def tear(fault):
+    if sys.implementation.name == "cpython":
+        return say("tear", True, "skipped: the CPython extension has no pump, "
+                   "and nothing there pulls between two options")
+    ok = True
+    for name, build, first, second, value in _tear_nodes():
+        node, twin = _twins(build)
+        old = bytes(audiocore.get_buffer(twin)[1])
+        # Can the material see a half-applied set? A twin with only the first
+        # option changed must render something else.
+        probe, spare = _twins(build)
+        first(probe)
+        expressive = bytes(audiocore.get_buffer(probe)[1]) != old
+        midway = _Midway(node, value)
+        # One keyword left in a **k is still one keyword, in its place after
+        # the first option: the order that matters is first, then the hook.
+        if fault == "split":
+            first(node)
+            node.set(**{second: midway})
+        else:
+            first(node, **{second: midway})
+        whole = midway.block == old
+        ok = say(name, expressive and whole,
+                 "%s; %s" % ("a pull in the middle of set() heard the old "
+                             "setting whole" if whole else
+                             "a pull in the middle of set() heard HALF of it",
+                             "the first option alone moves the block"
+                             if expressive else
+                             "the first option alone changes NOTHING, so this "
+                             "cannot see a tear")) and ok
+        # A refused set() leaves the node exactly as it was.
+        for each in (node, twin):
+            each.deinit()
+        node, twin = _twins(build)
+        refused = False
+        try:
+            if fault == "split":
+                first(node)
+                node.set(no_such_option=1.0)
+            else:
+                first(node, no_such_option=1.0)
+        except TypeError:
+            refused = True
+        same = bytes(audiocore.get_buffer(node)[1]) == \
+            bytes(audiocore.get_buffer(twin)[1])
+        ok = say(name, refused and same,
+                 "a refused set() %s" % ("changed nothing" if same else
+                                         "LEFT PART OF ITSELF APPLIED")) and ok
+        for each in (node, twin, probe, spare):
+            each.deinit()
+    if audiopump.threaded():
+        torn, seen = _tear_race(fault)
+        ok = say("race", torn == 0 and seen > 0,
+                 "%d of %d samples from neither setting, a Waveshaper flipped "
+                 "4000 times while the pump pulled it" % (torn, seen)) and ok
+    return ok
+
+
 CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
          ("driver", driver), ("unpumpable", unpumpable), ("swap", swap),
-         ("writes", writes))
+         ("writes", writes), ("tear", tear))
 
 
 def main():

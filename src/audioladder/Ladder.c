@@ -28,8 +28,15 @@ static const ladder_option_name_t ladder_option_names[] = {
     { MP_QSTR_mix, AUDIODSP_LADDER_OPT_MIX },
 };
 
+// Every option is read and checked into a copy of the config before
+// anything the pump reads changes; then the copy goes in with one store
+// under the lock. Applied to the running config one option at a time, a
+// pull landing between two of them played a block of a filter nobody
+// asked for -- a click (audiodsp#109) -- and a bad keyword after a good one
+// left the good one applied and raised anyway.
 static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
-    const mp_map_t *kw) {
+    const mp_map_t *kw, bool live) {
+    audiodsp_ladder_config_t next = self->config;
     for (size_t i = 0; i < kw->alloc; ++i) {
         if (!mp_map_slot_is_filled(kw, i)) {
             continue;
@@ -43,7 +50,7 @@ static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(ladder_option_names); ++option) {
             if (ladder_option_names[option].name == name) {
-                audiodsp_ladder_configure(&self->config,
+                audiodsp_ladder_configure(&next,
                     ladder_option_names[option].option, value);
                 known = true;
                 break;
@@ -53,6 +60,16 @@ static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown Ladder option '%q'"), name);
         }
+    }
+    audiodsp_ladder_config_finish(&next);
+    // `live` is false from the constructor: nothing can be pulling a node
+    // that does not exist yet.
+    if (live) {
+        audiodsp_pump_lock_acquire();
+    }
+    self->config = next;
+    if (live) {
+        audiodsp_pump_lock_release();
     }
 }
 
@@ -98,7 +115,7 @@ static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
     audiodsp_ladder_set_channel_count(&self->config, channel_count);
     audiodsp_ladder_state_init(&self->state);
 
-    ladder_apply_kwargs(self, &kw_map);
+    ladder_apply_kwargs(self, &kw_map, false);
     audiodsp_ladder_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
@@ -122,7 +139,7 @@ static mp_obj_t audioladder_ladder_set(size_t n_args, const mp_obj_t *args,
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     audiosample_check_for_deinit(&self->base);
     (void)n_args;
-    ladder_apply_kwargs(self, kw_args);
+    ladder_apply_kwargs(self, kw_args, true);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioladder_ladder_set_obj, 1,

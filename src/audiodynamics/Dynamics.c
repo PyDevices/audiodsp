@@ -65,40 +65,41 @@ static const dynamics_option_name_t dynamics_option_names[] = {
       AUDIODSP_DYNAMICS_OPT_FEEDBACK_GAIN_CORRECTED },
 };
 
+// Every option is read, checked and applied to a copy of the config, and any
+// lookahead buffer the new settings need is allocated, before anything the
+// pump reads changes; then the whole lot goes in under the lock in one go.
+// Applied to the running config one option at a time, a pull landing between
+// two of them played a block of a compressor nobody asked for -- a click
+// (audiodsp#109) -- and a bad keyword after a good one left the good one
+// applied and raised anyway.
+//
 // The lookahead buffer is allocated only once someone asks for one, and only
 // ever grows: `set(lookahead_ms=...)` mid-stream is a live gesture, and
-// shrinking would mean freeing memory the DSP is reading out of.
-static void dynamics_ensure_lookahead(audiodynamics_dynamics_obj_t *self) {
-    const uint32_t wanted = audiodsp_dynamics_lookahead_frames(&self->config);
-    if (wanted == 0 || wanted <= self->state.lookahead_capacity) {
-        return;
-    }
-    int16_t *buffer = m_malloc((size_t)wanted * self->base.channel_count *
-        sizeof(int16_t));
-    audiodsp_dynamics_set_lookahead(&self->state, buffer, wanted);
-}
-
+// shrinking would mean freeing memory the DSP is reading out of. A change of
+// channel count gets a new one, because the buffer is sized in frames of the
+// old count and the DSP would read past its end in frames of the new.
 static void dynamics_apply_kwargs(audiodynamics_dynamics_obj_t *self,
-    const mp_map_t *kw) {
+    const mp_map_t *kw, bool live) {
+    audiodsp_dynamics_config_t next = self->config;
+    uint32_t sample_rate = self->base.sample_rate;
+    uint32_t channels = self->state.channel_count;
     for (size_t i = 0; i < kw->alloc; ++i) {
         if (mp_map_slot_is_filled(kw, i) &&
             mp_obj_str_get_qstr(kw->table[i].key) == MP_QSTR_sample_rate) {
-            self->base.sample_rate =
-                (uint32_t)mp_obj_get_int(kw->table[i].value);
-            self->config.sample_rate = self->base.sample_rate;
+            sample_rate = (uint32_t)mp_obj_get_int(kw->table[i].value);
+            next.sample_rate = sample_rate;
         }
     }
     for (size_t i = 0; i < kw->alloc; ++i) {
         if (mp_map_slot_is_filled(kw, i) &&
             mp_obj_str_get_qstr(kw->table[i].key) == MP_QSTR_channel_count) {
-            mp_int_t channels = mp_obj_get_int(kw->table[i].value);
-            if (channels < 1 || channels > 2) {
+            mp_int_t count = mp_obj_get_int(kw->table[i].value);
+            if (count < 1 || count > 2) {
                 mp_raise_ValueError(MP_ERROR_TEXT(
                     "channel_count must be 1 or 2"));
             }
-            self->base.channel_count = (uint8_t)channels;
-            audiodsp_dynamics_set_channel_count(&self->config, &self->state,
-                (uint32_t)channels);
+            channels = (uint32_t)count;
+            next.channel_count = channels;
         }
     }
     for (size_t i = 0; i < kw->alloc; ++i) {
@@ -131,7 +132,7 @@ static void dynamics_apply_kwargs(audiodynamics_dynamics_obj_t *self,
         for (size_t option = 0; option < MP_ARRAY_SIZE(dynamics_option_names);
              ++option) {
             if (dynamics_option_names[option].name == name) {
-                audiodsp_dynamics_configure(&self->config,
+                audiodsp_dynamics_configure(&next,
                     dynamics_option_names[option].option, value);
                 known = true;
                 break;
@@ -142,7 +143,36 @@ static void dynamics_apply_kwargs(audiodynamics_dynamics_obj_t *self,
                 MP_ERROR_TEXT("unknown Dynamics option '%q'"), name);
         }
     }
-    dynamics_ensure_lookahead(self);
+    const bool rechannel = channels != self->state.channel_count;
+    const uint32_t capacity = self->state.lookahead_capacity;
+    const uint32_t wanted = audiodsp_dynamics_lookahead_frames(&next);
+    int16_t *lookahead = NULL;
+    uint32_t lookahead_frames = 0;
+    if ((wanted != 0 && wanted > capacity) || (rechannel && capacity != 0)) {
+        lookahead_frames = wanted > capacity ? wanted : capacity;
+        lookahead = m_malloc((size_t)lookahead_frames * channels *
+            sizeof(int16_t));
+    }
+    // `live` is false from the constructor: nothing can be pulling a node
+    // that does not exist yet.
+    if (live) {
+        audiodsp_pump_lock_acquire();
+    }
+    self->config = next;
+    self->base.sample_rate = sample_rate;
+    self->base.channel_count = (uint8_t)channels;
+    if (rechannel) {
+        audiodsp_dynamics_set_channel_count(&self->config, &self->state,
+            channels);
+    }
+    if (lookahead != NULL) {
+        // Clears it as well; a few microseconds at the longest lookahead.
+        audiodsp_dynamics_set_lookahead(&self->state, lookahead,
+            lookahead_frames);
+    }
+    if (live) {
+        audiodsp_pump_lock_release();
+    }
 }
 
 static mp_obj_t audiodynamics_dynamics_make_new(const mp_obj_type_t *type,
@@ -170,7 +200,7 @@ static mp_obj_t audiodynamics_dynamics_make_new(const mp_obj_type_t *type,
 
     mp_map_t kw_map;
     mp_map_init_fixed_table(&kw_map, n_kw, all_args + n_args);
-    dynamics_apply_kwargs(self, &kw_map);
+    dynamics_apply_kwargs(self, &kw_map, false);
     audiodsp_dynamics_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
@@ -214,7 +244,7 @@ static mp_obj_t audiodynamics_dynamics_set(size_t n_args,
     audiodynamics_dynamics_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     audiosample_check_for_deinit(&self->base);
     (void)n_args;
-    dynamics_apply_kwargs(self, kw_args);
+    dynamics_apply_kwargs(self, kw_args, true);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audiodynamics_dynamics_set_obj, 1,
