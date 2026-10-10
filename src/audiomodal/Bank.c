@@ -23,8 +23,15 @@ static const modal_option_name_t modal_option_names[] = {
     { MP_QSTR_gain, AUDIODSP_MODAL_OPT_GAIN },
 };
 
+// Every option is read and checked into a copy of the config before
+// anything the pump reads changes; then the copy goes in with one store
+// under the lock. Applied to the running config one option at a time, a
+// pull landing between two of them played a block of a resonator bank nobody
+// asked for -- a click (audiodsp#109) -- and a bad keyword after a good one
+// left the good one applied and raised anyway.
 static void modal_apply_kwargs(audiomodal_bank_obj_t *self,
-    const mp_map_t *kw) {
+    const mp_map_t *kw, bool live) {
+    audiodsp_modal_config_t next = self->config;
     for (size_t i = 0; i < kw->alloc; ++i) {
         if (!mp_map_slot_is_filled(kw, i)) {
             continue;
@@ -39,7 +46,7 @@ static void modal_apply_kwargs(audiomodal_bank_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(modal_option_names); ++option) {
             if (modal_option_names[option].name == name) {
-                audiodsp_modal_configure(&self->config,
+                audiodsp_modal_configure(&next,
                     modal_option_names[option].option, value);
                 known = true;
                 break;
@@ -49,6 +56,18 @@ static void modal_apply_kwargs(audiomodal_bank_obj_t *self,
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown Bank option '%q'"), name);
         }
+    }
+    // `live` is false from the constructor: nothing can be pulling a node
+    // that does not exist yet.
+    if (live) {
+        audiodsp_pump_lock_acquire();
+    }
+    // `derived` is the one field the PULL writes -- it finishes the mode
+    // coefficients lazily -- so the running value is kept, not the snapshot.
+    next.derived = self->config.derived;
+    self->config = next;
+    if (live) {
+        audiodsp_pump_lock_release();
     }
 }
 
@@ -104,7 +123,7 @@ static mp_obj_t audiomodal_bank_make_new(const mp_obj_type_t *type,
     audiodsp_modal_state_init(&self->state, &self->config, self->s1, self->s2,
         words);
 
-    modal_apply_kwargs(self, &kw_map);
+    modal_apply_kwargs(self, &kw_map, false);
     audiodsp_modal_config_finish(&self->config);
     return MP_OBJ_FROM_PTR(self);
 }
@@ -128,7 +147,7 @@ static mp_obj_t audiomodal_bank_set(size_t n_args, const mp_obj_t *args,
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     audiosample_check_for_deinit(&self->base);
     (void)n_args;
-    modal_apply_kwargs(self, kw_args);
+    modal_apply_kwargs(self, kw_args, true);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audiomodal_bank_set_obj, 1,
@@ -147,9 +166,16 @@ static mp_obj_t audiomodal_bank_set_mode(size_t n_args,
             MP_ERROR_TEXT("mode index must be 0 to %d"),
             (int)self->config.mode_count - 1);
     }
-    audiodsp_modal_set_mode(&self->config, (uint32_t)index,
-        (float)mp_obj_get_float(args[2]), (float)mp_obj_get_float(args[3]),
-        (float)mp_obj_get_float(args[4]));
+    // Read first, store under the lock: the pull finishes the coefficients
+    // from this table, and one landing between the three writes rang the mode
+    // for a block at a frequency and decay nobody set (audiodsp#109).
+    const float frequency = (float)mp_obj_get_float(args[2]);
+    const float decay = (float)mp_obj_get_float(args[3]);
+    const float gain = (float)mp_obj_get_float(args[4]);
+    audiodsp_pump_lock_acquire();
+    audiodsp_modal_set_mode(&self->config, (uint32_t)index, frequency, decay,
+        gain);
+    audiodsp_pump_lock_release();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiomodal_bank_set_mode_obj, 5, 5,

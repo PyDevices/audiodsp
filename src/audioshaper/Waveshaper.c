@@ -32,8 +32,9 @@ static const waveshaper_option_name_t waveshaper_option_names[] = {
 // Copies the table out of whatever buffer the caller passed. int16, Q15, at
 // least two points, spanning -1..+1 of input. It is copied rather than
 // borrowed because a class computes it once at import and has no reason to
-// keep the array alive afterwards.
-static void waveshaper_load_curve(audioshaper_waveshaper_obj_t *self,
+// keep the array alive afterwards. The copy goes into `next`, not into the
+// running config: the caller swaps it in with everything else.
+static int16_t *waveshaper_load_curve(audiodsp_shaper_config_t *next,
     mp_obj_t curve_in) {
     mp_buffer_info_t info;
     mp_get_buffer_raise(curve_in, &info, MP_BUFFER_READ);
@@ -43,13 +44,20 @@ static void waveshaper_load_curve(audioshaper_waveshaper_obj_t *self,
     }
     int16_t *copy = m_malloc(info.len);
     memcpy(copy, info.buf, info.len);
-    self->curve = copy;
-    audiodsp_shaper_set_curve(&self->config, copy,
-        (uint32_t)(info.len / 2));
+    audiodsp_shaper_set_curve(next, copy, (uint32_t)(info.len / 2));
+    return copy;
 }
 
+// Every option is read, checked and applied to a copy of the config, and the
+// new curve is allocated, before anything the pump reads changes. Then the
+// finished copy goes in with one store under the lock. Applied straight to the
+// running config, a pull landing between two options of one call played a
+// block of a shaper nobody asked for -- a click (audiodsp#109) -- and a bad
+// keyword after a good one left the good one applied and raised anyway.
 static void waveshaper_apply_kwargs(audioshaper_waveshaper_obj_t *self,
-    const mp_map_t *kw) {
+    const mp_map_t *kw, bool live) {
+    audiodsp_shaper_config_t next = self->config;
+    int16_t *curve = NULL;
     for (size_t i = 0; i < kw->alloc; ++i) {
         if (!mp_map_slot_is_filled(kw, i)) {
             continue;
@@ -60,7 +68,7 @@ static void waveshaper_apply_kwargs(audioshaper_waveshaper_obj_t *self,
             continue;
         }
         if (name == MP_QSTR_curve) {
-            waveshaper_load_curve(self, kw->table[i].value);
+            curve = waveshaper_load_curve(&next, kw->table[i].value);
             continue;
         }
         float value = (float)mp_obj_get_float(kw->table[i].value);
@@ -68,7 +76,7 @@ static void waveshaper_apply_kwargs(audioshaper_waveshaper_obj_t *self,
         for (size_t option = 0;
              option < MP_ARRAY_SIZE(waveshaper_option_names); ++option) {
             if (waveshaper_option_names[option].name == name) {
-                audiodsp_shaper_configure(&self->config,
+                audiodsp_shaper_configure(&next,
                     waveshaper_option_names[option].option, value);
                 known = true;
                 break;
@@ -79,7 +87,19 @@ static void waveshaper_apply_kwargs(audioshaper_waveshaper_obj_t *self,
                 MP_ERROR_TEXT("unknown Waveshaper option '%q'"), name);
         }
     }
-    audiodsp_shaper_config_finish(&self->config);
+    audiodsp_shaper_config_finish(&next);
+    // `live` is false from the constructor: nothing can be pulling a node
+    // that does not exist yet, and a Rack builds dozens of them.
+    if (live) {
+        audiodsp_pump_lock_acquire();
+    }
+    self->config = next;
+    if (curve != NULL) {
+        self->curve = curve;
+    }
+    if (live) {
+        audiodsp_pump_lock_release();
+    }
 }
 
 static mp_obj_t audioshaper_waveshaper_make_new(const mp_obj_type_t *type,
@@ -141,7 +161,7 @@ static mp_obj_t audioshaper_waveshaper_make_new(const mp_obj_type_t *type,
     audiodsp_shaper_config_init(&self->config, sample_rate, oversample);
     audiodsp_shaper_set_channel_count(&self->config, channel_count);
     audiodsp_shaper_state_init(&self->state);
-    waveshaper_apply_kwargs(self, &kw_map);
+    waveshaper_apply_kwargs(self, &kw_map, false);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -165,7 +185,7 @@ static mp_obj_t audioshaper_waveshaper_set(size_t n_args,
     audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     audiosample_check_for_deinit(&self->base);
     (void)n_args;
-    waveshaper_apply_kwargs(self, kw_args);
+    waveshaper_apply_kwargs(self, kw_args, true);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioshaper_waveshaper_set_obj, 1,
