@@ -729,9 +729,12 @@ static void AUDIODSP_HOT audiopump_hold(audiopump_ctx_t *ctx,
     while (ctx->park_req && !ctx->stop) {
         uint32_t level = 0;
         const bool known = audiopump_level(ctx, port, out, &level);
-        // Two blocks, not one: the deadline is polled, and a block written
-        // at the last moment has to be in the queue before the queue is dry.
-        const bool due = !known || level <= 2u * len;
+        // Three blocks, not one: the deadline is polled every millisecond, a
+        // driver's byte clock moves a whole DMA descriptor at a time (2.7 ms
+        // at 128 frames), and the faded block has to be in the queue before
+        // the queue is dry. Two was measured on an ESP32-P4 at a 32 ms ring
+        // and let the speaker run dry for 3 ms before the fade arrived.
+        const bool due = !known || level <= 3u * len;
         if (!faded && due) {
             audiopump_emit_faded(ctx, port, ctx->fade, len, ctx->fade_in, true,
                 out);

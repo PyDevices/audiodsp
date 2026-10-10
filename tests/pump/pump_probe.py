@@ -439,7 +439,8 @@ def driver(fault):
 
 #: Same convention route_probe.py uses: CI points this at the runner's temp
 #: directory so a probe never writes into the checkout.
-_TMP = os.getenv("PUMP_PROBE_TMP")
+# A board's `os` has no getenv; there the fallback below decides.
+_TMP = os.getenv("PUMP_PROBE_TMP") if hasattr(os, "getenv") else None
 if _TMP is None:
     try:
         import tempfile
