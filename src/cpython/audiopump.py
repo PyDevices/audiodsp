@@ -216,6 +216,14 @@ class _Context:
         self.loop = False
         self.retarget_req = False
         self.retarget_loop = -1
+        # retarget(fade=True): the tail to swap to once the current one's
+        # last block has gone out faded, as the native pump does it.
+        self.swap_req = False
+        self.swap_done = False
+        self.swap_sample = None
+        self.swap_loop = -1
+        self.fade_in = False
+        self.fades = 0
         self.service_mode = False
         self.begun = False
         self.digest = _FNV_OFFSET
@@ -316,6 +324,29 @@ def _ring_write(ctx, data):
     ctx.put(_RING_W, ctx.ring_w_total)
 
 
+def _ramped(sample, data, up, down):
+    """`data` with the native pump's linear ramp: up from 1/n to 1, down from
+    (n-1)/n to 0, over the n frames of the block. Signed 16-bit only; any
+    other stream goes out as it is, as it does there."""
+    if int(getattr(sample, "bits_per_sample", 16)) != 16 or \
+            not getattr(sample, "samples_signed", True):
+        return data
+    import array as _array
+    channels = int(sample.channel_count)
+    samples = _array.array("h", bytes(data))
+    total = len(samples) // channels
+    for k in range(total):
+        gain = 32768
+        if up:
+            gain = ((k + 1) << 15) // total
+        if down:
+            gain = (gain * (total - 1 - k)) // total
+        base = k * channels
+        for c in range(channels):
+            samples[base + c] = (samples[base + c] * gain) >> 15
+    return samples.tobytes()
+
+
 def _room(ctx):
     return ctx.ring_len - ((ctx.ring_w - ctx.ring_r) & _MASK32)
 
@@ -405,6 +436,7 @@ def _run_blocks(ctx, budget):
             if edt > ctx.event_us_max:
                 ctx.event_us_max = edt
                 ctx.put(_EVENT_US_MAX, edt)
+        swapping = ctx.swap_req
         got = _pull_one(ctx)
         dt = _now_us() - t0
         ctx.pull_us += dt
@@ -418,6 +450,10 @@ def _run_blocks(ctx, budget):
             break
         length = len(data)
         ctx.digest = _fnv(data, ctx.digest)
+        # The digest is the graph's audio; the fade is only what goes out.
+        if (ctx.fade_in or swapping) and length:
+            data = _ramped(ctx.sample, data, ctx.fade_in, swapping)
+        ctx.fade_in = False
 
         if ctx.ring is not None and length:
             if ((ctx.ring_w - ctx.ring_r) & _MASK32) + length <= ctx.ring_len:
@@ -438,6 +474,16 @@ def _run_blocks(ctx, budget):
             ctx.frames = (ctx.frames + nframes) & _MASK32
             ctx.put(_FRAMES, ctx.frames)
 
+        if swapping and ctx.swap_req:
+            ctx.sample = ctx.swap_sample
+            ctx.swap_sample = None
+            if ctx.swap_loop >= 0:
+                ctx.loop = ctx.swap_loop != 0
+            ctx.max_block = _max_block(ctx.sample)
+            ctx.swap_req = False
+            ctx.swap_done = True
+            ctx.fade_in = True
+            ctx.fades += 1
         ctx.bytes += length
         ctx.done += 1
         spent += 1
@@ -571,8 +617,14 @@ def stop():
     _ctx.park_req = False
 
 
-def park(timeout_us=100000):
-    """Hold the pump at a block boundary. Always at one here: True."""
+def park(timeout_us=100000, *, fade=False):
+    """Hold the pump at a block boundary. Always at one here: True.
+
+    `fade` is accepted for the native surface's sake and does nothing here,
+    as on any port with no thread: a park with a deadline needs a pump that
+    can watch the deadline while the interpreter is busy.
+    """
+    del fade
     if not _live or _ctx.finished:
         return True
     _ctx.park_req = True
@@ -583,18 +635,37 @@ def unpark():
     _ctx.park_req = False
 
 
-def retarget(sample, *, loop=None):
+def retarget(sample, *, loop=None, fade=False, timeout_us=100000):
     """Point the pump at a different tail, from the next block on.
 
     `loop` None leaves the loop flag as it is; True or False sets it for the
-    new tail.
+    new tail. With `fade`, the current tail's next block goes out faded to
+    silence and the new tail's first block fades in. The swap happens inside
+    the next `service()`, so this returns False: there is no thread to wait
+    for. Without `fade` it returns None, as it always has.
     """
+    del timeout_us
     _refuse_unpumpable(sample)
     _check(sample)
     ctx = _ctx
+    if fade and _live and not ctx.finished:
+        ctx.swap_sample = sample
+        ctx.swap_loop = -1 if loop is None else (1 if loop else 0)
+        ctx.swap_done = False
+        ctx.swap_req = True
+        return False
+    ctx.swap_req = False
+    ctx.swap_sample = None
     ctx.sample = sample
     ctx.retarget_loop = -1 if loop is None else (1 if loop else 0)
     ctx.retarget_req = True
+    return None
+
+
+def fades():
+    """(fades, clean holds, silence bytes) since spawn(). A park never holds
+    here, so the last two are always 0."""
+    return (_ctx.fades, 0, 0)
 
 
 def running():
@@ -1069,7 +1140,7 @@ class Ring(_AudioSample):
 
 __all__ = (
     "Events", "Ring", "Tap", "backpressure", "drain", "driver", "events",
-    "fault", "info", "join", "lock_reset", "lock_stats", "now", "park",
+    "fades", "fault", "info", "join", "lock_reset", "lock_stats", "now", "park",
     "pull", "reset", "retarget", "running", "service", "shutdown", "spawn",
     "stop", "tap", "threaded", "unpark",
 )

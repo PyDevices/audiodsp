@@ -3,10 +3,10 @@
     <interpreter> tests/pump/pump_probe.py [case ...] [--fault WHICH]
 
 Cases: ``identity``, ``alloc``, ``storm``, ``driver``, ``unpumpable``,
-``swap``, ``writes``, ``tear`` (all by default).
+``swap``, ``writes``, ``tear``, ``fade`` (all by default).
 Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
 ``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap, writes),
-``split`` (tear). Each one must make this exit non-zero; a probe whose
+``split`` (tear), ``cut`` (fade). Each one must make this exit non-zero; a probe whose
 failing mode is never run is not a gate.
 
 Runs on a MicroPython build carrying this repository as a usermod -- the one
@@ -87,6 +87,17 @@ What each case is for
     the other. ``--fault split`` applies the first option in a call of its
     own -- the shape of the old code -- and must fail. Skipped on CPython,
     whose extension has no pump.
+
+``fade``    A swap that outlasts the ring fades out and back in instead of
+    cutting the speaker off. ``retarget(tail, fade=True)`` between two
+    constant tails must put out the old level ramped to silence over one
+    block and then the new level ramped up from it over the next -- exact
+    values, on every build, through ``service()`` where there is no thread.
+    Where there is a thread, ``park(fade=True)`` is held for 200 ms while
+    this thread drains the ring at the speaker's pace: the ring must never
+    run dry, the audio must ramp down, stay silent and ramp back up, and a
+    park that ends before the deadline must be inaudible -- the same audio
+    as no park at all. ``--fault cut`` asks for neither fade, and must fail.
 """
 
 import gc
@@ -428,7 +439,8 @@ def driver(fault):
 
 #: Same convention route_probe.py uses: CI points this at the runner's temp
 #: directory so a probe never writes into the checkout.
-_TMP = os.getenv("PUMP_PROBE_TMP")
+# A board's `os` has no getenv; there the fallback below decides.
+_TMP = os.getenv("PUMP_PROBE_TMP") if hasattr(os, "getenv") else None
 if _TMP is None:
     try:
         import tempfile
@@ -866,9 +878,155 @@ def tear(fault):
     return ok
 
 
+# --- fade ------------------------------------------------------------------
+
+
+def _ramp(level, frames, up):
+    """What the pump's ramp makes of a constant `level` over one block."""
+    out = []
+    for k in range(frames):
+        gain = ((k + 1) << 15) // frames if up else \
+            (32768 * (frames - 1 - k)) // frames
+        out.append((level * gain) >> 15)
+    return out
+
+
+def _flat(level, frames=BLOCK_FRAMES):
+    return audiocore.RawSample(array("h", [level] * (frames * CHANNELS)),
+                               sample_rate=RATE, channel_count=CHANNELS)
+
+
+def _frames(data):
+    samples = array("h", bytes(data))
+    return [samples[i] for i in range(0, len(samples), CHANNELS)]
+
+
+def _sleep_us(us):
+    import time
+    if hasattr(time, "sleep_us"):
+        time.sleep_us(us)
+    else:
+        time.sleep(us / 1000000)
+
+
+def _fade_swap(fault):
+    """retarget(fade=True) between two constant tails, read from the ring."""
+    old, new = _flat(8000), _flat(-6000)
+    block = status()
+    ring = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 16)
+    out = bytearray(len(ring))
+    threaded = audiopump.spawn(old, 1 << 30, block, ring=ring, loop=True) >= 0
+    got = bytearray()
+
+    def take():
+        if not threaded:
+            audiopump.service(4)
+        else:
+            _sleep_us(2000)
+        n = audiopump.drain(out)
+        got.extend(out[:n])
+
+    while len(got) < BLOCK_FRAMES * CHANNELS * 2 * 4:
+        take()
+    if fault == "cut":
+        audiopump.retarget(new, loop=True)
+    else:
+        audiopump.retarget(new, loop=True, fade=True)
+    while len(got) < BLOCK_FRAMES * CHANNELS * 2 * 40:
+        take()
+    fades = audiopump.fades()[0]
+    audiopump.stop()
+    audiopump.join()
+    audiopump.shutdown()
+    frames = _frames(got)
+    # Where the swap landed: the first frame that is not the old level.
+    at = 0
+    while at < len(frames) and frames[at] == 8000:
+        at += 1
+    want = _ramp(8000, BLOCK_FRAMES, False) + _ramp(-6000, BLOCK_FRAMES, True)
+    seen = frames[at:at + len(want)]
+    tail_ok = all(f == -6000 for f in frames[at + len(want):])
+    good = seen == want and tail_ok
+    return say("swap", good, "%s at frame %d, %d fade(s)" % (
+        "old ramped out over one block, new ramped in over the next"
+        if good else "NOT the two ramps -- the swap cut", at, fades))
+
+
+def _fade_park(fault, hold_ms):
+    """Hold a park for `hold_ms` while this thread drains like a speaker.
+    Returns (frames heard, times the speaker found the ring dry, fades())."""
+    source = _flat(8000)
+    block = status()
+    ring = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 8)
+    piece = bytearray(BLOCK_FRAMES * CHANNELS * 2)
+    audiopump.spawn(source, 1 << 30, block, ring=ring, loop=True)
+    heard = bytearray()
+    dry = [0]
+    period = BLOCK_FRAMES * 1000000 // RATE
+
+    def speaker():
+        n = audiopump.drain(piece)
+        if n < len(piece):
+            dry[0] += 1
+        heard.extend(piece[:n])
+        _sleep_us(period)
+
+    _sleep_us(20000)            # let the pump fill the ring, then play
+    for _ in range(20):
+        speaker()
+    audiopump.park(fade=(fault != "cut"))
+    for _ in range(hold_ms * 1000 // period):
+        speaker()
+    audiopump.unpark()
+    for _ in range(30):
+        speaker()
+    stats = audiopump.fades()
+    audiopump.stop()
+    audiopump.join()
+    audiopump.shutdown()
+    return _frames(heard), dry[0], stats
+
+
+def fade(fault):
+    if sys.implementation.name == "cpython":
+        return say("fade", True, "skipped here: the CPython twin has its own "
+                   "test of the same ramps")
+    ok = _fade_swap(fault)
+    if not audiopump.threaded():
+        return say("park", True, "skipped: a park with a deadline needs the "
+                   "pump on a thread of its own") and ok
+    frames, dry, stats = _fade_park(fault, 200)
+    run = longest = 0
+    for f in frames:
+        run = run + 1 if f == 0 else 0
+        longest = max(longest, run)
+    start = 0
+    while start < len(frames) and frames[start] == 8000:
+        start += 1
+    down = frames[start:start + BLOCK_FRAMES]
+    after = start + BLOCK_FRAMES - 1
+    while after < len(frames) and frames[after] == 0:
+        after += 1
+    up = frames[after:after + BLOCK_FRAMES]
+    down_ok = down == _ramp(8000, BLOCK_FRAMES, False)
+    up_ok = up == _ramp(8000, BLOCK_FRAMES, True)
+    good = dry == 0 and down_ok and up_ok and longest * 1000 // RATE >= 100
+    ok = say("park", good, "200 ms held: the speaker found the ring dry %d "
+             "time(s); ramp down %s, %d ms of silence, ramp up %s; fades() %s"
+             % (dry, "ok" if down_ok else "MISSING", longest * 1000 // RATE,
+                "ok" if up_ok else "MISSING", stats)) and ok
+    frames, dry, stats = _fade_park(fault, 5)
+    clean = dry == 0 and all(f == 8000 for f in frames)
+    ok = say("short", clean and stats[1] == 1,
+             "5 ms held, inside the deadline: %s; clean holds %d" % (
+                 "the same audio as no park at all" if clean else
+                 "AUDIBLE", stats[1])) and ok
+    return ok
+
+
 CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
          ("driver", driver), ("unpumpable", unpumpable), ("swap", swap),
-         ("writes", writes), ("tear", tear))
+         ("writes", writes), ("tear", tear), ("fade", fade))
 
 
 def main():

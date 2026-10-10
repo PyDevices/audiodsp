@@ -218,6 +218,7 @@ jobs:
                          "pump_probe.py swap --fault unlocked" \
                          "pump_probe.py writes --fault unlocked" \
                          "pump_probe.py tear --fault split" \
+                         "pump_probe.py fade --fault cut" \
                          "route_probe.py ring --fault flip" \
                          "route_probe.py events --fault drop" \
                          "route_probe.py tap --fault short" \
