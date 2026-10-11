@@ -127,8 +127,10 @@ for tag, settings in (
     node.play(source())
     emit(tag, node, 8)
 
-# Reloading mid-stream, and clearing. The impulse survives a clear; the
-# history does not.
+# Reloading mid-stream, and clearing. The history survives a reload (the
+# block in flight crossfades to the new impulse, convolve_state_probe.py
+# has the rest of that); the impulse survives a clear, and the history does
+# not.
 node = convolve.Convolver(impulse=impulse(512, 1), max_taps=1024,
                           sample_rate=SAMPLE_RATE, mix=1.0)
 node.play(source())

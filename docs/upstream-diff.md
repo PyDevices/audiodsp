@@ -2238,7 +2238,19 @@ that says so.
   block edge was rejected: on a dark room a move that decorrelates the two
   rooms (a new seed, a new predelay) steps the wet up to three times the
   largest step either room makes on its own. A node with nothing loaded
-  still starts its latency from empty, and `load()` still resets.
+  still starts its latency from empty.
+- **A reload keeps the audio in flight too** (2026-10-11). `load()` was
+  left ending in the reset when #163 landed, so stepping through a set of
+  recorded cabinets or rooms while playing dropped the block in flight and
+  started each new impulse on an empty history, the tail cut dead, where
+  the same move through `synthesize()` did neither. The two halves of the
+  swap are one pair of helpers now, either side of whatever writes the
+  impulse, and `load()` takes them in place as `synthesize()` does and the
+  off-lock install does for both. A shorter impulse reads fewer slots of
+  the same history and a longer one more, which is what a node that always
+  had it would read. What still resets: a first impulse on a node that was
+  a bypass, and `load(b"")`, which unloads to that bypass again and has no
+  room to fade to.
 - **The noise is xorshift32 and the exponentials are a series**, for the
   determinism reason again. A room that is not bit-identical between builds
   is not a room, it is three rooms.

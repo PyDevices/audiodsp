@@ -217,7 +217,15 @@ MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_set_obj, 1,
 //|         """Replace the impulse. Raises if it is longer than ``max_taps``:
 //|         the capacity was chosen at construction and something downstream
 //|         may already be pulling, so a too-long impulse is a sizing mistake
-//|         worth hearing about rather than a truncation to discover later."""
+//|         worth hearing about rather than a truncation to discover later.
+//|
+//|         On a convolver already carrying an impulse, the audio in flight is
+//|         kept, as ``synthesize`` keeps it: no frame is dropped or repeated,
+//|         the block being played out crossfades from the old impulse to the
+//|         new, and from the next block on the new impulse rings on the
+//|         history as if it had always been loaded. A convolver with nothing
+//|         loaded starts its latency from empty here, and an empty impulse
+//|         unloads it back to a passthrough."""
 //|         ...
 static mp_obj_t audioconvolve_convolver_load(size_t n_args,
     const mp_obj_t *args, mp_map_t *kw_args) {

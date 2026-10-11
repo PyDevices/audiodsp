@@ -1,4 +1,5 @@
-"""Deterministic Convolver PCM across a re-synthesis on a playing node.
+"""Deterministic Convolver PCM across a re-synthesis or a reload on a
+playing node.
 
     convolve_state_probe.py audioconvolve
 
@@ -6,7 +7,9 @@
 plays. This one moves the room while audio is in flight, which is where
 `synthesize()` keeps the history and crossfades the block being played out
 (audiodsp#163): the two extra convolutions of that block, the fade's
-division and the mix the block was computed at. Its own file, so the probe
+division and the mix the block was computed at. `load()` takes the same
+path now, and the second half here loads impulses of three lengths over a
+playing node, at every mix, and unloads one. Its own file, so the probe
 above keeps rendering what it rendered. Stereo rooms here are scaled per
 side (audiodsp#164).
 
@@ -89,3 +92,42 @@ run("twice", 2, 0.5, {4: lambda node: node.synthesize(**moved(seed=9)),
                       5: lambda node: node.synthesize(**moved(decay=0.05))})
 run("clear-after", 2, 0.5, {4: lambda node: node.synthesize(**moved(seed=9)),
                             6: lambda node: node.clear()})
+
+
+def impulse(frames, channels, seed):
+    """A leading spike and decaying pseudo-noise, as int16 frames."""
+    values = array("h", bytes(2 * frames * channels))
+    state = (seed * 2654435761) & 0x7fffffff
+    for frame in range(frames):
+        envelope = 1500 * (frames - frame) // frames
+        for channel in range(channels):
+            state = (state * 1103515245 + 12345) & 0x7fffffff
+            values[frame * channels + channel] = (
+                (state >> 8) % (2 * envelope + 1)) - envelope
+    for channel in range(channels):
+        values[channel] = 8000
+    return values
+
+
+def loader(frames, seed, gain=1.0):
+    return lambda node: node.load(
+        impulse(frames, node.channel_count, seed), node.channel_count, gain)
+
+
+# load() while playing: the same length, shorter, longer, the same taps at
+# another gain, over a room and over a loaded impulse; and an unload, which
+# is the one load that starts from empty.
+for channels in (2, 1):
+    for mix in (0.0, 0.5, 1.0):
+        for name, call in (("same", loader(768, 5)),
+                           ("taps", loader(768, 6)),
+                           ("shorter", loader(512, 5)),
+                           ("longer", loader(1024, 5)),
+                           ("gain", loader(768, 5, 0.5))):
+            run("load-ch%d-mix%.1f-%s" % (channels, mix, name), channels,
+                mix, {3: loader(768, 5), 6: call})
+        run("load-ch%d-mix%.1f-over-room" % (channels, mix), channels, mix,
+            {5: loader(768, 5)})
+run("unload", 2, 1.0, {4: lambda node: node.load(b"", 2)})
+run("reload-after-unload", 2, 1.0, {4: lambda node: node.load(b"", 2),
+                                    6: loader(768, 5)})

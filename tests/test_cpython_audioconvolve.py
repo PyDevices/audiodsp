@@ -22,6 +22,7 @@ previous version of its own output.
 | C7 | `latency` reports the loaded state, not a constant | exact |
 | C8 | A starved node yields a full block of silence, not a short block | exact |
 | C9 | A re-synthesis on a playing node drops and repeats nothing: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old room to the new over its unplayed frames at the mix it was computed at; after it the node renders what a node built with the new room renders; the fade does not click | exact; the fade 1 LSB of the line; no step past 1.5 x the rooms' own |
+| C11 | A `load()` on a playing node drops and repeats nothing, as C9: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old impulse to the new over its unplayed frames; after it the node renders what a node built with the new impulse renders; a first load, and an unload, still start from empty | exact; the fade 1 LSB of the line |
 | C10 | Each side of a synthesized stereo room is the unit-energy room of its own noise: the left is the mono room of the same seed, the right the mono room of the right side's seed; the two sides balance, together they are the level of a mono room, and they stay two different noises | exact; 0.01 dB; correlation under 0.5 |
 
 **C1 and C2 are this module's form of the identity trait** that
@@ -48,6 +49,17 @@ checks. The fade is the part that has a choice in it: a hard swap at the
 block edge also drops nothing, but on a dark room a move that decorrelates
 the two (Room, Predelay) steps the wet up to about three times the largest
 step either room makes on its own, and that is a click.
+
+C11 is C9 for `load()`. The fix for #163 left `load()` ending in the reset
+it always had, so a cabinet or a room loaded from a file while playing
+dropped the 256 frames in flight and started the new impulse on an empty
+history, the tail cut dead: the mechanism was there and only `synthesize()`
+used it. Now both take the same path, so a convolver can walk through a set
+of recorded impulses while audio plays the way it can already walk through
+synthesized rooms. What is kept of the old behaviour, deliberately: a node
+with nothing loaded is a bypass with no latency and starts its latency from
+empty on its first impulse, and `load(b"")` makes it that bypass again,
+since a bypass holds no audio to fade to.
 
 C10 is audiodsp#164. The room used to be scaled by the mean of its two
 sides' energies, so the pair was unit energy but one side could come back
@@ -625,6 +637,211 @@ class StereoRoomTest(unittest.TestCase):
                         * sum(b * b for b in right)) ** 0.5
                 self.assertNotEqual(left, right)
                 self.assertLess(abs(cross / norm), 0.5)
+
+
+def impulse_taps(frames, channels, seed=1, level=1500, spike=8000):
+    """A deterministic int16 impulse: a leading spike, then decaying
+    pseudo-noise, so every tap and every bin carries something. Quiet
+    enough that `noise_source` through it stays well inside int16, so a
+    comparison here never meets the rails."""
+    values = array("h", bytes(2 * frames * channels))
+    state = (seed * 2654435761) & 0x7fffffff
+    for frame in range(frames):
+        envelope = level * (frames - frame) // frames
+        for channel in range(channels):
+            state = (state * 1103515245 + 12345) & 0x7fffffff
+            values[frame * channels + channel] = (
+                (state >> 8) % (2 * envelope + 1)) - envelope
+    for channel in range(channels):
+        values[channel] = spike
+    return values
+
+
+#: Three partitions, so a move can go shorter or longer.
+IMPULSE = {"frames": 768, "seed": 1, "gain": 1.0}
+
+#: A reload that changes nothing, a different response of the same length,
+#: a shorter one, a longer one, and the same taps at another gain.
+RELOADS = (
+    ("same", {}),
+    ("taps", {"seed": 2}),
+    ("shorter", {"frames": 512}),
+    ("longer", {"frames": 1024}),
+    ("gain", {"gain": 0.5}),
+)
+
+
+def reloaded(change, spec=IMPULSE):
+    new = dict(spec)
+    new.update(change)
+    return new
+
+
+class Reload(Resynthesis):
+    """One stream through a loaded impulse, with calls between pulls."""
+
+    def __init__(self, spec, rate=SAMPLE_RATE, channels=CHANNELS, mix=1.0,
+                 taps=1024):
+        self.rate = rate
+        self.channels = channels
+        self.node = audioconvolve.Convolver(
+            max_taps=taps, ir_channels=channels, sample_rate=rate,
+            channel_count=channels, mix=mix)
+        if spec is not None:
+            load(self.node, spec, channels)
+
+
+def load(node, spec, channels):
+    node.load(impulse_taps(spec["frames"], channels, spec["seed"]),
+              channels=channels, gain=spec["gain"])
+
+
+def render_loaded(spec, values, mix, channels=CHANNELS, calls=None):
+    stream = Reload(spec, channels=channels, mix=mix)
+    stream.play(values)
+    return stream.pull(BLOCKS, calls)
+
+
+class ReloadTest(unittest.TestCase):
+    """C11: `load()` on a playing node, held to what C9 holds `synthesize()`
+    to. The same frames, the same pull the call comes before, so a cell
+    that fails here and passes there is the one path differing."""
+
+    def test_at_mix_zero_a_load_is_the_uninterrupted_wire(self):
+        """No frame dropped or repeated: at `mix=0` the output is the source
+        one partition late whatever the impulse does, so a render with a
+        load must be the render without one, byte for byte."""
+        for channels in (2, 1):
+            values = noise_source(BLOCKS * PARTITION_FRAMES, channels)
+            want = render_loaded(IMPULSE, values, 0.0, channels)
+            for tag, change in RELOADS:
+                with self.subTest(channels=channels, reload=tag):
+                    new = reloaded(change)
+                    got = render_loaded(IMPULSE, values, 0.0, channels, {
+                        AT: lambda node, new=new: load(node, new, channels)})
+                    self.assertEqual(got, want)
+
+    def test_a_load_mid_block_drops_nothing(self):
+        """The kernel driven in uneven calls, so the load lands part way
+        through a block: the input gathered so far and the unplayed rest
+        of the block in flight both survive it."""
+        for channels in (2, 1):
+            values = noise_source(BLOCKS * PARTITION_FRAMES, channels)
+            head = 1000                    # not a whole number of blocks
+            first = values[:head * channels]
+            rest = values[head * channels:(head + 8 * 256) * channels]
+            for tag, change in RELOADS[1:]:
+                with self.subTest(channels=channels, reload=tag):
+                    new = reloaded(change)
+                    outs = []
+                    for call in (False, True):
+                        stream = Reload(IMPULSE, channels=channels, mix=0.0)
+                        out = stream.feed(first)      # 3 whole + 232 frames
+                        if call:
+                            load(stream.node, new, channels)
+                        out += stream.feed(rest)
+                        outs.append(out)
+                    self.assertEqual(outs[1], outs[0])
+                    self.assertEqual(len(outs[1]),
+                                     (3 * 256 + 232 + 8 * 256) * channels)
+                    # And the wet: from the block after the one in flight,
+                    # the node built with the new impulse, fed the same way.
+                    wet = []
+                    for spec in (new, None):
+                        stream = Reload(spec or IMPULSE, channels=channels)
+                        out = stream.feed(first)
+                        if spec is None:
+                            load(stream.node, new, channels)
+                        wet.append(out + stream.feed(rest))
+                    after = (4 * 256) * channels
+                    self.assertEqual(wet[1][after:], wet[0][after:])
+
+    def test_after_the_block_in_flight_it_is_the_new_impulse(self):
+        """Before the call the node is the old impulse, and from the block
+        after the one in flight it is exactly a node built with the new
+        one: the history is kept, not started empty. A shorter impulse
+        reads fewer slots of the same history and a longer one more."""
+        for mix in (0.3, 1.0):
+            for channels in (2, 1):
+                values = noise_source(BLOCKS * PARTITION_FRAMES, channels)
+                old = render_loaded(IMPULSE, values, mix, channels)
+                for tag, change in RELOADS[1:]:
+                    with self.subTest(mix=mix, channels=channels, reload=tag):
+                        new = reloaded(change)
+                        fresh = render_loaded(new, values, mix, channels)
+                        got = render_loaded(IMPULSE, values, mix, channels, {
+                            AT: lambda node, new=new: load(node, new, channels)})
+                        start = AT * PARTITION_FRAMES * channels
+                        after = (AT + 1) * PARTITION_FRAMES * channels
+                        self.assertEqual(got[:start], old[:start])
+                        self.assertEqual(got[after:], fresh[after:])
+                        self.assertNotEqual(old[after:], fresh[after:])
+
+    def test_the_block_in_flight_fades_from_the_old_impulse_to_the_new(self):
+        """The same line as C9: frame k of the block in flight is old plus
+        (k + 1) / 256 of the way to new, within 1 LSB."""
+        for mix in (0.3, 1.0):
+            for channels in (2, 1):
+                values = noise_source(BLOCKS * PARTITION_FRAMES, channels)
+                old = render_loaded(IMPULSE, values, mix, channels)
+                for tag, change in RELOADS[1:]:
+                    with self.subTest(mix=mix, channels=channels, reload=tag):
+                        new = reloaded(change)
+                        fresh = render_loaded(new, values, mix, channels)
+                        got = render_loaded(IMPULSE, values, mix, channels, {
+                            AT: lambda node, new=new: load(node, new, channels)})
+                        worst = 0
+                        moved_frames = 0
+                        for k in range(PARTITION_FRAMES):
+                            for c in range(channels):
+                                i = (AT * PARTITION_FRAMES + k) * channels + c
+                                line = old[i] + (k + 1) / 256.0 * (
+                                    fresh[i] - old[i])
+                                worst = max(worst, abs(got[i] - line))
+                                moved_frames += got[i] != old[i]
+                        self.assertLessEqual(worst, 1.0)
+                        self.assertGreater(moved_frames, 0)
+
+    def test_the_first_load_starts_the_latency_from_empty(self):
+        """Unchanged: a node with nothing loaded is a bypass with no
+        latency, and its first impulse starts the one-partition latency
+        from an empty node. From then on it renders what a fresh node with
+        that impulse renders from the same point."""
+        for channels in (2, 1):
+            values = noise_source(BLOCKS * PARTITION_FRAMES, channels)
+            head = 3 * PARTITION_FRAMES * channels
+            stream = Reload(None, channels=channels, mix=0.5)
+            stream.play(values[:head])
+            bypass = stream.pull(3)
+            load(stream.node, IMPULSE, channels)
+            stream.play(values[head:])
+            late = stream.pull(6)
+            fresh = render_loaded(IMPULSE, values[head:], 0.5,
+                                  channels)[:len(late)]
+            with self.subTest(channels=channels):
+                self.assertEqual(bypass, list(values[:head]))
+                self.assertEqual(late, fresh)
+                self.assertEqual(set(late[:PARTITION_FRAMES * channels]),
+                                 {0})
+
+    def test_an_empty_impulse_makes_a_bypass_again(self):
+        """Unchanged too: `load(b"")` unloads, and an unloaded node is a
+        bypass with no latency, so from the next pull the output is the
+        input as it stands. There is no room to fade to, and nothing of the
+        old tail is kept."""
+        for channels in (2, 1):
+            values = noise_source(BLOCKS * PARTITION_FRAMES, channels)
+            stream = Reload(IMPULSE, channels=channels, mix=1.0)
+            stream.play(values)
+            before = stream.pull(AT)
+            stream.node.load(b"", channels=channels)
+            after = stream.pull(BLOCKS - AT)
+            start = AT * PARTITION_FRAMES * channels
+            with self.subTest(channels=channels):
+                self.assertEqual(stream.node.taps, 0)
+                self.assertEqual(stream.node.latency, 0)
+                self.assertNotEqual(before, list(values[:start]))
+                self.assertEqual(after, list(values[start:]))
 
 
 def words_of(node, blocks):
