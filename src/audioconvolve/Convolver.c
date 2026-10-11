@@ -48,7 +48,8 @@ static void convolver_allocate(audioconvolve_convolver_obj_t *self,
 // load() and synthesize() on a node the pump may be pulling. The new impulse
 // is built into an allocation of this call's own with no lock held, and only
 // the install runs under the lock: the node takes the new impulse in place of
-// the old, and on a re-synthesis crossfades the block in flight. Building in
+// the old and, when it already carried one, keeps the audio in flight and
+// crossfades the block being played (shared/audiodsp_convolve.h). Building in
 // place took no lock at all, and a pull's own transform shares the scratch a
 // build writes each partition through, so a pull that landed mid-build left
 // that partition wrong until the next load (audiodsp#166). Holding the lock
@@ -82,10 +83,10 @@ static bool convolver_build_begin(audioconvolve_convolver_obj_t *self,
 }
 
 static void convolver_build_end(audioconvolve_convolver_obj_t *self,
-    convolver_build_t *build, uint32_t loaded, bool crossfade) {
+    convolver_build_t *build, uint32_t loaded) {
     audiodsp_pump_lock_acquire();
     float *previous = audiodsp_convolve_install(&self->state, &self->config,
-        build->impulse, loaded, crossfade);
+        build->impulse, loaded);
     audiodsp_pump_lock_release();
     m_del(float, previous, audiodsp_convolve_impulse_floats(&self->config));
     m_del(float, build->work, 2u * AUDIODSP_CONVOLVE_FFT);
@@ -247,7 +248,7 @@ static mp_obj_t audioconvolve_convolver_load(size_t n_args,
         uint32_t loaded = audiodsp_convolve_build_s16(&self->state,
             &self->config, build.impulse, build.work,
             build.work + AUDIODSP_CONVOLVE_FFT, taps, frames, channels, gain);
-        convolver_build_end(self, &build, loaded, false);
+        convolver_build_end(self, &build, loaded);
     } else {
         audiodsp_pump_lock_acquire();
         audiodsp_convolve_load_s16(&self->state, &self->config, taps, frames,
@@ -291,7 +292,7 @@ static mp_obj_t audioconvolve_convolver_synthesize(size_t n_args,
             &self->config, build.impulse, build.work,
             build.work + AUDIODSP_CONVOLVE_FFT, decay, damping, predelay,
             diffusion, seed);
-        convolver_build_end(self, &build, loaded, true);
+        convolver_build_end(self, &build, loaded);
     } else {
         audiodsp_pump_lock_acquire();
         audiodsp_convolve_synthesize(&self->state, &self->config, decay,

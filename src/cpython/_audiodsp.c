@@ -2234,14 +2234,22 @@ static PyType_Spec modal_state_spec = {
 };
 
 // audioconvolve.Convolver's transform tables, frequency-delay line and stored
-// impulse. All state, and a great deal of it -- one allocation carved up by
-// the DSP layer, exactly as in the MicroPython binding.
+// impulse. All state, and a great deal of it, in two allocations carved up
+// by the DSP layer: the history in one and the impulse in another, the
+// layout the MicroPython binding uses, so that load() and synthesize() can
+// build a new impulse into a buffer of their own and swap it in with
+// audiodsp_convolve_install rather than write the node's own in place.
+// There is no pump on another thread here to need that, and a desktop has
+// the memory to do it in place; it is done this way so the desktop tests
+// run the same build-and-install path a board runs, with the crossfade of
+// the block in flight going through the same install.
 
 typedef struct {
     PyObject_HEAD
     audiodsp_convolve_config_t config;
     audiodsp_convolve_state_t state;
     float *storage;
+    float *impulse;
 } audiodsp_convolver_object_t;
 
 static int convolver_state_init(audiodsp_convolver_object_t *self,
@@ -2275,23 +2283,63 @@ static int convolver_state_init(audiodsp_convolver_object_t *self,
         ir_channels);
     audiodsp_convolve_set_channel_count(&self->config, channel_count);
     float *storage = PyMem_Calloc(
-        audiodsp_convolve_float_count(&self->config), sizeof(float));
-    if (storage == NULL) {
+        audiodsp_convolve_float_count_apart(&self->config), sizeof(float));
+    float *impulse = storage == NULL ? NULL : PyMem_Calloc(
+        audiodsp_convolve_impulse_floats(&self->config), sizeof(float));
+    if (impulse == NULL) {
+        PyMem_Free(storage);
         PyErr_NoMemory();
         return -1;
     }
     PyMem_Free(self->storage);
+    PyMem_Free(self->impulse);
     self->storage = storage;
-    audiodsp_convolve_state_init(&self->state, &self->config, storage);
+    self->impulse = impulse;
+    audiodsp_convolve_state_init_apart(&self->state, &self->config, storage,
+        impulse);
     return 0;
 }
 
 static void convolver_state_dealloc(audiodsp_convolver_object_t *self) {
     PyTypeObject *type = Py_TYPE(self);
     PyMem_Free(self->storage);
+    PyMem_Free(self->impulse);
     self->storage = NULL;
+    self->impulse = NULL;
     type->tp_free((PyObject *)self);
     Py_DECREF(type);
+}
+
+// A new impulse for load() and synthesize(): built into an allocation of
+// the call's own with the node's transform tables, then installed, which is
+// where the node keeps or resets its audio in flight. `work` is the build's
+// block and scratch, two transforms long.
+typedef struct {
+    float *impulse;
+    float *work;
+} convolver_build_t;
+
+static int convolver_build_begin(audiodsp_convolver_object_t *self,
+    convolver_build_t *build) {
+    build->impulse = PyMem_Malloc(
+        audiodsp_convolve_impulse_floats(&self->config) * sizeof(float));
+    build->work = build->impulse == NULL ? NULL
+        : PyMem_Malloc(2u * AUDIODSP_CONVOLVE_FFT * sizeof(float));
+    if (build->work == NULL) {
+        PyMem_Free(build->impulse);
+        PyErr_NoMemory();
+        return -1;
+    }
+    return 0;
+}
+
+static void convolver_build_end(audiodsp_convolver_object_t *self,
+    convolver_build_t *build, uint32_t loaded) {
+    float *previous = audiodsp_convolve_install(&self->state, &self->config,
+        build->impulse, loaded);
+    self->impulse = build->impulse;
+    PyMem_Free(previous);
+    PyMem_Free(build->work);
 }
 
 static PyObject *convolver_state_configure(audiodsp_convolver_object_t *self,
@@ -2333,8 +2381,16 @@ static PyObject *convolver_state_load(audiodsp_convolver_object_t *self,
         PyErr_SetString(PyExc_ValueError, "impulse is longer than max_taps");
         return NULL;
     }
-    audiodsp_convolve_load_s16(&self->state, &self->config,
-        (const int16_t *)taps.buf, frames, channels, (float)gain);
+    convolver_build_t build;
+    if (convolver_build_begin(self, &build) < 0) {
+        PyBuffer_Release(&taps);
+        return NULL;
+    }
+    uint32_t loaded = audiodsp_convolve_build_s16(&self->state,
+        &self->config, build.impulse, build.work,
+        build.work + AUDIODSP_CONVOLVE_FFT, (const int16_t *)taps.buf,
+        frames, channels, (float)gain);
+    convolver_build_end(self, &build, loaded);
     PyBuffer_Release(&taps);
     Py_RETURN_NONE;
 }
@@ -2345,8 +2401,13 @@ static PyObject *convolver_state_synthesize(audiodsp_convolver_object_t *self,
     unsigned int seed;
     if (!PyArg_ParseTuple(args, "ddddI:synthesize", &decay, &damping,
         &predelay, &diffusion, &seed)) return NULL;
-    audiodsp_convolve_synthesize(&self->state, &self->config, (float)decay,
-        (float)damping, (float)predelay, (float)diffusion, seed);
+    convolver_build_t build;
+    if (convolver_build_begin(self, &build) < 0) return NULL;
+    uint32_t loaded = audiodsp_convolve_build_room(&self->state,
+        &self->config, build.impulse, build.work,
+        build.work + AUDIODSP_CONVOLVE_FFT, (float)decay, (float)damping,
+        (float)predelay, (float)diffusion, seed);
+    convolver_build_end(self, &build, loaded);
     Py_RETURN_NONE;
 }
 

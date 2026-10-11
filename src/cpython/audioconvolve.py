@@ -121,7 +121,16 @@ class Convolver(_AudioSample):
         """Replace the impulse. Deliberately does not grow the convolver to
         fit -- the capacity was chosen at construction and something
         downstream may already be pulling, so an impulse longer than the room
-        made for it is a sizing mistake worth hearing about."""
+        made for it is a sizing mistake worth hearing about.
+
+        On a convolver already carrying an impulse, the audio in flight is
+        kept, as `synthesize` keeps it: no frame is dropped or repeated, the
+        block being played out crossfades from the old impulse to the new,
+        and from the next block on the new impulse rings on the history as
+        if it had always been loaded, so a set of cabinets or rooms can be
+        stepped through while audio plays. A convolver with nothing loaded
+        starts its one-partition latency from empty here, and an empty
+        impulse unloads it back to that passthrough."""
         self._check()
         if channels not in (1, 2):
             raise ValueError("channels must be 1 or 2")

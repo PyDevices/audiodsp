@@ -144,6 +144,14 @@ void audiodsp_convolve_reset(audiodsp_convolve_state_t *state,
 // are int16 and are read as a fraction of full scale, so a gain of 1 with an
 // impulse that peaks at full scale is unity at the loudest tap.
 //
+// On a node that already carries an impulse the audio in flight is kept, as
+// `synthesize` keeps it: no frame is dropped or repeated, the block being
+// played out crossfades from the old impulse to the new over its unplayed
+// frames, and from the next block on the new impulse convolves the whole
+// history, as if it had always been loaded. A node with nothing loaded
+// starts the one-partition latency from empty, and zero frames unload it
+// back to that bypass, which holds no audio to fade to.
+//
 // Frames beyond `partitions * AUDIODSP_CONVOLVE_FRAMES` are dropped: the
 // storage was sized from the config, and quietly reallocating from the DSP
 // layer is not this code's job.
@@ -204,14 +212,14 @@ uint32_t audiodsp_convolve_build_room(const audiodsp_convolve_state_t *state,
 // Make a built impulse the node's: the node takes `impulse` itself, not a
 // copy, and hands back the one it had, for the caller to free once the lock
 // is let go (NULL when `impulse` is NULL, which installs what is already in
-// the node's own). `crossfade` is `synthesize`'s behaviour: on a node already
-// carrying a room, the audio in flight is kept and the block being played
-// crossfades to the new room. Without it, or on a node with nothing loaded,
-// the history is reset, which is `load_s16`'s. With `crossfade` it costs two
-// one-block convolutions per audio channel; without, the reset.
+// the node's own). On a node already carrying an impulse the audio in
+// flight is kept and the block being played crossfades to the new one,
+// which is what `load_s16` and `synthesize` do in place; that costs two
+// one-block convolutions per audio channel inside the call. On a node with
+// nothing loaded, or with `loaded` 0, the history is reset instead.
 float *audiodsp_convolve_install(audiodsp_convolve_state_t *state,
     const audiodsp_convolve_config_t *config, float *impulse,
-    uint32_t loaded, bool crossfade);
+    uint32_t loaded);
 
 // Interleaved stereo frames in and out, any count. `out` may alias `in`.
 // Blocks internally, so the output lags the input by AUDIODSP_CONVOLVE_FRAMES
