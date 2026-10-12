@@ -112,6 +112,10 @@ desktop, of which the largest single `alloca` was 5 KB, half that on a
 32-bit board. The ESP32 port runs Python on a 16 KB stack, so decode from
 shallow Python, not from deep inside a call chain.
 
+Flash: the decoder is about 90 KB of code and tables on an ESP32-P4
+(`riscv32-esp-elf-size` on `audiodsp_vorbis.c`'s object), most of it the
+MDCT and window lookup tables.
+
 Tremor doesn't check for a failed allocation. A board that runs out of
 memory while opening or decoding a file fails the way it would in any other
 C library that doesn't, so leave it the room above.
