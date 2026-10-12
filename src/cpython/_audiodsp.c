@@ -32,6 +32,7 @@
 #include "shared/audiodsp_modal.h"
 #include "shared/audiodsp_meter.h"
 #include "shared/audiodsp_filter_f32.h"
+#include "shared/audiodsp_vorbis.h"
 
 // setup.py defines this from the VERSION file; the fallback is only for
 // someone compiling this source by hand.
@@ -59,6 +60,7 @@ typedef struct {
     PyObject *suboctave_state_type;
     PyObject *convolver_state_type;
     PyObject *meter_state_type;
+    PyObject *vorbis_stream_type;
     PyObject *tank_state_type;
     PyObject *modal_state_type;
 } audiodsp_state_t;
@@ -2584,6 +2586,234 @@ static PyType_Spec meter_state_spec = {
     .slots = meter_state_slots,
 };
 
+// --- VorbisStream: audiovorbis's decoder (shared/audiodsp_vorbis.c) --------
+//
+// The decoder reads the Python file object through three callbacks. A read
+// that raises is kept and raised again once Tremor has returned, so no
+// Python exception is ever pending inside it.
+
+typedef struct {
+    PyObject_HEAD
+    audiodsp_vorbis_t *v;
+    PyObject *file;
+    PyObject *pending;   // the exception a read raised, until it's raised again
+    int seekable;
+} audiodsp_vorbis_object_t;
+
+static void vorbis_keep_error(audiodsp_vorbis_object_t *self) {
+    if (self->pending != NULL) {
+        PyErr_Clear();
+        return;
+    }
+#if PY_VERSION_HEX >= 0x030C0000
+    self->pending = PyErr_GetRaisedException();
+#else
+    PyObject *type, *value, *tb;
+    PyErr_Fetch(&type, &value, &tb);
+    PyErr_NormalizeException(&type, &value, &tb);
+    if (tb != NULL && value != NULL) PyException_SetTraceback(value, tb);
+    Py_XDECREF(type);
+    Py_XDECREF(tb);
+    self->pending = value;
+#endif
+}
+
+static int vorbis_raise_pending(audiodsp_vorbis_object_t *self) {
+    if (self->pending == NULL) return 0;
+    PyObject *exc = self->pending;
+    self->pending = NULL;
+#if PY_VERSION_HEX >= 0x030C0000
+    PyErr_SetRaisedException(exc);
+#else
+    PyErr_SetObject((PyObject *)Py_TYPE(exc), exc);
+    Py_DECREF(exc);
+#endif
+    return 1;
+}
+
+static long vorbis_py_read(void *ds, void *buf, size_t len) {
+    audiodsp_vorbis_object_t *self = ds;
+    PyObject *data = PyObject_CallMethod(self->file, "read", "n", (Py_ssize_t)len);
+    if (data == NULL) {
+        vorbis_keep_error(self);
+        return -1;
+    }
+    Py_buffer view;
+    if (PyObject_GetBuffer(data, &view, PyBUF_SIMPLE) < 0) {
+        Py_DECREF(data);
+        vorbis_keep_error(self);
+        return -1;
+    }
+    Py_ssize_t got = view.len < (Py_ssize_t)len ? view.len : (Py_ssize_t)len;
+    memcpy(buf, view.buf, (size_t)got);
+    PyBuffer_Release(&view);
+    Py_DECREF(data);
+    return (long)got;
+}
+
+static int vorbis_py_seek(void *ds, int64_t offset, int whence) {
+    audiodsp_vorbis_object_t *self = ds;
+    if (!self->seekable) return -1;
+    PyObject *r = PyObject_CallMethod(self->file, "seek", "Li", (long long)offset, whence);
+    if (r == NULL) {
+        PyErr_Clear();
+        return -1;
+    }
+    Py_DECREF(r);
+    return 0;
+}
+
+static long vorbis_py_tell(void *ds) {
+    audiodsp_vorbis_object_t *self = ds;
+    PyObject *r = PyObject_CallMethod(self->file, "tell", NULL);
+    if (r == NULL) {
+        PyErr_Clear();
+        return -1;
+    }
+    long at = PyLong_AsLong(r);
+    Py_DECREF(r);
+    if (at == -1 && PyErr_Occurred()) {
+        PyErr_Clear();
+        return -1;
+    }
+    return at;
+}
+
+static const audiodsp_vorbis_io_t vorbis_py_io = {
+    vorbis_py_read, vorbis_py_seek, vorbis_py_tell,
+};
+
+static int vorbis_raise(audiodsp_vorbis_object_t *self, int err, const char *what) {
+    if (vorbis_raise_pending(self)) return -1;
+    if (err == AUDIODSP_VORBIS_ENOMEM) {
+        PyErr_NoMemory();
+    } else {
+        PyErr_Format(PyExc_RuntimeError, "%s: %s", what, audiodsp_vorbis_strerror(err));
+    }
+    return -1;
+}
+
+static int vorbis_stream_init(audiodsp_vorbis_object_t *self, PyObject *args, PyObject *kwargs) {
+    PyObject *file;
+    if (!PyArg_ParseTuple(args, "O:VorbisStream", &file)) return -1;
+    if (self->v != NULL) {
+        audiodsp_vorbis_close(self->v);
+        self->v = NULL;
+    }
+    Py_INCREF(file);
+    Py_XSETREF(self->file, file);
+    self->seekable = 0;
+    PyObject *r = PyObject_CallMethod(file, "seekable", NULL);
+    if (r == NULL) {
+        PyErr_Clear();
+    } else {
+        self->seekable = PyObject_IsTrue(r) == 1;
+        Py_DECREF(r);
+    }
+    int err = 0;
+    self->v = audiodsp_vorbis_open(&vorbis_py_io, self, &err);
+    if (self->v == NULL) {
+        return vorbis_raise(self, err, "Failed to parse Vorbis file");
+    }
+    return 0;
+}
+
+static void vorbis_stream_dealloc(audiodsp_vorbis_object_t *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    audiodsp_vorbis_close(self->v);
+    self->v = NULL;
+    Py_CLEAR(self->file);
+    Py_CLEAR(self->pending);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
+static int vorbis_check_open(audiodsp_vorbis_object_t *self) {
+    if (self->v == NULL) {
+        PyErr_SetString(PyExc_ValueError, "the Vorbis stream is closed");
+        return -1;
+    }
+    return 0;
+}
+
+static PyObject *vorbis_stream_info(audiodsp_vorbis_object_t *self, PyObject *unused) {
+    if (vorbis_check_open(self) < 0) return NULL;
+    return Py_BuildValue("(liL)", audiodsp_vorbis_sample_rate(self->v),
+        audiodsp_vorbis_channels(self->v), (long long)audiodsp_vorbis_frames(self->v));
+}
+
+// read(frames) -> bytes of interleaved native-endian s16, short or empty at
+// the end of the stream.
+static PyObject *vorbis_stream_read(audiodsp_vorbis_object_t *self, PyObject *args) {
+    Py_ssize_t frames;
+    if (!PyArg_ParseTuple(args, "n:read", &frames)) return NULL;
+    if (vorbis_check_open(self) < 0) return NULL;
+    if (frames < 0) {
+        PyErr_SetString(PyExc_ValueError, "frames must be at least 0");
+        return NULL;
+    }
+    const Py_ssize_t frame_bytes = (Py_ssize_t)audiodsp_vorbis_channels(self->v) * 2;
+    PyObject *out = PyBytes_FromStringAndSize(NULL, frames * frame_bytes);
+    if (out == NULL) return NULL;
+    int16_t *pcm = (int16_t *)PyBytes_AS_STRING(out);
+    Py_ssize_t have = 0;
+    while (have < frames) {
+        long got = audiodsp_vorbis_read(self->v, pcm + have * (frame_bytes / 2),
+            (size_t)(frames - have));
+        if (got < 0) {
+            Py_DECREF(out);
+            vorbis_raise(self, (int)got, "Vorbis decoding failed");
+            return NULL;
+        }
+        if (got == 0) break;
+        have += got;
+    }
+    if (have != frames && _PyBytes_Resize(&out, have * frame_bytes) < 0) return NULL;
+    return out;
+}
+
+static PyObject *vorbis_stream_seek(audiodsp_vorbis_object_t *self, PyObject *args) {
+    long long frame;
+    if (!PyArg_ParseTuple(args, "L:seek", &frame)) return NULL;
+    if (vorbis_check_open(self) < 0) return NULL;
+    int err = audiodsp_vorbis_seek(self->v, (int64_t)frame);
+    if (err < 0) {
+        vorbis_raise(self, err, "Vorbis seek failed");
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *vorbis_stream_close(audiodsp_vorbis_object_t *self, PyObject *unused) {
+    audiodsp_vorbis_close(self->v);
+    self->v = NULL;
+    Py_CLEAR(self->file);
+    Py_RETURN_NONE;
+}
+
+static PyMethodDef vorbis_stream_methods[] = {
+    {"info", (PyCFunction)vorbis_stream_info, METH_NOARGS, NULL},
+    {"read", (PyCFunction)vorbis_stream_read, METH_VARARGS, NULL},
+    {"seek", (PyCFunction)vorbis_stream_seek, METH_VARARGS, NULL},
+    {"close", (PyCFunction)vorbis_stream_close, METH_NOARGS, NULL},
+    {NULL, NULL, 0, NULL},
+};
+
+static PyType_Slot vorbis_stream_slots[] = {
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, vorbis_stream_init},
+    {Py_tp_dealloc, vorbis_stream_dealloc},
+    {Py_tp_methods, vorbis_stream_methods},
+    {0, NULL},
+};
+
+static PyType_Spec vorbis_stream_spec = {
+    .name = "_audiodsp.VorbisStream",
+    .basicsize = sizeof(audiodsp_vorbis_object_t),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = vorbis_stream_slots,
+};
+
 static PyObject *audiodsp_meter_db_byte_py(PyObject *module, PyObject *args) {
     double power;
     if (!PyArg_ParseTuple(args, "d:meter_db_byte", &power)) return NULL;
@@ -3447,6 +3677,11 @@ static int audiodsp_exec(PyObject *module) {
     if (state->meter_state_type == NULL) return -1;
     if (PyModule_AddObjectRef(module, "MeterState",
         state->meter_state_type) < 0) return -1;
+    state->vorbis_stream_type = PyType_FromModuleAndSpec(module,
+        &vorbis_stream_spec, NULL);
+    if (state->vorbis_stream_type == NULL) return -1;
+    if (PyModule_AddObjectRef(module, "VorbisStream",
+        state->vorbis_stream_type) < 0) return -1;
     if (PyModule_AddIntConstant(module, "METER_MAX_BANDS",
         AUDIODSP_METER_MAX_BANDS) < 0) return -1;
     state->tank_state_type = PyType_FromModuleAndSpec(module,
@@ -3498,6 +3733,7 @@ static int audiodsp_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->suboctave_state_type);
     Py_VISIT(state->convolver_state_type);
     Py_VISIT(state->meter_state_type);
+    Py_VISIT(state->vorbis_stream_type);
     Py_VISIT(state->tank_state_type);
     Py_VISIT(state->modal_state_type);
     return 0;
@@ -3521,6 +3757,7 @@ static int audiodsp_clear(PyObject *module) {
     Py_CLEAR(state->suboctave_state_type);
     Py_CLEAR(state->convolver_state_type);
     Py_CLEAR(state->meter_state_type);
+    Py_CLEAR(state->vorbis_stream_type);
     Py_CLEAR(state->tank_state_type);
     Py_CLEAR(state->modal_state_type);
     return 0;

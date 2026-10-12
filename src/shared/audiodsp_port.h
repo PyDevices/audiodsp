@@ -127,6 +127,19 @@ typedef struct {
     // board, the waitable timer on Windows. Must not raise and must be safe to
     // call twice.
     void (*teardown)(void);
+
+    // --- memory for a decoder ------------------------------------------------
+    //
+    // Where a codec's working state goes (shared/audiodsp_vorbis.c): tens of
+    // kilobytes in many small blocks, long-lived, never touched by DMA. A
+    // board with PSRAM puts it there, because internal RAM is what Wi-Fi and
+    // DMA can't do without; that's a fact about the platform, so it arrives
+    // here. All three or none: with any of them NULL the C library's malloc,
+    // realloc and free are used. They're called from whichever thread runs
+    // the decoder, so they must be thread-safe, and must not raise.
+    void *(*mem_alloc)(size_t size);
+    void *(*mem_realloc)(void *ptr, size_t size);
+    void (*mem_free)(void *ptr);
 } audiodsp_port_ops_t;
 
 // The bound driver, resolved once. Never NULL.

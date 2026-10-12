@@ -353,4 +353,16 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiomp3/module.c
 endif
 
+# --- audiovorbis (VorbisDecoder) ---
+#
+# Xiph's Tremor, carried in third_party/tremor (BSD-3-Clause) and compiled as
+# one translation unit by src/shared/audiodsp_vorbis.c, which renames its
+# symbols and silences its warnings for its own code only. No qstrs in that
+# file, so it skips the qstr scan. Unlike audiomp3 there is nothing to fetch:
+# the decoder is in this repository. docs/vorbis.md has what it needs.
+SRC_USERMOD_LIB_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_vorbis.c
+SRC_USERMOD_C += \
+    $(MPAUDIO_SRC_DIR)/audiovorbis/VorbisDecoder.c \
+    $(MPAUDIO_SRC_DIR)/audiovorbis/module.c
+
 endif # not CircuitPython

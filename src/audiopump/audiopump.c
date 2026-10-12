@@ -1545,7 +1545,7 @@ static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_shutdown_obj, audiopump_shutdown);
 
 // A file-backed source cannot be pulled by a pump: it reads through the VFS
 // from inside get_buffer, which re-enters the interpreter, and it raises
-// there. audiodsp's WaveFile and MP3Decoder now refuse it from the inside --
+// there. audiodsp's WaveFile, MP3Decoder and VorbisDecoder refuse it from the inside --
 // they publish AUDIODSP_PUMP_FAULT_UNPUMPABLE and go silent rather than
 // crash -- but a graph that is nothing BUT a file is worth refusing at the
 // door, with a sentence, instead of playing silence and leaving a number to
@@ -1564,7 +1564,7 @@ static MP_DEFINE_CONST_FUN_OBJ_0(audiopump_shutdown_obj, audiopump_shutdown);
 // was. What changes is that every graph audiodsp itself can build is now
 // refused at the door with a sentence.
 static const qstr audiopump_unpumpable_names[] = {
-    MP_QSTR_WaveFile, MP_QSTR_MP3Decoder,
+    MP_QSTR_WaveFile, MP_QSTR_MP3Decoder, MP_QSTR_VorbisDecoder,
 };
 
 static void audiopump_refuse_unpumpable(mp_obj_t sample) {

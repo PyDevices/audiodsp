@@ -4,6 +4,8 @@ CircuitPython's audio system for MicroPython and CPython — `audiocore`,
 `audiomixer`, `synthio` (including `MidiTrack`), the effects modules
 (`audiofilters`, `audiodelays`, `audiofreeverb`, `audiospeed`), `audiomp3`,
 and CircuitPython `play()`/`stop()`/`pause()`/`resume()` output semantics.
+It adds modules CircuitPython doesn't have, among them `audiovorbis` for Ogg
+Vorbis files.
 Import names stay `audiocore`/`synthio`/etc., matching CircuitPython for
 source compatibility.
 
@@ -74,8 +76,8 @@ python -m pip install pydevices-audiodsp
 This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiodelays`, `audiofreeverb`, `audiospeed`, `audiodynamics`, `audioroute`,
 `audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audioconvolve`,
-`audiobiquad`, `audioverb`, `audiomodal`, `audiometer`, `audiopump`, and
-the `audiorender` package.
+`audiobiquad`, `audioverb`, `audiomodal`, `audiometer`, `audiopump`,
+`audiovorbis`, and the `audiorender` package.
 `audiomp3` remains firmware-only. The distribution declares no *required*
 runtime dependencies and does not itself publish an `audiodsp` import; its
 version is the `VERSION` file, which is also what `_audiodsp.__version__`
@@ -151,7 +153,32 @@ in a CircuitPython port), and plays through CircuitPython's own `audiobusio`,
 effects modules stay CircuitPython's. `audiometer` (band levels for a spectrum
 meter, below) is ours as well, and is the one CircuitPython doesn't get: its
 sources are a board's pump and usbif's sound card, and CircuitPython has
-neither.
+neither. `audiovorbis` (below) plays Ogg Vorbis files, which CircuitPython
+has no module for.
+
+### `audiovorbis.VorbisDecoder` — Ogg Vorbis files
+
+Shaped like `audiomp3.MP3Decoder`, so it plays wherever an MP3 does: through
+`audiocore.get_buffer()`, a `Mixer` voice, or a board's audio output.
+
+```python
+import audiovorbis
+song = audiovorbis.VorbisDecoder("song.ogg")   # or an open binary file
+mixer.voice[0].play(song, loop=True)
+```
+
+It takes the same arguments (a file or a path, and an optional buffer) and
+has the same `file`, `open()`, `rms_level`, `samples_decoded`, `deinit()`
+and `with` as `MP3Decoder`. Mono and stereo files play; `sample_rate` and
+`channel_count` come from the file. Like an MP3, it reads its file while it
+plays, so `audiopump` refuses it: feed the pump from the interpreter instead.
+
+The decoder is Xiph's Tremor, integer-only, carried in
+[third_party/tremor](third_party/tremor) under its own BSD-3-Clause licence.
+It decodes to the same samples on every build, and within two steps of
+ffmpeg's float decoder. Other C modules in the same firmware can decode a
+stream through it too. [docs/vorbis.md](docs/vorbis.md) has the C interface,
+what it needs of memory on a board, and how it's tested.
 
 ### `audiobiquad` — filters whose tails reach exact zero
 
@@ -702,3 +729,8 @@ wheel and sdist alongside `LICENSE`.
 The Helix MP3 decoder that `audiomp3` wraps is RPSL/RCSL-licensed, not MIT;
 `scripts/fetch_deps.sh` fetches it; it is not part of this repository. See
 [docs/upstream-diff.md](docs/upstream-diff.md).
+
+The Tremor Vorbis decoder that `audiovorbis` wraps is in this repository, in
+[third_party/tremor](third_party/tremor), under Xiph.Org's BSD-3-Clause
+licence ([COPYING](third_party/tremor/COPYING)), which travels with the
+wheel.
