@@ -51,7 +51,7 @@ link that doesn't.
 ## The decoder, and decoding from C
 
 The decoding is Xiph's Tremor, the lowmem branch: integer-only, BSD-3-Clause,
-carried unmodified (one MinGW fix) in [third_party/tremor](../third_party/tremor)
+carried with two one-line portability fixes in [third_party/tremor](../third_party/tremor)
 with its [ORIGIN.txt](../third_party/tremor/ORIGIN.txt). It is compiled as one
 translation unit, [src/shared/audiodsp_vorbis.c](../src/shared/audiodsp_vorbis.c),
 which:
