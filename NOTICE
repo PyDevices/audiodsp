@@ -16,4 +16,4 @@ LICENSES files and its upstream commit in SYNTHTOOLS_COMMIT.txt.
 third_party/tremor/ is Xiph.Org's Tremor, an integer Ogg Vorbis decoder,
 used under the BSD-3-Clause license in third_party/tremor/COPYING
 (Copyright (c) 2002, Xiph.org Foundation). third_party/tremor/ORIGIN.txt names
-the upstream commit and the two small changes made to it.
+the upstream commit and the changes made to it.
