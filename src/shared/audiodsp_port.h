@@ -136,11 +136,16 @@ typedef struct {
     // DMA can't do without; that's a fact about the platform, so it arrives
     // here. All three or none: with any of them NULL the C library's malloc,
     // realloc and free are used. They're called from whichever thread runs
-    // the decoder, so they must be thread-safe, and must not raise.
+    // the decoder, so they must be thread-safe, and must not raise. A driver
+    // that also builds against an older audiodsp fills them only
+    // #ifdef AUDIODSP_PORT_MEM_HOOKS.
     void *(*mem_alloc)(size_t size);
     void *(*mem_realloc)(void *ptr, size_t size);
     void (*mem_free)(void *ptr);
 } audiodsp_port_ops_t;
+
+// This header has the mem_* hooks above.
+#define AUDIODSP_PORT_MEM_HOOKS (1)
 
 // The bound driver, resolved once. Never NULL.
 const audiodsp_port_ops_t *audiodsp_port(void);
