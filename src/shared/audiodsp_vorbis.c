@@ -13,7 +13,8 @@
 // - Tremor's warnings silenced here, for its code only, so a port that
 //   builds with -Werror keeps every warning on for ours.
 //
-// Tremor itself is unchanged (third_party/tremor/ORIGIN.txt).
+// Tremor itself is unchanged but for two one-line portability fixes
+// (third_party/tremor/ORIGIN.txt).
 
 #include <errno.h>
 #include <limits.h>
