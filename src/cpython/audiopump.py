@@ -85,7 +85,7 @@ _MASK32 = 0xFFFFFFFF
 
 #: Sources that read a file inside their pull. Refused at the door, wherever
 #: they sit in the graph, as on every other build.
-_UNPUMPABLE = ("WaveFile", "MP3Decoder")
+_UNPUMPABLE = ("WaveFile", "MP3Decoder", "VorbisDecoder")
 
 
 def _now_us():

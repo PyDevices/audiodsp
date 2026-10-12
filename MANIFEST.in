@@ -2,3 +2,4 @@ include VERSION
 recursive-include src/shared *.h
 recursive-include lib/audiorender *.py *.md
 recursive-include lib/audiodsp_util *.py
+include third_party/tremor/*.c third_party/tremor/*.h third_party/tremor/COPYING third_party/tremor/ORIGIN.txt third_party/tremor/README

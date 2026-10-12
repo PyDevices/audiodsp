@@ -13,7 +13,7 @@ for source compatibility; only this repo's own name differs.
   `audiospeed/`, `audiofreeverb/`, `audiofilters/`, `audiodelays/`,
   `audiomp3/`, `audiodynamics/`, `audioroute/`, `audiomath/`, `audioecho/`,
   `audioconvolve/`, `audiobiquad/`, `audioshaper/`, `audioladder/`,
-  `audioverb/`, `audiomodal/`), plus `src/cp_compat/`
+  `audioverb/`, `audiomodal/`, `audiovorbis/`), plus `src/cp_compat/`
   (CircuitPython-only core primitives ported as standalone compat shims, each
   individually verified against mainline MicroPython before use — not assumed
   missing) and `src/shared/` (runtime-neutral DSP the MicroPython usermod and
@@ -37,12 +37,12 @@ for source compatibility; only this repo's own name differs.
   repository builds, tests, publishes or freezes them.
 - `circuitpython.mk` + `src/circuitpython_spike/` — build `audiodynamics`,
   `audioroute`, `audiomath`, `audioecho`, `audioshaper`, `audioladder`,
-  `audioconvolve`, `audiobiquad`, `audioverb` and `audiomodal` into
-  CircuitPython 11 as a user C module (`micropython.mk` hands a CircuitPython
-  tree to `circuitpython.mk`). None of the ten is a CircuitPython port: the first
-  two come from micropython-vst3's `vstaudio` engine and the last eight are
-  audiodsp's own, so CircuitPython gains them here rather than the other
-  way round.
+  `audioconvolve`, `audiobiquad`, `audioverb`, `audiomodal` and
+  `audiovorbis` into CircuitPython 11 as a user C module (`micropython.mk`
+  hands a CircuitPython tree to `circuitpython.mk`). None of the eleven is a
+  CircuitPython port: the first two come from micropython-vst3's `vstaudio`
+  engine and the last nine are audiodsp's own, so CircuitPython gains them
+  here rather than the other way round.
 - `docs/porting-plan.md` — the full phased porting history, architecture,
   and target layout
 - `docs/upstream-sync.md` — when and how to resync the CircuitPython-derived
@@ -54,6 +54,12 @@ for source compatibility; only this repo's own name differs.
 - `tests/parity/` — oracle-diff scripts, run unchanged against both this
   port and `bin/circuitpython`
 - `tests/vendor/` — vendored third-party test fixtures (e.g. `synthtools`)
+
+- `third_party/tremor/` — Xiph's Tremor (lowmem), the integer Vorbis decoder
+  `audiovorbis` wraps, BSD-3-Clause, vendored (see its `ORIGIN.txt`). Never
+  listed in a build on its own: `src/shared/audiodsp_vorbis.c` includes it
+  into one translation unit with every symbol renamed. See
+  [docs/vorbis.md](docs/vorbis.md).
 
 ## Sibling dependencies (cloned, not vendored)
 

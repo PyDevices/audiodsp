@@ -67,6 +67,9 @@ setup(
                 "src/shared/audiodsp_tank.c",
                 "src/shared/audiodsp_modal.c",
                 "src/shared/audiodsp_meter.c",
+                # Xiph's Tremor, included into this one file from
+                # third_party/tremor; docs/vorbis.md.
+                "src/shared/audiodsp_vorbis.c",
             ],
             include_dirs=["src"],
             define_macros=[("AUDIODSP_VERSION", '"%s"' % VERSION),

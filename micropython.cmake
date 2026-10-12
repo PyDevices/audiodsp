@@ -222,6 +222,19 @@ if(EXISTS ${MPAUDIO_MP3_SRC_DIR}/mp3dec.c)
     )
 endif()
 
+# --- audiovorbis (VorbisDecoder) ---
+#
+# See micropython.mk: Xiph's Tremor from third_party/tremor, compiled as one
+# translation unit by src/shared/audiodsp_vorbis.c, which renames its symbols
+# and silences its warnings for its own code only, so IDF's -Werror=all sees
+# nothing. Its memory comes through the driver's hooks (PSRAM on a board with
+# it); see docs/vorbis.md.
+target_sources(usermod_mpaudio INTERFACE
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_vorbis.c
+    ${MPAUDIO_SRC_DIR}/audiovorbis/VorbisDecoder.c
+    ${MPAUDIO_SRC_DIR}/audiovorbis/module.c
+)
+
 
 # CIRCUITPY_SYNTHIO_MAX_CHANNELS (phase 8e decision, made while actually
 # building the ESP32-P4 firmware -- see docs/porting-plan.md "8e"): the

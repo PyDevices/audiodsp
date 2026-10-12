@@ -85,8 +85,9 @@ def source():
 
 
 #: (name, builder). Every type in the palette that can be built without a
-#: file on disk; `audiocore.WaveFile` and `audiomp3.MP3Decoder` need one and
-#: are covered by their own tests. A node added to the palette belongs here
+#: file on disk; `audiocore.WaveFile`, `audiomp3.MP3Decoder` and
+#: `audiovorbis.VorbisDecoder` need one and are covered by their own tests
+#: (vorbis_probe.py for the last). A node added to the palette belongs here
 #: the same day: the probe's claim is *every* type, and a list that quietly
 #: falls behind the module tables makes that claim false.
 NODES = (

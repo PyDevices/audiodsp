@@ -8,7 +8,10 @@ dynamic = ["version"]
 description = "CircuitPython-compatible audio synthesis and effects for PyDevices"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "MIT"
+# audiovorbis compiles Xiph's Tremor into the extension, under its own
+# BSD-3-Clause licence, whose text travels with the wheel.
+license = "MIT AND BSD-3-Clause"
+license-files = ["LICENSE", "NOTICE", "third_party/tremor/COPYING"]
 authors = [{name = "PyDevices contributors"}]
 classifiers = [
   "Programming Language :: Python :: 3",
@@ -36,7 +39,7 @@ Repository = "https://github.com/PyDevices/audiodsp"
 Issues = "https://github.com/PyDevices/audiodsp/issues"
 
 [tool.setuptools]
-py-modules = ["audiocore", "synthio", "audiomixer", "audiofilters", "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics", "audioroute", "audiomath", "audioecho", "audioconvolve", "audiobiquad", "audioshaper", "audioladder", "audioverb", "audiomodal", "audiometer", "audiopump"]
+py-modules = ["audiocore", "synthio", "audiomixer", "audiofilters", "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics", "audioroute", "audiomath", "audioecho", "audioconvolve", "audiobiquad", "audioshaper", "audioladder", "audioverb", "audiomodal", "audiometer", "audiopump", "audiovorbis"]
 # Keep py-modules explicit: src/cpython is the root package directory now, and
 # an automatic scan there would also pick up anything else that lands in it.
 packages = ["audiorender", "audiodsp_util"]

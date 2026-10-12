@@ -34,10 +34,11 @@ REPO = Path(__file__).resolve().parent.parent
 # Where our C lives. Everything under these, .c and .h.
 ROOTS = ("src",)
 
-# Third-party code we carry but did not write. Nothing qualifies today --
-# ulab, the mp3 decoder and CircuitPython itself are sibling checkouts, not
-# copies in here -- so this is a list with a name rather than a list with
-# entries, and an entry added later has to earn its line.
+# Third-party code we carry but did not write, under src/. Nothing qualifies
+# today -- ulab, the mp3 decoder and CircuitPython itself are sibling
+# checkouts, and the one copy we do carry (Tremor, the Vorbis decoder) sits in
+# third_party/, outside ROOTS -- so this is a list with a name rather than a
+# list with entries, and an entry added later has to earn its line.
 VENDORED: tuple[str, ...] = ()
 
 # The headers. `esp_` and `driver/` catch the whole IDF surface; `sdkconfig`

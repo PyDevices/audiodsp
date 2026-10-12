@@ -99,6 +99,7 @@ jobs:
           import audiocore, synthio, audiomixer, audiofilters, audiodelays
           import audiomp3, audiodynamics, audioroute, audiomath, audioecho
           import audiofreeverb, audiospeed, audioconvolve, audioshaper
+          import audiovorbis
           s = synthio.Synthesizer(sample_rate=8000); s.press(69)
           r, b = audiocore.get_buffer(s)
           assert r == 1 and len(b) == 512
@@ -176,6 +177,33 @@ jobs:
           fi
           "$MP" "$PROBE" | tee /tmp/cp11_files.txt
           grep -q "CP11 FILES PASS" /tmp/cp11_files.txt
+
+      # Ogg Vorbis. The probe is the behaviour (laps, the mixer, cut and
+      # foreign files, deinit, the pump's refusal); verify_vorbis is the
+      # samples, compared with ffmpeg's own decode of files it makes fresh,
+      # on this MicroPython and on CPython. Every planted fault runs first
+      # and must FAIL. The symbol check is what lets a firmware link another
+      # copy of Tremor beside this one.
+      - name: Ogg Vorbis decodes like ffmpeg, and every check can fail
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg > /dev/null
+          MP=$GITHUB_WORKSPACE/micropython/ports/unix/build-standard/micropython
+          PY=$GITHUB_WORKSPACE/audiodsp/.ci-venv/bin/python
+          cd audiodsp
+          for planted in "$MP tests/parity/vorbis_probe.py --fault" \
+                         "$PY tests/parity/verify_vorbis.py --micropython $MP --fault swap" \
+                         "$PY tests/parity/verify_vorbis.py --micropython $MP --fault drop" \
+                         "python3 tests/parity/vorbis_symbols_check.py --fault"; do
+            if $planted > /dev/null; then
+              echo "the planted fault passed, so this check proves nothing: $planted" >&2
+              exit 1
+            fi
+          done
+          "$MP" tests/parity/vorbis_probe.py | tee /tmp/vorbis.txt
+          grep -q "VORBIS PASS" /tmp/vorbis.txt
+          "$PY" tests/parity/verify_vorbis.py --micropython "$MP"
+          python3 tests/parity/vorbis_symbols_check.py
 
       # PitchShift.freeze's own checks run in verify_dsp above. This is the
       # proof they can fail: --fault never hands the node the flag, which is
