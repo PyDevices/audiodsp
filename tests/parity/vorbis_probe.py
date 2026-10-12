@@ -249,9 +249,37 @@ damaged = bytearray(whole)
 at = damaged.find(b"vorbis")
 damaged[at:at + 6] = b"VORBIS"
 noise = bytes((i * 73 + 41) & 0xFF for i in range(20000))
+
+
+def ogg_crc(page):
+    crc = 0
+    for byte in page:
+        crc ^= byte << 24
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x04C11DB7 if crc & 0x80000000 else crc << 1) & 0xFFFFFFFF
+    return crc
+
+
+def huge_codebook(data):
+    """The fixture with its first codebook claiming 65535 dimensions and
+    16 million entries, its page checksum made right again so the claim is
+    read. Tremor sized stack buffers from those two numbers."""
+    data = bytearray(data)
+    book = data.find(b"BCV")
+    page = data.rfind(b"OggS", 0, book)
+    segments = data[page + 26]
+    length = 27 + segments + sum(data[page + 27:page + 27 + segments])
+    data[book + 3:book + 5] = b"\xff\xff"          # dimensions
+    data[book + 5:book + 8] = b"\xff\xff\xff"      # entries
+    data[page + 22:page + 26] = bytes(4)
+    data[page + 22:page + 26] = ogg_crc(data[page:page + length]).to_bytes(4, "little")
+    return bytes(data)
+
+
 for name, data in (("a WAV file", wav), ("an MP3 file", read_bytes(MP3)),
                    ("damaged Vorbis header", bytes(damaged)),
-                   ("noise", noise), ("an empty file", b"")):
+                   ("noise", noise), ("an empty file", b""),
+                   ("an absurd codebook", huge_codebook(whole))):
     ok, kind = refused(lambda: audiovorbis.VorbisDecoder(io.BytesIO(data)))
     check(name, ok, kind)
 
