@@ -51,7 +51,7 @@ link that doesn't.
 ## The decoder, and decoding from C
 
 The decoding is Xiph's Tremor, the lowmem branch: integer-only, BSD-3-Clause,
-carried with two one-line portability fixes in [third_party/tremor](../third_party/tremor)
+carried in [third_party/tremor](../third_party/tremor) with a few small changes
 with its [ORIGIN.txt](../third_party/tremor/ORIGIN.txt). It is compiled as one
 translation unit, [src/shared/audiodsp_vorbis.c](../src/shared/audiodsp_vorbis.c),
 which:
@@ -101,16 +101,26 @@ since many of the blocks are tables of pointers:
 | mono 44.1 kHz, 48 kbit/s | 24 KB | 30 KB |
 | stereo 48 kHz, 500 kbit/s | 83 KB | 96 KB |
 
+On a Waveshare ESP32-P4 DEV-KIT, a 44.1 kHz stereo file at 112 kbit/s took
+31 KB to open and 47 KB once playing, every byte of it in PSRAM and none in
+internal RAM; five open, decode and `deinit()` cycles left both exactly where
+they started.
+
 Most of it is the stream's codebooks, which a higher bitrate makes larger,
 and the rest is two blocks of decode state per channel. On top of that the
 binding keeps two output buffers on the interpreter's heap: 8 KB without a
 `buffer`.
 
-Stack: Tremor puts its scratch on the stack (`alloca`). The deepest point is
-opening a file, while the codebooks are unpacked: about 11 KB on a 64-bit
-desktop, of which the largest single `alloca` was 5 KB, half that on a
-32-bit board. The ESP32 port runs Python on a 16 KB stack, so decode from
-shallow Python, not from deep inside a call chain.
+Stack: Tremor's call chains are about 1 KB deep on RISC-V, and a packet
+puts up to about 2 KB more of scratch on the stack while it decodes; under
+that sits the stream's own read. Unpacking a stream's codebooks used to take
+scratch on the stack sized by the codebook, which on the ESP32's 16 KB
+Python stack crashed a board when an ordinary file was opened from deep in
+a call chain, so that scratch comes from the heap now (and a codebook too
+large to be real is refused). Tremor doesn't check its own depth, so the
+binding checks before every call into it that 6 KB are left: a program that
+deep gets `RuntimeError("not enough stack to open a Vorbis file here")`, or
+a pull that returns `GET_BUFFER_ERROR`, rather than a crashed board.
 
 Flash: the decoder is about 90 KB of code and tables on an ESP32-P4
 (`riscv32-esp-elf-size` on `audiodsp_vorbis.c`'s object), most of it the

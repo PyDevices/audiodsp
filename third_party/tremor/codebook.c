@@ -201,8 +201,12 @@ static int _make_decode_table(codebook *s,char *lengthlist,long quantvals,
     return 0;
   }
 
-  work=alloca((s->used_entries*2-2)*sizeof(*work));
-  if(_make_words(lengthlist,s->entries,work,quantvals,s,opb,maptype))return 1;
+  work=_ogg_malloc((s->used_entries*2-2)*sizeof(*work));
+  if(!work)return 1;
+  if(_make_words(lengthlist,s->entries,work,quantvals,s,opb,maptype)){
+    _ogg_free(work);
+    return 1;
+  }
   s->dec_table=_ogg_malloc((s->used_entries*(s->dec_leafw+1)-2)*
 			   s->dec_nodeb);
   
@@ -288,6 +292,7 @@ static int _make_decode_table(codebook *s,char *lengthlist,long quantvals,
     }
   }
 	
+  _ogg_free(work);
   return 0;
 }
 
@@ -350,12 +355,15 @@ int vorbis_book_unpack(oggpack_buffer *opb,codebook *s){
   s->dim=oggpack_read(opb,16);
   s->entries=oggpack_read(opb,24);
   if(s->entries==-1)goto _eofout;
+  if(_ilog(s->dim)+_ilog(s->entries)>24)goto _eofout;
+  if(s->dim>256)goto _eofout; /* decoding takes dim words of stack */
 
   /* codeword ordering.... length ordered or unordered? */
   switch((int)oggpack_read(opb,1)){
   case 0:
     /* unordered */
-    lengthlist=(char *)alloca(sizeof(*lengthlist)*s->entries);
+    lengthlist=(char *)_ogg_malloc(sizeof(*lengthlist)*s->entries);
+    if(!lengthlist)goto _eofout;
 
     /* allocated but unused entries? */
     if(oggpack_read(opb,1)){
@@ -389,7 +397,8 @@ int vorbis_book_unpack(oggpack_buffer *opb,codebook *s){
       long length=oggpack_read(opb,5)+1;
 
       s->used_entries=s->entries;
-      lengthlist=(char *)alloca(sizeof(*lengthlist)*s->entries);
+      lengthlist=(char *)_ogg_malloc(sizeof(*lengthlist)*s->entries);
+      if(!lengthlist)goto _eofout;
       
       for(i=0;i<s->entries;){
 	long num=oggpack_read(opb,_ilog(s->entries-i));
@@ -451,27 +460,23 @@ int vorbis_book_unpack(oggpack_buffer *opb,codebook *s){
 	/* use dec_type 1: vector of packed values */
 
 	/* need quantized values before  */
-	s->q_val=alloca(sizeof(ogg_uint16_t)*quantvals);
+	s->q_val=_ogg_malloc(sizeof(ogg_uint16_t)*quantvals);
+	if(!s->q_val)goto _eofout;
 	for(i=0;i<quantvals;i++)
 	  ((ogg_uint16_t *)s->q_val)[i]=oggpack_read(opb,s->q_bits);
 	
-	if(oggpack_eop(opb)){
-	  s->q_val=0; /* cleanup must not free alloca memory */
-	  goto _eofout;
-	}
+	if(oggpack_eop(opb))goto _eofout; /* cleanup frees q_val */
 
 	s->dec_type=1;
 	s->dec_nodeb=_determine_node_bytes(s->used_entries,
 					   (s->q_bits*s->dim+8)/8); 
 	s->dec_leafw=_determine_leaf_words(s->dec_nodeb,
 					   (s->q_bits*s->dim+8)/8); 
-	if(_make_decode_table(s,lengthlist,quantvals,opb,maptype)){
-	  s->q_val=0; /* cleanup must not free alloca memory */
-	  goto _errout;
-	}
+	if(_make_decode_table(s,lengthlist,quantvals,opb,maptype))
+	  goto _errout; /* cleanup frees q_val */
 	
-	s->q_val=0; /* about to go out of scope; _make_decode_table
-                       was using it */
+	_ogg_free(s->q_val); /* _make_decode_table was its last user */
+	s->q_val=0;
 	
       }else{
 	/* use dec_type 2: packed vector of column offsets */
@@ -541,9 +546,11 @@ int vorbis_book_unpack(oggpack_buffer *opb,codebook *s){
 
   if(oggpack_eop(opb))goto _eofout;
 
+  if(lengthlist)_ogg_free(lengthlist);
   return 0;
  _errout:
  _eofout:
+  if(lengthlist)_ogg_free(lengthlist);
   vorbis_book_clear(s);
   return -1;
 }

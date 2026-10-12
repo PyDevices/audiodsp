@@ -19,6 +19,7 @@
 #include "py/mperrno.h"
 #include "py/nlr.h"
 #include "py/runtime.h"
+#include "py/stackctrl.h"
 #include "py/stream.h"
 
 #include "shared-bindings/audiocore/__init__.h"
@@ -26,6 +27,21 @@
 
 // The optional buffer is used when each half holds at least this much.
 #define AUDIOVORBIS_MIN_HALF_BYTES (256)
+
+// The C stack a call into Tremor may take below the caller, with room to
+// spare: about 1 KB of fixed frames on RISC-V, up to 2 KB of scratch a packet
+// sizes on the stack, and the stream's own read underneath (docs/vorbis.md).
+// Tremor doesn't check its depth, so this checks first: a Python program deep
+// enough to run the stack out gets an error instead of a crashed board.
+#define AUDIOVORBIS_STACK_NEEDED (6 * 1024)
+
+static bool vorbis_stack_ok(void) {
+    #if MICROPY_STACK_CHECK
+    return mp_stack_usage() + AUDIOVORBIS_STACK_NEEDED <= MP_STATE_THREAD(stack_limit);
+    #else
+    return true;
+    #endif
+}
 
 // --- the stream, as audiodsp_vorbis_io_t ------------------------------------
 //
@@ -151,6 +167,10 @@ void common_hal_audiovorbis_vorbisdecoder_set_file(audiovorbis_vorbisdecoder_obj
     mp_obj_t stream) {
     // Open the new stream before touching anything a pull reads: opening
     // reads the stream, allocates and can raise.
+    if (!vorbis_stack_ok()) {
+        mp_raise_msg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("not enough stack to open a Vorbis file here"));
+    }
     mp_obj_t old_stream = self->stream;
     self->stream = stream;
     self->stream_error = MP_OBJ_NULL;
@@ -207,7 +227,7 @@ void audiovorbis_vorbisdecoder_reset_buffer(audiovorbis_vorbisdecoder_obj_t *sel
     if (single_channel_output && channel == 1) {
         return;
     }
-    if (self->decoder == NULL || !self->started) {
+    if (self->decoder == NULL || !self->started || !vorbis_stack_ok()) {
         return;
     }
     if (audiodsp_vorbis_seek(self->decoder, 0) == 0) {
@@ -221,7 +241,7 @@ void audiovorbis_vorbisdecoder_reset_buffer(audiovorbis_vorbisdecoder_obj_t *sel
 audioio_get_buffer_result_t audiovorbis_vorbisdecoder_get_buffer(audiovorbis_vorbisdecoder_obj_t *self,
     bool single_channel_output, uint8_t channel,
     uint8_t **bufptr, uint32_t *buffer_length) {
-    if (self->decoder == NULL) {
+    if (self->decoder == NULL || !vorbis_stack_ok()) {
         *bufptr = NULL;
         *buffer_length = 0;
         return GET_BUFFER_ERROR;
