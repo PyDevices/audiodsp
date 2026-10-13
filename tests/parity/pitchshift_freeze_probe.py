@@ -119,7 +119,11 @@ for channels in (1, 2):
     if len(set(frozen)) != 1:
         failures.append(tag + ": frozen blocks are not the same bytes")
 
-# A reset of the node's buffer lets go of the freeze.
+# A reset of the node's buffer lets go of the freeze. What the node renders
+# after the reset is pitch_reset_probe.py's to check: a reset here also puts
+# the read and write positions back where a new node starts, which upstream
+# does not (docs/upstream-diff.md), so those bytes are not held to
+# CircuitPython's.
 node = node_for(1, semitones=7, mix=1.0, window=1024, overlap=128)
 emit("reset_before", node, 1)
 set_freeze(node, True)
@@ -128,7 +132,6 @@ audiocore.reset_buffer(node)
 print("freeze reset_buffer", node.freeze)
 if node.freeze is not False:
     failures.append("reset_buffer left freeze set")
-emit("reset_after", node, 2)
 
 # Any value, by its truth.
 node = delays.PitchShift(sample_rate=SAMPLE_RATE)

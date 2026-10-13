@@ -214,6 +214,9 @@ reason, and a resync should not take them.
   `MultiTapDelay` keeps its lanes after an odd-length buffer and never spins
   on an empty source
   ([why](upstream-diff.md#audiodelaysmultitapdelay-the-lanes-hold-and-a-pull-always-returns-audiodsp177)).
+  A reset puts `PitchShift`'s read and write positions and
+  `GranularPitchShift`'s jitter sequence back where a new node starts
+  ([why](upstream-diff.md#audiodelays-a-reset-puts-the-pitch-shifters-back-where-a-new-node-starts)).
 - **audiomp3**: a rewind clears the decoder's frame-to-frame state, so a
   looped second lap decodes like the first (audiodsp#219; 11.0.0-alpha.1
   keeps it). The allocator, three Windows-only fixes and the platform list

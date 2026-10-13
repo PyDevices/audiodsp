@@ -151,6 +151,14 @@ void audiodelays_pitch_shift_reset_buffer(audiodelays_pitch_shift_obj_t *self,
     if (self->overlap_len) {
         memset(self->overlap_buffer, 0, self->overlap_len);
     }
+    // The positions go back to where a new node starts. Upstream leaves them,
+    // so the read position's distance from the write position -- the splice
+    // phase, which moves every frame the shift is not 0 -- carried across the
+    // reset and the node never rendered what a new one does again
+    // (docs/upstream-diff.md).
+    self->window_index = 0;
+    self->overlap_index = 0;
+    self->read_index = 0;
 }
 
 bool common_hal_audiodelays_pitch_shift_get_playing(audiodelays_pitch_shift_obj_t *self) {

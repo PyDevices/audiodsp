@@ -263,6 +263,9 @@ class PitchShift(_Effect):
         self._freeze = False
         self._window_buffer[:] = array("h", [0]) * len(self._window_buffer)
         self._overlap_buffer[:] = array("h", [0]) * len(self._overlap_buffer)
+        # Back where a new node starts: the splice phase is the distance
+        # between these, and it must not carry across a reset.
+        self._window_index = self._overlap_index = self._read_index = 0
 
     def _process(self, data):
         if self.bits_per_sample != 16 or not self.samples_signed or not data:
@@ -402,6 +405,8 @@ class GranularPitchShift(_Effect):
         self._grains = [self._empty_grain() for _ in range(self._MAX_GRAINS)]
         self._until_next = 0
         self._write_index = 0
+        # The jitter's sequence starts again, as a new node's does.
+        self._rng_state = 0x1234abcd
 
     def _rand(self):
         x = self._rng_state & 0xffffffff
