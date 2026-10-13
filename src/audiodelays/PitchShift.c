@@ -217,11 +217,21 @@ audioio_get_buffer_result_t audiodelays_pitch_shift_get_buffer(audiodelays_pitch
         overlap_size = self->overlap_len / sizeof(uint16_t) / self->base.channel_count;
     }
 
+    // Set once the source has handed back nothing with more to come: the rest
+    // of the block is silence and the source is asked again next pull. A
+    // looping source that comes back empty straight after its reset has
+    // nothing at all, so the node lets go of it, as the CPython twin does.
+    // Upstream CircuitPython goes round again with n == 0 in both cases and
+    // never leaves the loop (docs/upstream-diff.md).
+    bool starved = false;
+
     while (length != 0) {
-        if (self->sample_buffer_length == 0) {
+        if (self->sample_buffer_length == 0 && !starved) {
+            bool reset = false;
             if (!self->more_data) {
                 if (self->loop && self->sample) {
                     audiosample_reset_buffer(self->sample, false, 0);
+                    reset = true;
                 } else {
                     self->sample = NULL;
                 }
@@ -230,10 +240,17 @@ audioio_get_buffer_result_t audiodelays_pitch_shift_get_buffer(audiodelays_pitch
                 audioio_get_buffer_result_t result = audiosample_get_buffer(self->sample, false, 0, (uint8_t **)&self->sample_remaining_buffer, &self->sample_buffer_length);
                 self->sample_buffer_length /= (self->base.bits_per_sample / 8);
                 self->more_data = result == GET_BUFFER_MORE_DATA;
+                if (self->sample_buffer_length == 0) {
+                    if (self->more_data) {
+                        starved = true;
+                    } else if (reset) {
+                        self->sample = NULL;
+                    }
+                }
             }
         }
 
-        if (self->sample == NULL) {
+        if (self->sample == NULL || starved) {
             if (self->base.samples_signed) {
                 memset(word_buffer, 0, length * (self->base.bits_per_sample / 8));
             } else {

@@ -220,6 +220,9 @@ reason, and a resync should not take them.
   `Echo` and `MultiTapDelay` start a line shortened under the write head at
   its top rather than write one sample past its end
   ([why](upstream-diff.md#audiodelaysecho-and-multitapdelay-a-shortened-line-starts-again-at-its-top)).
+  Both pitch shifters return from a source with nothing to give instead of
+  spinning
+  ([why](upstream-diff.md#audiodelays-the-pitch-shifters-return-from-a-source-with-nothing-to-give)).
 - **audiomp3**: a rewind clears the decoder's frame-to-frame state, so a
   looped second lap decodes like the first (audiodsp#219; 11.0.0-alpha.1
   keeps it). The allocator, three Windows-only fixes and the platform list

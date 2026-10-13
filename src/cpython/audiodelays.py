@@ -289,6 +289,10 @@ class MultiTapDelay(_Effect):
 
 
 class PitchShift(_Effect):
+    # A source with nothing to give ends the pull's stretch rather than
+    # spinning the loop (a recorded deviation, docs/upstream-diff.md).
+    _stop_on_empty_pull = True
+
     def __init__(self, *, semitones=0, mix=1, window=1024, overlap=128, buffer_size=512, sample_rate=8000, bits_per_sample=16, samples_signed=True, channel_count=1):
         self.semitones, self.mix, self.window, self.overlap = semitones, mix, int(window), int(overlap)
         # A window must hold at least one frame (upstream 6dddbda87).
@@ -429,6 +433,7 @@ class Flanger(_Effect):
 
 class GranularPitchShift(_Effect):
     _MAX_GRAINS = 8
+    _stop_on_empty_pull = True
 
     def __init__(self, *, semitones=0, mix=1, grain_size=1024, density=2, spread=0.0, buffer_size=512, sample_rate=8000, bits_per_sample=16, samples_signed=True, channel_count=1):
         if grain_size < 2: raise ValueError("grain_size must be at least 2")
