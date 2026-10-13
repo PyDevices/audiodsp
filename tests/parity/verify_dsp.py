@@ -263,6 +263,16 @@ PROBES = (
     # sustain itself and exits 1 without it, so a build where every target
     # ignores `freeze` together still fails.
     ("pitchshift_freeze_probe.py", "audiodelays", {}, None),
+    # A reset puts PitchShift's read and write positions and
+    # GranularPitchShift's jitter sequence back where a new node starts, and
+    # the probe asserts the node then renders what a new one does.
+    ("pitch_reset_probe.py", "audiodelays",
+     {"circuitpython": "upstream's PitchShift keeps its read and write "
+                       "positions across a reset and its GranularPitchShift "
+                       "keeps its jitter sequence, and ours start again - "
+                       "deliberate departures recorded in "
+                       "docs/upstream-diff.md"},
+     None),
 )
 
 

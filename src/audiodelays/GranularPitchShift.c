@@ -81,7 +81,7 @@ void common_hal_audiodelays_granular_pitch_shift_construct(
     audiodsp_granular_pitch_shift_fill_envelope(self->envelope_table, self->grain_size);
 
     audiodsp_granular_pitch_shift_reset_state(&self->granular);
-    self->granular.rng_state = 0x1234abcdu;
+    self->granular.rng_state = AUDIODSP_GRANULAR_RNG_SEED;
 
     mp_float_t f_semitones = synthio_block_slot_get(&self->semitones);
     granular_pitch_shift_recalculate_rate(self, f_semitones);
@@ -161,10 +161,12 @@ void audiodelays_granular_pitch_shift_reset_buffer(
     memset(self->buffer[0], 0, self->buffer_len);
     memset(self->buffer[1], 0, self->buffer_len);
     memset(self->capture_buffer, 0, self->capture_len * self->base.channel_count * sizeof(int16_t));
-    uint32_t rng = self->granular.rng_state;
     uint32_t read_rate = self->granular.read_rate;
     audiodsp_granular_pitch_shift_reset_state(&self->granular);
-    self->granular.rng_state = rng;
+    // The jitter's sequence starts again too, as a new node's does. Upstream
+    // carries it on, so a reset node drew grain offsets no new node draws
+    // (docs/upstream-diff.md).
+    self->granular.rng_state = AUDIODSP_GRANULAR_RNG_SEED;
     self->granular.read_rate = read_rate;
 }
 

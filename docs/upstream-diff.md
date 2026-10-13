@@ -5,6 +5,42 @@ CircuitPython, newest first. For the current list of deliberate differences,
 and how and when to resync with upstream, start at
 [upstream-sync.md](upstream-sync.md).
 
+## `audiodelays`: a reset puts the pitch shifters back where a new node starts
+
+`audiocore.reset_buffer()` on a `PitchShift` or a `GranularPitchShift` now
+leaves the node exactly as a new one starts, so from the reset on it renders
+what a new node fed the same frames renders. Upstream's reset (in 10.3.0 and
+11.0.0-alpha.1) zeroes the buffers and leaves two things behind:
+
+- **`PitchShift`'s read and write positions.** The node writes its window at
+  the source's rate and reads it at the shifted rate, so the distance between
+  the two -- where the splice falls -- moves by (rate - 1) frames every frame.
+  A reset that kept the positions splices the audio after it at whatever
+  phase the node had drifted to, and the node never renders what a new one
+  does again. A whole octave up or down drifts by whole windows on a
+  block-aligned reset, which is why it hid there; a fifth never does. The
+  reset now zeroes `window_index`, `overlap_index` and `read_index` as well.
+- **`GranularPitchShift`'s jitter sequence.** With `spread` above 0 each
+  grain's start is offset by a draw from a xorshift sequence, and the reset
+  left the sequence where it had got to, so the grains after it started at
+  offsets no new node draws. The reset now starts the sequence again from the
+  constructor's seed. At `spread` 0 nothing is drawn, and the reset was
+  already complete.
+
+A semitone move is not a reset, and still leaves `PitchShift`'s splice phase
+where the move took it: the read position ran at another rate for a while,
+and putting it back would click.
+
+Only a render with a reset in the middle of a stream moves. Verified by
+`tests/parity/pitch_reset_probe.py` through `verify_dsp.py`: each node is
+reset seven blocks in and must render what a new node renders from the frames
+those blocks had not used. On a build from before the change the four
+`PitchShift` cases and the two with `spread` fail it, on CPython and on
+MicroPython alike; the `spread` 0 case passes on both. CircuitPython is
+skipped on that probe, since its own nodes keep upstream's behaviour, and
+`pitchshift_freeze_probe.py` no longer renders after its reset, so it stays
+held to CircuitPython's bytes.
+
 ## Resynced with 11.0.0-alpha.1 (audiodsp#220)
 
 Every audio fix CircuitPython made between 10.3.0 and 11.0.0-alpha.1 is in

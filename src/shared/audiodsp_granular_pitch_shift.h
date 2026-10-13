@@ -9,6 +9,9 @@
 
 #define AUDIODSP_GRANULAR_MAX_GRAINS (8)
 #define AUDIODSP_GRANULAR_PITCH_READ_SHIFT (8)
+// Where the grain jitter's xorshift sequence starts, on a new node and after a
+// reset.
+#define AUDIODSP_GRANULAR_RNG_SEED (0x1234abcdu)
 
 typedef struct {
     bool active;
