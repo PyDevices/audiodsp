@@ -162,7 +162,10 @@ cleared then, and changing `freq_shift` empties the line.
 
 `delay_time_probe.py` holds both on MicroPython and CPython and is skipped on
 CircuitPython, where `Echo` and `MultiTapDelay` both play the stray sample.
-Nothing stored moved: no golden shortens a line under its write head.
+`multitap_time_probe.py` is skipped there now too: its 22050 Hz mono case
+shortens the line under the write head, and 2 of its samples differ from the
+oracle's. Nothing stored moved: no golden shortens a line under its write
+head.
 
 ## Tails ring out when the source ends, then the node rests (audiodsp#180)
 

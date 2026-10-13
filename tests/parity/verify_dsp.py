@@ -218,7 +218,13 @@ PROBES = (
     ("effects_bounds_probe.py", "audiodelays", {}, None),
     # A shorter Time and back again: every native build clears the line past
     # the new length, and the CPython twin now does too (audiodsp#177).
-    ("multitap_time_probe.py", "audiodelays", {}, None),
+    ("multitap_time_probe.py", "audiodelays",
+     {"circuitpython": "its 22050 Hz mono case shortens the line under the "
+                       "write head, where upstream writes one sample past "
+                       "the new end and ours starts the line again at its "
+                       "top: 2 samples differ, a deliberate departure "
+                       "recorded in docs/upstream-diff.md"},
+     None),
     # A stereo source handing an odd number of samples, and a looped source
     # that comes back empty (audiodsp#177). Upstream swaps the lanes on the
     # first and never returns from the second.
