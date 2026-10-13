@@ -238,6 +238,18 @@ PROBES = (
     # MultiTapDelay are CircuitPython's own on CircuitPython, and agree.
     ("delay_lifecycle_probe.py", "audioecho", {}, None),
     ("delay_lifecycle_probe.py", "audiodelays", {}, None),
+    # Time shortened and lengthened again: the line comes back empty. Upstream
+    # writes one more sample past a line shortened under the write head, which
+    # plays when the Time grows back, and this port starts the line again at
+    # its top instead; the CPython Echo also clears past the shorter line now,
+    # as every native build does.
+    ("delay_time_probe.py", "audiodelays",
+     {"circuitpython": "upstream's Echo and MultiTapDelay write one sample "
+                       "past a line shortened under the write head, and ours "
+                       "do not - a deliberate departure recorded in "
+                       "docs/upstream-diff.md"},
+     None),
+    ("delay_time_probe.py", "audioecho", {}, None),
     ("feedback_delay_frames_probe.py", "audioecho", {}, None),
     ("freeverb_filter_probe.py", "audiofreeverb", {}, None),
     # A host reset mid-stream clears each node's own state and keeps the

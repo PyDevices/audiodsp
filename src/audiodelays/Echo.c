@@ -296,6 +296,19 @@ audioio_get_buffer_result_t audiodelays_echo_get_buffer(audiodelays_echo_obj_t *
         uint32_t echo_buf_len = self->echo_buffer_len / sizeof(uint16_t);
         uint32_t max_echo_buf_len = (self->max_echo_buffer_len >> (self->base.channel_count - 1)) / sizeof(uint16_t);
 
+        // A line shortened under the write head starts again at its top.
+        // Upstream writes one more sample past the new end first, where
+        // nothing reads it until the delay grows back and it plays out of
+        // the silence then (see docs/upstream-diff.md).
+        if (!self->freq_shift) {
+            if (self->echo_buffer_left_pos >= echo_buf_len) {
+                self->echo_buffer_left_pos = 0;
+            }
+            if (self->echo_buffer_right_pos >= echo_buf_len) {
+                self->echo_buffer_right_pos = 0;
+            }
+        }
+
         if (self->sample == NULL) {
             if (mix <= MICROPY_FLOAT_CONST(0.01)) { // Mix of 0 is pure sample sound. We have no sample so no sound
                 if (self->base.samples_signed) {
