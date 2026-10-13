@@ -166,6 +166,7 @@ CircuitPython, where `Echo` and `MultiTapDelay` both play the stray sample.
 shortens the line under the write head, and 2 of its samples differ from the
 oracle's. Nothing stored moved: no golden shortens a line under its write
 head.
+
 ## `audiodelays.Echo`: a looped source that comes back empty is let go
 
 Play an `Echo` with `loop=True` on a source that ends with nothing in hand,
