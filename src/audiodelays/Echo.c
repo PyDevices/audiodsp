@@ -272,6 +272,13 @@ audioio_get_buffer_result_t audiodelays_echo_get_buffer(audiodelays_echo_obj_t *
                 audioio_get_buffer_result_t result = audiosample_get_buffer(self->sample, false, 0, (uint8_t **)&self->sample_remaining_buffer, &self->sample_buffer_length);
                 self->sample_buffer_length /= (self->base.bits_per_sample / 8);
                 self->more_data = result == GET_BUFFER_MORE_DATA;
+                // A source that ends with nothing in hand is let go, looped
+                // or not, and the line rings out on silence below, as the
+                // CPython twin does. Upstream loops it again, gets nothing
+                // again, and never leaves this loop (see docs/upstream-diff.md).
+                if (self->sample_buffer_length == 0 && !self->more_data) {
+                    self->sample = NULL;
+                }
             }
         }
 

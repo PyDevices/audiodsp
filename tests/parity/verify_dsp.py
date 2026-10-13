@@ -231,8 +231,10 @@ PROBES = (
     ("multitap_edges_probe.py", "audiodelays",
      {"circuitpython": "upstream's MultiTapDelay swaps the lanes after an "
                        "odd-length source buffer and spins for ever on a "
-                       "source with nothing to give, and ours does neither - "
-                       "audiodsp#177, both deliberate departures recorded in "
+                       "source with nothing to give, and its Echo spins on "
+                       "a looped source that comes back empty; ours do none "
+                       "of these - audiodsp#177 and the Echo entry, "
+                       "deliberate departures recorded in "
                        "docs/upstream-diff.md"},
      None),
     # wow_hz and loop_semitones taken to 0 park at their next zero crossing

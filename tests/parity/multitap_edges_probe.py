@@ -9,11 +9,13 @@ the same bytes and the bytes are held to the claim:
   comes back out in the lane it went in on. Upstream CircuitPython starts
   every source buffer on the left lane, so the lanes swap from there on.
 - Looping a source that comes back empty renders silence and returns.
-  Upstream goes round its pull loop for ever.
+  Upstream goes round its pull loop for ever. `Echo` did the same; it lets go
+  of the source instead and rings out what its line holds, as its CPython twin
+  always did.
 
-Both are recorded deviations from the oracle (docs/upstream-diff.md), so the
+All are recorded deviations from the oracle (docs/upstream-diff.md), so the
 probe runs on MicroPython and CPython and is skipped on CircuitPython, whose
-MultiTapDelay is upstream's.
+MultiTapDelay and Echo are upstream's.
 """
 
 import sys
@@ -87,6 +89,20 @@ for index in range(3):
     data = pull(node)
     print("empty_loop", index, len(data), checksum(data))
 check("empty_loop", True)
+
+# Echo, looping a source that plays and then comes back empty: the repeats of
+# what it played ring out, and every pull returns.
+node = delays.Echo(max_delay_ms=40, delay_ms=20, decay=0.5, mix=0.5,
+                   buffer_size=512, sample_rate=RATE, freq_shift=False)
+node.play(audiocore.RawSample(array("h", [12000] * 40), sample_rate=RATE),
+          loop=True)
+data = pull(node)
+print("echo_loop", len(data), checksum(data))
+node.play(audiocore.RawSample(array("h"), sample_rate=RATE), loop=True)
+for index in range(3):
+    data = pull(node)
+    print("echo_empty_loop", index, len(data), checksum(data))
+check("echo_empty_loop", True)
 
 if FAILED:
     raise SystemExit("failed: " + " ".join(FAILED))

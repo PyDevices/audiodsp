@@ -214,6 +214,9 @@ reason, and a resync should not take them.
   `MultiTapDelay` keeps its lanes after an odd-length buffer and never spins
   on an empty source
   ([why](upstream-diff.md#audiodelaysmultitapdelay-the-lanes-hold-and-a-pull-always-returns-audiodsp177)).
+  `Echo` lets go of a looped source that comes back empty instead of asking
+  it again for ever
+  ([why](upstream-diff.md#audiodelaysecho-a-looped-source-that-comes-back-empty-is-let-go)).
   A reset puts `PitchShift`'s read and write positions and
   `GranularPitchShift`'s jitter sequence back where a new node starts
   ([why](upstream-diff.md#audiodelays-a-reset-puts-the-pitch-shifters-back-where-a-new-node-starts)).

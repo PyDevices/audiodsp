@@ -167,6 +167,24 @@ shortens the line under the write head, and 2 of its samples differ from the
 oracle's. Nothing stored moved: no golden shortens a line under its write
 head.
 
+## `audiodelays.Echo`: a looped source that comes back empty is let go
+
+Play an `Echo` with `loop=True` on a source that ends with nothing in hand,
+such as an `audioroute.Port` pointed at a source that has finished, and
+upstream (still in 11.0.0-alpha.1) resets the source, asks it again, gets
+nothing again, and never leaves `get_buffer`: the pull, and on a board the
+audio pump with it, hangs. Here the native node lets go of a source that ends
+with nothing in hand, looped or not, and rings out what its line holds on
+silence. That is what the CPython twin always did, through the effects'
+shared pull loop, so the two now agree. `MultiTapDelay` keeps its source and
+asks again on the next pull instead
+([above](#audiodelaysmultitapdelay-the-lanes-hold-and-a-pull-always-returns-audiodsp177));
+the other effects ported from CircuitPython keep upstream's loop.
+
+`multitap_edges_probe.py` holds it on MicroPython and CPython, where it is
+skipped on CircuitPython already. Nothing stored moved: no golden loops an
+empty source.
+
 ## Tails ring out when the source ends, then the node rests (audiodsp#180)
 
 `audioecho.FeedbackDelay`, `audioverb.Tank` and `audioconvolve.Convolver` used
