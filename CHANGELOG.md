@@ -1,3 +1,13 @@
+## v0.6.6rc1 (2026-10-13)
+
+- PitchShift and GranularPitchShift: a pull returns when the source has nothing to give (#243)
+- audiodelays.Echo: a looped source that comes back empty no longer hangs the pull (#242)
+- audiodelays.Echo and MultiTapDelay: a Time brought back after a shorter one plays nothing from before (#241)
+- PitchShift and GranularPitchShift: a reset starts them again where a new node starts (#240)
+- audiovorbis: a deep caller or a crafted file can no longer crash the board (#239)
+- Play Ogg Vorbis files with audiovorbis.VorbisDecoder (#238)
+- audioconvolve.Convolver: a reload keeps the audio in flight and crossfades the block being played (#237)
+
 ## v0.6.5 (2026-10-10)
 
 - ROADMAP: the patch-change fade has landed (#234) (#235)
