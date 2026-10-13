@@ -217,6 +217,9 @@ reason, and a resync should not take them.
   A reset puts `PitchShift`'s read and write positions and
   `GranularPitchShift`'s jitter sequence back where a new node starts
   ([why](upstream-diff.md#audiodelays-a-reset-puts-the-pitch-shifters-back-where-a-new-node-starts)).
+  `Echo` and `MultiTapDelay` start a line shortened under the write head at
+  its top rather than write one sample past its end
+  ([why](upstream-diff.md#audiodelaysecho-and-multitapdelay-a-shortened-line-starts-again-at-its-top)).
 - **audiomp3**: a rewind clears the decoder's frame-to-frame state, so a
   looped second lap decodes like the first (audiodsp#219; 11.0.0-alpha.1
   keeps it). The allocator, three Windows-only fixes and the platform list

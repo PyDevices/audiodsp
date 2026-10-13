@@ -218,7 +218,13 @@ PROBES = (
     ("effects_bounds_probe.py", "audiodelays", {}, None),
     # A shorter Time and back again: every native build clears the line past
     # the new length, and the CPython twin now does too (audiodsp#177).
-    ("multitap_time_probe.py", "audiodelays", {}, None),
+    ("multitap_time_probe.py", "audiodelays",
+     {"circuitpython": "its 22050 Hz mono case shortens the line under the "
+                       "write head, where upstream writes one sample past "
+                       "the new end and ours starts the line again at its "
+                       "top: 2 samples differ, a deliberate departure "
+                       "recorded in docs/upstream-diff.md"},
+     None),
     # A stereo source handing an odd number of samples, and a looped source
     # that comes back empty (audiodsp#177). Upstream swaps the lanes on the
     # first and never returns from the second.
@@ -238,6 +244,18 @@ PROBES = (
     # MultiTapDelay are CircuitPython's own on CircuitPython, and agree.
     ("delay_lifecycle_probe.py", "audioecho", {}, None),
     ("delay_lifecycle_probe.py", "audiodelays", {}, None),
+    # Time shortened and lengthened again: the line comes back empty. Upstream
+    # writes one more sample past a line shortened under the write head, which
+    # plays when the Time grows back, and this port starts the line again at
+    # its top instead; the CPython Echo also clears past the shorter line now,
+    # as every native build does.
+    ("delay_time_probe.py", "audiodelays",
+     {"circuitpython": "upstream's Echo and MultiTapDelay write one sample "
+                       "past a line shortened under the write head, and ours "
+                       "do not - a deliberate departure recorded in "
+                       "docs/upstream-diff.md"},
+     None),
+    ("delay_time_probe.py", "audioecho", {}, None),
     ("feedback_delay_frames_probe.py", "audioecho", {}, None),
     ("freeverb_filter_probe.py", "audiofreeverb", {}, None),
     # A host reset mid-stream clears each node's own state and keeps the

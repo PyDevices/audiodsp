@@ -365,6 +365,12 @@ audioio_get_buffer_result_t audiodelays_multi_tap_delay_get_buffer(audiodelays_m
     if (single_channel_output && channel == 1) {
         delay_buffer_pos = self->delay_buffer_right_pos;
     }
+    // A line shortened under the write head starts again at its top, as
+    // Echo's does: upstream writes one more frame past the new end, which
+    // plays out of the silence when the delay grows back.
+    if (delay_buffer_pos >= delay_buffer_len) {
+        delay_buffer_pos = 0;
+    }
 
     int32_t mix_down_scale = SYNTHIO_MIX_DOWN_SCALE(self->tap_len);
     const uint32_t block_samples = length;

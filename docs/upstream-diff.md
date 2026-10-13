@@ -140,6 +140,33 @@ six blocks) and the empty loop never returns.
 more to come, which no native source here produces. Nothing stored moved:
 no golden reaches either case.
 
+## `audiodelays.Echo` and `MultiTapDelay`: a shortened line starts again at its top
+
+Shorten the Time while the write head is past the end of the new line, and
+upstream (still in 11.0.0-alpha.1) writes one more sample there, at the old
+position, before it wraps to the top. The "clear the unused part" `memset`
+has already run, so that one sample of input sits in the unused part of the
+line where nothing reads it. When the Time grows back, the read head reaches
+it and it plays: a single-sample click out of silence, as loud as the input
+was at the moment of the move. Here the pull starts a line it finds its write
+head past at the top before it reads or writes (`Echo.c` and
+`MultiTapDelay.c`'s `get_buffer`, and both twins), so the sample goes into the
+line where it belongs.
+
+The CPython `Echo` twin also worked out the line's length on every block and
+never cleared past a shorter one, where every native build clears it. A Time
+shortened in the silence after a note and then lengthened played the note's
+old repeats. The twin now follows the native `recalculate_delay`: the length
+is worked out when the delay is set or moves by a sample, the unused part is
+cleared then, and changing `freq_shift` empties the line.
+
+`delay_time_probe.py` holds both on MicroPython and CPython and is skipped on
+CircuitPython, where `Echo` and `MultiTapDelay` both play the stray sample.
+`multitap_time_probe.py` is skipped there now too: its 22050 Hz mono case
+shortens the line under the write head, and 2 of its samples differ from the
+oracle's. Nothing stored moved: no golden shortens a line under its write
+head.
+
 ## Tails ring out when the source ends, then the node rests (audiodsp#180)
 
 `audioecho.FeedbackDelay`, `audioverb.Tank` and `audioconvolve.Convolver` used

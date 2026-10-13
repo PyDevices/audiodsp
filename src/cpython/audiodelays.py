@@ -16,15 +16,63 @@ class Echo(_Effect):
 
     def __init__(self, *, max_delay_ms=500, delay_ms=None, decay=None, filter=None, mix=None, buffer_size=512, sample_rate=8000, bits_per_sample=16, samples_signed=True, channel_count=1, freq_shift=True):
         if not 1 <= max_delay_ms <= 4000: raise ValueError("max_delay_ms must be from 1 to 4000")
-        self.max_delay_ms, self.delay_ms, self.decay, self.mix = max_delay_ms, 250 if delay_ms is None else delay_ms, 0.7 if decay is None else decay, 0.25 if mix is None else mix
-        self.freq_shift = bool(freq_shift)
+        self.max_delay_ms, self.decay, self.mix = max_delay_ms, 0.7 if decay is None else decay, 0.25 if mix is None else mix
+        self._delay_ms = 250 if delay_ms is None else delay_ms
+        self._freq_shift = bool(freq_shift)
         self._init_format(buffer_size=buffer_size, sample_rate=sample_rate, bits_per_sample=bits_per_sample, samples_signed=samples_signed, channel_count=channel_count)
+        self._sample_ms = 1000.0 / self.sample_rate
         self._maximum_samples = int(self.sample_rate / 1000.0 * self.max_delay_ms)
         self._echo_buffer = array(
             "h", (0 for _ in range(self._maximum_samples * self.channel_count))
         )
+        self._recalculate(_value(self._delay_ms))
         self._left_position = self._right_position = 0
         self.filter = filter
+
+    @property
+    def delay_ms(self):
+        return self._delay_ms
+
+    @delay_ms.setter
+    def delay_ms(self, value):
+        self._delay_ms = value
+        self._recalculate(_value(value))
+
+    @property
+    def freq_shift(self):
+        return self._freq_shift
+
+    @freq_shift.setter
+    def freq_shift(self, value):
+        value = bool(value)
+        # A change of mode starts the line again, as the native node does.
+        if value != self._freq_shift:
+            self._echo_buffer[:] = array("h", [0]) * len(self._echo_buffer)
+            self._left_position = self._right_position = 0
+        self._freq_shift = value
+        # Upstream truncates the delay to whole milliseconds here.
+        self._recalculate(int(_value(self._delay_ms)))
+
+    def _recalculate(self, delay_ms):
+        # The native node's recalculate_delay: the line's length is worked out
+        # when the delay is set or moves by a sample, not on every block, and
+        # whatever a shorter line leaves unused is cleared, so a longer one
+        # later reads silence there rather than the old repeats.
+        delay_ms = max(delay_ms, self._sample_ms)
+        maximum = self._maximum_samples
+        if self._freq_shift:
+            self._delay_samples = maximum
+            self._rate = max(int(self.max_delay_ms / delay_ms * 256.0), 1)
+        else:
+            samples = int(self.sample_rate / 1000.0 * delay_ms)
+            samples = min(maximum, max(self.buffer_size // 2, samples))
+            self._delay_samples = samples
+            line = self._echo_buffer
+            for channel in range(self.channel_count):
+                start = channel * maximum + samples
+                end = (channel + 1) * maximum
+                line[start:end] = array("h", [0]) * (end - start)
+        self._current_delay_ms = delay_ms
 
     def _reset_state(self):
         self._echo_buffer[:] = array("h", [0]) * len(self._echo_buffer)
@@ -39,16 +87,21 @@ class Echo(_Effect):
         self._filter_chain = _FilterChain(value, self.channel_count)
 
     def _echo_args(self):
-        delay_ms = max(1000.0 / self.sample_rate, _value(self.delay_ms))
-        if self.freq_shift:
-            delay_samples = self._maximum_samples
-            rate = max(int(self.max_delay_ms / delay_ms * 256.0), 1)
-        else:
-            delay_samples = int(self.sample_rate / 1000.0 * delay_ms)
-            delay_samples = min(self._maximum_samples,
-                                max(self.buffer_size // 2, delay_samples))
-            rate = 1
-        return delay_samples, rate, min(1.0, max(0.0, _value(self.decay))), min(
+        delay_ms = _value(self._delay_ms)
+        if abs(self._current_delay_ms - delay_ms) >= self._sample_ms:
+            self._recalculate(delay_ms)
+        delay_samples = self._delay_samples
+        if not self._freq_shift:
+            # A line shortened under the write head starts again at its top.
+            # Left where it was, the next sample went past the new end, where
+            # nothing reads it until the delay grows back and it plays out of
+            # the silence then.
+            if self._left_position >= delay_samples:
+                self._left_position = 0
+            if self._right_position >= delay_samples:
+                self._right_position = 0
+        return delay_samples, self._rate if self._freq_shift else 1, min(
+            1.0, max(0.0, _value(self.decay))), min(
             1.0, max(0.0, _value(self.mix))) * 2.0
 
     def _process(self, data):
@@ -218,6 +271,10 @@ class MultiTapDelay(_Effect):
         _advance_blocks(self.sample_rate,
                         len(data) // (self.channel_count * 2))
         delay_samples = self._delay_samples()
+        # A line shortened under the write head starts again at its top, as
+        # Echo's does.
+        if self._position >= delay_samples:
+            self._position = 0
         offsets = array("I", (int(delay_samples * position)
                               for position in self._tap_positions))
         levels = array("d", self._tap_levels)
