@@ -5,6 +5,28 @@ CircuitPython, newest first. For the current list of deliberate differences,
 and how and when to resync with upstream, start at
 [upstream-sync.md](upstream-sync.md).
 
+## `audiodelays`: the pitch shifters return from a source with nothing to give
+
+`PitchShift` and `GranularPitchShift` go round their pull loop for ever
+upstream, in 11.0.0-alpha.1 as in 10.3.0, when a looping source comes back
+empty straight after its reset, or when a source says it has more and hands
+back 0 bytes: each pass asks again, gets nothing and advances by 0. On a board
+that stops the pump, and everything behind it, for good. They now do what
+`MultiTapDelay` does here:
+
+- A looping source that is empty straight after its reset has nothing at
+  all, so the node lets go of it (`playing` goes false) and renders the rest
+  of the block from silence. The CPython twin always did this.
+- A source with more to come and nothing this time gets the rest of the
+  block from silence, and is kept and asked again on the next pull. The twin
+  does the same now (`_stop_on_empty_pull`).
+
+Only a render that reaches one of those two cases moves; until now it never
+returned. `tests/parity/pitch_empty_source_probe.py` holds the first on
+MicroPython and CPython (on a build from before the change it never
+finishes) and is skipped on CircuitPython, where it never returns.
+`tests/test_cpython_pitch_empty_source.py` holds the second on the twin.
+
 ## `audiodelays`: a reset puts the pitch shifters back where a new node starts
 
 `audiocore.reset_buffer()` on a `PitchShift` or a `GranularPitchShift` now
@@ -131,7 +153,8 @@ Two departures from the oracle, both bugs upstream still has in
   silence and the source is kept and asked again on the next pull. The twin
   does the same for this node only (`_stop_on_empty_pull`). The other
   effects ported from CircuitPython share upstream's loop shape and are left
-  as upstream has them.
+  as upstream has them, except the two pitch shifters, which return too
+  ([above](#audiodelays-the-pitch-shifters-return-from-a-source-with-nothing-to-give)).
 
 `multitap_edges_probe.py` holds both on MicroPython and CPython and is
 skipped on CircuitPython, where the lanes swap (1,216 wrong samples in its

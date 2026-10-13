@@ -293,6 +293,14 @@ PROBES = (
                        "deliberate departures recorded in "
                        "docs/upstream-diff.md"},
      None),
+    # A looping source with nothing to give no longer spins the pitch
+    # shifters' pull loop: the node lets go of it and the block is silence.
+    ("pitch_empty_source_probe.py", "audiodelays",
+     {"circuitpython": "upstream's PitchShift and GranularPitchShift go round "
+                       "their pull loop for ever on a looping source that "
+                       "comes back empty, and ours return - a deliberate "
+                       "departure recorded in docs/upstream-diff.md"},
+     None),
 )
 
 
