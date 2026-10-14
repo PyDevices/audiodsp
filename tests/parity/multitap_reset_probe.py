@@ -38,9 +38,14 @@ def material(rate, channels, frames):
 
 
 def node(rate, channels):
+    # Every level is exact in binary. A tap level of 0.7 is 0.699999988 on a
+    # single-precision build, so a repeat whose product truncates to a whole
+    # number there lands one step lower than on CPython, and the two parted
+    # at the first block the taps reached, with reset and fresh agreeing on
+    # both. This probe is about the reset, not about that rounding.
     return delays.MultiTapDelay(
         max_delay_ms=400, delay_ms=300, decay=0.0, mix=1.0,
-        taps=((1.0, 1.0), (0.5, 0.7)), buffer_size=512 * channels,
+        taps=((1.0, 1.0), (0.5, 0.75)), buffer_size=512 * channels,
         sample_rate=rate, channel_count=channels)
 
 
