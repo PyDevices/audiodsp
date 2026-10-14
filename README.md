@@ -250,7 +250,8 @@ and the reason a delay-time knob can be turned mid-take without a click.
 `wow_am_depth` puts the same oscillator on the wet gain, dipping only.
 `loop_semitones` pitch-shifts the line read *inside* the loop, so every
 repeat rises again — a shimmer, which chaining `audiodelays.PitchShift`
-after a delay is not. See
+after a delay is not. Shifting up, the climb fades out at the top of the band
+rather than folding back past Nyquist. See
 [docs/upstream-diff.md](docs/upstream-diff.md) for what each was asked for
 and what it measures.
 

@@ -226,11 +226,21 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
     int8_t *hword_buffer = self->buffer[self->last_buf_idx];
     uint32_t length = self->buffer_len / (self->base.bits_per_sample / 8);
 
+    // Set once the source has handed back nothing with more to come: the rest
+    // of the block is silence and the source is asked again next pull. A
+    // looping source that comes back empty straight after its reset has
+    // nothing at all, so the node lets go of it, as the CPython twin does.
+    // Upstream CircuitPython goes round again with n == 0 in both cases and
+    // never leaves the loop (docs/upstream-diff.md).
+    bool starved = false;
+
     while (length != 0) {
-        if (self->sample_buffer_length == 0) {
+        if (self->sample_buffer_length == 0 && !starved) {
+            bool reset = false;
             if (!self->more_data) {
                 if (self->loop && self->sample) {
                     audiosample_reset_buffer(self->sample, false, 0);
+                    reset = true;
                 } else {
                     self->sample = NULL;
                 }
@@ -239,11 +249,18 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
                 audioio_get_buffer_result_t result = audiosample_get_buffer(self->sample, false, 0, (uint8_t **)&self->sample_remaining_buffer, &self->sample_buffer_length);
                 self->sample_buffer_length /= (self->base.bits_per_sample / 8);
                 self->more_data = result == GET_BUFFER_MORE_DATA;
+                if (self->sample_buffer_length == 0) {
+                    if (self->more_data) {
+                        starved = true;
+                    } else if (reset) {
+                        self->sample = NULL;
+                    }
+                }
             }
         }
 
         uint32_t n;
-        if (self->sample == NULL) {
+        if (self->sample == NULL || starved) {
             n = MIN(length, (uint32_t)(SYNTHIO_MAX_DUR * self->base.channel_count));
         } else {
             n = MIN(MIN(self->sample_buffer_length, length), (uint32_t)(SYNTHIO_MAX_DUR * self->base.channel_count));
@@ -263,7 +280,7 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
         mp_float_t phase_inc_f = MIN(f_rate / self->base.sample_rate, MICROPY_FLOAT_CONST(0.5));
         uint32_t phase_inc = (uint32_t)(phase_inc_f * MICROPY_FLOAT_CONST(4294967296.0));
 
-        if (self->sample == NULL) {
+        if (self->sample == NULL || starved) {
             if (self->base.samples_signed) {
                 memset(word_buffer, 0, n * (self->base.bits_per_sample / 8));
             } else {

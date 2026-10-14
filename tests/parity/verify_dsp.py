@@ -242,8 +242,9 @@ PROBES = (
     ("feedback_delay_park_probe.py", "audioecho", {}, None),
     # The delay nodes' lifecycle matrix: feedback to 0 and back with a tail
     # ringing, delay_slew to 0 mid-glide, mix back from 0, and several
-    # settings before one pull, on every delay node (audiodsp#218). Echo and
-    # MultiTapDelay are CircuitPython's own on CircuitPython, and agree.
+    # settings before one pull, on every delay node (audiodsp#218). Echo,
+    # MultiTapDelay and Flanger are CircuitPython's own on CircuitPython, and
+    # agree.
     ("delay_lifecycle_probe.py", "audioecho", {}, None),
     ("delay_lifecycle_probe.py", "audiodelays", {}, None),
     # Time shortened and lengthened again: the line comes back empty. Upstream
@@ -279,10 +280,22 @@ PROBES = (
     # against CircuitPython's answers instead, in clean-build.yml.
     #
     # PitchShift.freeze, upstream's one audio addition in 11.0.0-alpha.1
-    # (9bef7b7606). Held to CircuitPython's bytes here, and it checks the
-    # sustain itself and exits 1 without it, so a build where every target
-    # ignores `freeze` together still fails.
-    ("pitchshift_freeze_probe.py", "audiodelays", {}, None),
+    # (9bef7b7606). It checks the sustain itself and exits 1 without it, so a
+    # build where every target ignores `freeze` together still fails. A
+    # frozen loop here plays the overlap's frame where its read lands on the
+    # write position, where upstream plays the window's oldest frame (a
+    # click a lap), and the blocks after `freeze` goes back to False splice
+    # live audio, which this port moves into phase (docs/upstream-diff.md),
+    # so CircuitPython sits this one out.
+    ("pitchshift_freeze_probe.py", "audiodelays",
+     {"circuitpython": "upstream's PitchShift splices wherever the window "
+                       "lands and ours moves the incoming side into phase "
+                       "with the outgoing one, and its frozen loop plays "
+                       "the window's oldest frame, a click, wherever the "
+                       "read lands on the write position, where ours plays "
+                       "the overlap's - deliberate departures recorded in "
+                       "docs/upstream-diff.md"},
+     None),
     # A reset puts PitchShift's read and write positions and
     # GranularPitchShift's jitter sequence back where a new node starts, and
     # the probe asserts the node then renders what a new one does.
@@ -294,10 +307,11 @@ PROBES = (
                        "docs/upstream-diff.md"},
      None),
     # A looping source with nothing to give no longer spins the pitch
-    # shifters' pull loop: the node lets go of it and the block is silence.
+    # shifters' or Flanger's pull loop: the node lets go of it and the block
+    # is silence.
     ("pitch_empty_source_probe.py", "audiodelays",
-     {"circuitpython": "upstream's PitchShift and GranularPitchShift go round "
-                       "their pull loop for ever on a looping source that "
+     {"circuitpython": "upstream's PitchShift, GranularPitchShift and Flanger "
+                       "go round their pull loop for ever on a looping source that "
                        "comes back empty, and ours return - a deliberate "
                        "departure recorded in docs/upstream-diff.md"},
      None),

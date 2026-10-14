@@ -28,6 +28,9 @@ its own output.
 | E13 | A wow depth moved on a live node glides in over 20 ms, then renders as a node built with it | no step past 1.5 x the tone's own; exact after the ramp |
 | E14 | E10 in stereo with a cross-feed strictly between 0 and 1, at the feedbacks where the cross-fed sum lands an ulp above its lanes | exact, 0 LSB |
 | E15 | `delay_frames=N` reads the line exactly N frames back, at 44.1, 22.05 and 48 kHz, where no `delay_ms` lands on N | exact: the whole click on frame N, nothing on its neighbours |
+| E16 | An upward `loop_semitones` climb does not fold back past Nyquist, at 48, 44.1 and 22.05 kHz | the strongest line under the series, with the loop running, within 10 dB of the shifter's own single pass |
+| E17 | A held note through `loop_semitones` plays its shifted pitch, C2 to C6, up and down, at 48, 44.1 and 22.05 kHz | the line at f * r within 3 dB of the note's own level |
+| E18 | A held chord through `loop_semitones` keeps every note's shifted line | each within 5.7 dB of the note's own level, PitchShift's worst on the same chords |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -325,10 +328,13 @@ class LiveSettingTest(unittest.TestCase):
 
     #: A loop that is actually running, so an option that only acts inside it
     #: has something to act on. At feedback 0 most of the table is inert.
+    #: The shift is downward: the material alternates at Nyquist, which an
+    #: upward shift's band limit (E16) takes out of the loop, and then most of
+    #: the table would act on silence.
     BASELINE = dict(delay_ms=10.0, feedback=0.75, mix=2.0, damping_hz=3000.0,
                     cut_hz=100.0, wow_hz=2.0, wow_depth_ms=1.0,
                     cross_feed=0.5, loop_drive=0.4, input_pan=0.3,
-                    delay_slew=1.0, wow_am_depth=0.2, loop_semitones=3.0,
+                    delay_slew=1.0, wow_am_depth=0.2, loop_semitones=-3.0,
                     loop_window_ms=4.0)
 
     def _live(self, **changed):
@@ -897,6 +903,174 @@ class DelayFramesTest(unittest.TestCase):
         node = delay()
         with self.assertRaises(TypeError):
             node.set(delay_ms=10.0, delay_frames=80)
+
+
+try:
+    import numpy as np
+except ImportError:     # pragma: no cover - numpy is a CI dependency
+    np = None
+
+
+@unittest.skipIf(np is None, "E16 measures a spectrum and needs numpy")
+class UpwardShiftBandLimitTest(unittest.TestCase):
+    """E16. Read at a ratio r, a line holding f plays f * r, so anything on
+    the line above fs / (2 r) comes back past Nyquist, folded, as a tone that
+    is not in the series, and then climbs from there. Before the band limit,
+    ShimmerHall's Rise did exactly that at its edges.
+
+    The measure: a short tone burst through the loop, wet only, and the
+    strongest spectral line below the first shifted tone, against the
+    strongest line of all. A shifted line is never below the first one, so
+    anything there is either a fold or the shifter's own splice artefacts.
+    The second are there on a single pass too (feedback 0), so the loop is
+    held to that level plus 10 dB. Unlimited, these cells measured 12.6 to 32 dB
+    over it; limited, 6 or less."""
+
+    #: (rate, tone Hz, semitones).
+    CELLS = ((48000, 1500, 24), (44100, 1500, 24), (22050, 1500, 24),
+             (48000, 1700, 12), (48000, 1100, 19), (44100, 1100, 19))
+
+    @staticmethod
+    def _render(rate, tone, semitones, feedback):
+        burst = int(0.06 * rate)
+        values = array("h", [int(12000 * np.sin(2 * np.pi * tone * n / rate))
+                             for n in range(burst)])
+        values.extend(array("h", [0]) * int(1.6 * rate))
+        node = audioecho.FeedbackDelay(
+            sample_rate=rate, channel_count=1, max_delay_ms=200.0,
+            delay_ms=100.0, feedback=feedback, mix=2.0,
+            loop_semitones=semitones)
+        node.play(audiocore.RawSample(values, sample_rate=rate))
+        out = array("h")
+        while len(out) < len(values):
+            out.frombytes(bytes(audiocore.get_buffer(node)[1]))
+        return np.array(out[burst:len(values)], dtype=float)
+
+    @staticmethod
+    def _stray_db(signal, rate, below):
+        spectrum = np.abs(np.fft.rfft(signal * np.hanning(len(signal))))
+        hz = np.fft.rfftfreq(len(signal), 1.0 / rate)
+        stray = spectrum[(hz > 20.0) & (hz < below)].max()
+        return 20.0 * np.log10(stray / spectrum.max())
+
+    def test_upward_climb_does_not_fold(self):
+        for rate, tone, semitones in self.CELLS:
+            with self.subTest(rate=rate, tone=tone, semitones=semitones):
+                below = tone * 2.0 ** (semitones / 12.0) * 0.85
+                single = self._stray_db(
+                    self._render(rate, tone, semitones, 0.0), rate, below)
+                looped = self._stray_db(
+                    self._render(rate, tone, semitones, 0.6), rate, below)
+                self.assertLessEqual(looped, single + 10.0,
+                                     "%.1f dB against %.1f on one pass"
+                                     % (looped, single))
+@unittest.skipIf(np is None, "E17 measures a spectrum and needs numpy")
+class HeldNoteSpliceTest(unittest.TestCase):
+    """E17. The shifter reads the line through two taps half a window apart
+    and crossfades between them. Fixed there, the two were in antiphase on
+    every note whose period goes into half the window an odd number of
+    halves - G3 against the 25 ms default - and each crossfade cancelled
+    the note: what came out was its neighbours a grain rate either side, not
+    the shifted note. Each tap is now placed in phase with the other when it
+    starts again from zero gain.
+
+    The measure: a held note, one pass (feedback 0, wet only), and the level
+    of the spectral line at the shifted pitch against the note's own. Before
+    the splice was aligned, the median note at +12 measured 54 dB under."""
+
+    #: (rate, semitones). Every note from C2 (36) to C6 (84) in each.
+    CELLS = ((48000, 12.0), (48000, 7.0), (44100, -12.0), (22050, 12.0))
+    LEVEL = 10000
+
+    #: (rate, semitones, loop_window_ms, delay_ms): short windows, which
+    #: splice often and leave little room to move, and delays shorter than
+    #: the stretch the splice compares.
+    EDGE_CELLS = ((44100, 12.0, 3.0, 50.0), (44100, 12.0, 5.0, 50.0),
+                  (44100, -12.0, 8.0, 50.0), (44100, 7.0, 10.0, 50.0),
+                  (48000, 12.0, 25.0, 5.0), (48000, 24.0, 25.0, 8.0),
+                  (22050, 12.0, 25.0, 3.0))
+
+    def _level_db(self, rate, midi, semitones, window_ms=25.0, delay_ms=50.0):
+        hz = 440.0 * 2.0 ** ((midi - 69) / 12.0)
+        frames = rate
+        values = array("h", [int(self.LEVEL * np.sin(2 * np.pi * hz * n / rate))
+                             for n in range(frames)])
+        node = audioecho.FeedbackDelay(
+            sample_rate=rate, channel_count=1, max_delay_ms=200.0,
+            delay_ms=delay_ms, feedback=0.0, mix=2.0,
+            loop_semitones=semitones, loop_window_ms=window_ms)
+        node.play(audiocore.RawSample(values, sample_rate=rate))
+        out = array("h")
+        while len(out) < frames:
+            out.frombytes(bytes(audiocore.get_buffer(node)[1]))
+        held = np.array(out[int(0.3 * rate):frames], dtype=float)
+        window = np.hanning(len(held))
+        spectrum = np.abs(np.fft.rfft(held * window)) / (window.sum() / 2)
+        bins = np.fft.rfftfreq(len(held), 1.0 / rate)
+        shifted = hz * 2.0 ** (semitones / 12.0)
+        near = (bins > shifted * 0.985) & (bins < shifted * 1.015)
+        return 20.0 * np.log10(spectrum[near].max() / self.LEVEL + 1e-12)
+
+    def test_held_notes_play_their_shifted_pitch(self):
+        for rate, semitones in self.CELLS:
+            for midi in range(36, 85):
+                with self.subTest(rate=rate, semitones=semitones, midi=midi):
+                    self.assertGreater(self._level_db(rate, midi, semitones),
+                                       -3.0)
+
+    def test_short_windows_and_delays_play_their_shifted_pitch(self):
+        for rate, semitones, window_ms, delay_ms in self.EDGE_CELLS:
+            for midi in range(36, 85, 2):
+                with self.subTest(rate=rate, semitones=semitones,
+                                  window_ms=window_ms, delay_ms=delay_ms,
+                                  midi=midi):
+                    self.assertGreater(
+                        self._level_db(rate, midi, semitones, window_ms,
+                                       delay_ms), -3.0)
+
+
+
+@unittest.skipIf(np is None, "E18 measures a spectrum and needs numpy")
+class HeldChordSpliceTest(unittest.TestCase):
+    """E18. A splice that matches one note's phase can leave another's in
+    antiphase, so a chord can lose a note at every splice even where each
+    note alone is held (E17). Measured as E17 is, one pass at +12, each
+    note's line at twice its pitch against its own level. Before the splice
+    compared a stretch long enough to hold the chord's root, a C3 triad's
+    root came out 22.7 dB down and a C2 power chord's 23.0. The bar is
+    `audiodelays.PitchShift`'s worst on the same four chords, 5.7 dB."""
+
+    RATE = 48000
+    LEVEL = 3333
+    CHORDS = (("C3 triad", (48, 52, 55)), ("G2 and D4", (43, 62)),
+              ("A2 and A#2", (45, 46)), ("C2 power chord", (36, 43, 48)))
+
+    def _levels(self, midis):
+        rate = self.RATE
+        hz = [440.0 * 2.0 ** ((m - 69) / 12.0) for m in midis]
+        n = np.arange(rate)
+        mixed = sum(self.LEVEL * np.sin(2 * np.pi * h * n / rate) for h in hz)
+        values = array("h", mixed.astype(np.int16).tolist())
+        node = audioecho.FeedbackDelay(
+            sample_rate=rate, channel_count=1, max_delay_ms=200.0,
+            delay_ms=50.0, feedback=0.0, mix=2.0, loop_semitones=12.0)
+        node.play(audiocore.RawSample(values, sample_rate=rate))
+        out = array("h")
+        while len(out) < rate:
+            out.frombytes(bytes(audiocore.get_buffer(node)[1]))
+        held = np.array(out[int(0.3 * rate):rate], dtype=float)
+        window = np.hanning(len(held))
+        spectrum = np.abs(np.fft.rfft(held * window)) / (window.sum() / 2)
+        bins = np.fft.rfftfreq(len(held), 1.0 / rate)
+        return [20.0 * np.log10(spectrum[(bins > 2 * h * 0.99) &
+                                         (bins < 2 * h * 1.01)].max() /
+                                self.LEVEL + 1e-12) for h in hz]
+
+    def test_held_chords_keep_every_note(self):
+        for name, midis in self.CHORDS:
+            for midi, level in zip(midis, self._levels(midis)):
+                with self.subTest(chord=name, midi=midi):
+                    self.assertGreaterEqual(level, -5.7)
 
 
 if __name__ == "__main__":
