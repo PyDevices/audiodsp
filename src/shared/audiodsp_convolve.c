@@ -295,10 +295,120 @@ static void end_swap(const audiodsp_convolve_config_t *config,
     }
 }
 
+// --- the room's peak gain on low material (room_peak_gain) ----------------
+//
+// 2^(k/8) for k = 0..16: the squares the reading folds the room against run
+// from 40 Hz to 160 Hz in eighth-octave steps. Literals, not pow(), for the
+// reason exp_small gives.
+static const double peak_octave[AUDIODSP_CONVOLVE_PEAK_SQUARES] = {
+    1.0, 1.0905077326652577, 1.189207115002721, 1.2968395546510096,
+    1.4142135623730951, 1.5422108254079407, 1.681792830507429,
+    1.8340080864093424, 2.0, 2.1810154653305154, 2.378414230005442,
+    2.5936791093020193, 2.8284271247461903, 3.0844216508158815,
+    3.363585661014858, 3.668016172818685, 4.0,
+};
+
+// Half the period of square `k`, in frames, never below one.
+static uint32_t peak_half_period(const audiodsp_convolve_config_t *config,
+    uint32_t k) {
+    double half = (double)config->sample_rate
+        / (2.0 * AUDIODSP_CONVOLVE_PEAK_LOW_HZ * peak_octave[k]);
+    uint32_t frames = (uint32_t)(half + 0.5);
+    return frames ? frames : 1u;
+}
+
+uint32_t audiodsp_convolve_peak_floats(
+    const audiodsp_convolve_config_t *config) {
+    uint32_t total = 0;
+    for (uint32_t k = 0; k < AUDIODSP_CONVOLVE_PEAK_SQUARES; k++) {
+        total += peak_half_period(config, k);
+    }
+    return total;
+}
+
+// One side's folds and step response, fed a partition of taps at a time.
+typedef struct {
+    float *fold;            // audiodsp_convolve_peak_floats() floats
+    uint32_t frame;         // taps fed so far
+    float step;             // the running sum of the taps
+    float step_peak;        // its largest magnitude
+} peak_reading_t;
+
+static void peak_begin(peak_reading_t *r, const audiodsp_convolve_config_t *config,
+    float *fold) {
+    r->fold = fold;
+    r->frame = 0;
+    r->step = 0.0f;
+    r->step_peak = 0.0f;
+    uint32_t n = audiodsp_convolve_peak_floats(config);
+    for (uint32_t i = 0; i < n; i++) fold[i] = 0.0f;
+}
+
+// A square of half-period H, +1 then -1, convolved with the room settles to
+// a waveform that is H-antiperiodic, and it is the room folded onto H frames
+// with alternating signs (`fold`), run through one half-period of the square:
+// 2 * (running sum of the fold) - (its total). Its largest magnitude is that
+// square's steady-state peak, read in O(taps) with H floats.
+static void peak_feed(peak_reading_t *r, const audiodsp_convolve_config_t *config,
+    const float *taps, uint32_t count) {
+    for (uint32_t i = 0; i < count; i++) {
+        float v = taps[i];
+        r->step += v;
+        float m = r->step < 0.0f ? -r->step : r->step;
+        if (m > r->step_peak) r->step_peak = m;
+    }
+    float *fold = r->fold;
+    for (uint32_t k = 0; k < AUDIODSP_CONVOLVE_PEAK_SQUARES; k++) {
+        uint32_t half = peak_half_period(config, k);
+        uint32_t at = r->frame % half;
+        bool negative = ((r->frame / half) & 1u) != 0u;
+        for (uint32_t i = 0; i < count; i++) {
+            fold[at] += negative ? -taps[i] : taps[i];
+            if (++at == half) {
+                at = 0;
+                negative = !negative;
+            }
+        }
+        fold += half;
+    }
+    r->frame += count;
+}
+
+static float peak_end(const peak_reading_t *r,
+    const audiodsp_convolve_config_t *config) {
+    float peak = r->step_peak;
+    const float *fold = r->fold;
+    for (uint32_t k = 0; k < AUDIODSP_CONVOLVE_PEAK_SQUARES; k++) {
+        uint32_t half = peak_half_period(config, k);
+        float total = 0.0f;
+        for (uint32_t i = 0; i < half; i++) total += fold[i];
+        float run = 0.0f;
+        for (uint32_t i = 0; i < half; i++) {
+            run += fold[i];
+            float y = 2.0f * run - total;
+            if (y < 0.0f) y = -y;
+            if (y > peak) peak = y;
+        }
+        fold += half;
+    }
+    return peak;
+}
+
 uint32_t audiodsp_convolve_build_room(const audiodsp_convolve_state_t *state,
     const audiodsp_convolve_config_t *config, float *impulse, float *block,
     float *scratch, float decay_seconds, float damping_hz, float predelay_ms,
     float diffusion_ms, uint32_t seed) {
+    return audiodsp_convolve_build_room_peak(state, config, impulse, block,
+        scratch, decay_seconds, damping_hz, predelay_ms, diffusion_ms, seed,
+        NULL, NULL);
+}
+
+uint32_t audiodsp_convolve_build_room_peak(
+    const audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *impulse, float *block,
+    float *scratch, float decay_seconds, float damping_hz, float predelay_ms,
+    float diffusion_ms, uint32_t seed, float *peak_fold, float *peak_gain) {
+    float peak = 0.0f;
     uint32_t parts = config->partitions;
     uint32_t capacity = parts * FRAMES;
     double rate = (double)config->sample_rate;
@@ -350,6 +460,11 @@ uint32_t audiodsp_convolve_build_room(const audiodsp_convolve_state_t *state,
     for (int pass = 0; pass < 2; pass++) {
         double energy[2] = {0.0, 0.0};
         for (uint32_t ch = 0; ch < config->ir_channels; ch++) {
+            peak_reading_t reading = {NULL, 0u, 0.0f, 0.0f};
+            const bool read_peak = pass == 1 && peak_fold != NULL;
+            if (read_peak) {
+                peak_begin(&reading, config, peak_fold);
+            }
             // Same envelope, different noise: two channels of one room, not
             // two rooms. A shared seed would make the impulse mono and
             // collapse the stereo image the whole exercise is for.
@@ -378,9 +493,18 @@ uint32_t audiodsp_convolve_build_room(const audiodsp_convolve_state_t *state,
                     }
                 }
                 if (pass) {
-                    store_partition(state, config, impulse, block, scratch,
-                        ch, part);
+                    if (read_peak) {
+                        peak_feed(&reading, config, block, FRAMES);
+                    }
+                    if (impulse != NULL) {
+                        store_partition(state, config, impulse, block,
+                            scratch, ch, part);
+                    }
                 }
+            }
+            if (read_peak) {
+                float side = peak_end(&reading, config);
+                if (side > peak) peak = side;
             }
         }
         if (pass == 0) {
@@ -388,6 +512,9 @@ uint32_t audiodsp_convolve_build_room(const audiodsp_convolve_state_t *state,
                 scale[ch] = energy[ch] > 0.0 ? 1.0 / sqrt(energy[ch]) : 0.0;
             }
         }
+    }
+    if (peak_gain != NULL) {
+        *peak_gain = peak;
     }
     return parts;
 }
@@ -424,14 +551,34 @@ void audiodsp_convolve_load_s16(audiodsp_convolve_state_t *state,
     end_swap(config, state, keep);
 }
 
+float audiodsp_convolve_room_peak(const audiodsp_convolve_config_t *config,
+    float *block, float decay_seconds, float damping_hz, float predelay_ms,
+    float diffusion_ms, uint32_t seed, float *peak_fold) {
+    // The taps only: no impulse is written and no transform taken, so it
+    // reads nothing of a node's state and needs no lock.
+    float peak = 0.0f;
+    audiodsp_convolve_build_room_peak(NULL, config, NULL, block, NULL,
+        decay_seconds, damping_hz, predelay_ms, diffusion_ms, seed,
+        peak_fold, &peak);
+    return peak;
+}
+
 void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
     const audiodsp_convolve_config_t *config, float decay_seconds,
     float damping_hz, float predelay_ms, float diffusion_ms, uint32_t seed) {
+    audiodsp_convolve_synthesize_peak(state, config, decay_seconds,
+        damping_hz, predelay_ms, diffusion_ms, seed, NULL, NULL);
+}
+
+void audiodsp_convolve_synthesize_peak(audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float decay_seconds,
+    float damping_hz, float predelay_ms, float diffusion_ms, uint32_t seed,
+    float *peak_fold, float *peak_gain) {
     // A room fills every partition, so there is always one to fade to.
     const bool keep = begin_swap(config, state, config->partitions);
-    state->loaded = audiodsp_convolve_build_room(state, config,
+    state->loaded = audiodsp_convolve_build_room_peak(state, config,
         state->impulse, state->block, state->scratch, decay_seconds,
-        damping_hz, predelay_ms, diffusion_ms, seed);
+        damping_hz, predelay_ms, diffusion_ms, seed, peak_fold, peak_gain);
     end_swap(config, state, keep);
 }
 

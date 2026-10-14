@@ -24,6 +24,7 @@ previous version of its own output.
 | C9 | A re-synthesis on a playing node drops and repeats nothing: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old room to the new over its unplayed frames at the mix it was computed at; after it the node renders what a node built with the new room renders; the fade does not click | exact; the fade 1 LSB of the line; no step past 1.5 x the rooms' own |
 | C11 | A `load()` on a playing node drops and repeats nothing, as C9: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old impulse to the new over its unplayed frames; after it the node renders what a node built with the new impulse renders; a first load, and an unload, still start from empty | exact; the fade 1 LSB of the line |
 | C12 | `wet_gain` scales the wet path alone: the dry is untouched, the wet is `wet_gain` times the wet at 1.0, 1.0 (the default) renders what a node without it renders, a move acts after the block in flight, as a Mix move does, and one made with a re-synthesis fades with the room, from the old room at the old gain to the new at the new | 1 LSB; exact at the default, before the move and after the fade |
+| C13 | `room_peak_gain` is the room's own peak gain on low material: the largest of its step response's magnitude and the steady-state peak of a +-1 square from 40 to 160 Hz in eighth-octave steps, the worse side, read off the room's impulse independently; 0.0 before a synthesis and after a `load()`; `room_peak_gain_for` reads the same before the room is built | 0.5 % of the reading, or 0.005; the read-ahead exact |
 | C10 | Each side of a synthesized stereo room is the unit-energy room of its own noise: the left is the mono room of the same seed, the right the mono room of the right side's seed; the two sides balance, together they are the level of a mono room, and they stay two different noises | exact; 0.01 dB; correlation under 0.5 |
 
 **C1 and C2 are this module's form of the identity trait** that
@@ -954,6 +955,112 @@ class WetGainTest(unittest.TestCase):
                 self.assertEqual(gained(values, 0.5, wet_gain=bad), zero)
         self.assertEqual(gained(values, 0.5, wet_gain=1e9),
                          gained(values, 0.5, wet_gain=4.0))
+
+def peak_of(impulse, rate):
+    """C13's reading, by hand, off one side's impulse (floats): the largest
+    of the step response's magnitude and, for each square from 40 to 160 Hz
+    in eighth-octave steps, the steady-state peak of the room convolved with
+    a +-1 square of that half-period."""
+    best = 0.0
+    run = 0.0
+    for tap in impulse:
+        run += tap
+        best = max(best, abs(run))
+    for k in range(17):
+        half = max(1, int(rate / (2.0 * 40.0 * 2.0 ** (k / 8.0)) + 0.5))
+        fold = [0.0] * half
+        for index, tap in enumerate(impulse):
+            fold[index % half] += -tap if (index // half) % 2 else tap
+        total = sum(fold)
+        run = 0.0
+        for value in fold:
+            run += value
+            best = max(best, abs(2.0 * run - total))
+    return best
+
+
+#: C13's rooms: (rate, taps, ir_channels, synthesize arguments).
+PEAK_ROOMS = (
+    (48000, 3840, 2, {"decay": 0.08, "damping_hz": 6000.0,
+                      "diffusion_ms": 10.0, "seed": 1}),
+    (48000, 3840, 2, {"decay": 0.05, "damping_hz": 500.0, "seed": 29}),
+    (22050, 1792, 1, {"decay": 0.06, "damping_hz": 0.0, "predelay_ms": 20.0,
+                      "seed": 7}),
+    (8000, 1024, 2, {"decay": 0.1, "damping_hz": 900.0,
+                     "diffusion_ms": 30.0, "seed": 36}),
+)
+
+
+class RoomPeakGainTest(unittest.TestCase):
+    """C13: the room reports its own low-frequency peak gain."""
+
+    def test_the_reading_is_the_rooms_own(self):
+        for rate, taps, sides, room in PEAK_ROOMS:
+            with self.subTest(rate=rate, room=room):
+                _, out = click_energies(room, rate, taps, sides)
+                # The click is 32767, so each word is the tap x 32767.
+                want = max(peak_of([out[i] / 32767.0 for i in
+                                    range(side, sides * taps, sides)], rate)
+                           for side in range(sides))
+                node = audioconvolve.Convolver(
+                    max_taps=taps, ir_channels=sides, sample_rate=rate,
+                    channel_count=sides)
+                node.synthesize(**room)
+                got = node.room_peak_gain
+                self.assertLessEqual(abs(got - want),
+                                     max(0.005, 0.005 * want), (got, want))
+                # A dark room reads high and a bright one low: it is a
+                # reading of this room, not a constant.
+                self.assertGreater(got, 1.0)
+
+    def test_the_reading_before_synthesize_is_the_one_after(self):
+        # room_peak_gain_for reads the room the arguments would build, with
+        # nothing built: equal to room_peak_gain after the synthesis, and the
+        # node it is asked on keeps the room it had.
+        for rate, taps, sides, room in PEAK_ROOMS:
+            with self.subTest(rate=rate, room=room):
+                node = audioconvolve.Convolver(
+                    max_taps=taps, ir_channels=sides, sample_rate=rate,
+                    channel_count=sides)
+                node.synthesize(decay=0.07, seed=5)
+                before = node.room_peak_gain
+                ahead = node.room_peak_gain_for(**room)
+                self.assertEqual(node.room_peak_gain, before)
+                node.synthesize(**room)
+                self.assertEqual(node.room_peak_gain, ahead)
+
+    def test_a_dark_room_reads_higher_than_a_bright_one(self):
+        node = audioconvolve.Convolver(max_taps=3840, ir_channels=2,
+                                       sample_rate=48000)
+        node.synthesize(decay=0.08, damping_hz=0.0, seed=1)
+        bright = node.room_peak_gain
+        node.synthesize(decay=0.08, damping_hz=500.0, seed=1)
+        self.assertGreater(node.room_peak_gain, 2.0 * bright)
+
+    def test_nothing_synthesized_reads_zero(self):
+        node = audioconvolve.Convolver(max_taps=256, sample_rate=SAMPLE_RATE)
+        self.assertEqual(node.room_peak_gain, 0.0)
+        node.synthesize(decay=0.05, seed=3)
+        self.assertGreater(node.room_peak_gain, 0.0)
+        node.load(UNIT_IMPULSE)
+        self.assertEqual(node.room_peak_gain, 0.0)
+
+    def test_reading_it_changes_no_byte(self):
+        # The same room rendered with the reading taken and through
+        # build_room's old path renders the same words: the reading only
+        # reads the taps.
+        values = alternating(frames=2048)
+        first = audioconvolve.Convolver(max_taps=1024, ir_channels=2,
+                                        sample_rate=SAMPLE_RATE, mix=0.7)
+        first.synthesize(decay=0.1, damping_hz=900.0, seed=36)
+        first.room_peak_gain
+        first.play(values)
+        second = audioconvolve.Convolver(max_taps=1024, ir_channels=2,
+                                         sample_rate=SAMPLE_RATE, mix=0.7)
+        second.synthesize(decay=0.1, damping_hz=900.0, seed=36)
+        second.play(alternating(frames=2048))
+        self.assertEqual(words(first, 8), words(second, 8))
+
 
 if __name__ == "__main__":
     unittest.main()

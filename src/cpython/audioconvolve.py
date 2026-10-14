@@ -173,6 +173,17 @@ class Convolver(_AudioSample):
                                float(predelay_ms), float(diffusion_ms),
                                int(seed) & 0xFFFFFFFF)
 
+    def room_peak_gain_for(self, decay=2.0, damping_hz=0.0, predelay_ms=0.0,
+                           diffusion_ms=0.0, seed=1):
+        """The `room_peak_gain` `synthesize` would read for the same
+        arguments, without building the room: read off its taps alone, so a
+        level can be set before `synthesize` and the block in flight fades to
+        the new room at its new level."""
+        self._check()
+        return self._state.room_peak(float(decay), float(damping_hz),
+                                     float(predelay_ms), float(diffusion_ms),
+                                     int(seed) & 0xFFFFFFFF)
+
     def clear(self):
         """Drop the history and the block in flight. The impulse stays: that
         is a setting, not audio."""
@@ -184,6 +195,17 @@ class Convolver(_AudioSample):
         """Frames of impulse currently loaded, rounded up to a partition.
         Zero means the convolver is passing its input through."""
         return self._state.taps()
+
+    @property
+    def room_peak_gain(self):
+        """The most the room the last `synthesize` built brings a low
+        full-scale input back, as a linear gain, the worse of its two sides:
+        the largest of its step response's magnitude and the steady-state
+        peak of a full-scale square from 40 to 160 Hz in eighth-octave steps.
+        At unit energy, before `wet_gain`. 0.0 before any `synthesize` and
+        after a `load`, which bring their own level."""
+        self._check()
+        return self._state.peak_gain()
 
     @property
     def latency(self):

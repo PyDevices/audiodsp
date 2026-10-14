@@ -33,6 +33,8 @@ typedef struct {
     // The source handed its last buffer with GET_BUFFER_DONE; it is let
     // go of once that buffer is used up.
     bool source_done;
+    // room_peak_gain: read by the last synthesize(), 0 after a load().
+    float peak_gain;
 } audioconvolve_convolver_obj_t;
 
 extern const mp_obj_type_t audioconvolve_convolver_type;
