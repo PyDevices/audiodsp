@@ -36,6 +36,8 @@
 //|         ir_channels: int = 0,
 //|         gain: float = 1.0,
 //|         mix: float = 0.5,
+//|         channel_count: int = 2,
+//|         wet_gain: float = 1.0,
 //|     ) -> None:
 //|         """Create a convolver. ``impulse`` is signed 16-bit frames,
 //|         interleaved if ``impulse_channels`` is 2.
@@ -53,7 +55,11 @@
 //|
 //|         ``mix`` runs 0 to 1 with the dry at unity until halfway, which is
 //|         `audiofreeverb.Freeverb`'s convention rather than
-//|         `audiodelays.Echo`'s: this is a reverb."""
+//|         `audiodelays.Echo`'s: this is a reverb.
+//|
+//|         ``wet_gain`` scales the wet path alone, 0 to 4, after the impulse
+//|         and `synthesize`'s unit-energy normalisation: a room's level
+//|         without moving the dry or the mix law. 1.0 changes nothing."""
 //|         ...
 
 // Reads a bytes-like of int16 frames and reports how many whole frames of
@@ -89,7 +95,8 @@ static void convolver_allocate(audioconvolve_convolver_obj_t *self,
 static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
     size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum { ARG_impulse, ARG_impulse_channels, ARG_sample_rate, ARG_max_taps,
-           ARG_ir_channels, ARG_gain, ARG_mix, ARG_channel_count };
+           ARG_ir_channels, ARG_gain, ARG_mix, ARG_channel_count,
+           ARG_wet_gain };
     static const mp_arg_t allowed[] = {
         { MP_QSTR_impulse, MP_ARG_OBJ, { .u_obj = MP_ROM_NONE } },
         { MP_QSTR_impulse_channels, MP_ARG_INT, { .u_int = 1 } },
@@ -99,6 +106,7 @@ static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
         { MP_QSTR_gain, MP_ARG_OBJ, { .u_obj = MP_ROM_NONE } },
         { MP_QSTR_mix, MP_ARG_OBJ, { .u_obj = MP_ROM_NONE } },
         { MP_QSTR_channel_count, MP_ARG_INT, { .u_int = 2 } },
+        { MP_QSTR_wet_gain, MP_ARG_OBJ, { .u_obj = MP_ROM_NONE } },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(allowed),
@@ -155,6 +163,11 @@ static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
         audiodsp_convolve_configure(&self->config, AUDIODSP_CONVOLVE_OPT_MIX,
             (float)mp_obj_get_float(args[ARG_mix].u_obj));
     }
+    if (args[ARG_wet_gain].u_obj != mp_const_none) {
+        audiodsp_convolve_configure(&self->config,
+            AUDIODSP_CONVOLVE_OPT_WET_GAIN,
+            (float)mp_obj_get_float(args[ARG_wet_gain].u_obj));
+    }
     if (taps != NULL) {
         float gain = args[ARG_gain].u_obj != mp_const_none
             ? (float)mp_obj_get_float(args[ARG_gain].u_obj) : 1.0f;
@@ -181,10 +194,11 @@ static mp_obj_t audioconvolve_convolver_play(mp_obj_t self_in,
 MP_DEFINE_CONST_FUN_OBJ_2(audioconvolve_convolver_play_obj,
     audioconvolve_convolver_play);
 
-//|     def set(self, *, mix: float) -> None:
-//|         """Change the wet/dry blend mid-stream. It is the only setting
-//|         that is not the impulse; ``load`` and ``synthesize`` replace
-//|         that."""
+//|     def set(self, *, mix: float = ..., wet_gain: float = ...) -> None:
+//|         """Change the wet/dry blend or the wet gain mid-stream. They are
+//|         the only settings that are not the impulse; ``load`` and
+//|         ``synthesize`` replace that. Either acts from the block after the
+//|         one in flight."""
 //|         ...
 static mp_obj_t audioconvolve_convolver_set(size_t n_args,
     const mp_obj_t *args, mp_map_t *kw_args) {
@@ -196,11 +210,16 @@ static mp_obj_t audioconvolve_convolver_set(size_t n_args,
             continue;
         }
         qstr name = mp_obj_str_get_qstr(kw_args->table[i].key);
-        if (name != MP_QSTR_mix) {
+        audiodsp_convolve_option_t option;
+        if (name == MP_QSTR_mix) {
+            option = AUDIODSP_CONVOLVE_OPT_MIX;
+        } else if (name == MP_QSTR_wet_gain) {
+            option = AUDIODSP_CONVOLVE_OPT_WET_GAIN;
+        } else {
             mp_raise_msg_varg(&mp_type_TypeError,
                 MP_ERROR_TEXT("unknown Convolver option '%q'"), name);
         }
-        audiodsp_convolve_configure(&self->config, AUDIODSP_CONVOLVE_OPT_MIX,
+        audiodsp_convolve_configure(&self->config, option,
             (float)mp_obj_get_float(kw_args->table[i].value));
     }
     return mp_const_none;

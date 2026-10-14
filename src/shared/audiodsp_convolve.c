@@ -75,6 +75,7 @@ void audiodsp_convolve_config_init(audiodsp_convolve_config_t *config,
     config->partitions = partitions;
     config->ir_channels = ir_channels >= 2u ? 2u : 1u;
     config->mix = 1.0f;   // 0.5 asked for, doubled -- full wet beside full dry
+    config->wet_gain = 1.0f;
 }
 
 void audiodsp_convolve_set_channel_count(audiodsp_convolve_config_t *config,
@@ -87,6 +88,11 @@ void audiodsp_convolve_configure(audiodsp_convolve_config_t *config,
     switch (option) {
         case AUDIODSP_CONVOLVE_OPT_MIX:
             config->mix = clampf(value, 0.0f, 1.0f) * 2.0f;
+            break;
+        case AUDIODSP_CONVOLVE_OPT_WET_GAIN:
+            // NaN and below zero are no wet, past 4 is 4.
+            if (!(value >= 0.0f)) value = 0.0f;
+            config->wet_gain = value < 4.0f ? value : 4.0f;
             break;
         default:
             break;
@@ -144,6 +150,7 @@ void audiodsp_convolve_reset(audiodsp_convolve_state_t *state,
     state->phase = 0;
     state->cursor = 0;
     state->emitted_mix = config->mix;
+    state->emitted_wet_gain = config->wet_gain;
     state->resting = false;
     state->quiet_frames = 0;
 }
@@ -231,8 +238,13 @@ static void crossfade_block_in_flight(const audiodsp_convolve_config_t *config,
     // block was made from, and the frames before state->phase have been
     // played. A straight line from old to new over what is left, landing on
     // the new room at its last frame.
+    // The wet gain is the room's level, so it fades with the room: the old
+    // room at the gain it was computed at, the new at the gain set now. At
+    // equal gains of 1.0 every product below is a multiply by exactly one.
     float dry = dry_of(state->emitted_mix);
     float wet = wet_of(state->emitted_mix);
+    float gain_old = state->emitted_wet_gain;
+    float gain_new = config->wet_gain;
     uint32_t start = state->phase;
     float span = (float)(FRAMES - start);
     for (uint32_t ch = 0; ch < channels; ch++) {
@@ -242,10 +254,12 @@ static void crossfade_block_in_flight(const audiodsp_convolve_config_t *config,
         float *emitted = state->emitted + ch * FRAMES;
         for (uint32_t i = start; i < FRAMES; i++) {
             float g = (float)(i - start + 1u) / span;
-            float y = old[i] + g * (state->block[FRAMES + i] - old[i]);
+            float from = old[i] * gain_old;
+            float y = from + g * (state->block[FRAMES + i] * gain_new - from);
             emitted[i] = dry * pending[i] + wet * y;
         }
     }
+    state->emitted_wet_gain = gain_new;
 }
 
 // The two halves of a room change, either side of whatever writes the new
@@ -463,8 +477,9 @@ static void process_block(const audiodsp_convolve_config_t *config,
     uint32_t parts = config->partitions;
     float mix = config->mix;
     float dry = dry_of(mix);
-    float wet = wet_of(mix);
+    float wet = wet_of(mix) * config->wet_gain;
     state->emitted_mix = mix;
+    state->emitted_wet_gain = config->wet_gain;
 
     state->cursor = state->cursor + 1u < parts ? state->cursor + 1u : 0u;
 
