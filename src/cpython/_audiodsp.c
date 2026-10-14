@@ -2349,7 +2349,8 @@ static PyObject *convolver_state_configure(audiodsp_convolver_object_t *self,
     int option;
     double value;
     if (!PyArg_ParseTuple(args, "id:configure", &option, &value)) return NULL;
-    if (option != AUDIODSP_CONVOLVE_OPT_MIX) {
+    if (option != AUDIODSP_CONVOLVE_OPT_MIX
+            && option != AUDIODSP_CONVOLVE_OPT_WET_GAIN) {
         PyErr_SetString(PyExc_ValueError, "unknown convolver option");
         return NULL;
     }

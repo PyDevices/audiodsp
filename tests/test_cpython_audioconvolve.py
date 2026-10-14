@@ -23,6 +23,7 @@ previous version of its own output.
 | C8 | A starved node yields a full block of silence, not a short block | exact |
 | C9 | A re-synthesis on a playing node drops and repeats nothing: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old room to the new over its unplayed frames at the mix it was computed at; after it the node renders what a node built with the new room renders; the fade does not click | exact; the fade 1 LSB of the line; no step past 1.5 x the rooms' own |
 | C11 | A `load()` on a playing node drops and repeats nothing, as C9: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old impulse to the new over its unplayed frames; after it the node renders what a node built with the new impulse renders; a first load, and an unload, still start from empty | exact; the fade 1 LSB of the line |
+| C12 | `wet_gain` scales the wet path alone: the dry is untouched, the wet is `wet_gain` times the wet at 1.0, 1.0 (the default) renders what a node without it renders, and a move acts after the block in flight, as a Mix move does | 1 LSB; exact at the default and before the move |
 | C10 | Each side of a synthesized stereo room is the unit-energy room of its own noise: the left is the mono room of the same seed, the right the mono room of the right side's seed; the two sides balance, together they are the level of a mono room, and they stay two different noises | exact; 0.01 dB; correlation under 0.5 |
 
 **C1 and C2 are this module's form of the identity trait** that
@@ -847,6 +848,80 @@ class ReloadTest(unittest.TestCase):
 def words_of(node, blocks):
     return words(node, blocks)
 
+
+
+def gained(values, mix, channels=CHANNELS, calls=None, **extra):
+    node = audioconvolve.Convolver(
+        max_taps=1024, ir_channels=channels, sample_rate=SAMPLE_RATE,
+        channel_count=channels, mix=mix, **extra)
+    node.synthesize(**ROOM)
+    node.play(audiocore.RawSample(values, sample_rate=SAMPLE_RATE,
+                                  channel_count=channels))
+    out = []
+    for block in range(BLOCKS):
+        if calls and block in calls:
+            calls[block](node)
+        out.extend(words(node, 1))
+    return out
+
+
+class WetGainTest(unittest.TestCase):
+    """C12: a gain on the wet path alone, for a class that sets a room's
+    level without moving its dry or its Mix law."""
+
+    def test_the_wet_alone_is_scaled(self):
+        for channels in (2, 1):
+            values = noise_source(BLOCKS * PARTITION_FRAMES, channels)
+            for mix in (0.5, 0.3, 0.75, 1.0):
+                dry = gained(values, mix, channels, wet_gain=0.0)
+                full = gained(values, mix, channels)
+                for gain in (0.5, 0.25, 0.8):
+                    for how in ("init", "set"):
+                        if how == "init":
+                            got = gained(values, mix, channels,
+                                         wet_gain=gain)
+                        else:
+                            got = gained(values, mix, channels, calls={
+                                0: lambda n, g=gain: n.set(wet_gain=g)})
+                        worst = max(abs((g - d) - gain * (f - d))
+                                    for g, d, f in zip(got, dry, full))
+                        with self.subTest(channels=channels, mix=mix,
+                                          gain=gain, how=how):
+                            self.assertLessEqual(worst, 1)
+                            self.assertNotEqual(got, full)
+
+    def test_zero_leaves_the_dry_exactly(self):
+        values = noise_source(BLOCKS * PARTITION_FRAMES, CHANNELS)
+        self.assertEqual(gained(values, 0.5, wet_gain=0.0),
+                         gained(values, 0.0))
+
+    def test_the_default_is_one_and_moves_nothing(self):
+        for channels in (2, 1):
+            values = noise_source(BLOCKS * PARTITION_FRAMES, channels)
+            for mix in (0.0, 0.3, 0.5, 0.8, 1.0):
+                base = gained(values, mix, channels)
+                with self.subTest(channels=channels, mix=mix):
+                    self.assertEqual(gained(values, mix, channels,
+                                            wet_gain=1.0), base)
+                    self.assertEqual(gained(values, mix, channels, calls={
+                        AT: lambda n: n.set(wet_gain=1.0)}), base)
+
+    def test_a_move_acts_after_the_block_in_flight(self):
+        values = noise_source(BLOCKS * PARTITION_FRAMES, CHANNELS)
+        full = gained(values, 0.5)
+        got = gained(values, 0.5, calls={AT: lambda n: n.set(wet_gain=0.5)})
+        after = (AT + 1) * PARTITION_FRAMES * CHANNELS
+        self.assertEqual(got[:after], full[:after])
+        self.assertNotEqual(got[after:], full[after:])
+
+    def test_out_of_range_is_clamped(self):
+        values = noise_source(BLOCKS * PARTITION_FRAMES, CHANNELS)
+        zero = gained(values, 0.5, wet_gain=0.0)
+        for bad in (-1.0, float("nan"), float("-inf")):
+            with self.subTest(value=bad):
+                self.assertEqual(gained(values, 0.5, wet_gain=bad), zero)
+        self.assertEqual(gained(values, 0.5, wet_gain=1e9),
+                         gained(values, 0.5, wet_gain=4.0))
 
 if __name__ == "__main__":
     unittest.main()

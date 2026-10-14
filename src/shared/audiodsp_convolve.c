@@ -75,6 +75,7 @@ void audiodsp_convolve_config_init(audiodsp_convolve_config_t *config,
     config->partitions = partitions;
     config->ir_channels = ir_channels >= 2u ? 2u : 1u;
     config->mix = 1.0f;   // 0.5 asked for, doubled -- full wet beside full dry
+    config->wet_gain = 1.0f;
 }
 
 void audiodsp_convolve_set_channel_count(audiodsp_convolve_config_t *config,
@@ -87,6 +88,11 @@ void audiodsp_convolve_configure(audiodsp_convolve_config_t *config,
     switch (option) {
         case AUDIODSP_CONVOLVE_OPT_MIX:
             config->mix = clampf(value, 0.0f, 1.0f) * 2.0f;
+            break;
+        case AUDIODSP_CONVOLVE_OPT_WET_GAIN:
+            // NaN and below zero are no wet, past 4 is 4.
+            if (!(value >= 0.0f)) value = 0.0f;
+            config->wet_gain = value < 4.0f ? value : 4.0f;
             break;
         default:
             break;
@@ -144,6 +150,7 @@ void audiodsp_convolve_reset(audiodsp_convolve_state_t *state,
     state->phase = 0;
     state->cursor = 0;
     state->emitted_mix = config->mix;
+    state->emitted_wet_gain = config->wet_gain;
     state->resting = false;
     state->quiet_frames = 0;
 }
@@ -232,7 +239,7 @@ static void crossfade_block_in_flight(const audiodsp_convolve_config_t *config,
     // played. A straight line from old to new over what is left, landing on
     // the new room at its last frame.
     float dry = dry_of(state->emitted_mix);
-    float wet = wet_of(state->emitted_mix);
+    float wet = wet_of(state->emitted_mix) * state->emitted_wet_gain;
     uint32_t start = state->phase;
     float span = (float)(FRAMES - start);
     for (uint32_t ch = 0; ch < channels; ch++) {
@@ -463,8 +470,9 @@ static void process_block(const audiodsp_convolve_config_t *config,
     uint32_t parts = config->partitions;
     float mix = config->mix;
     float dry = dry_of(mix);
-    float wet = wet_of(mix);
+    float wet = wet_of(mix) * config->wet_gain;
     state->emitted_mix = mix;
+    state->emitted_wet_gain = config->wet_gain;
 
     state->cursor = state->cursor + 1u < parts ? state->cursor + 1u : 0u;
 

@@ -62,6 +62,7 @@
 
 typedef enum {
     AUDIODSP_CONVOLVE_OPT_MIX = 0,
+    AUDIODSP_CONVOLVE_OPT_WET_GAIN = 1,
 } audiodsp_convolve_option_t;
 
 typedef struct {
@@ -76,6 +77,11 @@ typedef struct {
     // where the dry stays at unity until halfway and the wet is already there.
     // Matching the other reverb matters more than matching the delays.
     float mix;
+    // A linear gain on the wet path alone, 0..4, applied after the impulse
+    // (and synthesize()'s unit-energy normalisation): a room's level moved
+    // without its dry or its Mix law. 1.0 is a multiply by exactly one, so
+    // a node that never sets it renders what it rendered before.
+    float wet_gain;
 } audiodsp_convolve_config_t;
 
 typedef struct {
@@ -93,6 +99,7 @@ typedef struct {
     uint32_t cursor;   // newest slot in the frequency-delay line
     uint32_t loaded;   // partitions actually carrying impulse; 0 == bypass
     float emitted_mix; // config->mix as `emitted` was computed at
+    float emitted_wet_gain; // config->wet_gain, likewise
     // True once the tail has ended with nothing coming in, so silence costs
     // no work; `quiet_frames` counts all-zero output since the last look at
     // the history (audiodsp#180).
