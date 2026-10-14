@@ -154,6 +154,7 @@ static mp_obj_t audioconvolve_convolver_make_new(const mp_obj_type_t *type,
     self->pending_frames = 0;
     self->source_done = false;
     self->storage = NULL;
+    self->peak_gain = 0.0f;
 
     convolver_allocate(self, self->base.sample_rate, max_taps, ir_channels);
     audiodsp_convolve_set_channel_count(&self->config,
@@ -267,6 +268,7 @@ static mp_obj_t audioconvolve_convolver_load(size_t n_args,
             channels, gain);
         audiodsp_pump_lock_release();
     }
+    self->peak_gain = 0.0f;
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_load_obj, 2,
@@ -298,19 +300,25 @@ static mp_obj_t audioconvolve_convolver_synthesize(size_t n_args,
     float diffusion = parsed[ARG_diffusion_ms].u_obj != mp_const_none
         ? (float)mp_obj_get_float(parsed[ARG_diffusion_ms].u_obj) : 0.0f;
     const uint32_t seed = (uint32_t)parsed[ARG_seed].u_int;
+    // room_peak_gain's folds: a few thousand floats, for the call only.
+    const uint32_t fold_floats = audiodsp_convolve_peak_floats(&self->config);
+    float *fold = m_new(float, fold_floats);
+    float peak = 0.0f;
     convolver_build_t build;
     if (convolver_build_begin(self, &build)) {
-        uint32_t loaded = audiodsp_convolve_build_room(&self->state,
+        uint32_t loaded = audiodsp_convolve_build_room_peak(&self->state,
             &self->config, build.impulse, build.work,
             build.work + AUDIODSP_CONVOLVE_FFT, decay, damping, predelay,
-            diffusion, seed);
+            diffusion, seed, fold, &peak);
         convolver_build_end(self, &build, loaded);
     } else {
         audiodsp_pump_lock_acquire();
-        audiodsp_convolve_synthesize(&self->state, &self->config, decay,
-            damping, predelay, diffusion, seed);
+        audiodsp_convolve_synthesize_peak(&self->state, &self->config, decay,
+            damping, predelay, diffusion, seed, fold, &peak);
         audiodsp_pump_lock_release();
     }
+    m_del(float, fold, fold_floats);
+    self->peak_gain = peak;
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioconvolve_convolver_synthesize_obj, 1,
@@ -336,6 +344,16 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_get_taps_obj,
     audioconvolve_convolver_get_taps);
 static MP_PROPERTY_GETTER(audioconvolve_convolver_taps_obj,
     (mp_obj_t)&audioconvolve_convolver_get_taps_obj);
+
+static mp_obj_t audioconvolve_convolver_get_room_peak_gain(mp_obj_t self_in) {
+    audioconvolve_convolver_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
+    return mp_obj_new_float((mp_float_t)self->peak_gain);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audioconvolve_convolver_get_room_peak_gain_obj,
+    audioconvolve_convolver_get_room_peak_gain);
+static MP_PROPERTY_GETTER(audioconvolve_convolver_room_peak_gain_obj,
+    (mp_obj_t)&audioconvolve_convolver_get_room_peak_gain_obj);
 
 static mp_obj_t audioconvolve_convolver_get_latency(mp_obj_t self_in) {
     // The loaded state, not a constant. A convolver with nothing loaded
@@ -482,6 +500,8 @@ static const mp_rom_map_elem_t audioconvolve_convolver_locals_table[] = {
       MP_ROM_PTR(&audioconvolve_convolver_clear_obj) },
     { MP_ROM_QSTR(MP_QSTR_taps),
       MP_ROM_PTR(&audioconvolve_convolver_taps_obj) },
+    { MP_ROM_QSTR(MP_QSTR_room_peak_gain),
+      MP_ROM_PTR(&audioconvolve_convolver_room_peak_gain_obj) },
     { MP_ROM_QSTR(MP_QSTR_latency),
       MP_ROM_PTR(&audioconvolve_convolver_latency_obj) },
     AUDIOSAMPLE_FIELDS,

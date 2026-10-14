@@ -186,6 +186,17 @@ class Convolver(_AudioSample):
         return self._state.taps()
 
     @property
+    def room_peak_gain(self):
+        """The most the room the last `synthesize` built brings a low
+        full-scale input back, as a linear gain, the worse of its two sides:
+        the largest of its step response's magnitude and the steady-state
+        peak of a full-scale square from 40 to 160 Hz in eighth-octave steps.
+        At unit energy, before `wet_gain`. 0.0 before any `synthesize` and
+        after a `load`, which bring their own level."""
+        self._check()
+        return self._state.peak_gain()
+
+    @property
     def latency(self):
         """Frames the output trails the input by: one partition once an
         impulse is loaded, and **zero when none is**, because an unloaded

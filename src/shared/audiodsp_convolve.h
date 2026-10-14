@@ -187,6 +187,28 @@ void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,
     const audiodsp_convolve_config_t *config, float decay_seconds,
     float damping_hz, float predelay_ms, float diffusion_ms, uint32_t seed);
 
+// --- the room's peak gain on low material ---------------------------------
+//
+// `room_peak_gain`: the most the synthesized room alone, at unit energy and
+// before `wet_gain`, brings a low full-scale input back, as a linear gain,
+// the worse of its two sides. The largest of the step response's magnitude
+// (a DC step) and the steady-state peak of a +-1 square at each of
+// AUDIODSP_CONVOLVE_PEAK_SQUARES frequencies from AUDIODSP_CONVOLVE_PEAK_LOW_HZ
+// up two octaves in eighth-octave steps (40 to 160 Hz). A dark room gathers
+// its unit energy low and reads high; that is what a level trim needs. Read
+// off the taps synthesize() writes in its second pass, so it costs no extra
+// pass and changes no tap. `peak_fold` is audiodsp_convolve_peak_floats()
+// floats of scratch; with it NULL nothing is read and `peak_gain` is left
+// alone.
+#define AUDIODSP_CONVOLVE_PEAK_SQUARES 17u
+#define AUDIODSP_CONVOLVE_PEAK_LOW_HZ 40.0
+uint32_t audiodsp_convolve_peak_floats(
+    const audiodsp_convolve_config_t *config);
+void audiodsp_convolve_synthesize_peak(audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float decay_seconds,
+    float damping_hz, float predelay_ms, float diffusion_ms, uint32_t seed,
+    float *peak_fold, float *peak_gain);
+
 // --- building an impulse away from the node, for a pump on another thread ---
 //
 // `load_s16` and `synthesize` above work in place: they write the node's own
@@ -215,6 +237,12 @@ uint32_t audiodsp_convolve_build_room(const audiodsp_convolve_state_t *state,
     const audiodsp_convolve_config_t *config, float *impulse, float *block,
     float *scratch, float decay_seconds, float damping_hz, float predelay_ms,
     float diffusion_ms, uint32_t seed);
+// The same, reading `room_peak_gain` as it builds (see above).
+uint32_t audiodsp_convolve_build_room_peak(
+    const audiodsp_convolve_state_t *state,
+    const audiodsp_convolve_config_t *config, float *impulse, float *block,
+    float *scratch, float decay_seconds, float damping_hz, float predelay_ms,
+    float diffusion_ms, uint32_t seed, float *peak_fold, float *peak_gain);
 
 // Make a built impulse the node's: the node takes `impulse` itself, not a
 // copy, and hands back the one it had, for the caller to free once the lock

@@ -2252,6 +2252,8 @@ typedef struct {
     audiodsp_convolve_state_t state;
     float *storage;
     float *impulse;
+    // room_peak_gain: read by the last synthesize(), 0 after a load().
+    float peak_gain;
 } audiodsp_convolver_object_t;
 
 static int convolver_state_init(audiodsp_convolver_object_t *self,
@@ -2394,6 +2396,7 @@ static PyObject *convolver_state_load(audiodsp_convolver_object_t *self,
         build.work + AUDIODSP_CONVOLVE_FFT, (const int16_t *)taps.buf,
         frames, channels, (float)gain);
     convolver_build_end(self, &build, loaded);
+    self->peak_gain = 0.0f;
     PyBuffer_Release(&taps);
     Py_RETURN_NONE;
 }
@@ -2404,13 +2407,22 @@ static PyObject *convolver_state_synthesize(audiodsp_convolver_object_t *self,
     unsigned int seed;
     if (!PyArg_ParseTuple(args, "ddddI:synthesize", &decay, &damping,
         &predelay, &diffusion, &seed)) return NULL;
+    float *fold = PyMem_Malloc(
+        audiodsp_convolve_peak_floats(&self->config) * sizeof(float));
+    if (fold == NULL) return PyErr_NoMemory();
     convolver_build_t build;
-    if (convolver_build_begin(self, &build) < 0) return NULL;
-    uint32_t loaded = audiodsp_convolve_build_room(&self->state,
+    if (convolver_build_begin(self, &build) < 0) {
+        PyMem_Free(fold);
+        return NULL;
+    }
+    float peak = 0.0f;
+    uint32_t loaded = audiodsp_convolve_build_room_peak(&self->state,
         &self->config, build.impulse, build.work,
         build.work + AUDIODSP_CONVOLVE_FFT, (float)decay, (float)damping,
-        (float)predelay, (float)diffusion, seed);
+        (float)predelay, (float)diffusion, seed, fold, &peak);
+    PyMem_Free(fold);
     convolver_build_end(self, &build, loaded);
+    self->peak_gain = peak;
     Py_RETURN_NONE;
 }
 
@@ -2424,6 +2436,11 @@ static PyObject *convolver_state_taps(audiodsp_convolver_object_t *self,
     PyObject *unused) {
     return PyLong_FromUnsignedLong(
         (unsigned long)self->state.loaded * AUDIODSP_CONVOLVE_FRAMES);
+}
+
+static PyObject *convolver_state_peak_gain(audiodsp_convolver_object_t *self,
+    PyObject *unused) {
+    return PyFloat_FromDouble((double)self->peak_gain);
 }
 
 static PyObject *convolver_state_process(audiodsp_convolver_object_t *self,
@@ -2472,6 +2489,7 @@ static PyMethodDef convolver_state_methods[] = {
     {"synthesize", (PyCFunction)convolver_state_synthesize, METH_VARARGS, NULL},
     {"reset", (PyCFunction)convolver_state_reset, METH_NOARGS, NULL},
     {"taps", (PyCFunction)convolver_state_taps, METH_NOARGS, NULL},
+    {"peak_gain", (PyCFunction)convolver_state_peak_gain, METH_NOARGS, NULL},
     {"process", (PyCFunction)convolver_state_process, METH_O, NULL},
     {"process_silence", (PyCFunction)convolver_state_process_silence, METH_O, NULL},
     {NULL, NULL, 0, NULL},
