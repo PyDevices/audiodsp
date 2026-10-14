@@ -237,6 +237,15 @@ PROBES = (
                        "deliberate departures recorded in "
                        "docs/upstream-diff.md"},
      None),
+    # A reset puts the write head back at the top, so a shorter Time after
+    # it plays as on a fresh node (audiocomponents' MultiTapDelay, 7d).
+    ("multitap_reset_probe.py", "audiodelays",
+     {"circuitpython": "upstream's MultiTapDelay keeps its write heads "
+                       "across reset_buffer, so a Time shortened after a "
+                       "reset keeps another stretch of the line; ours puts "
+                       "them at the top, a deliberate departure recorded "
+                       "in docs/upstream-diff.md"},
+     None),
     # wow_hz and loop_semitones taken to 0 park at their next zero crossing
     # instead of freezing mid-swing (audiodsp#177).
     ("feedback_delay_park_probe.py", "audioecho", {}, None),

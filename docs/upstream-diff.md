@@ -255,6 +255,23 @@ shortens the line under the write head, and 2 of its samples differ from the
 oracle's. Nothing stored moved: no golden shortens a line under its write
 head.
 
+## `audiodelays.MultiTapDelay`: a reset puts the write heads at the top
+
+Upstream's `reset_buffer` empties the line and leaves both write heads where
+the pulls took them; construction puts them at the top. While the Time stays
+put the two cannot be told apart, but a shorter Time keeps the line up to its
+new length and starts a head past it again at the top, so which stretch of
+the line survives depends on where the head was. After a reset, a Time move
+then played repeats a fresh node does not: in audiocomponents'
+`MultiTapDelay`, an extra full-level echo. Here `reset_buffer` puts both
+heads at the top (`MultiTapDelay.c` and the twin's `_reset_state`), and a
+reset node is a fresh node.
+
+`multitap_reset_probe.py` holds it on MicroPython and CPython and is skipped
+on CircuitPython, which builds upstream's own node; so is
+`tests/test_cpython_multitap_reset.py`'s trait on the twin. Nothing stored
+moved: no golden shortens a line after a reset.
+
 ## `audiodelays.Echo`: a looped source that comes back empty is let go
 
 Play an `Echo` with `loop=True` on a source that ends with nothing in hand,

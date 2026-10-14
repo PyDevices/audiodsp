@@ -216,6 +216,10 @@ class MultiTapDelay(_Effect):
 
     def _reset_state(self):
         self._delay_buffer[:] = array("h", [0]) * len(self._delay_buffer)
+        # The write head goes back to the top, where a fresh node's is: a
+        # Time shortened later keeps the stretch of the line a fresh node
+        # would (a recorded departure, docs/upstream-diff.md).
+        self._position = 0
 
     def _delay_samples(self):
         delay_ms = max(1000.0 / self.sample_rate, float(self.delay_ms))

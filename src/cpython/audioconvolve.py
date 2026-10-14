@@ -18,6 +18,11 @@ or, with no file to load::
                     diffusion_ms=12, seed=4)
     hall.set(mix=0.35)
 
+`wet_gain` (0 to 4, default 1.0) scales the wet path alone, after the
+impulse and `synthesize`'s unit-energy normalisation: it moves a room's level
+without touching the dry or the mix law. NaN and anything below 0 are 0; at
+1.0 the node renders exactly what it renders without it.
+
 `impulse` is int16 frames, interleaved if `impulse_channels` is 2. `max_taps`
 sizes the convolver and cannot grow afterwards -- see the module docstring in
 shared/audiodsp_convolve.h for what a partition costs, because on a
@@ -46,7 +51,7 @@ __revision__ = _audiodsp.__revision__
 FRAMES = _audiodsp.CONVOLVE_FRAMES
 MAX_PARTITIONS = _audiodsp.CONVOLVE_MAX_PARTITIONS
 
-_OPTIONS = {"mix": 0}
+_OPTIONS = {"mix": 0, "wet_gain": 1}
 
 
 def _frames_of(impulse, channels):
@@ -59,7 +64,7 @@ def _frames_of(impulse, channels):
 class Convolver(_AudioSample):
     def __init__(self, impulse=None, impulse_channels=1, sample_rate=48000,
                  max_taps=0, ir_channels=0, gain=1.0, mix=None,
-                 channel_count=2):
+                 channel_count=2, wet_gain=None):
         channel_count = int(channel_count)
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
@@ -101,6 +106,8 @@ class Convolver(_AudioSample):
             ir_channels=ir_channels, channel_count=channel_count)
         if mix is not None:
             self._state.configure(0, float(mix))
+        if wet_gain is not None:
+            self._state.configure(1, float(wet_gain))
         if tap_frames:
             self._state.load(taps, impulse_channels, float(gain))
 
@@ -112,8 +119,9 @@ class Convolver(_AudioSample):
             self._state.configure(slot, float(value))
 
     def set(self, **options):
-        """Change settings mid-stream. Only `mix`: everything else about a
-        convolver is the impulse, which `load` and `synthesize` replace."""
+        """Change settings mid-stream: `mix` and `wet_gain`. Everything
+        else about a convolver is the impulse, which `load` and `synthesize`
+        replace. Either acts from the block after the one in flight."""
         self._check()
         self._apply(options)
 
