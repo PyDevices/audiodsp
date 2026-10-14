@@ -280,10 +280,18 @@ PROBES = (
     # against CircuitPython's answers instead, in clean-build.yml.
     #
     # PitchShift.freeze, upstream's one audio addition in 11.0.0-alpha.1
-    # (9bef7b7606). Held to CircuitPython's bytes here, and it checks the
-    # sustain itself and exits 1 without it, so a build where every target
-    # ignores `freeze` together still fails.
-    ("pitchshift_freeze_probe.py", "audiodelays", {}, None),
+    # (9bef7b7606). It checks the sustain itself and exits 1 without it, so a
+    # build where every target ignores `freeze` together still fails. Every
+    # frozen block is still CircuitPython's bytes; the three blocks after
+    # `freeze` goes back to False splice live audio, which this port moves
+    # into phase (docs/upstream-diff.md), so CircuitPython sits this one out.
+    ("pitchshift_freeze_probe.py", "audiodelays",
+     {"circuitpython": "upstream's PitchShift splices wherever the window "
+                       "lands and ours moves the incoming side into phase "
+                       "with the outgoing one; the frozen blocks agree, the "
+                       "three after it unfreezes do not - a deliberate "
+                       "departure recorded in docs/upstream-diff.md"},
+     None),
     # A reset puts PitchShift's read and write positions and
     # GranularPitchShift's jitter sequence back where a new node starts, and
     # the probe asserts the node then renders what a new one does.

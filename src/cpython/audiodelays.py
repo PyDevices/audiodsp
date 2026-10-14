@@ -306,6 +306,7 @@ class PitchShift(_Effect):
         self._overlap_buffer = array("h", (0 for _ in range(
             self._overlap_samples * self.channel_count)))
         self._window_index = self._overlap_index = self._read_index = 0
+        self._splice = (0, False, False)
         self._freeze = False
 
     @property
@@ -327,6 +328,7 @@ class PitchShift(_Effect):
         # Back where a new node starts: the splice phase is the distance
         # between these, and it must not carry across a reset.
         self._window_index = self._overlap_index = self._read_index = 0
+        self._splice = (0, False, False)
 
     def _process(self, data):
         if self.bits_per_sample != 16 or not self.samples_signed or not data:
@@ -335,16 +337,17 @@ class PitchShift(_Effect):
         _advance_blocks(self.sample_rate,
                         len(data) // (self.channel_count * 2))
         read_rate = int(2.0 ** (_value(self.semitones) / 12.0) * 256)
-        result, self._window_index, self._overlap_index, self._read_index = (
-            _audiodsp.pitchshift_s16(
-                data, self._window_buffer, self._overlap_buffer,
-                self._window_samples, self._overlap_samples,
-                self.channel_count, read_rate, self._window_index,
-                self._overlap_index, self._read_index,
-                min(1.0, max(0.0, _value(self.mix))) * 2.0,
-                self._freeze,
-            )
+        # The splice moves by up to a 50th of a second (docs/upstream-diff.md).
+        (result, self._window_index, self._overlap_index, self._read_index,
+         *splice) = _audiodsp.pitchshift_s16(
+            data, self._window_buffer, self._overlap_buffer,
+            self._window_samples, self._overlap_samples,
+            self.channel_count, read_rate, self._window_index,
+            self._overlap_index, self._read_index,
+            min(1.0, max(0.0, _value(self.mix))) * 2.0,
+            self._freeze, self.sample_rate // 50, *self._splice,
         )
+        self._splice = tuple(splice)
         return result
 
 

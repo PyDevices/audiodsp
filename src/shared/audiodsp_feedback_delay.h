@@ -178,6 +178,13 @@ typedef struct {
     // Phase of the `wow_shape` table, and of the pitch shifter's crossfade.
     uint32_t wow_phase;
     uint32_t shift_phase;
+    // How far each of the shifter's two taps (near, far) sits from where its
+    // phase alone would put it, in whole frames. Chosen each time a tap
+    // starts again from zero gain, so the line it fades in on is in phase
+    // with the one it fades out: two taps half a window apart are otherwise
+    // in antiphase on every note whose period divides that half window an
+    // odd number of times in two, and the crossfade cancels the note.
+    float shift_align[2];
     // Where the read head actually is while `delay_slew` walks it toward
     // `config->delay_frames`. Negative means "never primed": a fresh state
     // starts *on* the target rather than gliding up to it from nowhere.

@@ -71,11 +71,15 @@ defaults to 25 ms and is capped at a quarter of the line. Shifting up, what
 goes into the line is low-passed first (fourth order, at 0.7 of the frequency
 the next pass would carry to Nyquist), so a climb fades out at the top of the
 band instead of folding back past Nyquist as tones outside its series.
-Shifting down, and at 0, nothing is filtered.
+Shifting down, and at 0, nothing is filtered. Each tap is placed, when it
+fades back in, within 10 ms of where the window puts it, where the line it
+reads best matches the other tap's, so the two cross in phase and a held note
+plays its shifted pitch rather than cancelling at the splice.
 
 A shifted loop repeats half a window later than an unshifted one - the two
 taps' gains sum to one, so their weighted mean read is `delay_ms +
-loop_window_ms / 2` at every point of the cycle. Measured at 48 kHz with
+loop_window_ms / 2` at every point of the cycle, give or take the splice's
+move on held material. Measured at 48 kHz with
 `delay_ms=200`: 212.49 ms with the default window, 229.98 ms with a 60 ms
 one, 200.00 ms with the shift off. So turning `loop_semitones` on for the
 first time mid-stream steps the read by that half window; set it when you

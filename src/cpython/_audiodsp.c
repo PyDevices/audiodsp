@@ -3479,10 +3479,12 @@ static PyObject *audiodsp_pitchshift_s16(PyObject *module, PyObject *args) {
     unsigned int window_index, overlap_index, read_index;
     double mix;
     int freeze = 0;
-    if (!PyArg_ParseTuple(args, "y*w*w*IIIIIIId|p:pitchshift_s16", &input,
+    unsigned int align_span = 0, align = 0;
+    int fading = 0, fading_rising = 0;
+    if (!PyArg_ParseTuple(args, "y*w*w*IIIIIIId|pIIpp:pitchshift_s16", &input,
         &window, &overlap, &window_samples, &overlap_samples, &channels,
         &read_rate, &window_index, &overlap_index, &read_index, &mix,
-        &freeze)) return NULL;
+        &freeze, &align_span, &align, &fading, &fading_rising)) return NULL;
     if (input.len % sizeof(int16_t) || channels < 1 || channels > 2 ||
         window_samples < 1 || window.len <
             (Py_ssize_t)((size_t)window_samples * channels * sizeof(int16_t)) ||
@@ -3499,15 +3501,18 @@ static PyObject *audiodsp_pitchshift_s16(PyObject *module, PyObject *args) {
         PyBuffer_Release(&overlap); return NULL;
     }
     audiodsp_pitchshift_positions_t positions = {
-        window_index, overlap_index, read_index};
+        window_index, overlap_index, read_index, align, fading != 0,
+        fading_rising != 0};
     audiodsp_pitchshift_process_s16((int16_t *)PyBytes_AS_STRING(result),
         input.buf, input.len / sizeof(int16_t), window.buf, window_samples,
         overlap.buf, overlap_samples, (uint8_t)channels, read_rate, mix,
-        freeze != 0, &positions);
+        freeze != 0, align_span, &positions);
     PyBuffer_Release(&input); PyBuffer_Release(&window);
     PyBuffer_Release(&overlap);
-    return Py_BuildValue("(NIII)", result, positions.window_index,
-        positions.overlap_index, positions.read_index);
+    return Py_BuildValue("(NIIIIOO)", result, positions.window_index,
+        positions.overlap_index, positions.read_index, positions.align,
+        positions.fading ? Py_True : Py_False,
+        positions.fading_rising ? Py_True : Py_False);
 }
 
 static PyObject *audiodsp_freeverb_s16(PyObject *module, PyObject *args) {
