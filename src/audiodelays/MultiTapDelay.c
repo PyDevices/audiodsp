@@ -310,6 +310,12 @@ void audiodelays_multi_tap_delay_reset_buffer(audiodelays_multi_tap_delay_obj_t 
     memset(self->buffer[0], 0, self->buffer_len);
     memset(self->buffer[1], 0, self->buffer_len);
     memset(self->delay_buffer, 0, self->max_delay_buffer_len);
+    // Both write heads back at the top, where construction puts them.
+    // Upstream leaves them where the pulls took them, so a Time shortened
+    // after a reset kept a different stretch of the line than on a fresh
+    // node (a recorded departure, docs/upstream-diff.md).
+    self->delay_buffer_pos = 0;
+    self->delay_buffer_right_pos = 0;
 }
 
 bool common_hal_audiodelays_multi_tap_delay_get_playing(audiodelays_multi_tap_delay_obj_t *self) {
