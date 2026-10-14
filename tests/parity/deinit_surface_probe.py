@@ -259,6 +259,7 @@ CALLS = {
     "set": lambda n: n.set(),
     "load": lambda n: n.load(_IMPULSE),
     "synthesize": lambda n: n.synthesize(decay=0.01),
+    "room_peak_gain_for": lambda n: n.room_peak_gain_for(decay=0.01),
     "set_mode": lambda n: n.set_mode(0, 440.0, 0.1, 0.5),
     "set_modes": lambda n: n.set_modes([(440.0, 0.1, 0.5)]),
     "gain_reduction_db": lambda n: n.gain_reduction_db(),

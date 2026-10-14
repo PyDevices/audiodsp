@@ -460,7 +460,7 @@ uint32_t audiodsp_convolve_build_room_peak(
     for (int pass = 0; pass < 2; pass++) {
         double energy[2] = {0.0, 0.0};
         for (uint32_t ch = 0; ch < config->ir_channels; ch++) {
-            peak_reading_t reading;
+            peak_reading_t reading = {NULL, 0u, 0.0f, 0.0f};
             const bool read_peak = pass == 1 && peak_fold != NULL;
             if (read_peak) {
                 peak_begin(&reading, config, peak_fold);
