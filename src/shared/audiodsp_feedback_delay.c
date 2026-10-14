@@ -498,8 +498,9 @@ static void feedback_delay_run(
 // neighbours a grain rate either side.
 //
 // The measure is the sum of absolute differences between what each tap
-// will read on the first lane over the next 16 ms, ALIGN_LENGTH frames a
-// 3000th of a second apart, in integers, so every interpreter lands on the
+// will read on the first lane over the next 16 ms (no more than the window
+// or the delay allow), ALIGN_LENGTH frames a 3000th of a second apart, in
+// integers, so every interpreter lands on the
 // same frame. A difference, not a correlation: over a stretch shorter than
 // a low note's period a correlation peaks away from the matching phase, and
 // a difference is zero exactly there. 16 ms, not the 0.7 ms of 32 adjacent
@@ -522,6 +523,20 @@ static int64_t align_score(const int16_t *line, uint32_t length,
         const int16_t *lane = line + (size_t)channel * length;
         uint32_t a = (write_frame + length - (uint32_t)other) % length;
         uint32_t b = (write_frame + length - (uint32_t)candidate) % length;
+        const uint32_t reach = (AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH - 1) *
+            pace;
+        if (a + reach < length && b + reach < length) {
+            // Neither stretch wraps: no remainder in the inner loop.
+            const int16_t *x = lane + a;
+            const int16_t *y = lane + b;
+            for (int k = 0; k < AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH; ++k) {
+                const int32_t gap = (int32_t)*x - (int32_t)*y;
+                sum += gap < 0 ? -gap : gap;
+                x += pace;
+                y += pace;
+            }
+            continue;
+        }
         for (int k = 0; k < AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH; ++k) {
             const int32_t gap = (int32_t)lane[a] - (int32_t)lane[b];
             sum += gap < 0 ? -gap : gap;
@@ -539,25 +554,50 @@ static int64_t align_score(const int16_t *line, uint32_t length,
 static float splice_align(const audiodsp_feedback_delay_config_t *config,
     const audiodsp_feedback_delay_state_t *state, float nominal, float other) {
     const uint32_t length = config->line_frames;
-    // Never more than half the window: a tap may not wander past the
-    // grain it reads, and a short window, which splices often, searches
-    // little (a 1 ms window at +24 splices about 32 times a block).
+    // Never more than half the window: a tap may not wander past the grain
+    // it reads, and a short window, which splices often, searches little.
     int32_t span = (int32_t)(config->sample_rate /
         AUDIODSP_FEEDBACK_DELAY_ALIGN_DIVISOR);
-    const int32_t half_window = (int32_t)(config->shift_window_frames * 0.5f);
-    if (span > half_window) {
-        span = half_window;
+    const int32_t window = (int32_t)config->shift_window_frames;
+    // Half the window, but a short window gets up to a 100th of the rate
+    // (or four windows, if that is less): it needs room past its grain to
+    // find a held note's phase, and it splices so often that a full 10 ms at
+    // a 1 ms window would cost more than a board's block.
+    int32_t room = window / 2;
+    int32_t floor_room = (int32_t)(config->sample_rate / 100u);
+    if (floor_room > window * 4) {
+        floor_room = window * 4;
     }
+    if (room < floor_room) {
+        room = floor_room;
+    }
+    if (span > room) {
+        span = room;
+    }
+
+    const int32_t base = (int32_t)nominal;
+    const int32_t against = (int32_t)other;
+    // The compared stretch is 16 ms, but never longer than the window (a
+    // grain is all a splice joins), nor than the shortest delay it must
+    // read back from without reaching the write cursor.
+    const int32_t nearest = against < base - span ? against : base - span;
     uint32_t pace = config->sample_rate /
         AUDIODSP_FEEDBACK_DELAY_ALIGN_STEP_DIVISOR;
+    const int32_t steps = AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH;
+    if ((int32_t)pace * steps > window) {
+        // A window shorter than the stretch compares adjacent frames, as a
+        // grain that short holds no chord to match (a spaced stretch there
+        // matched the line past the grain and lost held notes).
+        pace = 1u;
+    }
+    if (nearest > 1 && (int32_t)pace * steps > nearest - 1) {
+        pace = (uint32_t)((nearest - 1) / steps);
+    }
     if (pace < 1u) {
         pace = 1u;
     }
-    const int32_t low =
-        (int32_t)(AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH * pace) + 1;
+    const int32_t low = (int32_t)(steps * pace) + 1;
     const int32_t high = (int32_t)length - 2;
-    const int32_t base = (int32_t)nominal;
-    const int32_t against = (int32_t)other;
     if (span <= 0 || against < low || against > high) {
         return 0.0f;
     }

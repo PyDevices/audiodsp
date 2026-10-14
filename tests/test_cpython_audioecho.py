@@ -982,14 +982,23 @@ class HeldNoteSpliceTest(unittest.TestCase):
     CELLS = ((48000, 12.0), (48000, 7.0), (44100, -12.0), (22050, 12.0))
     LEVEL = 10000
 
-    def _level_db(self, rate, midi, semitones):
+    #: (rate, semitones, loop_window_ms, delay_ms): short windows, which
+    #: splice often and leave little room to move, and delays shorter than
+    #: the stretch the splice compares.
+    EDGE_CELLS = ((44100, 12.0, 3.0, 50.0), (44100, 12.0, 5.0, 50.0),
+                  (44100, -12.0, 8.0, 50.0), (44100, 7.0, 10.0, 50.0),
+                  (48000, 12.0, 25.0, 5.0), (48000, 24.0, 25.0, 8.0),
+                  (22050, 12.0, 25.0, 3.0))
+
+    def _level_db(self, rate, midi, semitones, window_ms=25.0, delay_ms=50.0):
         hz = 440.0 * 2.0 ** ((midi - 69) / 12.0)
         frames = rate
         values = array("h", [int(self.LEVEL * np.sin(2 * np.pi * hz * n / rate))
                              for n in range(frames)])
         node = audioecho.FeedbackDelay(
             sample_rate=rate, channel_count=1, max_delay_ms=200.0,
-            delay_ms=50.0, feedback=0.0, mix=2.0, loop_semitones=semitones)
+            delay_ms=delay_ms, feedback=0.0, mix=2.0,
+            loop_semitones=semitones, loop_window_ms=window_ms)
         node.play(audiocore.RawSample(values, sample_rate=rate))
         out = array("h")
         while len(out) < frames:
@@ -1008,6 +1017,16 @@ class HeldNoteSpliceTest(unittest.TestCase):
                 with self.subTest(rate=rate, semitones=semitones, midi=midi):
                     self.assertGreater(self._level_db(rate, midi, semitones),
                                        -3.0)
+
+    def test_short_windows_and_delays_play_their_shifted_pitch(self):
+        for rate, semitones, window_ms, delay_ms in self.EDGE_CELLS:
+            for midi in range(36, 85, 2):
+                with self.subTest(rate=rate, semitones=semitones,
+                                  window_ms=window_ms, delay_ms=delay_ms,
+                                  midi=midi):
+                    self.assertGreater(
+                        self._level_db(rate, midi, semitones, window_ms,
+                                       delay_ms), -3.0)
 
 
 
