@@ -238,8 +238,13 @@ static void crossfade_block_in_flight(const audiodsp_convolve_config_t *config,
     // block was made from, and the frames before state->phase have been
     // played. A straight line from old to new over what is left, landing on
     // the new room at its last frame.
+    // The wet gain is the room's level, so it fades with the room: the old
+    // room at the gain it was computed at, the new at the gain set now. At
+    // equal gains of 1.0 every product below is a multiply by exactly one.
     float dry = dry_of(state->emitted_mix);
-    float wet = wet_of(state->emitted_mix) * state->emitted_wet_gain;
+    float wet = wet_of(state->emitted_mix);
+    float gain_old = state->emitted_wet_gain;
+    float gain_new = config->wet_gain;
     uint32_t start = state->phase;
     float span = (float)(FRAMES - start);
     for (uint32_t ch = 0; ch < channels; ch++) {
@@ -249,10 +254,12 @@ static void crossfade_block_in_flight(const audiodsp_convolve_config_t *config,
         float *emitted = state->emitted + ch * FRAMES;
         for (uint32_t i = start; i < FRAMES; i++) {
             float g = (float)(i - start + 1u) / span;
-            float y = old[i] + g * (state->block[FRAMES + i] - old[i]);
+            float from = old[i] * gain_old;
+            float y = from + g * (state->block[FRAMES + i] * gain_new - from);
             emitted[i] = dry * pending[i] + wet * y;
         }
     }
+    state->emitted_wet_gain = gain_new;
 }
 
 // The two halves of a room change, either side of whatever writes the new

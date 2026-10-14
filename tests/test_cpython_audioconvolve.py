@@ -23,7 +23,7 @@ previous version of its own output.
 | C8 | A starved node yields a full block of silence, not a short block | exact |
 | C9 | A re-synthesis on a playing node drops and repeats nothing: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old room to the new over its unplayed frames at the mix it was computed at; after it the node renders what a node built with the new room renders; the fade does not click | exact; the fade 1 LSB of the line; no step past 1.5 x the rooms' own |
 | C11 | A `load()` on a playing node drops and repeats nothing, as C9: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old impulse to the new over its unplayed frames; after it the node renders what a node built with the new impulse renders; a first load, and an unload, still start from empty | exact; the fade 1 LSB of the line |
-| C12 | `wet_gain` scales the wet path alone: the dry is untouched, the wet is `wet_gain` times the wet at 1.0, 1.0 (the default) renders what a node without it renders, and a move acts after the block in flight, as a Mix move does | 1 LSB; exact at the default and before the move |
+| C12 | `wet_gain` scales the wet path alone: the dry is untouched, the wet is `wet_gain` times the wet at 1.0, 1.0 (the default) renders what a node without it renders, a move acts after the block in flight, as a Mix move does, and one made with a re-synthesis fades with the room, from the old room at the old gain to the new at the new | 1 LSB; exact at the default, before the move and after the fade |
 | C10 | Each side of a synthesized stereo room is the unit-energy room of its own noise: the left is the mono room of the same seed, the right the mono room of the right side's seed; the two sides balance, together they are the level of a mono room, and they stay two different noises | exact; 0.01 dB; correlation under 0.5 |
 
 **C1 and C2 are this module's form of the identity trait** that
@@ -913,6 +913,38 @@ class WetGainTest(unittest.TestCase):
         after = (AT + 1) * PARTITION_FRAMES * CHANNELS
         self.assertEqual(got[:after], full[:after])
         self.assertNotEqual(got[after:], full[after:])
+
+    def test_a_gain_moved_with_the_room_fades_with_it(self):
+        # set(wet_gain) and then synthesize() before one pull: the block in
+        # flight runs on the line from the old room at the old gain to the
+        # new room at the new, and after it the node is one built with both.
+        for mix in (0.3, 0.5, 1.0):
+            for channels in (2, 1):
+                values = noise_source(BLOCKS * PARTITION_FRAMES, channels)
+                old = gained(values, mix, channels)
+                for tag, change in MOVES[1:]:
+                    new = moved(change)
+
+                    def at_new(node, new=new):
+                        node.synthesize(**new)
+                    fresh = gained(values, mix, channels, wet_gain=0.5,
+                                   calls={0: at_new})
+
+                    def call(node, new=new):
+                        node.set(wet_gain=0.5)
+                        node.synthesize(**new)
+                    got = gained(values, mix, channels, calls={AT: call})
+                    worst = 0
+                    for k in range(PARTITION_FRAMES):
+                        for c in range(channels):
+                            i = (AT * PARTITION_FRAMES + k) * channels + c
+                            line = old[i] + (k + 1) / 256.0 * (
+                                fresh[i] - old[i])
+                            worst = max(worst, abs(got[i] - line))
+                    after = (AT + 1) * PARTITION_FRAMES * channels
+                    with self.subTest(mix=mix, channels=channels, move=tag):
+                        self.assertLessEqual(worst, 1.0)
+                        self.assertEqual(got[after:], fresh[after:])
 
     def test_out_of_range_is_clamped(self):
         values = noise_source(BLOCKS * PARTITION_FRAMES, CHANNELS)
