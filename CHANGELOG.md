@@ -1,3 +1,10 @@
+## v0.6.6rc4 (2026-10-14)
+
+- multitap_reset_probe: tap levels exact in binary, so the float build agrees
+- audioconvolve.Convolver: a wet gain moved with the room fades with it
+- audioconvolve.Convolver: wet_gain, a gain on the wet path alone
+- audiodelays.MultiTapDelay: a reset puts the write heads back at the top
+
 ## v0.6.6rc3 (2026-10-14)
 
 - audioecho.FeedbackDelay: the chord splice's attacker findings
