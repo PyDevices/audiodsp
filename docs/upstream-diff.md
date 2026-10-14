@@ -5,6 +5,39 @@ CircuitPython, newest first. For the current list of deliberate differences,
 and how and when to resync with upstream, start at
 [upstream-sync.md](upstream-sync.md).
 
+## `audiodelays.PitchShift`: a splice lands in phase
+
+Upstream's `PitchShift` (11.0.0-alpha.1, and 10.3.0 before it) reads a window
+of what was played at the shifted rate, and when the read meets the write it
+splices to audio a whole window away, crossfading over `overlap` frames,
+wherever that lands. On every note whose period goes into the window an odd
+number of halves, the two sides of the crossfade are in antiphase, and a
+crossfade cancels the note for its length; with a short `overlap`, every
+splice restarts the note's phase. Either way a held note comes out as its
+neighbours a splice rate either side and almost nothing at the shifted
+pitch: measured, about half the notes from C2 to C6 lost their shifted line by
+3 dB or more, some by 50 to 86 dB, at the windows the effect classes use.
+
+Here, when a crossfade begins, the incoming side is moved, by up to a 50th of
+a second and only toward audio the node holds, to where the next 32 frames
+it plays differ least from the outgoing side's (summed absolute differences,
+every channel, in integers, so every target moves it to the same frame). The
+move holds while the crossfade runs and then goes into the read position, so
+the read carries on from what it faded in. A tie, silence included, keeps
+the smaller move, so silence and a lone click splice exactly where upstream's
+do, byte for byte. A frozen window is a loop the length of the window and is
+not moved. Every held note from C2 to C6 then keeps its shifted line within
+1.5 dB, at 40, 30 and 21 ms windows, up and down, at 48, 44.1 and 22.05 kHz.
+
+The 16-bit signed path is the shared kernel, and that is the path every
+effect class takes. The 8-bit, unsigned and single-channel-output path in
+`PitchShift.c` is still upstream's and splices where upstream's does.
+`tests/test_cpython_pitch_splice.py` holds the move (P1, red before it: 52 of
+its 100 notes) and the unmoved silence and click (P2). `pitchshift_freeze_probe.py`
+is skipped on CircuitPython: its frozen blocks are still CircuitPython's
+bytes, and the three blocks after it unfreezes are not.
+`effects_component_probe.py` is unchanged.
+
 ## `audiodelays`: the pitch shifters return from a source with nothing to give
 
 `PitchShift` and `GranularPitchShift` go round their pull loop for ever
@@ -1391,6 +1424,22 @@ that no arrangement of the existing nodes reaches, and the program's vision
   position by that half window, which is the same class of discontinuity
   `delay_slew` exists to remove from `delay_ms` and is not smoothed here. Set
   it when the node is built, or between takes.
+
+  **Each splice lands in phase.** Fixed half a window apart, the two taps
+  were in antiphase on every note whose period goes into half the window an
+  odd number of halves (G3 against 25 ms: 2.45 periods), and the crossfade
+  cancelled the note: G3 shifted up an octave played its neighbours, 356 Hz
+  and 436 Hz, and almost nothing at 392. Now a tap starting again from zero
+  gain is placed, within 10 ms either way of where its phase puts it, where
+  the next 32 frames it reads differ least from the other tap's (summed
+  absolute differences, in integers, both lanes; a tie, silence included,
+  keeps the smaller move). Every held note from C2 to C6 then plays its
+  shifted pitch within 1.5 dB, up and down, at 48, 44.1 and 22.05 kHz
+  (`tests/test_cpython_audioecho.py` E17; before, the median note at +12 was
+  54 dB under). The mean read is still half a window late, and a click, which
+  matches nothing, still lands where it did; on held material a repeat's read
+  moves by up to 10 ms either side of it. A search costs about 11 000
+  differences, once per tap per crossfade turn.
 
   Turning it off no longer steps back, and turning it on again no longer
   resumes a stale phase (audiodsp#177). Once the shifter has run,

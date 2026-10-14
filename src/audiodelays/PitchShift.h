@@ -47,6 +47,12 @@ typedef struct {
     uint32_t read_index; // words << PITCH_READ_SHIFT
     uint32_t read_rate; // words << PITCH_READ_SHIFT
 
+    // The splice's move and whether a crossfade is running (the shared
+    // kernel's positions; docs/upstream-diff.md).
+    uint32_t splice_align;
+    bool splice_fading;
+    bool splice_rising;
+
     mp_obj_t sample;
 } audiodelays_pitch_shift_obj_t;
 

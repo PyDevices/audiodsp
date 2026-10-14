@@ -67,7 +67,10 @@ is on the output only - the feedback path is untouched.
 every pass rises again: +12 gives a repeat an octave up, then two, then
 three, which is what a shimmer is. Two taps half a `loop_window_ms` window
 apart are crossfaded, so the window trades grain rate against smear; it
-defaults to 25 ms and is capped at a quarter of the line.
+defaults to 25 ms and is capped at a quarter of the line. Each tap is placed,
+when it fades back in, within 10 ms of where the window puts it, where the
+line it reads best matches the other tap's, so the two cross in phase and a
+held note plays its shifted pitch rather than cancelling at the splice.
 
 A shifted loop repeats half a window later than an unshifted one - the two
 taps' gains sum to one, so their weighted mean read is `delay_ms +

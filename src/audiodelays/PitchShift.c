@@ -83,6 +83,9 @@ void common_hal_audiodelays_pitch_shift_construct(audiodelays_pitch_shift_obj_t 
     self->overlap_index = 0;
     // The position that the window buffer will be read from and written to the output
     self->read_index = 0;
+    self->splice_align = 0;
+    self->splice_fading = false;
+    self->splice_rising = false;
 
     mp_float_t f_semitones = synthio_block_slot_get(&self->semitones);
     recalculate_rate(self, f_semitones);
@@ -159,6 +162,9 @@ void audiodelays_pitch_shift_reset_buffer(audiodelays_pitch_shift_obj_t *self,
     self->window_index = 0;
     self->overlap_index = 0;
     self->read_index = 0;
+    self->splice_align = 0;
+    self->splice_fading = false;
+    self->splice_rising = false;
 }
 
 bool common_hal_audiodelays_pitch_shift_get_playing(audiodelays_pitch_shift_obj_t *self) {
@@ -289,14 +295,21 @@ audioio_get_buffer_result_t audiodelays_pitch_shift_get_buffer(audiodelays_pitch
             if (self->base.bits_per_sample == 16 && self->base.samples_signed &&
                 !single_channel_output) {
                 audiodsp_pitchshift_positions_t positions = {
-                    self->window_index, self->overlap_index, self->read_index};
+                    self->window_index, self->overlap_index, self->read_index,
+                    self->splice_align, self->splice_fading,
+                    self->splice_rising};
+                // The splice may move by up to a 50th of a second: a whole
+                // period down to G1 (docs/upstream-diff.md).
                 audiodsp_pitchshift_process_s16(word_buffer, sample_src, n,
                     window_buffer, window_size, overlap_buffer, overlap_size,
                     self->base.channel_count, self->read_rate, mix,
-                    self->freeze, &positions);
+                    self->freeze, self->base.sample_rate / 50u, &positions);
                 self->window_index = positions.window_index;
                 self->overlap_index = positions.overlap_index;
                 self->read_index = positions.read_index;
+                self->splice_align = positions.align;
+                self->splice_fading = positions.fading;
+                self->splice_rising = positions.fading_rising;
                 goto pitchshift_samples_done;
             }
 

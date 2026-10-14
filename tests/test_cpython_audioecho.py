@@ -28,6 +28,7 @@ its own output.
 | E13 | A wow depth moved on a live node glides in over 20 ms, then renders as a node built with it | no step past 1.5 x the tone's own; exact after the ramp |
 | E14 | E10 in stereo with a cross-feed strictly between 0 and 1, at the feedbacks where the cross-fed sum lands an ulp above its lanes | exact, 0 LSB |
 | E15 | `delay_frames=N` reads the line exactly N frames back, at 44.1, 22.05 and 48 kHz, where no `delay_ms` lands on N | exact: the whole click on frame N, nothing on its neighbours |
+| E17 | A held note through `loop_semitones` plays its shifted pitch, C2 to C6, up and down, at 48, 44.1 and 22.05 kHz | the line at f * r within 3 dB of the note's own level |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -897,6 +898,58 @@ class DelayFramesTest(unittest.TestCase):
         node = delay()
         with self.assertRaises(TypeError):
             node.set(delay_ms=10.0, delay_frames=80)
+
+
+try:
+    import numpy as np
+except ImportError:     # pragma: no cover - numpy is a CI dependency
+    np = None
+
+
+@unittest.skipIf(np is None, "E17 measures a spectrum and needs numpy")
+class HeldNoteSpliceTest(unittest.TestCase):
+    """E17. The shifter reads the line through two taps half a window apart
+    and crossfades between them. Fixed there, the two were in antiphase on
+    every note whose period goes into half the window an odd number of
+    halves - G3 against the 25 ms default - and each crossfade cancelled
+    the note: what came out was its neighbours a grain rate either side, not
+    the shifted note. Each tap is now placed in phase with the other when it
+    starts again from zero gain.
+
+    The measure: a held note, one pass (feedback 0, wet only), and the level
+    of the spectral line at the shifted pitch against the note's own. Before
+    the splice was aligned, the median note at +12 measured 54 dB under."""
+
+    #: (rate, semitones). Every note from C2 (36) to C6 (84) in each.
+    CELLS = ((48000, 12.0), (48000, 7.0), (44100, -12.0), (22050, 12.0))
+    LEVEL = 10000
+
+    def _level_db(self, rate, midi, semitones):
+        hz = 440.0 * 2.0 ** ((midi - 69) / 12.0)
+        frames = rate
+        values = array("h", [int(self.LEVEL * np.sin(2 * np.pi * hz * n / rate))
+                             for n in range(frames)])
+        node = audioecho.FeedbackDelay(
+            sample_rate=rate, channel_count=1, max_delay_ms=200.0,
+            delay_ms=50.0, feedback=0.0, mix=2.0, loop_semitones=semitones)
+        node.play(audiocore.RawSample(values, sample_rate=rate))
+        out = array("h")
+        while len(out) < frames:
+            out.frombytes(bytes(audiocore.get_buffer(node)[1]))
+        held = np.array(out[int(0.3 * rate):frames], dtype=float)
+        window = np.hanning(len(held))
+        spectrum = np.abs(np.fft.rfft(held * window)) / (window.sum() / 2)
+        bins = np.fft.rfftfreq(len(held), 1.0 / rate)
+        shifted = hz * 2.0 ** (semitones / 12.0)
+        near = (bins > shifted * 0.985) & (bins < shifted * 1.015)
+        return 20.0 * np.log10(spectrum[near].max() / self.LEVEL + 1e-12)
+
+    def test_held_notes_play_their_shifted_pitch(self):
+        for rate, semitones in self.CELLS:
+            for midi in range(36, 85):
+                with self.subTest(rate=rate, semitones=semitones, midi=midi):
+                    self.assertGreater(self._level_db(rate, midi, semitones),
+                                       -3.0)
 
 
 if __name__ == "__main__":

@@ -288,6 +288,7 @@ void audiodsp_feedback_delay_state_init(audiodsp_feedback_delay_state_t *state,
     state->wow_cosine = 1.0f;
     state->wow_phase = 0;
     state->shift_phase = 0;
+    state->shift_align[0] = state->shift_align[1] = 0.0f;
     // Not primed. The first block snaps the read head onto whatever delay is
     // configured; only a change *after* that glides.
     state->delay_current = -1.0f;
@@ -439,6 +440,107 @@ static void feedback_delay_run(
     const audiodsp_feedback_delay_config_t *config,
     audiodsp_feedback_delay_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames);
+
+// The splice. A tap starting again from zero gain is placed where the line
+// it reads is most like the line the other tap is reading, within a few
+// milliseconds of where its phase puts it, so the two fade across in phase.
+// Fixed half a window apart, they were in antiphase on every note whose
+// period goes into half the window an odd number of halves -- G3 against a
+// 25 ms window -- and the crossfade cancelled the note, leaving its
+// neighbours a grain rate either side.
+//
+// The measure is the sum of absolute differences between the next
+// ALIGN_LENGTH frames each tap will read, both lanes summed, in integers, so
+// every interpreter lands on the same frame. A difference, not a
+// correlation: over a stretch shorter than a low note's period a
+// correlation peaks away from the matching phase, and a difference is zero
+// exactly there. Searched every ALIGN_STRIDE frames across
+// +-ALIGN_SPAN, then frame by frame around the best; a tie, silence
+// included, keeps the smaller move, so a quiet line splices where it always
+// did. The span is a 100th of the rate, 10 ms: half the period of G1, so
+// every note from there up can be brought into phase.
+#define AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH 32
+#define AUDIODSP_FEEDBACK_DELAY_ALIGN_STRIDE 6
+#define AUDIODSP_FEEDBACK_DELAY_ALIGN_DIVISOR 100u
+
+static int64_t align_score(const int16_t *line, uint32_t length,
+    uint32_t channels, uint32_t write_frame, int32_t other, int32_t candidate) {
+    int64_t sum = 0;
+    for (uint32_t channel = 0; channel < channels; ++channel) {
+        const int16_t *lane = line + (size_t)channel * length;
+        uint32_t a = (write_frame + length - (uint32_t)other) % length;
+        uint32_t b = (write_frame + length - (uint32_t)candidate) % length;
+        for (int k = 0; k < AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH; ++k) {
+            const int32_t gap = (int32_t)lane[a] - (int32_t)lane[b];
+            sum += gap < 0 ? -gap : gap;
+            a = a + 1u == length ? 0u : a + 1u;
+            b = b + 1u == length ? 0u : b + 1u;
+        }
+    }
+    return sum;
+}
+
+// The move, in whole frames, for a tap whose phase puts it `nominal` frames
+// back, against the other tap `other` frames back. Both are read forward
+// from there, so neither may come within ALIGN_LENGTH of the write cursor or
+// past the far end of the line; a move that would is not considered.
+static float splice_align(const audiodsp_feedback_delay_config_t *config,
+    const audiodsp_feedback_delay_state_t *state, float nominal, float other) {
+    const uint32_t length = config->line_frames;
+    const int32_t span = (int32_t)(config->sample_rate /
+        AUDIODSP_FEEDBACK_DELAY_ALIGN_DIVISOR);
+    const int32_t low = AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH + 1;
+    const int32_t high = (int32_t)length - 2;
+    const int32_t base = (int32_t)nominal;
+    const int32_t against = (int32_t)other;
+    if (span <= 0 || against < low || against > high) {
+        return 0.0f;
+    }
+    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    int32_t best = 0;
+    int64_t best_score = 0;
+    bool found = false;
+    // 0 first, then outward, so a tie keeps the smaller move.
+    for (int32_t step = 0; step <= span;
+         step += AUDIODSP_FEEDBACK_DELAY_ALIGN_STRIDE) {
+        for (int side = 0; side < (step == 0 ? 1 : 2); ++side) {
+            const int32_t move = side ? -step : step;
+            const int32_t at = base + move;
+            if (at < low || at > high) {
+                continue;
+            }
+            const int64_t score = align_score(state->line, length, channels,
+                state->write_frame, against, at);
+            if (!found || score < best_score) {
+                found = true;
+                best = move;
+                best_score = score;
+            }
+        }
+    }
+    if (!found) {
+        return 0.0f;
+    }
+    const int32_t coarse = best;
+    for (int32_t fine = -(AUDIODSP_FEEDBACK_DELAY_ALIGN_STRIDE - 1);
+         fine <= AUDIODSP_FEEDBACK_DELAY_ALIGN_STRIDE - 1; ++fine) {
+        const int32_t move = coarse + fine;
+        const int32_t at = base + move;
+        if (fine == 0 || move > span || move < -span || at < low ||
+            at > high) {
+            continue;
+        }
+        const int64_t score = align_score(state->line, length, channels,
+            state->write_frame, against, at);
+        const int32_t size = move < 0 ? -move : move;
+        const int32_t best_size = best < 0 ? -best : best;
+        if (score < best_score || (score == best_score && size < best_size)) {
+            best = move;
+            best_score = score;
+        }
+    }
+    return (float)best;
+}
 
 void audiodsp_feedback_delay_process_s16(
     const audiodsp_feedback_delay_config_t *config,
@@ -723,8 +825,33 @@ static void feedback_delay_run(
                 near_gain = 2.0f - near_gain;
             }
             far_gain = 1.0f - near_gain;
-            near_tap = tap_for(state, length, offset + turn * window);
-            far_tap = tap_for(state, length, offset + opposite * window);
+            // A tap whose gain has just passed through zero -- the near one
+            // at a phase of 0, the far one at one half -- starts its next
+            // grain: place it in phase with the other (the splice above).
+            const uint32_t now = state->shift_phase;
+            if (now != before) {
+                const uint32_t half = 0x80000000u;
+                const bool up = (int32_t)(now - before) > 0;
+                const bool near_starts = before == 0u ||
+                    (up ? now < before : now > before);
+                const bool far_starts = before == half ||
+                    (up ? (before < half && now >= half) :
+                     (before > half && now <= half));
+                if (near_starts) {
+                    state->shift_align[0] = splice_align(config, state,
+                        offset + turn * window,
+                        offset + opposite * window + state->shift_align[1]);
+                }
+                if (far_starts) {
+                    state->shift_align[1] = splice_align(config, state,
+                        offset + opposite * window,
+                        offset + turn * window + state->shift_align[0]);
+                }
+            }
+            near_tap = tap_for(state, length,
+                offset + turn * window + state->shift_align[0]);
+            far_tap = tap_for(state, length,
+                offset + opposite * window + state->shift_align[1]);
         } else {
             near_tap = tap_for(state, length, offset);
         }
