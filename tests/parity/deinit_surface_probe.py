@@ -256,6 +256,7 @@ CALLS = {
     "modulate": lambda n: n.modulate(source()),
     "stop": lambda n: n.stop(),
     "clear": lambda n: n.clear(),
+    "recentre": lambda n: n.recentre(),
     "set": lambda n: n.set(),
     "load": lambda n: n.load(_IMPULSE),
     "synthesize": lambda n: n.synthesize(decay=0.01),

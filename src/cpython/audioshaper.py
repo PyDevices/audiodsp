@@ -182,6 +182,19 @@ class Waveshaper(_AudioSample):
         self._check()
         self._state.reset()
 
+    def recentre(self):
+        """Put the play operator where silence would hold it without its
+        memory - the operating point - once the input has been exactly zero
+        for a whole block, and say whether it did. The decimator's memories
+        move with it, so the output is the curve at the operating point from
+        the next sample; under signal it does nothing and returns False. A
+        class that blocks DC after this node uses it so a gain or curve move
+        in silence plays nothing: the operator's held position otherwise
+        answers silence with a constant the blocker has taken out, and the
+        move steps it."""
+        self._check()
+        return self._state.recentre()
+
     @property
     def playing(self):
         return self._source is not None

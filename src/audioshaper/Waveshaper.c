@@ -202,6 +202,17 @@ static mp_obj_t audioshaper_waveshaper_clear(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_waveshaper_clear_obj,
     audioshaper_waveshaper_clear);
 
+static mp_obj_t audioshaper_waveshaper_recentre(mp_obj_t self_in) {
+    audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
+    audiodsp_pump_lock_acquire();
+    bool moved = audiodsp_shaper_recentre(&self->config, &self->state);
+    audiodsp_pump_lock_release();
+    return mp_obj_new_bool(moved);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_waveshaper_recentre_obj,
+    audioshaper_waveshaper_recentre);
+
 static audioio_get_buffer_result_t audioshaper_waveshaper_get_buffer(
     mp_obj_t self_in, bool single_channel_output, uint8_t channel,
     uint8_t **buffer, uint32_t *buffer_length) {
@@ -297,6 +308,8 @@ static const mp_rom_map_elem_t audioshaper_waveshaper_locals_table[] = {
       MP_ROM_PTR(&audioshaper_waveshaper_set_obj) },
     { MP_ROM_QSTR(MP_QSTR_clear),
       MP_ROM_PTR(&audioshaper_waveshaper_clear_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recentre),
+      MP_ROM_PTR(&audioshaper_waveshaper_recentre_obj) },
     AUDIOSAMPLE_FIELDS,
 };
 static MP_DEFINE_CONST_DICT(audioshaper_waveshaper_locals,

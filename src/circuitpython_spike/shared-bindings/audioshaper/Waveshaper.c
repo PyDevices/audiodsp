@@ -236,6 +236,22 @@ static mp_obj_t audioshaper_waveshaper_clear(mp_obj_t self_in) {
 MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_waveshaper_clear_obj,
     audioshaper_waveshaper_clear);
 
+//|     def recentre(self) -> bool:
+//|         """Put the play operator where silence would hold it without its
+//|         memory, once the input has been exactly zero for a whole block,
+//|         and say whether it did. Under signal it does nothing."""
+//|         ...
+//|
+//|
+static mp_obj_t audioshaper_waveshaper_recentre(mp_obj_t self_in) {
+    audioshaper_waveshaper_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
+    return mp_obj_new_bool(audiodsp_shaper_recentre(&self->config,
+        &self->state));
+}
+MP_DEFINE_CONST_FUN_OBJ_1(audioshaper_waveshaper_recentre_obj,
+    audioshaper_waveshaper_recentre);
+
 // `deinit()` releases what this binding holds and marks the node
 // deinitialised, so the guarded getters raise afterwards. The MicroPython
 // binding of this same type gained it on 2026-09-09 (audiodsp#58, #60, #63) and
@@ -263,6 +279,8 @@ audioshaper_waveshaper_locals_dict_table[] = {
       MP_ROM_PTR(&audioshaper_waveshaper_set_obj) },
     { MP_ROM_QSTR(MP_QSTR_clear),
       MP_ROM_PTR(&audioshaper_waveshaper_clear_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recentre),
+      MP_ROM_PTR(&audioshaper_waveshaper_recentre_obj) },
     AUDIOSAMPLE_FIELDS,
 };
 static MP_DEFINE_CONST_DICT(audioshaper_waveshaper_locals_dict,

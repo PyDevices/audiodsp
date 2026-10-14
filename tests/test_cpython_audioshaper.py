@@ -478,6 +478,76 @@ class HysteresisTest(unittest.TestCase):
                             "drive grew the loop by itself: %r" % (areas,))
 
 
+def _remanence_node(oversample=4, hysteresis=0.8, channels=2):
+    """A node that has played a sine and then 2 048 frames of silence, so the
+    play operator holds the position the sine left it at, and the node
+    answers silence with the curve there: a constant."""
+    node = audioshaper.Waveshaper(
+        sample_rate=SAMPLE_RATE, channel_count=channels, curve=HARD_CLIP,
+        oversample=oversample, pre_gain=2.0, post_gain=0.5,
+        hysteresis=hysteresis, hysteresis_width=0.12)
+    values = sine(37, 4096, 20000)
+    if channels == 1:
+        values = array("h", values[0::2])
+    values.extend(array("h", bytes(2 * 2048 * channels)))
+    values.extend(array("h", bytes(2 * 8192 * channels)))
+    node.play(audiocore.RawSample(values, sample_rate=SAMPLE_RATE,
+                                  channel_count=channels))
+    return node
+
+
+def _pull(node, blocks):
+    out = array("h")
+    for _ in range(blocks):
+        out.frombytes(bytes(audiocore.get_buffer(node)[1]))
+    return out
+
+
+class RecentreTest(unittest.TestCase):
+    """`recentre()` lets the play operator go where silence would have left
+    it had it no memory, once the input has been silent a whole block, and
+    touches nothing else the render depends on.
+
+    The operator holds its position across silence; that is the memory the
+    option exists for. A class with a DC-blocking stage after the node then
+    sees the node answer silence with a constant it has already taken out,
+    and a gain or curve move in that silence steps the constant through the
+    blocker: a click out of nothing (audiocomponents Saturation, sweep
+    finding 4). Re-centred, the node answers silence with exactly what its
+    curve says at the operating point, and the decimator's memories move with
+    the operator so the output does not ring from the old position."""
+
+    def test_silence_answers_the_curve_at_the_centre(self):
+        for oversample in (1, 2, 4, 8):
+            for channels in (2, 1):
+                with self.subTest(oversample=oversample, channels=channels):
+                    node = _remanence_node(oversample, channels=channels)
+                    held = _pull(node, 24)[-2 * channels:]
+                    self.assertNotEqual(max(abs(v) for v in held), 0)
+                    self.assertTrue(node.recentre())
+                    self.assertEqual(max(abs(v) for v in _pull(node, 4)), 0)
+
+    def test_under_signal_it_does_nothing(self):
+        plain = _remanence_node()
+        moved = _remanence_node()
+        self.assertEqual(_pull(plain, 8), _pull(moved, 8))
+        self.assertFalse(moved.recentre())
+        self.assertEqual(_pull(plain, 40), _pull(moved, 40))
+
+    def test_off_it_changes_nothing(self):
+        plain = _remanence_node(hysteresis=0.0)
+        moved = _remanence_node(hysteresis=0.0)
+        self.assertEqual(_pull(plain, 24), _pull(moved, 24))
+        self.assertTrue(moved.recentre())
+        self.assertEqual(_pull(plain, 4), _pull(moved, 4))
+
+    def test_a_cleared_node_has_heard_no_silence_yet(self):
+        node = _remanence_node()
+        _pull(node, 24)
+        node.clear()
+        self.assertFalse(node.recentre())
+
+
 if __name__ == "__main__":
     unittest.main()
 

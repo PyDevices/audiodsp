@@ -1381,7 +1381,10 @@ Details worth recording:
 - **A new `wow_depth_ms` ramps in over 20 ms** (audiodsp#160), a straight
   line that lands on the target exactly, so a static depth renders the same
   bytes it always did. Landing at once moved the read head by the whole
-  change between two samples.
+  change between two samples. `wow_depth_ramp_ms` sets another time (0 is one
+  frame); a class with an engage envelope sets it to the envelope's length
+  and moves the depth once. At 20 the ramp is `sample_rate / 50` frames, as
+  before, so the default renders the same bytes.
 - **`reset_buffer` clears all of the node's own state**, unlike
   `audiodynamics`, which keeps its sidechain filter and last gain. A delay's
   whole state is audible: a chain restarted with the old repeats still in the

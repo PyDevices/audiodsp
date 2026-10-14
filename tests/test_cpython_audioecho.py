@@ -743,6 +743,63 @@ class WowDepthGlideTest(unittest.TestCase):
                                  built[160 * CHANNELS:])
 
 
+
+class WowDepthRampTimeTest(unittest.TestCase):
+    """`wow_depth_ramp_ms` sets how long that glide takes: a depth move walks
+    there in a straight line over that many milliseconds, at least one
+    frame, and lands exactly. 20 is the default, and the 160 frames above."""
+
+    def _pair(self, depth, **ramp):
+        tone = sine_words(4096, 250.0, 20000)
+        moved = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=0.0, **ramp)
+        built = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=depth)
+        for node in (moved, built):
+            node.play(audiocore.RawSample(tone, sample_rate=SAMPLE_RATE,
+                                          channel_count=CHANNELS))
+        words(moved, WowDepthGlideTest.CREST_BLOCKS)
+        words(built, WowDepthGlideTest.CREST_BLOCKS)
+        moved.set(wow_depth_ms=depth)
+        return words(moved, 4), words(built, 4)
+
+    def test_the_ramp_takes_the_time_it_is_given(self):
+        """100 ms at 8 kHz is 800 frames: different until then, the node
+        built with that depth from then on."""
+        after, built = self._pair(3.0, wow_depth_ramp_ms=100.0)
+        self.assertNotEqual(after[700 * CHANNELS:800 * CHANNELS],
+                            built[700 * CHANNELS:800 * CHANNELS])
+        self.assertEqual(after[800 * CHANNELS:], built[800 * CHANNELS:])
+
+    def test_a_ramp_set_while_playing_takes_the_next_move(self):
+        tone = sine_words(4096, 250.0, 20000)
+        node = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                     wow_hz=0.7, wow_depth_ms=0.0)
+        node.play(audiocore.RawSample(tone, sample_rate=SAMPLE_RATE,
+                                      channel_count=CHANNELS))
+        words(node, WowDepthGlideTest.CREST_BLOCKS)
+        node.set(wow_depth_ramp_ms=50.0, wow_depth_ms=3.0)
+        after = words(node, 4)
+        built = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=3.0)
+        built.play(audiocore.RawSample(tone, sample_rate=SAMPLE_RATE,
+                                       channel_count=CHANNELS))
+        words(built, WowDepthGlideTest.CREST_BLOCKS)
+        built = words(built, 4)
+        self.assertNotEqual(after[300 * CHANNELS:400 * CHANNELS],
+                            built[300 * CHANNELS:400 * CHANNELS])
+        self.assertEqual(after[400 * CHANNELS:], built[400 * CHANNELS:])
+
+    def test_zero_is_one_frame(self):
+        after, built = self._pair(3.0, wow_depth_ramp_ms=0.0)
+        self.assertEqual(after[CHANNELS:], built[CHANNELS:])
+
+    def test_the_default_is_twenty(self):
+        after, built = self._pair(3.0, wow_depth_ramp_ms=20.0)
+        default, _ = self._pair(3.0)
+        self.assertEqual(after, default)
+
+
 def _f32(value):
     return struct.unpack("f", struct.pack("f", value))[0]
 
