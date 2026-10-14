@@ -245,6 +245,45 @@ static float shape_sample(const audiodsp_shaper_config_t *config,
     return curve_lookup(config, value);
 }
 
+static void halfband_shift(audiodsp_shaper_halfband_t *halfband,
+    float delta) {
+    for (uint32_t branch = 0; branch < 2u; ++branch) {
+        for (uint32_t section = 0; section < AUDIODSP_SHAPER_HB_SECTIONS;
+             ++section) {
+            halfband->x_prev[branch][section] -= delta;
+            halfband->y_prev[branch][section] -= delta;
+        }
+    }
+    halfband->hold -= delta;
+}
+
+// Each all-pass section passes DC at unity, so a decimator that has been
+// fed a constant holds that constant in every memory, at every stage; moving
+// them all by the same amount is the decimator having been fed the constant
+// the re-centred operator would have handed it. In the silence this runs in,
+// that makes them exactly the curve's answer at the operating point.
+bool audiodsp_shaper_recentre(const audiodsp_shaper_config_t *config,
+    audiodsp_shaper_state_t *state) {
+    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    for (uint32_t channel = 0; channel < channels; ++channel) {
+        if (state->quiet[channel] < AUDIODSP_SHAPER_FRAMES) {
+            return false;
+        }
+    }
+    const float centre = config->bias;
+    for (uint32_t channel = 0; channel < channels; ++channel) {
+        if (config->hysteresis > 0.0f) {
+            const float delta = curve_lookup(config, state->play[channel]) -
+                curve_lookup(config, centre);
+            for (uint32_t stage = 0; stage < config->stages; ++stage) {
+                halfband_shift(&state->down[channel][stage], delta);
+            }
+        }
+        state->play[channel] = centre;
+    }
+    return true;
+}
+
 void audiodsp_shaper_process_s16(const audiodsp_shaper_config_t *config,
     audiodsp_shaper_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {
@@ -254,7 +293,13 @@ void audiodsp_shaper_process_s16(const audiodsp_shaper_config_t *config,
     const float dry_gain = 1.0f - config->mix;
     for (uint32_t frame = 0; frame < frames; ++frame) {
         for (uint32_t channel = 0; channel < channels; ++channel) {
-            const float source = (float)in[frame * channels + channel];
+            const int16_t raw = in[frame * channels + channel];
+            if (raw != 0) {
+                state->quiet[channel] = 0u;
+            } else if (state->quiet[channel] < AUDIODSP_SHAPER_FRAMES) {
+                ++state->quiet[channel];
+            }
+            const float source = (float)raw;
             float oversampled[AUDIODSP_SHAPER_MAX_OVERSAMPLE];
             float expanded[AUDIODSP_SHAPER_MAX_OVERSAMPLE];
             // pre_gain and bias are linear, so they cost less applied once

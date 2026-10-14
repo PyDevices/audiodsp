@@ -1538,6 +1538,12 @@ static PyObject *waveshaper_state_reset(audiodsp_shaper_object_t *self,
     Py_RETURN_NONE;
 }
 
+static PyObject *waveshaper_state_recentre(audiodsp_shaper_object_t *self,
+    PyObject *unused) {
+    return PyBool_FromLong(audiodsp_shaper_recentre(&self->config,
+        &self->state));
+}
+
 static PyObject *waveshaper_state_process(audiodsp_shaper_object_t *self,
     PyObject *argument) {
     Py_buffer input = {0};
@@ -1564,6 +1570,7 @@ static PyMethodDef waveshaper_state_methods[] = {
     {"configure", (PyCFunction)waveshaper_state_configure, METH_VARARGS, NULL},
     {"finish", (PyCFunction)waveshaper_state_finish, METH_NOARGS, NULL},
     {"reset", (PyCFunction)waveshaper_state_reset, METH_NOARGS, NULL},
+    {"recentre", (PyCFunction)waveshaper_state_recentre, METH_NOARGS, NULL},
     {"process", (PyCFunction)waveshaper_state_process, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };

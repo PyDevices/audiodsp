@@ -166,6 +166,10 @@ typedef struct {
     audiodsp_shaper_halfband_t down[2][AUDIODSP_SHAPER_MAX_STAGES];
     //: The play operator's position, per channel.
     float play[2];
+    //: Consecutive input frames that were exactly zero, per channel, up to
+    //: AUDIODSP_SHAPER_FRAMES. Read only by audiodsp_shaper_recentre, so it
+    //: moves no rendered byte.
+    uint32_t quiet[2];
 } audiodsp_shaper_state_t;
 
 void audiodsp_shaper_config_init(audiodsp_shaper_config_t *config,
@@ -196,6 +200,18 @@ void audiodsp_shaper_state_init(audiodsp_shaper_state_t *state);
 //: Clears the half-band memories and the play position. The node has no
 //: delay line, so this is the whole of its state.
 void audiodsp_shaper_reset(audiodsp_shaper_state_t *state);
+
+//: Puts the play operator where a silent input would hold it if it had no
+//: memory -- the operating point, `bias` -- and moves the decimator's
+//: memories by what that changes the curve's answer by, so the output steps
+//: to the curve at the operating point at once instead of ringing down from
+//: the old position. Only once every channel's input has been exactly zero
+//: for a whole block (AUDIODSP_SHAPER_FRAMES frames): under signal it does
+//: nothing and returns false. The interpolator's memories, the counters and
+//: the config are untouched, and a node never re-centred renders the bytes it
+//: always did.
+bool audiodsp_shaper_recentre(const audiodsp_shaper_config_t *config,
+    audiodsp_shaper_state_t *state);
 
 //: Interleaved 16-bit frames in and out. `out` may alias `in`.
 void audiodsp_shaper_process_s16(const audiodsp_shaper_config_t *config,
