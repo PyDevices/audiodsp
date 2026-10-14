@@ -1,3 +1,13 @@
+## v0.6.6rc3 (2026-10-14)
+
+- audioecho.FeedbackDelay: the chord splice's attacker findings
+- audioecho.FeedbackDelay: the loop shifter's splice matches a chord as a chord
+- Shifters: the first channel alone places a splice, so a stereo node splices its left channel as a mono one does
+- Shifters: the attacker's findings on the band limit and the splice
+- PitchShift and the loop shifter: a splice lands in phase, so a held note plays its shifted pitch
+- audioecho.FeedbackDelay: an upward loop shift is band-limited, so a climb no longer folds back past Nyquist
+- audiodelays.Flanger: in the lifecycle matrix, and a pull returns when the source has nothing to give
+
 ## v0.6.6rc1 (2026-10-13)
 
 - PitchShift and GranularPitchShift: a pull returns when the source has nothing to give (#243)
