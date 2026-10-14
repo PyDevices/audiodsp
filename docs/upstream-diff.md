@@ -44,8 +44,11 @@ every channel, in integers, so every target moves it to the same frame). The
 move holds while the crossfade runs and then goes into the read position, so
 the read carries on from what it faded in. A tie, silence included, keeps
 the smaller move, so silence and a lone click splice exactly where upstream's
-do, byte for byte. A frozen window is a loop the length of the window and is
-not moved. Every held note from C2 to C6 then keeps its shifted line within
+do, byte for byte. A frozen window is a loop the length of the window and
+starts no move; a crossfade under way when `freeze` is set is finished and
+taken into the read once. If the rate turns round mid-crossfade (`semitones`
+crossing 0), the moved side fades back out to nothing and the move is
+dropped, so a semitone LFO through 0 does not click. Every held note from C2 to C6 then keeps its shifted line within
 1.5 dB, at 40, 30 and 21 ms windows, up and down, at 48, 44.1 and 22.05 kHz.
 
 The 16-bit signed path is the shared kernel, and that is the path every
@@ -53,9 +56,18 @@ effect class takes. The 8-bit, unsigned and single-channel-output path in
 `PitchShift.c` is still upstream's and splices where upstream's does.
 `tests/test_cpython_pitch_splice.py` holds the move (P1, red before it: 52 of
 its 100 notes) and the unmoved silence and click (P2). `pitchshift_freeze_probe.py`
-is skipped on CircuitPython: its frozen blocks are still CircuitPython's
-bytes, and the three blocks after it unfreezes are not.
-`effects_component_probe.py` is unchanged.
+is skipped on CircuitPython (below, and the blocks after it unfreezes).
+`effects_component_probe.py` is unchanged. Held to 3 dB only on single
+notes: through a chord the splice can match one note's phase and not the
+others' (a C3 triad measured 4 to 5 dB down), and a 256-frame window or an
+overlap near the window misses by 8 dB, still better than before.
+
+A frozen loop also fixes one thing upstream does: when the read lands
+exactly on the write position, upstream plays the window's frame there,
+which a frozen window never rewrote, so it is the oldest frame and a click
+every lap (at even read positions, so whether a loop clicks depended on its
+phase). Here it plays the overlap's oldest frame, which is what follows the
+window's newest; `pitchshift_freeze_probe.py`'s frozen blocks move with it.
 
 ## `audiodelays`: the pitch shifters return from a source with nothing to give
 
@@ -1441,7 +1453,9 @@ that no arrangement of the existing nodes reaches, and the program's vision
   interpreter has the same bits), so the climb fades out at the top of the
   band instead. It is not run while `loop_semitones` is 0 or below, which
   leaves every unshifted and downward render byte for byte as it was.
-  Switched in, it starts from the line's last write rather than from zero.
+  Switched in, it starts from the line's last write rather than from zero;
+  a new upward `loop_semitones` walks the coefficients across one block, so a
+  move does not click; switched out, its state is zero, so the node rests.
   `tests/test_cpython_audioecho.py` E16 holds it: the strongest line under the
   series, with the loop running, stays within 10 dB of what the shifter makes
   on a single pass (unlimited, 12.6 to 32 dB over it), and E10 still holds an
@@ -1473,8 +1487,11 @@ that no arrangement of the existing nodes reaches, and the program's vision
   (`tests/test_cpython_audioecho.py` E17; before, the median note at +12 was
   54 dB under). The mean read is still half a window late, and a click, which
   matches nothing, still lands where it did; on held material a repeat's read
-  moves by up to 10 ms either side of it. A search costs about 11 000
-  differences, once per tap per crossfade turn.
+  moves by up to 10 ms either side of it, and never more than half the
+  window. A search costs about 11 000 differences at the default window,
+  once per tap per crossfade turn, and less at a short window, which splices
+  more often. On a chord the splice can match one note and not the others:
+  a C3 triad's root came out 23 dB down.
 
   Turning it off no longer steps back, and turning it on again no longer
   resumes a stale phase (audiodsp#177). Once the shifter has run,

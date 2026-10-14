@@ -121,7 +121,9 @@ void audiodsp_pitchshift_process_s16(int16_t *output, const int16_t *input,
     int32_t scale = 0xfffffff / (32768 * 2 - 28000);
     // Which way the read moves against the write. A frozen window is a loop
     // whose length is the window, and it splices where upstream's does: the
-    // move is for audio that is still coming in.
+    // move is for audio that is still coming in, and a crossfade begun
+    // before a freeze is finished and taken into the read once, not left to
+    // apply on every lap.
     const bool rising = read_rate > (1u << READ_SHIFT);
     const bool aligning = overlap_samples > 0u && align_span > 0u &&
         !freeze && read_rate != (1u << READ_SHIFT);
@@ -148,20 +150,32 @@ void audiodsp_pitchshift_process_s16(int16_t *output, const int16_t *input,
         uint32_t overlap_offset = read +
             window_samples * (read < positions->window_index) -
             positions->window_index;
-        if (aligning && channel == 0) {
+        // A crossfade under way is finished whatever happens to the rate or
+        // to `freeze`; only a new one waits for `aligning`.
+        if (channel == 0 && (aligning || positions->fading)) {
             const bool inside = overlap_offset > 0 &&
                 overlap_offset <= overlap_samples;
-            if (inside && !positions->fading) {
+            if (inside && !positions->fading && aligning) {
                 positions->fading = true;
                 positions->fading_rising = rising;
                 positions->align = splice_move(window, window_samples,
                     overlap, overlap_samples, channel_count, positions, read,
                     overlap_offset, rising, align_span);
             } else if (!inside && positions->fading) {
-                // The crossfade is over: the read carries on from what it
-                // faded in, so the move goes into the read position.
+                // The crossfade is over. Left past the overlap, a rising
+                // fade has faded the moved side in; left at the write
+                // position, a falling one has. Then the read carries on from
+                // what it faded in, so the move goes into the read position.
+                // Left the other way, the rate turned round mid-fade and the
+                // moved side faded back out to nothing: the move is dropped,
+                // and nothing it touched is playing.
+                const bool past = overlap_offset > overlap_samples &&
+                    overlap_offset <= overlap_samples +
+                    (window_samples - overlap_samples) / 2u;
+                const bool completed = positions->fading_rising == past;
                 const uint32_t whole = window_samples << READ_SHIFT;
-                const uint32_t moved = positions->align << READ_SHIFT;
+                const uint32_t moved = completed ?
+                    positions->align << READ_SHIFT : 0u;
                 if (positions->fading_rising) {
                     positions->read_index += moved;
                     if (positions->read_index >= whole) {
@@ -202,6 +216,13 @@ void audiodsp_pitchshift_process_s16(int16_t *output, const int16_t *input,
             word = windowed * (int32_t)overlap_offset;
             word += overlapped * (int32_t)(overlap_samples - overlap_offset);
             word /= (int32_t)overlap_samples;
+        } else if (freeze && overlap_samples && overlap_offset == 0) {
+            // Frozen, nothing is written at the write position, so the
+            // window there still holds its oldest frame; the frame that
+            // follows the newest is the overlap's oldest. Upstream plays the
+            // window's, a click on every lap whose read lands exactly on the
+            // write position (docs/upstream-diff.md).
+            word = overlap[positions->overlap_index + overlap_plane];
         } else {
             word = window[read + window_plane];
         }

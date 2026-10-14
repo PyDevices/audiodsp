@@ -112,8 +112,10 @@ static void band_limit_finish(audiodsp_feedback_delay_config_t *config,
         return;
     }
     // Worked in double through audiodsp_trig, so the coefficients are the
-    // same bits on every interpreter. The corner is always under a quarter
-    // of the rate (ratio > 1), so w0 stays inside the polynomial's quarter.
+    // same bits on every desktop interpreter (the ratio comes through powf,
+    // which a board's libm may round differently, audiodsp#183). The corner
+    // is always under a quarter of the rate (ratio > 1), so w0 stays inside
+    // the polynomial's quarter.
     const double w0 = 2.0 * AUDIODSP_PI * AUDIODSP_FEEDBACK_DELAY_BAND_EDGE *
         0.5 / (double)ratio;
     audiodsp_sincos_t sc;
@@ -348,6 +350,7 @@ void audiodsp_feedback_delay_state_init(audiodsp_feedback_delay_state_t *state,
     state->shift_coast_step = 0;
     memset(state->band_state, 0, sizeof(state->band_state));
     state->band_running = false;
+    memset(state->band_now, 0, sizeof(state->band_now));
     state->resting = false;
     state->quiet_frames = 0;
 }
@@ -532,8 +535,15 @@ static int64_t align_score(const int16_t *line, uint32_t length,
 static float splice_align(const audiodsp_feedback_delay_config_t *config,
     const audiodsp_feedback_delay_state_t *state, float nominal, float other) {
     const uint32_t length = config->line_frames;
-    const int32_t span = (int32_t)(config->sample_rate /
+    // Never more than half the window: a tap may not wander past the
+    // grain it reads, and a short window, which splices often, searches
+    // little (a 1 ms window at +24 splices about 32 times a block).
+    int32_t span = (int32_t)(config->sample_rate /
         AUDIODSP_FEEDBACK_DELAY_ALIGN_DIVISOR);
+    const int32_t half_window = (int32_t)(config->shift_window_frames * 0.5f);
+    if (span > half_window) {
+        span = half_window;
+    }
     const int32_t low = AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH + 1;
     const int32_t high = (int32_t)length - 2;
     const int32_t base = (int32_t)nominal;
@@ -755,9 +765,13 @@ static void feedback_delay_run(
     }
     // The band limit switched in starts from the line's last write on each
     // lane, as if that value had been standing, so it neither dips to zero
-    // nor plays a state left from before. Switched out, it is not run.
+    // nor plays a state left from before. Switched out, it is not run, and
+    // its state is zero, so a node that has stopped shifting up can rest.
     const bool band = config->band_limit;
-    if (band && !state->band_running) {
+    if (!band) {
+        memset(state->band_state, 0, sizeof(state->band_state));
+    } else if (!state->band_running) {
+        memcpy(state->band_now, config->band_coef, sizeof(state->band_now));
         const uint32_t last = (state->write_frame + length - 1u) % length;
         for (uint32_t channel = 0; channel < 2u; ++channel) {
             const float held = (float)state->line[(size_t)channel * length +
@@ -771,6 +785,20 @@ static void feedback_delay_run(
         }
     }
     state->band_running = band;
+    // A corner that moved is walked to across this block, a frame at a
+    // time, and lands exactly on the new coefficients at its last frame.
+    bool band_moving = false;
+    float band_step[2][5];
+    if (band && frames > 0u &&
+        memcmp(state->band_now, config->band_coef, sizeof(band_step)) != 0) {
+        band_moving = true;
+        for (uint32_t section = 0; section < 2u; ++section) {
+            for (uint32_t c = 0; c < 5u; ++c) {
+                band_step[section][c] = (config->band_coef[section][c] -
+                    state->band_now[section][c]) / (float)frames;
+            }
+        }
+    }
     feedback_delay_tap_t near_tap = { 0u, 0u, 0.0f };
     feedback_delay_tap_t far_tap = { 0u, 0u, 0.0f };
     float near_gain = 1.0f;
@@ -778,6 +806,18 @@ static void feedback_delay_run(
     // The last frame's tap per channel, for the damping landing below.
     float tapped[2] = { 0.0f, 0.0f };
     for (uint32_t frame = 0; frame < frames; ++frame) {
+        if (band_moving) {
+            if (frame + 1u == frames) {
+                memcpy(state->band_now, config->band_coef,
+                    sizeof(state->band_now));
+            } else {
+                for (uint32_t section = 0; section < 2u; ++section) {
+                    for (uint32_t c = 0; c < 5u; ++c) {
+                        state->band_now[section][c] += band_step[section][c];
+                    }
+                }
+            }
+        }
         // Rotate the wow oscillator one step. Updating the sine first and
         // feeding the new value back into the cosine is what keeps this
         // stable indefinitely; the naive pair drifts in amplitude. It is
@@ -985,7 +1025,7 @@ static void feedback_delay_run(
                 config->feedback);
             if (band) {
                 for (uint32_t section = 0; section < 2u; ++section) {
-                    const float *k = config->band_coef[section];
+                    const float *k = state->band_now[section];
                     float *z = state->band_state[channel][section];
                     const float y = k[0] * written + z[0];
                     z[0] = k[1] * written - k[3] * y + z[1];

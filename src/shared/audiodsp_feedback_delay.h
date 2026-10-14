@@ -221,6 +221,10 @@ typedef struct {
     // line's last write rather than from zero, so it does not dip.
     float band_state[2][2][2];
     bool band_running;
+    // The coefficients the band limit is running on. A new corner (a new
+    // upward `loop_semitones`) is reached across one block, a frame at a
+    // time, rather than in one step that the carried state would click on.
+    float band_now[2][5];
     // True once the tail has ended with nothing coming in, so silence costs
     // no work; `quiet_frames` counts all-zero output since the last look at
     // the state (audiodsp#180).

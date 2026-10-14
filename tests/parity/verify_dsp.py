@@ -281,16 +281,20 @@ PROBES = (
     #
     # PitchShift.freeze, upstream's one audio addition in 11.0.0-alpha.1
     # (9bef7b7606). It checks the sustain itself and exits 1 without it, so a
-    # build where every target ignores `freeze` together still fails. Every
-    # frozen block is still CircuitPython's bytes; the three blocks after
-    # `freeze` goes back to False splice live audio, which this port moves
-    # into phase (docs/upstream-diff.md), so CircuitPython sits this one out.
+    # build where every target ignores `freeze` together still fails. A
+    # frozen loop here plays the overlap's frame where its read lands on the
+    # write position, where upstream plays the window's oldest frame (a
+    # click a lap), and the blocks after `freeze` goes back to False splice
+    # live audio, which this port moves into phase (docs/upstream-diff.md),
+    # so CircuitPython sits this one out.
     ("pitchshift_freeze_probe.py", "audiodelays",
      {"circuitpython": "upstream's PitchShift splices wherever the window "
                        "lands and ours moves the incoming side into phase "
-                       "with the outgoing one; the frozen blocks agree, the "
-                       "three after it unfreezes do not - a deliberate "
-                       "departure recorded in docs/upstream-diff.md"},
+                       "with the outgoing one, and its frozen loop plays "
+                       "the window's oldest frame, a click, wherever the "
+                       "read lands on the write position, where ours plays "
+                       "the overlap's - deliberate departures recorded in "
+                       "docs/upstream-diff.md"},
      None),
     # A reset puts PitchShift's read and write positions and
     # GranularPitchShift's jitter sequence back where a new node starts, and
