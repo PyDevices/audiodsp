@@ -496,8 +496,10 @@ uint32_t audiodsp_convolve_build_room_peak(
                     if (read_peak) {
                         peak_feed(&reading, config, block, FRAMES);
                     }
-                    store_partition(state, config, impulse, block, scratch,
-                        ch, part);
+                    if (impulse != NULL) {
+                        store_partition(state, config, impulse, block,
+                            scratch, ch, part);
+                    }
                 }
             }
             if (read_peak) {
@@ -547,6 +549,18 @@ void audiodsp_convolve_load_s16(audiodsp_convolve_state_t *state,
         state->impulse, state->block, state->scratch, taps, tap_frames,
         channels, gain);
     end_swap(config, state, keep);
+}
+
+float audiodsp_convolve_room_peak(const audiodsp_convolve_config_t *config,
+    float *block, float decay_seconds, float damping_hz, float predelay_ms,
+    float diffusion_ms, uint32_t seed, float *peak_fold) {
+    // The taps only: no impulse is written and no transform taken, so it
+    // reads nothing of a node's state and needs no lock.
+    float peak = 0.0f;
+    audiodsp_convolve_build_room_peak(NULL, config, NULL, block, NULL,
+        decay_seconds, damping_hz, predelay_ms, diffusion_ms, seed,
+        peak_fold, &peak);
+    return peak;
 }
 
 void audiodsp_convolve_synthesize(audiodsp_convolve_state_t *state,

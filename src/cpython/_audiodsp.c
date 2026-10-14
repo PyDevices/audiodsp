@@ -2426,6 +2426,23 @@ static PyObject *convolver_state_synthesize(audiodsp_convolver_object_t *self,
     Py_RETURN_NONE;
 }
 
+static PyObject *convolver_state_room_peak(audiodsp_convolver_object_t *self,
+    PyObject *args) {
+    double decay, damping, predelay, diffusion;
+    unsigned int seed;
+    if (!PyArg_ParseTuple(args, "ddddI:room_peak", &decay, &damping,
+        &predelay, &diffusion, &seed)) return NULL;
+    const uint32_t fold_floats = audiodsp_convolve_peak_floats(&self->config);
+    float *work = PyMem_Malloc(
+        (fold_floats + AUDIODSP_CONVOLVE_FFT) * sizeof(float));
+    if (work == NULL) return PyErr_NoMemory();
+    float peak = audiodsp_convolve_room_peak(&self->config,
+        work + fold_floats, (float)decay, (float)damping, (float)predelay,
+        (float)diffusion, seed, work);
+    PyMem_Free(work);
+    return PyFloat_FromDouble((double)peak);
+}
+
 static PyObject *convolver_state_reset(audiodsp_convolver_object_t *self,
     PyObject *unused) {
     audiodsp_convolve_reset(&self->state, &self->config);
@@ -2487,6 +2504,7 @@ static PyMethodDef convolver_state_methods[] = {
     {"configure", (PyCFunction)convolver_state_configure, METH_VARARGS, NULL},
     {"load", (PyCFunction)convolver_state_load, METH_VARARGS, NULL},
     {"synthesize", (PyCFunction)convolver_state_synthesize, METH_VARARGS, NULL},
+    {"room_peak", (PyCFunction)convolver_state_room_peak, METH_VARARGS, NULL},
     {"reset", (PyCFunction)convolver_state_reset, METH_NOARGS, NULL},
     {"taps", (PyCFunction)convolver_state_taps, METH_NOARGS, NULL},
     {"peak_gain", (PyCFunction)convolver_state_peak_gain, METH_NOARGS, NULL},

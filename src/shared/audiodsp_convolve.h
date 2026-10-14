@@ -208,6 +208,15 @@ void audiodsp_convolve_synthesize_peak(audiodsp_convolve_state_t *state,
     const audiodsp_convolve_config_t *config, float decay_seconds,
     float damping_hz, float predelay_ms, float diffusion_ms, uint32_t seed,
     float *peak_fold, float *peak_gain);
+// The room_peak_gain synthesize() would read for these arguments, without
+// building the room: the taps' two passes, no transform, nothing of a node
+// touched. `block` is AUDIODSP_CONVOLVE_FFT floats, `peak_fold`
+// audiodsp_convolve_peak_floats(). A caller that sets a level from the
+// reading before synthesize() lets the block in flight fade to the new room
+// at its new level.
+float audiodsp_convolve_room_peak(const audiodsp_convolve_config_t *config,
+    float *block, float decay_seconds, float damping_hz, float predelay_ms,
+    float diffusion_ms, uint32_t seed, float *peak_fold);
 
 // --- building an impulse away from the node, for a pump on another thread ---
 //

@@ -173,6 +173,17 @@ class Convolver(_AudioSample):
                                float(predelay_ms), float(diffusion_ms),
                                int(seed) & 0xFFFFFFFF)
 
+    def room_peak_gain_for(self, decay=2.0, damping_hz=0.0, predelay_ms=0.0,
+                           diffusion_ms=0.0, seed=1):
+        """The `room_peak_gain` `synthesize` would read for the same
+        arguments, without building the room: read off its taps alone, so a
+        level can be set before `synthesize` and the block in flight fades to
+        the new room at its new level."""
+        self._check()
+        return self._state.room_peak(float(decay), float(damping_hz),
+                                     float(predelay_ms), float(diffusion_ms),
+                                     int(seed) & 0xFFFFFFFF)
+
     def clear(self):
         """Drop the history and the block in flight. The impulse stays: that
         is a setting, not audio."""

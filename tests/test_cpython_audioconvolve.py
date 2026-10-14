@@ -24,7 +24,7 @@ previous version of its own output.
 | C9 | A re-synthesis on a playing node drops and repeats nothing: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old room to the new over its unplayed frames at the mix it was computed at; after it the node renders what a node built with the new room renders; the fade does not click | exact; the fade 1 LSB of the line; no step past 1.5 x the rooms' own |
 | C11 | A `load()` on a playing node drops and repeats nothing, as C9: at `mix=0` the render is the uninterrupted one; the block in flight fades from the old impulse to the new over its unplayed frames; after it the node renders what a node built with the new impulse renders; a first load, and an unload, still start from empty | exact; the fade 1 LSB of the line |
 | C12 | `wet_gain` scales the wet path alone: the dry is untouched, the wet is `wet_gain` times the wet at 1.0, 1.0 (the default) renders what a node without it renders, a move acts after the block in flight, as a Mix move does, and one made with a re-synthesis fades with the room, from the old room at the old gain to the new at the new | 1 LSB; exact at the default, before the move and after the fade |
-| C13 | `room_peak_gain` is the room's own peak gain on low material: the largest of its step response's magnitude and the steady-state peak of a +-1 square from 40 to 160 Hz in eighth-octave steps, the worse side, read off the room's impulse independently; 0.0 before a synthesis and after a `load()` | 0.5 % of the reading, or 0.005 |
+| C13 | `room_peak_gain` is the room's own peak gain on low material: the largest of its step response's magnitude and the steady-state peak of a +-1 square from 40 to 160 Hz in eighth-octave steps, the worse side, read off the room's impulse independently; 0.0 before a synthesis and after a `load()`; `room_peak_gain_for` reads the same before the room is built | 0.5 % of the reading, or 0.005; the read-ahead exact |
 | C10 | Each side of a synthesized stereo room is the unit-energy room of its own noise: the left is the mono room of the same seed, the right the mono room of the right side's seed; the two sides balance, together they are the level of a mono room, and they stay two different noises | exact; 0.01 dB; correlation under 0.5 |
 
 **C1 and C2 are this module's form of the identity trait** that
@@ -1012,6 +1012,22 @@ class RoomPeakGainTest(unittest.TestCase):
                 # A dark room reads high and a bright one low: it is a
                 # reading of this room, not a constant.
                 self.assertGreater(got, 1.0)
+
+    def test_the_reading_before_synthesize_is_the_one_after(self):
+        # room_peak_gain_for reads the room the arguments would build, with
+        # nothing built: equal to room_peak_gain after the synthesis, and the
+        # node it is asked on keeps the room it had.
+        for rate, taps, sides, room in PEAK_ROOMS:
+            with self.subTest(rate=rate, room=room):
+                node = audioconvolve.Convolver(
+                    max_taps=taps, ir_channels=sides, sample_rate=rate,
+                    channel_count=sides)
+                node.synthesize(decay=0.07, seed=5)
+                before = node.room_peak_gain
+                ahead = node.room_peak_gain_for(**room)
+                self.assertEqual(node.room_peak_gain, before)
+                node.synthesize(**room)
+                self.assertEqual(node.room_peak_gain, ahead)
 
     def test_a_dark_room_reads_higher_than_a_bright_one(self):
         node = audioconvolve.Convolver(max_taps=3840, ir_channels=2,
