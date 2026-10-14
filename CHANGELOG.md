@@ -1,3 +1,9 @@
+## v0.6.6rc5 (2026-10-14)
+
+- audioconvolve: room_peak_gain's reading starts initialised, and the deinit probe calls room_peak_gain_for
+- audioconvolve.Convolver: room_peak_gain_for, the reading before the room is built
+- audioconvolve.Convolver: room_peak_gain, the synthesized room's peak gain on low material
+
 ## v0.6.6rc4 (2026-10-14)
 
 - multitap_reset_probe: tap levels exact in binary, so the float build agrees
