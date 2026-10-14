@@ -498,7 +498,7 @@ static void feedback_delay_run(
 // neighbours a grain rate either side.
 //
 // The measure is the sum of absolute differences between the next
-// ALIGN_LENGTH frames each tap will read, both lanes summed, in integers, so
+// ALIGN_LENGTH frames each tap will read on the first lane, in integers, so
 // every interpreter lands on the same frame. A difference, not a
 // correlation: over a stretch shorter than a low note's period a
 // correlation peaks away from the matching phase, and a difference is zero
@@ -551,7 +551,9 @@ static float splice_align(const audiodsp_feedback_delay_config_t *config,
     if (span <= 0 || against < low || against > high) {
         return 0.0f;
     }
-    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    // The first lane alone decides, so a stereo node splices its left lane
+    // exactly as a mono node fed the left lane does.
+    const uint32_t channels = 1u;
     int32_t best = 0;
     int64_t best_score = 0;
     bool found = false;

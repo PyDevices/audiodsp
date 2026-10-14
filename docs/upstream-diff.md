@@ -39,9 +39,10 @@ pitch: measured, about half the notes from C2 to C6 lost their shifted line by
 
 Here, when a crossfade begins, the incoming side is moved, by up to a 50th of
 a second and only toward audio the node holds, to where the next 32 frames
-it plays differ least from the outgoing side's (summed absolute differences,
-every channel, in integers, so every target moves it to the same frame). The
-move holds while the crossfade runs and then goes into the read position, so
+it plays differ least from the outgoing side's (summed absolute differences
+on the first channel alone, so a stereo node splices its left channel as a
+mono node fed it does, in integers, so every target moves it to the same
+frame). The move holds while the crossfade runs and then goes into the read position, so
 the read carries on from what it faded in. A tie, silence included, keeps
 the smaller move, so silence and a lone click splice exactly where upstream's
 do, byte for byte. A frozen window is a loop the length of the window and
@@ -1481,7 +1482,8 @@ that no arrangement of the existing nodes reaches, and the program's vision
   and 436 Hz, and almost nothing at 392. Now a tap starting again from zero
   gain is placed, within 10 ms either way of where its phase puts it, where
   the next 32 frames it reads differ least from the other tap's (summed
-  absolute differences, in integers, both lanes; a tie, silence included,
+  absolute differences, in integers, on the first lane, so a stereo node
+  splices its left lane as a mono one does; a tie, silence included,
   keeps the smaller move). Every held note from C2 to C6 then plays its
   shifted pitch within 1.5 dB, up and down, at 48, 44.1 and 22.05 kHz
   (`tests/test_cpython_audioecho.py` E17; before, the median note at +12 was

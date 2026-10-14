@@ -14,7 +14,7 @@
 // once a splice. Here the incoming side is moved, by up to `align_span`
 // frames and only ever toward audio that is there, to where the next
 // ALIGN_LENGTH frames it plays differ least from the outgoing side's (summed
-// absolute differences, every channel, in integers, so every interpreter
+// absolute differences, first channel, in integers, so every interpreter
 // moves it to the same frame). The move holds while the crossfade runs and
 // is then taken into the read position, so the read carries on from what it
 // faded in. A tie, silence included, keeps the smaller move: a quiet window
@@ -79,7 +79,9 @@ static uint32_t splice_move(const int16_t *window, uint32_t window_samples,
                 continue;
             }
             uint64_t score = 0;
-            for (uint8_t channel = 0; channel < channel_count; ++channel) {
+            // The first channel alone decides, so a stereo node splices its
+            // left channel exactly as a mono node fed that channel does.
+            for (uint8_t channel = 0; channel < 1u; ++channel) {
                 const int16_t *lane = window + window_samples * channel;
                 for (uint32_t k = 0; k < length; ++k) {
                     int32_t out, in;
