@@ -226,6 +226,8 @@ reason, and a resync should not take them.
   Both pitch shifters return from a source with nothing to give instead of
   spinning
   ([why](upstream-diff.md#audiodelays-the-pitch-shifters-return-from-a-source-with-nothing-to-give)).
+  `Flanger` does the same
+  ([why](upstream-diff.md#audiodelaysflanger-a-pull-returns-when-the-source-has-nothing-to-give)).
 - **audiomp3**: a rewind clears the decoder's frame-to-frame state, so a
   looped second lap decodes like the first (audiodsp#219; 11.0.0-alpha.1
   keeps it). The allocator, three Windows-only fixes and the platform list

@@ -1,4 +1,5 @@
-"""The pitch shifters return from a pull whose looping source has nothing.
+"""The pitch shifters and Flanger return from a pull whose looping source has
+nothing.
 
     pitch_empty_source_probe.py audiodelays
 
@@ -6,7 +7,8 @@ A looping source that comes back empty straight after its reset used to spin
 `PitchShift`'s and `GranularPitchShift`'s pull loop for ever on the native
 nodes: each pass asked again, got 0 frames and advanced by 0, so the pull
 never returned and whatever was pulling them (the pump, a mixer) stood still.
-Upstream CircuitPython's loop has the same shape. Here, as on CPython all
+Upstream CircuitPython's loop has the same shape, and `Flanger`'s too, which
+is the pull loop `Echo` was fixed in. Here, as on CPython all
 along, the node takes the empty buffer that came with `GET_BUFFER_DONE` as its
 source's end: it lets go of the source and the rest of the block is silence.
 
@@ -57,6 +59,9 @@ NODES = (
     ("GranularPitchShift", lambda c: delays.GranularPitchShift(
         semitones=7, mix=0.5, grain_size=256, density=2, sample_rate=RATE,
         channel_count=c)),
+    ("Flanger", lambda c: delays.Flanger(
+        max_delay_ms=20, min_delay_ms=2, rate=0.5, depth=0.5, feedback=0.5,
+        mix=0.5, sample_rate=RATE, channel_count=c)),
 )
 
 failures = []
@@ -80,4 +85,4 @@ for name, build in NODES:
 if failures:
     print("FAIL", "; ".join(failures))
     sys.exit(1)
-print("pitch empty source: every pull returned a block of silence")
+print("empty source: every pull returned a block of silence")

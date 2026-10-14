@@ -242,8 +242,9 @@ PROBES = (
     ("feedback_delay_park_probe.py", "audioecho", {}, None),
     # The delay nodes' lifecycle matrix: feedback to 0 and back with a tail
     # ringing, delay_slew to 0 mid-glide, mix back from 0, and several
-    # settings before one pull, on every delay node (audiodsp#218). Echo and
-    # MultiTapDelay are CircuitPython's own on CircuitPython, and agree.
+    # settings before one pull, on every delay node (audiodsp#218). Echo,
+    # MultiTapDelay and Flanger are CircuitPython's own on CircuitPython, and
+    # agree.
     ("delay_lifecycle_probe.py", "audioecho", {}, None),
     ("delay_lifecycle_probe.py", "audiodelays", {}, None),
     # Time shortened and lengthened again: the line comes back empty. Upstream
@@ -294,10 +295,11 @@ PROBES = (
                        "docs/upstream-diff.md"},
      None),
     # A looping source with nothing to give no longer spins the pitch
-    # shifters' pull loop: the node lets go of it and the block is silence.
+    # shifters' or Flanger's pull loop: the node lets go of it and the block
+    # is silence.
     ("pitch_empty_source_probe.py", "audiodelays",
-     {"circuitpython": "upstream's PitchShift and GranularPitchShift go round "
-                       "their pull loop for ever on a looping source that "
+     {"circuitpython": "upstream's PitchShift, GranularPitchShift and Flanger "
+                       "go round their pull loop for ever on a looping source that "
                        "comes back empty, and ours return - a deliberate "
                        "departure recorded in docs/upstream-diff.md"},
      None),

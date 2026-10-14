@@ -5,6 +5,25 @@ CircuitPython, newest first. For the current list of deliberate differences,
 and how and when to resync with upstream, start at
 [upstream-sync.md](upstream-sync.md).
 
+## `audiodelays.Flanger`: a pull returns when the source has nothing to give
+
+`Flanger` has the pull loop the pitch shifters and `Echo` had upstream, in
+11.0.0-alpha.1 as in 10.3.0: a looping source that comes back empty straight
+after its reset, or a source that says it has more and hands back 0 bytes,
+sends it round for ever, and on a board the pump stands still with it. It now
+does what the pitch shifters do
+([below](#audiodelays-the-pitch-shifters-return-from-a-source-with-nothing-to-give)):
+a looping source with nothing at all is let go and the rest of the block is
+silence, and a stall gets silence for the rest of the block and is asked again
+on the next pull. The CPython twin let go of an empty loop already, and stops
+on a stall now too (`_stop_on_empty_pull`).
+
+Only a render that reaches one of those two cases moves; until now it never
+returned. `tests/parity/pitch_empty_source_probe.py` holds the first on
+MicroPython and CPython (on a build from before the change it never
+finishes), and `tests/test_cpython_pitch_empty_source.py` the second on the
+twin. Nothing stored moved: no golden loops an empty source.
+
 ## `audiodelays`: the pitch shifters return from a source with nothing to give
 
 `PitchShift` and `GranularPitchShift` go round their pull loop for ever

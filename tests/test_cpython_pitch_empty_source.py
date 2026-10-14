@@ -1,6 +1,7 @@
-"""The pitch shifters with a source that says it has more and hands nothing.
+"""The pitch shifters and Flanger with a source that says it has more and
+hands nothing.
 
-`PitchShift` and `GranularPitchShift` render the rest of the block from
+`PitchShift`, `GranularPitchShift` and `Flanger` render the rest of the block from
 silence, keep the source and ask it again on the next pull, as
 `MultiTapDelay` does (docs/upstream-diff.md). Upstream CircuitPython's pull
 loop goes round for ever on such a source. No native source in this
@@ -82,6 +83,10 @@ class EmptyBufferWithMoreToCome(unittest.TestCase):
         self.check(audiodelays.GranularPitchShift(
             semitones=7, mix=0.0, grain_size=256, buffer_size=1024,
             sample_rate=RATE))
+
+    def test_flanger(self):
+        self.check(audiodelays.Flanger(
+            max_delay_ms=20, mix=0.0, buffer_size=1024, sample_rate=RATE))
 
 
 if __name__ == "__main__":

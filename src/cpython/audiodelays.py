@@ -349,6 +349,10 @@ class PitchShift(_Effect):
 
 
 class Flanger(_Effect):
+    # A source with nothing to give ends the pull's stretch rather than
+    # spinning the loop (a recorded deviation, docs/upstream-diff.md).
+    _stop_on_empty_pull = True
+
     def __init__(self, *, max_delay_ms=10, min_delay_ms=None, rate=None, depth=None, feedback=None, mix=None, invert=False, buffer_size=512, sample_rate=8000, bits_per_sample=16, samples_signed=True, channel_count=1):
         if not 1 <= max_delay_ms <= 100: raise ValueError("max_delay_ms must be from 1 to 100")
         self.max_delay_ms = max_delay_ms

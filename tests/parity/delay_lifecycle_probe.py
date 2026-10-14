@@ -23,7 +23,9 @@ the PCM, so the interpreters are held to the same bytes and to the right ones:
   calls land as one call does, two settings land the same in either order, and
   a value set and replaced before the pull leaves no trace.
 
-A new delay node gets these checks by adding an entry to NODES.
+A new delay node gets these checks by adding an entry to NODES. `Flanger`
+runs them with its sweep stopped (depth and rate 0), where it is a plain
+delay at `min_delay_ms`, and with the sweep running in **settings**.
 
 Every level here is a power-of-two fraction. The CircuitPython-derived nodes
 work out `mix` and `decay` in `mp_float_t`, which is single precision on a
@@ -174,9 +176,41 @@ class Echo:
         return {}
 
 
+class Flanger:
+    name = "Flanger"
+    delay = 160                 # min_delay_ms 20 at 8 kHz, with no sweep
+    runs_on_at_mix_0 = True     # the line is written whatever the mix
+    has_slew = False
+
+    def make(self, feedback=0.5, mix=0.5, delay_ms=20.0, **extra):
+        # Depth 0 and rate 0 leave the read head at min_delay_ms, so the
+        # events above see a plain delay of `delay` frames. busy() sweeps it.
+        rate = extra.pop("rate", 0.0)
+        depth = extra.pop("depth", 0.0)
+        return module.Flanger(
+            max_delay_ms=100, min_delay_ms=delay_ms, rate=rate, depth=depth,
+            feedback=feedback, mix=mix, buffer_size=BLOCK * 2,
+            sample_rate=RATE, channel_count=1, **extra)
+
+    def set(self, node, **settings):
+        for name, value in settings.items():
+            setattr(node, "min_delay_ms" if name == "delay_ms" else name,
+                    value)
+
+    def there_and_back(self):
+        return (("feedback", 0.875, 0.5), ("mix", 0.0, 0.5),
+                ("delay_ms", 60.0, 20.0), ("depth", 1.0, 0.5),
+                ("rate", 3.90625, 0.9765625))
+
+    def busy(self):
+        # 0.9765625 Hz is 2**-13 of the 8 kHz rate, so the LFO's step is
+        # the same integer in single and double precision.
+        return dict(rate=0.9765625, depth=0.5)
+
+
 NODES = {
     "audioecho": (FeedbackDelay(),),
-    "audiodelays": (MultiTapDelay(), Echo()),
+    "audiodelays": (MultiTapDelay(), Echo(), Flanger()),
 }
 
 
