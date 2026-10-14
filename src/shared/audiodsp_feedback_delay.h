@@ -89,6 +89,9 @@ typedef enum {
     // on every whole frame (audiodsp#179). The two write the same setting,
     // and whichever was written last is the delay.
     AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_FRAMES,
+    // How long a `wow_depth_ms` change takes to arrive, in milliseconds: a
+    // straight line, at least one frame. 20 is what the node always did.
+    AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_RAMP_MS,
 } audiodsp_feedback_delay_option_t;
 
 //: A `wow_shape` table is one period, so its length has to be a power of two
@@ -144,6 +147,8 @@ typedef struct {
     // sample-rate independent. 0 means a `delay_ms` change lands in one jump,
     // which is what this node did before the option existed.
     float delay_slew_frames;
+    // Milliseconds a `wow_depth_ms` change ramps over, 0..60000.
+    float wow_depth_ramp_ms;
     // 0..1. Depth of the wet-gain dip the wow oscillator drives.
     float wow_am_depth;
     // Pitch the loop is shifted by on each pass, -24..+24, 0 = off.
@@ -232,9 +237,10 @@ typedef struct {
     uint32_t quiet_frames;
 } audiodsp_feedback_delay_state_t;
 
-//: How long a change of `wow_depth_ms` takes to land: 20 ms, a fiftieth of
-//: the rate in frames (960 at 48 kHz, 882 at 44.1, 441 at 22.05).
-#define AUDIODSP_FEEDBACK_DELAY_WOW_DEPTH_RAMP_DIVISOR 50u
+//: How long a change of `wow_depth_ms` takes to land by default: 20 ms, a
+//: fiftieth of the rate in frames (960 at 48 kHz, 882 at 44.1, 441 at
+//: 22.05). `wow_depth_ramp_ms` sets another time.
+#define AUDIODSP_FEEDBACK_DELAY_WOW_DEPTH_RAMP_MS 20.0f
 
 void audiodsp_feedback_delay_config_init(
     audiodsp_feedback_delay_config_t *config, uint32_t sample_rate,

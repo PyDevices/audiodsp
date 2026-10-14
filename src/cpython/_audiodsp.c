@@ -1070,7 +1070,7 @@ static PyObject *feedback_delay_state_configure(
     double value;
     if (!PyArg_ParseTuple(args, "id:configure", &option, &value)) return NULL;
     if (option < AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_MS ||
-        option > AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_FRAMES) {
+        option > AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_RAMP_MS) {
         PyErr_SetString(PyExc_ValueError, "unknown feedback delay option");
         return NULL;
     }

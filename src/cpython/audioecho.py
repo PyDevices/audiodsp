@@ -29,8 +29,10 @@ A `damping_hz` or `cut_hz` of 0 takes that filter out. While it is out, the
 low-pass's state follows the signal and the high-pass's rests at zero, so
 putting either back in starts from what is playing rather than from what it
 held when it went out. A `wow_depth_ms` changed on a playing node ramps to
-the new depth over 20 ms instead of jumping, so turning it glides rather
-than clicks; a depth that is not moving renders exactly as before.
+the new depth in a straight line over `wow_depth_ramp_ms` (20 ms unless set,
+at least a frame) instead of jumping, so turning it glides rather than
+clicks; a depth that is not moving renders exactly as before. A new
+`wow_depth_ramp_ms` takes the next depth move, not one under way.
 
 Four more options, every one of them off by default, so a node built the way
 it was before them renders the same bytes:
@@ -143,6 +145,7 @@ _OPTIONS = {
     "loop_semitones": 12,
     "loop_window_ms": 13,
     "delay_frames": 14,
+    "wow_depth_ramp_ms": 15,
 }
 
 

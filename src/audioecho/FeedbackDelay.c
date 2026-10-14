@@ -34,6 +34,7 @@ static const feedback_delay_option_name_t feedback_delay_option_names[] = {
     { MP_QSTR_loop_semitones, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_SEMITONES },
     { MP_QSTR_loop_window_ms, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS },
     { MP_QSTR_delay_frames, AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_FRAMES },
+    { MP_QSTR_wow_depth_ramp_ms, AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_RAMP_MS },
 };
 
 // `delay_ms` and `delay_frames` are one setting in two units, so a call that

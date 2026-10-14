@@ -44,6 +44,7 @@
 //|         loop_semitones: float = 0.0,
 //|         loop_window_ms: float = 25.0,
 //|         delay_frames: float = ...,
+//|         wow_depth_ramp_ms: float = 20.0,
 //|     ) -> None:
 //|         """Create a feedback delay. ``max_delay_ms`` sizes the line and
 //|         cannot change afterwards; ``delay_ms`` defaults to half of it.
@@ -60,7 +61,8 @@
 //|         A ``damping_hz`` or ``cut_hz`` of 0 takes that filter out; while
 //|         out, the low-pass's state follows the signal and the high-pass's
 //|         rests at zero, so putting either back in plays nothing stale. A
-//|         ``wow_depth_ms`` changed while playing ramps in over 20 ms.
+//|         ``wow_depth_ms`` changed while playing ramps in over
+//|         ``wow_depth_ramp_ms`` (20 ms unless set; 0 is one frame).
 //|
 //|         The last five are off at their defaults, and a delay built without
 //|         them renders exactly what it rendered before they existed.
@@ -124,6 +126,7 @@ static const feedback_delay_option_name_t feedback_delay_option_names[] = {
     { MP_QSTR_loop_semitones, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_SEMITONES },
     { MP_QSTR_loop_window_ms, AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS },
     { MP_QSTR_delay_frames, AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_FRAMES },
+    { MP_QSTR_wow_depth_ramp_ms, AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_RAMP_MS },
 };
 
 // `delay_ms` and `delay_frames` are one setting in two units, so a call that

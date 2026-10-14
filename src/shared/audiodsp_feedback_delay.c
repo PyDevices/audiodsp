@@ -159,6 +159,7 @@ void audiodsp_feedback_delay_config_init(
     config->wow_shape_shift = 0;
     config->wow_phase_step = 0;
     config->delay_slew_frames = 0.0f;
+    config->wow_depth_ramp_ms = AUDIODSP_FEEDBACK_DELAY_WOW_DEPTH_RAMP_MS;
     config->wow_am_depth = 0.0f;
     config->loop_semitones = 0.0f;
     config->loop_window_ms = 25.0f;
@@ -250,6 +251,11 @@ void audiodsp_feedback_delay_configure(audiodsp_feedback_delay_config_t *config,
             // tape machine does, and it keeps a single frame from crossing
             // the whole line.
             config->delay_slew_frames = clampf(value, 0.0f, 64.0f);
+            break;
+        case AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_RAMP_MS:
+            // Read when a depth change arrives, so a new time takes the next
+            // move and leaves one already under way alone.
+            config->wow_depth_ramp_ms = clampf(value, 0.0f, 60000.0f);
             break;
         case AUDIODSP_FEEDBACK_DELAY_OPT_WOW_AM_DEPTH:
             config->wow_am_depth = clampf(value, 0.0f, 1.0f);
@@ -791,8 +797,12 @@ static void feedback_delay_run(
         state->wow_depth_target = depth_target;
         state->wow_depth_left = 0;
     } else if (depth_target != state->wow_depth_target) {
-        uint32_t ramp = config->sample_rate /
-            AUDIODSP_FEEDBACK_DELAY_WOW_DEPTH_RAMP_DIVISOR;
+        // At the default 20 ms this is exactly sample_rate / 50: 20 x rate
+        // is a whole number float holds exactly, and its thousandth is
+        // either whole or at least 0.02 from one, so the truncation lands
+        // where the integer division did.
+        uint32_t ramp = (uint32_t)(config->wow_depth_ramp_ms
+            * (float)config->sample_rate / 1000.0f);
         if (ramp < 1u) {
             ramp = 1u;
         }
