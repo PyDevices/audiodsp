@@ -11,6 +11,7 @@
 #include "shared/audiodsp_fp_contract.h"
 
 #include "shared/audiodsp_feedback_delay.h"
+#include "shared/audiodsp_trig.h"
 
 #include <math.h>
 #include <string.h>
@@ -93,6 +94,45 @@ static int32_t shift_step_for(const audiodsp_feedback_delay_config_t *config) {
     return (int32_t)step;
 }
 
+// The band limit on an upward shift. Read at `ratio`, a frame of line at f
+// comes out at f * ratio, so anything written above fs / (2 * ratio) folds
+// back past Nyquist on the next pass, as a tone outside the series, and then
+// climbs from there. What is written is low-passed first, at this fraction of
+// that edge: a fourth-order Butterworth there is down 13 dB at the edge and
+// further every pass above it, while a series tone more than a third of the
+// way below the edge loses under 1 dB a pass. The fade at the top is the
+// climb running out of band, which is what a listener expects to hear.
+#define AUDIODSP_FEEDBACK_DELAY_BAND_EDGE 0.7
+
+static void band_limit_finish(audiodsp_feedback_delay_config_t *config,
+    float ratio) {
+    config->band_limit = false;
+    if (!(config->loop_semitones > 0.0f) || !(ratio > 1.0f) ||
+        config->sample_rate == 0) {
+        return;
+    }
+    // Worked in double through audiodsp_trig, so the coefficients are the
+    // same bits on every interpreter. The corner is always under a quarter
+    // of the rate (ratio > 1), so w0 stays inside the polynomial's quarter.
+    const double w0 = 2.0 * AUDIODSP_PI * AUDIODSP_FEEDBACK_DELAY_BAND_EDGE *
+        0.5 / (double)ratio;
+    audiodsp_sincos_t sc;
+    audiodsp_sincos_quarter(w0, &sc);
+    // 1 / (2 cos(pi / 8)) and 1 / (2 cos(3 pi / 8)).
+    static const double q[2] = { 0.54119610014619698, 1.3065629648763766 };
+    for (int section = 0; section < 2; ++section) {
+        const double alpha = sc.s / (2.0 * q[section]);
+        const double a0 = 1.0 + alpha;
+        const double b1 = (1.0 - sc.c) / a0;
+        config->band_coef[section][0] = (float)(b1 * 0.5);
+        config->band_coef[section][1] = (float)b1;
+        config->band_coef[section][2] = (float)(b1 * 0.5);
+        config->band_coef[section][3] = (float)(-2.0 * sc.c / a0);
+        config->band_coef[section][4] = (float)((1.0 - alpha) / a0);
+    }
+    config->band_limit = true;
+}
+
 void audiodsp_feedback_delay_config_init(
     audiodsp_feedback_delay_config_t *config, uint32_t sample_rate,
     uint32_t line_frames) {
@@ -121,6 +161,7 @@ void audiodsp_feedback_delay_config_init(
     config->loop_semitones = 0.0f;
     config->loop_window_ms = 25.0f;
     config->shift_step = 0;
+    config->band_limit = false;
     shift_window_finish(config);
     audiodsp_feedback_delay_configure(config,
         AUDIODSP_FEEDBACK_DELAY_OPT_INPUT_PAN, 0.0f);
@@ -216,6 +257,8 @@ void audiodsp_feedback_delay_configure(audiodsp_feedback_delay_config_t *config,
             // than the signal is.
             config->loop_semitones = clampf(value, -24.0f, 24.0f);
             config->shift_step = shift_step_for(config);
+            band_limit_finish(config, powf(2.0f,
+                config->loop_semitones * (1.0f / 12.0f)));
             break;
         case AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_WINDOW_MS:
             config->loop_window_ms = clampf(value, 1.0f, 250.0f);
@@ -302,6 +345,8 @@ void audiodsp_feedback_delay_state_init(audiodsp_feedback_delay_state_t *state,
     state->wow_coast_step = 0.0f;
     state->wow_coast_phase_step = 0;
     state->shift_coast_step = 0;
+    memset(state->band_state, 0, sizeof(state->band_state));
+    state->band_running = false;
     state->resting = false;
     state->quiet_frames = 0;
 }
@@ -470,6 +515,12 @@ static bool feedback_delay_settled(
             !feedback_delay_below_floor(state->cut_state[ch])) {
             return false;
         }
+        for (uint32_t section = 0; section < 2u; ++section) {
+            if (!feedback_delay_below_floor(state->band_state[ch][section][0]) ||
+                !feedback_delay_below_floor(state->band_state[ch][section][1])) {
+                return false;
+            }
+        }
     }
     const size_t samples = (size_t)config->line_frames * 2u;
     for (size_t i = 0; i < samples; ++i) {
@@ -504,6 +555,7 @@ void audiodsp_feedback_delay_process_silence(
     if (feedback_delay_settled(config, state)) {
         state->damping_state[0] = state->damping_state[1] = 0.0f;
         state->cut_state[0] = state->cut_state[1] = 0.0f;
+        memset(state->band_state, 0, sizeof(state->band_state));
         state->resting = true;
     }
 }
@@ -599,6 +651,24 @@ static void feedback_delay_run(
     if (config->cut_coef <= 0.0f) {
         state->cut_state[0] = state->cut_state[1] = 0.0f;
     }
+    // The band limit switched in starts from the line's last write on each
+    // lane, as if that value had been standing, so it neither dips to zero
+    // nor plays a state left from before. Switched out, it is not run.
+    const bool band = config->band_limit;
+    if (band && !state->band_running) {
+        const uint32_t last = (state->write_frame + length - 1u) % length;
+        for (uint32_t channel = 0; channel < 2u; ++channel) {
+            const float held = (float)state->line[(size_t)channel * length +
+                last];
+            for (uint32_t section = 0; section < 2u; ++section) {
+                const float *k = config->band_coef[section];
+                state->band_state[channel][section][0] = held - k[0] * held;
+                state->band_state[channel][section][1] =
+                    k[2] * held - k[4] * held;
+            }
+        }
+    }
+    state->band_running = band;
     feedback_delay_tap_t near_tap = { 0u, 0u, 0.0f };
     feedback_delay_tap_t far_tap = { 0u, 0u, 0.0f };
     float near_gain = 1.0f;
@@ -784,9 +854,20 @@ static void feedback_delay_run(
                 ? (float)in[frame * channels + (1u - channel)] : 0.0f;
             const float fed = source * config->feed_own[channel] +
                 other_source * config->feed_other[channel];
+            float written = fed + recirculated(sent, loop[channel], other,
+                config->feedback);
+            if (band) {
+                for (uint32_t section = 0; section < 2u; ++section) {
+                    const float *k = config->band_coef[section];
+                    float *z = state->band_state[channel][section];
+                    const float y = k[0] * written + z[0];
+                    z[0] = k[1] * written - k[3] * y + z[1];
+                    z[1] = k[2] * written - k[4] * y;
+                    written = y;
+                }
+            }
             state->line[(size_t)channel * length + state->write_frame] =
-                to_s16(fed + recirculated(sent, loop[channel], other,
-                    config->feedback));
+                to_s16(written);
             // The dry path is the channel's own signal, never the panned
             // one: `input_pan` steers what goes round the loop, not what the
             // listener hears straight through.

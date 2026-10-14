@@ -67,7 +67,11 @@ is on the output only - the feedback path is untouched.
 every pass rises again: +12 gives a repeat an octave up, then two, then
 three, which is what a shimmer is. Two taps half a `loop_window_ms` window
 apart are crossfaded, so the window trades grain rate against smear; it
-defaults to 25 ms and is capped at a quarter of the line.
+defaults to 25 ms and is capped at a quarter of the line. Shifting up, what
+goes into the line is low-passed first (fourth order, at 0.7 of the frequency
+the next pass would carry to Nyquist), so a climb fades out at the top of the
+band instead of folding back past Nyquist as tones outside its series.
+Shifting down, and at 0, nothing is filtered.
 
 A shifted loop repeats half a window later than an unshifted one - the two
 taps' gains sum to one, so their weighted mean read is `delay_ms +

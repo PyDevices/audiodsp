@@ -28,6 +28,7 @@ its own output.
 | E13 | A wow depth moved on a live node glides in over 20 ms, then renders as a node built with it | no step past 1.5 x the tone's own; exact after the ramp |
 | E14 | E10 in stereo with a cross-feed strictly between 0 and 1, at the feedbacks where the cross-fed sum lands an ulp above its lanes | exact, 0 LSB |
 | E15 | `delay_frames=N` reads the line exactly N frames back, at 44.1, 22.05 and 48 kHz, where no `delay_ms` lands on N | exact: the whole click on frame N, nothing on its neighbours |
+| E16 | An upward `loop_semitones` climb does not fold back past Nyquist, at 48, 44.1 and 22.05 kHz | the strongest line under the series, with the loop running, within 10 dB of the shifter's own single pass |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -325,10 +326,13 @@ class LiveSettingTest(unittest.TestCase):
 
     #: A loop that is actually running, so an option that only acts inside it
     #: has something to act on. At feedback 0 most of the table is inert.
+    #: The shift is downward: the material alternates at Nyquist, which an
+    #: upward shift's band limit (E16) takes out of the loop, and then most of
+    #: the table would act on silence.
     BASELINE = dict(delay_ms=10.0, feedback=0.75, mix=2.0, damping_hz=3000.0,
                     cut_hz=100.0, wow_hz=2.0, wow_depth_ms=1.0,
                     cross_feed=0.5, loop_drive=0.4, input_pan=0.3,
-                    delay_slew=1.0, wow_am_depth=0.2, loop_semitones=3.0,
+                    delay_slew=1.0, wow_am_depth=0.2, loop_semitones=-3.0,
                     loop_window_ms=4.0)
 
     def _live(self, **changed):
@@ -897,6 +901,67 @@ class DelayFramesTest(unittest.TestCase):
         node = delay()
         with self.assertRaises(TypeError):
             node.set(delay_ms=10.0, delay_frames=80)
+
+
+try:
+    import numpy as np
+except ImportError:     # pragma: no cover - numpy is a CI dependency
+    np = None
+
+
+@unittest.skipIf(np is None, "E16 measures a spectrum and needs numpy")
+class UpwardShiftBandLimitTest(unittest.TestCase):
+    """E16. Read at a ratio r, a line holding f plays f * r, so anything on
+    the line above fs / (2 r) comes back past Nyquist, folded, as a tone that
+    is not in the series, and then climbs from there. Before the band limit,
+    ShimmerHall's Rise did exactly that at its edges.
+
+    The measure: a short tone burst through the loop, wet only, and the
+    strongest spectral line below the first shifted tone, against the
+    strongest line of all. A shifted line is never below the first one, so
+    anything there is either a fold or the shifter's own splice artefacts.
+    The second are there on a single pass too (feedback 0), so the loop is
+    held to that level plus 10 dB. Unlimited, these cells measured 12.6 to 32 dB
+    over it; limited, 6 or less."""
+
+    #: (rate, tone Hz, semitones).
+    CELLS = ((48000, 1500, 24), (44100, 1500, 24), (22050, 1500, 24),
+             (48000, 1700, 12), (48000, 1100, 19), (44100, 1100, 19))
+
+    @staticmethod
+    def _render(rate, tone, semitones, feedback):
+        burst = int(0.06 * rate)
+        values = array("h", [int(12000 * np.sin(2 * np.pi * tone * n / rate))
+                             for n in range(burst)])
+        values.extend(array("h", [0]) * int(1.6 * rate))
+        node = audioecho.FeedbackDelay(
+            sample_rate=rate, channel_count=1, max_delay_ms=200.0,
+            delay_ms=100.0, feedback=feedback, mix=2.0,
+            loop_semitones=semitones)
+        node.play(audiocore.RawSample(values, sample_rate=rate))
+        out = array("h")
+        while len(out) < len(values):
+            out.frombytes(bytes(audiocore.get_buffer(node)[1]))
+        return np.array(out[burst:len(values)], dtype=float)
+
+    @staticmethod
+    def _stray_db(signal, rate, below):
+        spectrum = np.abs(np.fft.rfft(signal * np.hanning(len(signal))))
+        hz = np.fft.rfftfreq(len(signal), 1.0 / rate)
+        stray = spectrum[(hz > 20.0) & (hz < below)].max()
+        return 20.0 * np.log10(stray / spectrum.max())
+
+    def test_upward_climb_does_not_fold(self):
+        for rate, tone, semitones in self.CELLS:
+            with self.subTest(rate=rate, tone=tone, semitones=semitones):
+                below = tone * 2.0 ** (semitones / 12.0) * 0.85
+                single = self._stray_db(
+                    self._render(rate, tone, semitones, 0.0), rate, below)
+                looped = self._stray_db(
+                    self._render(rate, tone, semitones, 0.6), rate, below)
+                self.assertLessEqual(looped, single + 10.0,
+                                     "%.1f dB against %.1f on one pass"
+                                     % (looped, single))
 
 
 if __name__ == "__main__":
