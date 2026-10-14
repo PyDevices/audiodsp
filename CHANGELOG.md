@@ -1,3 +1,9 @@
+## v0.6.6rc6 (2026-10-14)
+
+- deinit probe: a call recipe for Waveshaper.recentre()
+- audioshaper.Waveshaper: recentre(), the play operator let go once the input has been silent a block
+- audioecho.FeedbackDelay: wow_depth_ramp_ms, how long a wow depth change takes to arrive
+
 ## v0.6.6rc5 (2026-10-14)
 
 - audioconvolve: room_peak_gain's reading starts initialised, and the deinit probe calls room_peak_gain_for
