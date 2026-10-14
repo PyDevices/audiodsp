@@ -30,6 +30,7 @@ its own output.
 | E15 | `delay_frames=N` reads the line exactly N frames back, at 44.1, 22.05 and 48 kHz, where no `delay_ms` lands on N | exact: the whole click on frame N, nothing on its neighbours |
 | E16 | An upward `loop_semitones` climb does not fold back past Nyquist, at 48, 44.1 and 22.05 kHz | the strongest line under the series, with the loop running, within 10 dB of the shifter's own single pass |
 | E17 | A held note through `loop_semitones` plays its shifted pitch, C2 to C6, up and down, at 48, 44.1 and 22.05 kHz | the line at f * r within 3 dB of the note's own level |
+| E18 | A held chord through `loop_semitones` keeps every note's shifted line | each within 5.7 dB of the note's own level, PitchShift's worst on the same chords |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -1007,6 +1008,50 @@ class HeldNoteSpliceTest(unittest.TestCase):
                 with self.subTest(rate=rate, semitones=semitones, midi=midi):
                     self.assertGreater(self._level_db(rate, midi, semitones),
                                        -3.0)
+
+
+
+@unittest.skipIf(np is None, "E18 measures a spectrum and needs numpy")
+class HeldChordSpliceTest(unittest.TestCase):
+    """E18. A splice that matches one note's phase can leave another's in
+    antiphase, so a chord can lose a note at every splice even where each
+    note alone is held (E17). Measured as E17 is, one pass at +12, each
+    note's line at twice its pitch against its own level. Before the splice
+    compared a stretch long enough to hold the chord's root, a C3 triad's
+    root came out 22.7 dB down and a C2 power chord's 23.0. The bar is
+    `audiodelays.PitchShift`'s worst on the same four chords, 5.7 dB."""
+
+    RATE = 48000
+    LEVEL = 3333
+    CHORDS = (("C3 triad", (48, 52, 55)), ("G2 and D4", (43, 62)),
+              ("A2 and A#2", (45, 46)), ("C2 power chord", (36, 43, 48)))
+
+    def _levels(self, midis):
+        rate = self.RATE
+        hz = [440.0 * 2.0 ** ((m - 69) / 12.0) for m in midis]
+        n = np.arange(rate)
+        mixed = sum(self.LEVEL * np.sin(2 * np.pi * h * n / rate) for h in hz)
+        values = array("h", mixed.astype(np.int16).tolist())
+        node = audioecho.FeedbackDelay(
+            sample_rate=rate, channel_count=1, max_delay_ms=200.0,
+            delay_ms=50.0, feedback=0.0, mix=2.0, loop_semitones=12.0)
+        node.play(audiocore.RawSample(values, sample_rate=rate))
+        out = array("h")
+        while len(out) < rate:
+            out.frombytes(bytes(audiocore.get_buffer(node)[1]))
+        held = np.array(out[int(0.3 * rate):rate], dtype=float)
+        window = np.hanning(len(held))
+        spectrum = np.abs(np.fft.rfft(held * window)) / (window.sum() / 2)
+        bins = np.fft.rfftfreq(len(held), 1.0 / rate)
+        return [20.0 * np.log10(spectrum[(bins > 2 * h * 0.99) &
+                                         (bins < 2 * h * 1.01)].max() /
+                                self.LEVEL + 1e-12) for h in hz]
+
+    def test_held_chords_keep_every_note(self):
+        for name, midis in self.CHORDS:
+            for midi, level in zip(midis, self._levels(midis)):
+                with self.subTest(chord=name, midi=midi):
+                    self.assertGreaterEqual(level, -5.7)
 
 
 if __name__ == "__main__":

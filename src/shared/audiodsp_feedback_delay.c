@@ -490,29 +490,33 @@ static void feedback_delay_run(
     uint32_t frames);
 
 // The splice. A tap starting again from zero gain is placed where the line
-// it reads is most like the line the other tap is reading, within a few
-// milliseconds of where its phase puts it, so the two fade across in phase.
+// it reads is most like the line the other tap is reading, within half a
+// window of where its phase puts it, so the two fade across in phase.
 // Fixed half a window apart, they were in antiphase on every note whose
 // period goes into half the window an odd number of halves -- G3 against a
 // 25 ms window -- and the crossfade cancelled the note, leaving its
 // neighbours a grain rate either side.
 //
-// The measure is the sum of absolute differences between the next
-// ALIGN_LENGTH frames each tap will read on the first lane, in integers, so
-// every interpreter lands on the same frame. A difference, not a
-// correlation: over a stretch shorter than a low note's period a
-// correlation peaks away from the matching phase, and a difference is zero
-// exactly there. Searched every ALIGN_STRIDE frames across
-// +-ALIGN_SPAN, then frame by frame around the best; a tie, silence
-// included, keeps the smaller move, so a quiet line splices where it always
-// did. The span is a 100th of the rate, 10 ms: half the period of G1, so
-// every note from there up can be brought into phase.
-#define AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH 32
+// The measure is the sum of absolute differences between what each tap
+// will read on the first lane over the next 16 ms, ALIGN_LENGTH frames a
+// 3000th of a second apart, in integers, so every interpreter lands on the
+// same frame. A difference, not a correlation: over a stretch shorter than
+// a low note's period a correlation peaks away from the matching phase, and
+// a difference is zero exactly there. 16 ms, not the 0.7 ms of 32 adjacent
+// frames, so a chord is matched as a chord: matched over a stretch shorter
+// than its root's period, a C3 triad kept one note in phase and lost its
+// root by 23 dB. Searched every ALIGN_STRIDE frames across a 40th of the
+// rate (25 ms) either way, never more than half the window, then frame by
+// frame around the best; a tie, silence included, keeps the smaller move,
+// so a quiet line splices where it always did.
+#define AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH 48
+#define AUDIODSP_FEEDBACK_DELAY_ALIGN_STEP_DIVISOR 3000u
 #define AUDIODSP_FEEDBACK_DELAY_ALIGN_STRIDE 6
-#define AUDIODSP_FEEDBACK_DELAY_ALIGN_DIVISOR 100u
+#define AUDIODSP_FEEDBACK_DELAY_ALIGN_DIVISOR 40u
 
 static int64_t align_score(const int16_t *line, uint32_t length,
-    uint32_t channels, uint32_t write_frame, int32_t other, int32_t candidate) {
+    uint32_t channels, uint32_t write_frame, int32_t other, int32_t candidate,
+    uint32_t pace) {
     int64_t sum = 0;
     for (uint32_t channel = 0; channel < channels; ++channel) {
         const int16_t *lane = line + (size_t)channel * length;
@@ -521,8 +525,8 @@ static int64_t align_score(const int16_t *line, uint32_t length,
         for (int k = 0; k < AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH; ++k) {
             const int32_t gap = (int32_t)lane[a] - (int32_t)lane[b];
             sum += gap < 0 ? -gap : gap;
-            a = a + 1u == length ? 0u : a + 1u;
-            b = b + 1u == length ? 0u : b + 1u;
+            a = (a + pace) % length;
+            b = (b + pace) % length;
         }
     }
     return sum;
@@ -544,7 +548,13 @@ static float splice_align(const audiodsp_feedback_delay_config_t *config,
     if (span > half_window) {
         span = half_window;
     }
-    const int32_t low = AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH + 1;
+    uint32_t pace = config->sample_rate /
+        AUDIODSP_FEEDBACK_DELAY_ALIGN_STEP_DIVISOR;
+    if (pace < 1u) {
+        pace = 1u;
+    }
+    const int32_t low =
+        (int32_t)(AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH * pace) + 1;
     const int32_t high = (int32_t)length - 2;
     const int32_t base = (int32_t)nominal;
     const int32_t against = (int32_t)other;
@@ -567,7 +577,7 @@ static float splice_align(const audiodsp_feedback_delay_config_t *config,
                 continue;
             }
             const int64_t score = align_score(state->line, length, channels,
-                state->write_frame, against, at);
+                state->write_frame, against, at, pace);
             if (!found || score < best_score) {
                 found = true;
                 best = move;
@@ -588,7 +598,7 @@ static float splice_align(const audiodsp_feedback_delay_config_t *config,
             continue;
         }
         const int64_t score = align_score(state->line, length, channels,
-            state->write_frame, against, at);
+            state->write_frame, against, at, pace);
         const int32_t size = move < 0 ? -move : move;
         const int32_t best_size = best < 0 ? -best : best;
         if (score < best_score || (score == best_score && size < best_size)) {

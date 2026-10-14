@@ -72,9 +72,10 @@ goes into the line is low-passed first (fourth order, at 0.7 of the frequency
 the next pass would carry to Nyquist), so a climb fades out at the top of the
 band instead of folding back past Nyquist as tones outside its series.
 Shifting down, and at 0, nothing is filtered. Each tap is placed, when it
-fades back in, within 10 ms of where the window puts it, where the line it
-reads best matches the other tap's, so the two cross in phase and a held note
-plays its shifted pitch rather than cancelling at the splice.
+fades back in, within half a window of where the window puts it, where the
+next 16 ms it reads best match the other tap's, so the two cross in phase and
+a held note or chord plays its shifted pitch rather than cancelling at the
+splice.
 
 A shifted loop repeats half a window later than an unshifted one - the two
 taps' gains sum to one, so their weighted mean read is `delay_ms +

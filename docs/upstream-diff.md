@@ -1480,20 +1480,32 @@ that no arrangement of the existing nodes reaches, and the program's vision
   odd number of halves (G3 against 25 ms: 2.45 periods), and the crossfade
   cancelled the note: G3 shifted up an octave played its neighbours, 356 Hz
   and 436 Hz, and almost nothing at 392. Now a tap starting again from zero
-  gain is placed, within 10 ms either way of where its phase puts it, where
-  the next 32 frames it reads differ least from the other tap's (summed
-  absolute differences, in integers, on the first lane, so a stereo node
-  splices its left lane as a mono one does; a tie, silence included,
-  keeps the smaller move). Every held note from C2 to C6 then plays its
-  shifted pitch within 1.5 dB, up and down, at 48, 44.1 and 22.05 kHz
+  gain is placed, within half a window either way of where its phase puts
+  it, where what it reads over the next 16 ms differs least from what the
+  other tap reads (48 frames a 3000th of a second apart, summed absolute
+  differences, in integers, on the first lane, so a stereo node splices its
+  left lane as a mono one does; a tie, silence included, keeps the smaller
+  move). Every held note from C2 to C6 then plays its shifted pitch within
+  1.5 dB, up and down, at 48, 44.1 and 22.05 kHz
   (`tests/test_cpython_audioecho.py` E17; before, the median note at +12 was
   54 dB under). The mean read is still half a window late, and a click, which
   matches nothing, still lands where it did; on held material a repeat's read
-  moves by up to 10 ms either side of it, and never more than half the
-  window. A search costs about 11 000 differences at the default window,
-  once per tap per crossfade turn, and less at a short window, which splices
-  more often. On a chord the splice can match one note and not the others:
-  a C3 triad's root came out 23 dB down.
+  moves by up to half the window either side of it. A search costs about
+  10 000 differences at the default window, once per tap per crossfade turn,
+  and less at a short window, which splices more often.
+
+  The stretch is 16 ms so a chord is matched as a chord. Compared over 32
+  adjacent frames (0.7 ms, shorter than a low root's period), the splice kept
+  one note in phase and lost the others: a C3 triad's root came out 22.7 dB
+  down and a C2 power chord's 23.0. Now every note of the four chords E18
+  holds (a C3 triad, G2 and D4, A2 and A#2, a C2 power chord) stays within
+  5.7 dB, `audiodelays.PitchShift`'s worst on them. That is not every chord:
+  one line spliced at one offset cannot keep every note of every chord in
+  phase. Over seven more chords at +12 and +7, at 48 and 22.05 kHz, the worst
+  note measured 19.5 dB down (A minor, +12, 48 kHz) and power chords 1.4 dB
+  at most; `PitchShift` with an 85 ms window measured 13.8 dB on the same
+  set, and the loop shifter before any alignment lost 44 to 108 dB at
+  48 kHz.
 
   Turning it off no longer steps back, and turning it on again no longer
   resumes a stale phase (audiodsp#177). Once the shifter has run,
