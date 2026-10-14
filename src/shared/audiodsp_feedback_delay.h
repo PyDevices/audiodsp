@@ -45,7 +45,9 @@
 //     two taps half a window apart under a triangular crossfade, so every
 //     pass rises again. That is a shimmer, and no arrangement of the existing
 //     nodes is one: `audiodelays.PitchShift` after a delay shifts the sum of
-//     every repeat once, not each repeat one more time.
+//     every repeat once, not each repeat one more time. Shifting up, what is
+//     written to the line is band-limited first, so the climb fades out at
+//     the top of the band instead of folding back past Nyquist.
 //
 // The pulling loop is not here, for the same reason it is not in
 // audiodsp_dynamics.c: each runtime reaches its audio graph differently.
@@ -153,6 +155,13 @@ typedef struct {
     // Turns per frame in Q32 for the crossfade, from `loop_semitones` and the
     // window. Signed: shifting down runs it backwards.
     int32_t shift_step;
+    // The band limit on an upward shift: what is written to the line is
+    // low-passed under the frequency the next pass would carry past Nyquist,
+    // so a climb never folds back as a tone outside its series. Two biquad
+    // sections, a fourth-order Butterworth, as b0 b1 b2 a1 a2 each (a0 is
+    // 1). Off, and never run, while `loop_semitones` is 0 or below.
+    bool band_limit;
+    float band_coef[2][5];
 } audiodsp_feedback_delay_config_t;
 
 typedef struct {
@@ -200,6 +209,11 @@ typedef struct {
     float wow_coast_step;
     uint32_t wow_coast_phase_step;
     int32_t shift_coast_step;
+    // The band limit's two sections per lane, transposed direct form II, and
+    // whether they are running: a band limit switched in starts from the
+    // line's last write rather than from zero, so it does not dip.
+    float band_state[2][2][2];
+    bool band_running;
     // True once the tail has ended with nothing coming in, so silence costs
     // no work; `quiet_frames` counts all-zero output since the last look at
     // the state (audiodsp#180).

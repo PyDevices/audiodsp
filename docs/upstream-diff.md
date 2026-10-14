@@ -1379,6 +1379,22 @@ that no arrangement of the existing nodes reaches, and the program's vision
   it is the grain rate traded against smear, and it also bounds how far the
   read head may wander from the delay it was asked for.
 
+  **Shifting up, what is written to the line is band-limited first.** Read
+  at a ratio r, a line holding f plays f * r, so anything written above
+  fs / (2 r) came back on the next pass folded past Nyquist, as a tone outside
+  the series, and climbed from there: ShimmerHall's Rise did this at high
+  Damping with Rise near its cap, or a wide Interval. The write now goes
+  through a fourth-order Butterworth low-pass at 0.7 of that edge (two biquad
+  sections, coefficients worked in double through `audiodsp_trig`, so every
+  interpreter has the same bits), so the climb fades out at the top of the
+  band instead. It is not run while `loop_semitones` is 0 or below, which
+  leaves every unshifted and downward render byte for byte as it was.
+  Switched in, it starts from the line's last write rather than from zero.
+  `tests/test_cpython_audioecho.py` E16 holds it: the strongest line under the
+  series, with the loop running, stays within 10 dB of what the shifter makes
+  on a single pass (unlimited, 12.6 to 32 dB over it), and E10 still holds an
+  octave-up tail to exact zero.
+
   **A shifted loop repeats half a window later than an unshifted one**, and
   a class that reports its own timing has to account for it. The two taps sit
   at `delay + turn * window` and `delay + (turn + 0.5) * window` under gains
