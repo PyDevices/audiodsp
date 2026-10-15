@@ -102,6 +102,23 @@ static mp_obj_t audioroute_splitter_tap(mp_obj_t self_in, mp_obj_t index_in) {
 MP_DEFINE_CONST_FUN_OBJ_2(audioroute_splitter_tap_obj,
     audioroute_splitter_tap);
 
+// `clear()` lets go of what the Splitter holds and nobody has read: the
+// frames in the ring and the rest of the last source buffer it could not fit.
+// Every tap then starts on the source's next frames. It reads nothing from the
+// source and does not reset it. Mirrors the MicroPython binding.
+static mp_obj_t audioroute_splitter_clear(mp_obj_t self_in) {
+    audioroute_splitter_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (self->deinited) {
+        raise_deinited_error();
+    }
+    audiodsp_splitter_clear(&self->state);
+    self->pending = NULL;
+    self->pending_frames = 0;
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(audioroute_splitter_clear_obj,
+    audioroute_splitter_clear);
+
 // `deinit()` releases the branch: it drops the upstream chain and releases every
 // tap, because the ring the taps read belongs to this object and a tap outliving
 // it would be reading a ring nothing refills. The ring itself is inline here, so
@@ -138,6 +155,7 @@ static const mp_rom_map_elem_t audioroute_splitter_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR___enter__), MP_ROM_PTR(&default___enter___obj) },
     { MP_ROM_QSTR(MP_QSTR___exit__), MP_ROM_PTR(&default___exit___obj) },
     { MP_ROM_QSTR(MP_QSTR_tap), MP_ROM_PTR(&audioroute_splitter_tap_obj) },
+    { MP_ROM_QSTR(MP_QSTR_clear), MP_ROM_PTR(&audioroute_splitter_clear_obj) },
 };
 static MP_DEFINE_CONST_DICT(audioroute_splitter_locals_dict,
     audioroute_splitter_locals_dict_table);

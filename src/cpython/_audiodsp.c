@@ -977,10 +977,17 @@ static PyObject *splitter_ring_take(audiodsp_splitter_object_t *self,
     return result;
 }
 
+static PyObject *splitter_ring_clear(audiodsp_splitter_object_t *self,
+    PyObject *Py_UNUSED(ignored)) {
+    audiodsp_splitter_clear(&self->state);
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef splitter_ring_methods[] = {
     {"write", (PyCFunction)splitter_ring_write, METH_O, NULL},
     {"starved", (PyCFunction)splitter_ring_starved, METH_O, NULL},
     {"take", (PyCFunction)splitter_ring_take, METH_O, NULL},
+    {"clear", (PyCFunction)splitter_ring_clear, METH_NOARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 

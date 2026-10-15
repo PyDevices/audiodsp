@@ -153,6 +153,21 @@ class Splitter:
         self._ring = None
         self._pending = b""
 
+    def clear(self):
+        """Let go of what this holds and nobody has read.
+
+        The frames in the ring and the rest of the last source buffer it
+        could not fit are dropped, and every tap starts on the source's next
+        frames. Nothing is read from the source and it is not reset. This is
+        for a graph that stopped being pulled while the host read the source
+        directly, an effect's bypass: without it, the taps come back on audio
+        from before the pause, and the stream runs late by as much.
+        """
+        if self._deinited:
+            raise_deinited_error()
+        self._ring.clear()
+        self._pending = b""
+
     def __enter__(self):
         return self
 

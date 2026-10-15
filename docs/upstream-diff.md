@@ -1273,6 +1273,13 @@ Quirks kept on purpose, because the effects library is written around them:
 - `SplitterTap.reset_buffer` does nothing. The cursors belong to the Splitter,
   and the other branches are still reading against them.
 
+One addition of ours: `Splitter.clear()` lets go of what the ring holds and
+no tap has read, and of the rest of a source buffer the ring could not fit.
+Every tap then starts on the source's next frames, and the source is neither
+read nor reset. It is for a graph that stopped being pulled while the host
+read the source directly, an effect's bypass: without it the taps came back
+on audio from before the pause.
+
 Neither node has `deinit`/`__enter__`/`__exit__`, unlike the ported
 CircuitPython effects around them. The originals had no lifecycle, and giving
 one to three implementations to keep in step buys nothing the collector does

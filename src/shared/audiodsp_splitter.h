@@ -58,6 +58,14 @@ static inline bool audiodsp_splitter_starved(
     return state->write_pos == state->read_pos[tap];
 }
 
+// Let go of everything written and not yet read: every cursor moves to the
+// write position. Nothing is read from the source and the ring's contents are
+// left in place; the frames are simply no longer anyone's to read. For a
+// graph that was not pulled for a while (a bypass) and is about to be pulled
+// again, so the taps start on the source's next frames instead of on what
+// was sitting in the ring when it stopped.
+void audiodsp_splitter_clear(audiodsp_splitter_state_t *state);
+
 // Claim the next run of frames for `tap`, at most one chunk and never across
 // the ring's wrap. Returns the frame count and writes the ring frame index it
 // starts at; zero means the tap has caught up and the caller should hand out
