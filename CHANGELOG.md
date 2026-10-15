@@ -1,3 +1,8 @@
+## v0.6.6rc9 (2026-10-15)
+
+- audiobiquad.Biquad: a coefficient move walks over 20 ms instead of thumping
+- Roadmap: a level ramp on audiomixer voices
+
 ## v0.6.6rc8 (2026-10-15)
 
 - audioecho.FeedbackDelay: a new wow_shape dips the depth to zero and swaps there
