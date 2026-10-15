@@ -1,3 +1,6 @@
+## v0.6.6 (2026-10-15)
+
+
 ## v0.6.6rc9 (2026-10-15)
 
 - audiobiquad.Biquad: a coefficient move walks over 20 ms instead of thumping
