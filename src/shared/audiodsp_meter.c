@@ -130,14 +130,20 @@ static double meter_exp(double y) {
 // byte b or more. The steps are worked out once, with the log above, so a
 // level costs eight comparisons rather than a double-precision series, which
 // on a board with a single-precision FPU is all software.
+//
+// A host with threads calls audiodsp_meter_init() once before any can meter
+// (the CPython extension does it when it loads), so the table is never filled
+// while another thread reads it. Without that it is filled on first use, which
+// is fine where only one thread meters.
 static float meter_steps[255];
 
-static void meter_make_steps(void) {
+void audiodsp_meter_init(void) {
     if (meter_steps[0] != 0) {
         return;
     }
     const double ln10 = 2.30258509299404568402;
-    for (int b = 1; b <= 255; b++) {
+    // Top down, so step 0 -- the "filled" mark -- is written last.
+    for (int b = 255; b >= 1; b--) {
         // v = b - 1/2  <=>  p = 10 ^ ((b - 1/2 - 200) / 20)
         meter_steps[b - 1] = (float)meter_exp((b - 0.5 - 200.0) / 20.0 * ln10);
     }
@@ -145,7 +151,7 @@ static void meter_make_steps(void) {
 
 uint8_t AUDIODSP_METER_HOT audiodsp_meter_db_byte(float power) {
     if (meter_steps[0] == 0) {
-        meter_make_steps();
+        audiodsp_meter_init();
     }
     if (!(power > 1e-10f)) {
         return 0;
@@ -200,7 +206,7 @@ audiodsp_meter_t *audiodsp_meter_new(void) {
         audiodsp_meter_free(m);
         return NULL;
     }
-    meter_make_steps();
+    audiodsp_meter_init();
     meter_hann(m->win_hi, HI_N, &m->norm_hi);
     meter_hann(m->win_lo, LO_N, &m->norm_lo);
     audiodsp_rfft_init(&m->fft_hi, HI_N, m->tab_hi);

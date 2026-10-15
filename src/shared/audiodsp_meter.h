@@ -75,5 +75,9 @@ typedef struct {
 } audiodsp_meter_stats_t;
 void audiodsp_meter_stats(audiodsp_meter_t *m, audiodsp_meter_stats_t *st);
 
+// Fills the level table every meter shares. A host with threads calls it
+// once before any thread meters; otherwise it runs on first use.
+void audiodsp_meter_init(void);
+
 // For the tests: the half-dB byte for a power (1.0 = a full-scale sine).
 uint8_t audiodsp_meter_db_byte(float power);
