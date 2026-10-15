@@ -10,6 +10,9 @@ audio pump holding up under live use such as a stompbox or a stage rig.
   [docs/pump-ports.md](docs/pump-ports.md) for how a port plugs in.
 - An LC3 codec module beside `audiomp3`, frame by frame: encode PCM to one
   frame, decode a frame (or a lost one) to PCM. Leaves room for LE Audio later.
+- A level ramp on `audiomixer` voices: a level move ramps over a set number of
+  frames instead of stepping, so an effect can fade its wet path in or out
+  without a click when you switch it in mid-note.
 
 Bugs, and things you need that don't work yet, go to
 [issues](https://github.com/PyDevices/audiodsp/issues).
