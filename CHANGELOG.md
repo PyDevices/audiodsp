@@ -1,3 +1,9 @@
+## v0.6.6rc7 (2026-10-15)
+
+- audioroute.Splitter: clear(), which lets go of what the ring holds and no tap has read
+- audiodynamics.Dynamics: a mono block is written at its own stride, so short source buffers no longer leave stale frames
+- CPython: don't traverse a held Py_buffer's exporter
+
 ## v0.6.6rc6 (2026-10-14)
 
 - deinit probe: a call recipe for Waveshaper.recentre()
