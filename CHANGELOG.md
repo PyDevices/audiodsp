@@ -1,5 +1,6 @@
 ## v0.6.6 (2026-10-15)
 
+- The same source as v0.6.6rc9; the release candidates below list what changed since 0.6.5
 
 ## v0.6.6rc9 (2026-10-15)
 
