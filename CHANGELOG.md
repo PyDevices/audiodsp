@@ -1,3 +1,7 @@
+## v0.6.6rc8 (2026-10-15)
+
+- audioecho.FeedbackDelay: a new wow_shape dips the depth to zero and swaps there
+
 ## v0.6.6rc7 (2026-10-15)
 
 - audioroute.Splitter: clear(), which lets go of what the ring holds and no tap has read
