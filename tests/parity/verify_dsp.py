@@ -106,6 +106,9 @@ PROBES = (
     ("ladder_probe.py", "audioladder", {}, None),
     ("dynamics_extras_probe.py", "audiodynamics", {}, None),
     ("dynamics_options_probe.py", "audiodynamics", {}, None),
+    # A mono Dynamics on source buffers shorter than its block: the native
+    # builds wrote each stretch at the stereo stride.
+    ("dynamics_short_buffer_probe.py", "audiodynamics", {}, None),
     ("waveshaper_probe.py", "audioshaper", {}, None),
     # A probe of its own rather than cases appended above: one comparison
     # covers a probe's whole output, so a `SampleHold` case added to
