@@ -112,6 +112,52 @@ void audiodsp_biquad_f32_configure(audiodsp_biquad_f32_config_t *config,
     }
 }
 
+// The section as a trapezoidal state-variable filter, from its normalized
+// five. Every RBJ shape is the bilinear transform of a second-order analog
+// prototype, and so is the SVF, so one exists for every mode and setting with
+// a corner above 0 Hz -- found here from the coefficients alone, with nothing
+// mode-specific to keep in step with the cookbook above.
+//
+// With D0 = 1 + g*k + g^2, the SVF's denominator is
+// [D0, 2g^2 - 2, 1 - g*k + g^2] / D0, its band numerator g*[1, 0, -1] / D0 and
+// its low numerator g^2*[1, 2, 1] / D0. Matching the first to [1, a1, a2]
+// gives g and k; writing [b0, b1, b2] * D0 as m0*denominator + m1*band +
+// m2*low gives the three mixes. In double, from the doubles the five were
+// rounded from: 1 + a1 + a2 is a small difference of large numbers at a low
+// corner, and float would lose g to it.
+//
+// Below AUDIODSP_FILTER_F32_MIN_SVF_G2 the section is not treated as having
+// one. That is 0 Hz, where alpha = 0 puts a double pole on the unit circle
+// with the zeros on top of it, and nothing above about 0.02 Hz at 48 kHz.
+#define AUDIODSP_FILTER_F32_MIN_SVF_G2 1e-12
+
+static void biquad_svf_from_rbj(audiodsp_biquad_f32_config_t *config,
+    double b0, double b1, double b2, double a1, double a2) {
+    const double denominator = 1 - a1 + a2;
+    config->svf_valid = false;
+    if (!(denominator > 0)) {
+        return;
+    }
+    const double g2 = (1 + a1 + a2) / denominator;
+    if (!(g2 > AUDIODSP_FILTER_F32_MIN_SVF_G2)) {
+        return;
+    }
+    const double g = sqrt(g2);
+    const double gk = 2 * (1 - a2) / denominator;
+    if (!(gk > 0)) {
+        return;
+    }
+    const double d0 = 4 / denominator;
+    const double p0 = b0 * d0, p1 = b1 * d0, p2 = b2 * d0;
+    const double m0 = (p0 - p1 + p2) / 4;
+    config->svf_g = (float)g;
+    config->svf_k = (float)(gk / g);
+    config->svf_m0 = (float)m0;
+    config->svf_m1 = (float)((p0 - p2 - 2 * m0 * gk) / (2 * g));
+    config->svf_m2 = (float)((p0 + p2 - m0 * (2 + 2 * g2)) / (2 * g2));
+    config->svf_valid = true;
+}
+
 void audiodsp_biquad_f32_config_finish(audiodsp_biquad_f32_config_t *config) {
     if (config->derived &&
         config->derived_mode == config->mode &&
@@ -198,6 +244,8 @@ void audiodsp_biquad_f32_config_finish(audiodsp_biquad_f32_config_t *config) {
     config->b2 = (float)(b2 * reciprocal);
     config->a1 = (float)(a1 * reciprocal);
     config->a2 = (float)(a2 * reciprocal);
+    biquad_svf_from_rbj(config, b0 * reciprocal, b1 * reciprocal,
+        b2 * reciprocal, a1 * reciprocal, a2 * reciprocal);
 
     config->derived_mode = config->mode;
     config->derived_sample_rate = config->sample_rate;
@@ -215,14 +263,228 @@ void audiodsp_biquad_f32_reset(audiodsp_biquad_f32_state_t *state) {
     memset(state, 0, sizeof(*state));
 }
 
+// ------------------------------------------------- moving the coefficients --
+
+// The SVF's per-frame constants at (g, k), Simper's a1/a2/a3.
+typedef struct { double a1, a2, a3; } biquad_svf_gains_t;
+
+static biquad_svf_gains_t biquad_svf_gains(double g, double k) {
+    biquad_svf_gains_t gains;
+    gains.a1 = 1 / (1 + g * (g + k));
+    gains.a2 = g * gains.a1;
+    gains.a3 = g * gains.a2;
+    return gains;
+}
+
+// The two rows that say what an SVF state does to the output with no input
+// coming in: the next output, and the one after. Transposed direct form II's
+// two words are exactly those two outputs (less a1 times the first, in the
+// second), which is what lets the memory pass between the two forms.
+static void biquad_svf_observe(double g, double k, double m1, double m2,
+    double rows[2][2]) {
+    const biquad_svf_gains_t s = biquad_svf_gains(g, k);
+    // Output from the integrators: m1*v1 + m2*v2 with the input at zero.
+    const double c0 = m1 * s.a1 + m2 * s.a2;
+    const double c1 = -m1 * s.a2 + m2 * (1 - s.a3);
+    // One frame of the integrators with the input at zero.
+    const double t00 = 2 * s.a1 - 1, t01 = -2 * s.a2;
+    const double t10 = 2 * s.a2, t11 = 1 - 2 * s.a3;
+    rows[0][0] = c0;
+    rows[0][1] = c1;
+    rows[1][0] = c0 * t00 + c1 * t10;
+    rows[1][1] = c0 * t01 + c1 * t11;
+}
+
+// Direct form's memory, as the SVF of the section it belongs to. Where the
+// output cannot see the integrators -- a 0 dB peak or shelf, whose response
+// is a wire -- there is nothing to carry and they start empty.
+static void biquad_enter_svf(audiodsp_biquad_f32_state_t *state,
+    uint32_t channels) {
+    double rows[2][2];
+    biquad_svf_observe(state->svf_g, state->svf_k, state->svf_m1,
+        state->svf_m2, rows);
+    const double det = rows[0][0] * rows[1][1] - rows[0][1] * rows[1][0];
+    const double scale = (rows[0][0] * rows[0][0] + rows[0][1] * rows[0][1]) *
+        (rows[1][0] * rows[1][0] + rows[1][1] * rows[1][1]);
+    const bool observable = det != 0 && det * det > 1e-18 * scale;
+    for (uint32_t channel = 0; channel < channels; ++channel) {
+        if (!observable) {
+            state->ic1[channel] = state->ic2[channel] = 0.0f;
+            continue;
+        }
+        const double y0 = state->s1[channel];
+        const double y1 = (double)state->s2[channel] -
+            (double)state->a1 * y0;
+        state->ic1[channel] = flush((float)((rows[1][1] * y0 -
+            rows[0][1] * y1) / det));
+        state->ic2[channel] = flush((float)((rows[0][0] * y1 -
+            rows[1][0] * y0) / det));
+    }
+}
+
+// The way back, at the end of a move, into the section now in force.
+static void biquad_leave_svf(audiodsp_biquad_f32_state_t *state,
+    uint32_t channels) {
+    double rows[2][2];
+    biquad_svf_observe(state->svf_g, state->svf_k, state->svf_m1,
+        state->svf_m2, rows);
+    for (uint32_t channel = 0; channel < channels; ++channel) {
+        const double i1 = state->ic1[channel], i2 = state->ic2[channel];
+        const double y0 = rows[0][0] * i1 + rows[0][1] * i2;
+        const double y1 = rows[1][0] * i1 + rows[1][1] * i2;
+        state->s1[channel] = flush((float)y0);
+        state->s2[channel] = flush((float)(y1 + (double)state->a1 * y0));
+    }
+}
+
+// Frames in a move: the power of two nearest AUDIODSP_BIQUAD_F32_RAMP_MS.
+// A power of two because the walk's per-frame ratio is then a chain of
+// square roots, which IEEE rounds correctly everywhere -- pow() is three
+// functions on three targets that nearly agree, and this has to render the
+// same bytes on all of them (see audiodsp_trig.h).
+static uint32_t biquad_ramp_shift(uint32_t sample_rate) {
+    const double frames = (double)sample_rate *
+        (double)AUDIODSP_BIQUAD_F32_RAMP_MS / 1000.0;
+    uint32_t shift = 0;
+    while (shift < 20u &&
+           (double)(1u << shift) * 1.4142135623730951 < frames) {
+        ++shift;
+    }
+    return shift;
+}
+
+static double biquad_root_chain(double ratio, uint32_t shift) {
+    for (uint32_t index = 0; index < shift; ++index) {
+        ratio = sqrt(ratio);
+    }
+    return ratio;
+}
+
+static void biquad_take(audiodsp_biquad_f32_state_t *state,
+    const audiodsp_biquad_f32_config_t *config) {
+    state->b0 = config->b0;
+    state->b1 = config->b1;
+    state->b2 = config->b2;
+    state->a1 = config->a1;
+    state->a2 = config->a2;
+    state->svf_g = config->svf_g;
+    state->svf_k = config->svf_k;
+    state->svf_m0 = config->svf_m0;
+    state->svf_m1 = config->svf_m1;
+    state->svf_m2 = config->svf_m2;
+    state->svf_valid = config->svf_valid;
+}
+
+static bool biquad_moved(const audiodsp_biquad_f32_state_t *state,
+    const audiodsp_biquad_f32_config_t *config) {
+    return state->b0 != config->b0 || state->b1 != config->b1 ||
+           state->b2 != config->b2 || state->a1 != config->a1 ||
+           state->a2 != config->a2;
+}
+
+// A new set of five arrived. Start the walk to them from wherever the
+// output is now: the section in force, or the point a walk already under way
+// has reached.
+static void biquad_begin_move(const audiodsp_biquad_f32_config_t *config,
+    audiodsp_biquad_f32_state_t *state, uint32_t channels) {
+    if (state->ramp_left == 0u) {
+        if (state->svf_valid && config->svf_valid) {
+            biquad_enter_svf(state, channels);
+            state->g = state->svf_g;
+            state->k = state->svf_k;
+            state->m0 = state->svf_m0;
+            state->m1 = state->svf_m1;
+            state->m2 = state->svf_m2;
+        }
+    }
+    const bool walk = config->svf_valid &&
+        (state->ramp_left != 0u || state->svf_valid);
+    biquad_take(state, config);
+    if (!walk) {
+        // To or from 0 Hz. The section there is a wire or silence whatever
+        // its memory holds -- and the memory cannot decay, its poles being on
+        // the unit circle -- so there is nothing to carry across, and carrying
+        // it is how a jump to 0 Hz used to run away.
+        memset(state->s1, 0, sizeof(state->s1));
+        memset(state->s2, 0, sizeof(state->s2));
+        state->ramp_left = 0u;
+        return;
+    }
+    const uint32_t shift = biquad_ramp_shift(config->sample_rate);
+    const uint32_t frames = 1u << shift;
+    state->g_step = (float)biquad_root_chain(
+        (double)config->svf_g / (double)state->g, shift);
+    state->k_step = (float)biquad_root_chain(
+        (double)config->svf_k / (double)state->k, shift);
+    state->m0_step = (config->svf_m0 - state->m0) / (float)frames;
+    state->m1_step = (config->svf_m1 - state->m1) / (float)frames;
+    state->m2_step = (config->svf_m2 - state->m2) / (float)frames;
+    state->ramp_left = frames;
+}
+
+// Up to `frames` frames of the walk, one SVF step each. Returns how many it
+// ran; when the walk ends inside them, the memory goes back to direct form.
+static uint32_t biquad_process_move(audiodsp_biquad_f32_state_t *state,
+    uint32_t channels, float dry, float mix, int16_t *out, const int16_t *in,
+    uint32_t frames) {
+    const uint32_t run = frames < state->ramp_left ? frames : state->ramp_left;
+    float g = state->g, k = state->k;
+    float m0 = state->m0, m1 = state->m1, m2 = state->m2;
+    for (uint32_t frame = 0; frame < run; ++frame) {
+        g *= state->g_step;
+        k *= state->k_step;
+        m0 += state->m0_step;
+        m1 += state->m1_step;
+        m2 += state->m2_step;
+        const float s1 = 1.0f / (1.0f + g * (g + k));
+        const float s2 = g * s1;
+        const float s3 = g * s2;
+        for (uint32_t channel = 0; channel < channels; ++channel) {
+            const size_t index = (size_t)frame * channels + channel;
+            const float x0 = (float)in[index];
+            const float ic1 = state->ic1[channel], ic2 = state->ic2[channel];
+            const float v3 = x0 - ic2;
+            const float v1 = s1 * ic1 + s2 * v3;
+            const float v2 = ic2 + s2 * ic1 + s3 * v3;
+            state->ic1[channel] = flush(2.0f * v1 - ic1);
+            state->ic2[channel] = flush(2.0f * v2 - ic2);
+            const float y0 = m0 * x0 + m1 * v1 + m2 * v2;
+            out[index] = to_s16(dry * x0 + mix * y0);
+        }
+    }
+    state->g = g;
+    state->k = k;
+    state->m0 = m0;
+    state->m1 = m1;
+    state->m2 = m2;
+    state->ramp_left -= run;
+    if (state->ramp_left == 0u) {
+        biquad_leave_svf(state, channels);
+    }
+    return run;
+}
+
 void audiodsp_biquad_f32_process_s16(const audiodsp_biquad_f32_config_t *config,
     audiodsp_biquad_f32_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {
     const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
-    const float b0 = config->b0, b1 = config->b1, b2 = config->b2;
-    const float a1 = config->a1, a2 = config->a2;
     const float mix = config->mix;
     const float dry = 1.0f - mix;
+    if (!state->primed) {
+        biquad_take(state, config);
+        state->primed = true;
+    } else if (biquad_moved(state, config)) {
+        biquad_begin_move(config, state, channels);
+    }
+    if (state->ramp_left != 0u) {
+        const uint32_t done = biquad_process_move(state, channels, dry, mix,
+            out, in, frames);
+        out += (size_t)done * channels;
+        in += (size_t)done * channels;
+        frames -= done;
+    }
+    const float b0 = config->b0, b1 = config->b1, b2 = config->b2;
+    const float a1 = config->a1, a2 = config->a2;
     for (uint32_t frame = 0; frame < frames; ++frame) {
         for (uint32_t channel = 0; channel < channels; ++channel) {
             const size_t index = (size_t)frame * channels + channel;

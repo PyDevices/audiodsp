@@ -101,7 +101,16 @@ typedef struct {
     float mix;
     // Written by audiodsp_biquad_f32_config_finish() from everything above.
     float b0, b1, b2, a1, a2;
-    // What those five were computed from, so a block that changed nothing
+    // The same section as a state-variable filter (Simper's trapezoidal
+    // SVF): the warped corner `g`, the damping `k`, and how much input, band
+    // and low output make up the response. Written beside the five, from the
+    // same double-precision algebra, and read only while a move is in
+    // progress -- see audiodsp_biquad_f32_state_t. `svf_valid` is false where
+    // the section has no SVF to speak of: at 0 Hz (g = 0) its poles sit on
+    // the unit circle and cancel against its zeros.
+    float svf_g, svf_k, svf_m0, svf_m1, svf_m2;
+    bool svf_valid;
+    // What those were computed from, so a block that changed nothing
     // does not pay for a sine, a cosine and five divisions.
     int32_t derived_mode;
     uint32_t derived_sample_rate;
@@ -139,9 +148,42 @@ typedef struct {
 // The all-pass beside this one was already transposed direct form II; the
 // biquad was the odd one out. Nothing outside audiodsp_filter_f32.c reads these
 // words -- every caller goes through state_init / reset / process.
+//
+// A coefficient move. The two words are the memory of ONE section, and they
+// do not mean the same thing under another: state a 20 kHz low-pass built,
+// read through a 20 Hz one, is a full-scale step that rings for 100 ms
+// (audiocomponents#162). So when the coefficients change, the kernel stops
+// running transposed direct form II for `AUDIODSP_BIQUAD_F32_RAMP_MS`: it
+// carries the memory over into a state-variable filter's two integrators --
+// whose words are the band and low outputs, and so mean the same thing at
+// every corner -- walks that SVF's corner and damping geometrically and its
+// output mix in a straight line to the new section, and hands the memory
+// back to direct form at the end. A move during a move starts the walk again
+// from wherever it had got to. With nothing moving, not one word of this is
+// touched and the output is the same bytes it always was.
 typedef struct {
     float s1[2], s2[2];
+    // The five in force, or being walked to. A config whose five differ is a
+    // move; the comparison is exact, so setting a value already in force is
+    // not one.
+    float b0, b1, b2, a1, a2;
+    // The SVF of the section above, kept with it: where a move starts from.
+    float svf_g, svf_k, svf_m0, svf_m1, svf_m2;
+    bool svf_valid;
+    // While a move runs: the walk's position, its per-frame steps, and the
+    // integrators. `ramp_left` frames remain.
+    float g, k, m0, m1, m2;
+    float g_step, k_step, m0_step, m1_step, m2_step;
+    float ic1[2], ic2[2];
+    uint32_t ramp_left;
+    // False until the first block, which takes the config as it stands --
+    // what the node was built with is not a move.
+    bool primed;
 } audiodsp_biquad_f32_state_t;
+
+//: How long a coefficient move takes. 20 ms, the ramp
+//: audiocomponents' docs/control-smoothing.md gives every control move.
+#define AUDIODSP_BIQUAD_F32_RAMP_MS 20u
 
 void audiodsp_biquad_f32_config_init(audiodsp_biquad_f32_config_t *config,
     uint32_t sample_rate, uint32_t channel_count);
@@ -157,7 +199,8 @@ void audiodsp_biquad_f32_config_finish(audiodsp_biquad_f32_config_t *config);
 
 void audiodsp_biquad_f32_state_init(audiodsp_biquad_f32_state_t *state);
 
-// Zeroes the recursion. Same thing as state_init; named for the bindings,
+// Zeroes the recursion and ends any move in progress: the next block takes
+// the config as it stands. Same thing as state_init; named for the bindings,
 // which offer it as `clear()` and call it from `reset_buffer`.
 void audiodsp_biquad_f32_reset(audiodsp_biquad_f32_state_t *state);
 

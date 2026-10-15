@@ -214,6 +214,12 @@ phase.play(eq)
 | read-only | `playing`, `coefficients` | `playing`, `stages`, `coefficient` |
 | latency | 0 samples | 0 samples |
 
+When a `Biquad`'s `frequency`, `Q`, `gain_db` or `mode` changes while it plays,
+it glides to the new filter over about 20 ms instead of jumping, so a preset
+change that drops the corner from 20 kHz to 20 Hz doesn't thump. A block input
+glides the same way, so an LFO on `frequency` arrives about a block late.
+`mix` still moves at once, and so does a filter that hasn't played yet.
+
 `mode` is one of `LOW_PASS`, `HIGH_PASS`, `BAND_PASS`, `NOTCH`,
 `PEAKING_EQ`, `LOW_SHELF`, `HIGH_SHELF` — numbered exactly as
 `synthio.FilterMode` numbers them, so either can be handed to either.
