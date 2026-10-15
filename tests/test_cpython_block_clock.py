@@ -112,15 +112,16 @@ class BlockClockTest(unittest.TestCase):
         self.assertMatchesSolo(renders)
 
     def test_threads_hand_off(self):
-        # An instrument built on one thread and rendered on another, then a
-        # third: its LFOs keep stepping once per render.
+        # An instrument built on one thread and rendered a block at a time on
+        # fresh threads, then the rest on one more: its LFOs keep stepping
+        # once per render, however new the thread that renders it.
         sample = build(1)
         blocks = []
 
         def run(count):
             blocks.extend(pull(sample) for _ in range(count))
 
-        for count in (BLOCKS // 3, BLOCKS // 3, BLOCKS - 2 * (BLOCKS // 3)):
+        for count in (1, 1, 1, BLOCKS - 3):
             thread = threading.Thread(target=run, args=(count,))
             thread.start()
             thread.join(60)
