@@ -29,6 +29,7 @@ its own output.
 | R13 | A Port hands back its source's own bytes and result | exact |
 | R14 | A Port re-points only to a matching source, and forwards a reset | raises / exact |
 | R15 | A mono tap's buffer is the tap's own: its next pull rewrites it | exact |
+| R16 | `Splitter.clear()` drops what nobody read, and reads nothing | exact, frame for frame |
 
 R7 is this module's form of the identity trait
 (`docs/correctness-standard.md`): an exact answer through the DSP rather than a
@@ -85,6 +86,38 @@ class Dry:
         self._left -= 1
         block = array("h", (((index * 37) % 2001) - 1000 for index in range(512)))
         return audiocore.GET_BUFFER_MORE_DATA, memoryview(block)
+
+class Counting:
+    """An audiosample handing out `frames`-frame blocks of a stereo ramp
+    that carries each frame's index, for ever, and counting its pulls."""
+
+    def __init__(self, frames, channels=2):
+        self.sample_rate = SAMPLE_RATE
+        self.bits_per_sample = 16
+        self.channel_count = channels
+        self.samples_signed = True
+        self.single_buffer = False
+        self.max_buffer_length = frames * 2 * channels
+        self._frames = frames
+        self.position = 0
+        self.pulls = 0
+
+    def _reset_buffer(self, single_channel_output=False, audio_channel=0):
+        pass
+
+    def _get_buffer(self, single_channel_output=False, audio_channel=0):
+        self.pulls += 1
+        block = array("h")
+        for frame in range(self.position, self.position + self._frames):
+            block.extend([frame % 30000] * self.channel_count)
+        self.position += self._frames
+        return audiocore.GET_BUFFER_MORE_DATA, memoryview(block)
+
+
+def first_frame(tap):
+    """The index the next block a tap hands out starts on."""
+    return array("h", bytes(audiocore.get_buffer(tap)[1]))[0]
+
 
 class SplitterTest(unittest.TestCase):
     def test_taps_may_be_named(self):
@@ -181,6 +214,53 @@ class SplitterTest(unittest.TestCase):
         first = bytes(audiocore.get_buffer(tap)[1])
         self.assertEqual(len(first), audioroute.CHUNK_FRAMES * 4)
         self.assertNotEqual(first, bytes(len(first)))
+
+    def test_clear_drops_what_nobody_read(self):
+        """R16. A graph a bypass stopped pulling comes back on new audio.
+
+        A source handing out 1000-frame buffers leaves 744 frames in the
+        ring after one 256-frame chunk per tap. Without `clear()` the taps
+        come back on frame 256, audio from before the pause; with it they
+        start on the source's next buffer, frame 1000, and the source is not
+        pulled by the clear itself.
+        """
+        for channels in (1, 2):
+            with self.subTest(channels=channels):
+                feed = Counting(1000, channels)
+                splitter = audioroute.Splitter(feed, taps=2)
+                for index in (0, 1):
+                    self.assertEqual(first_frame(splitter.tap(index)), 0)
+                self.assertEqual(feed.pulls, 1)
+                splitter.clear()
+                self.assertEqual(feed.pulls, 1)
+                for index in (0, 1):
+                    self.assertEqual(first_frame(splitter.tap(index)), 1000)
+                self.assertEqual(feed.pulls, 2)
+
+    def test_clear_drops_a_remainder_bigger_than_the_ring(self):
+        # A source buffer the ring could not take whole: the rest is held
+        # outside the ring (audiodsp#87), and clear() lets that go too.
+        feed = Counting(audioroute.RING_FRAMES + 1000)
+        splitter = audioroute.Splitter(feed, taps=1)
+        self.assertEqual(first_frame(splitter.tap(0)), 0)
+        splitter.clear()
+        self.assertEqual(first_frame(splitter.tap(0)),
+                         (audioroute.RING_FRAMES + 1000) % 30000)
+        self.assertEqual(feed.pulls, 2)
+
+    def test_clear_without_a_pull_changes_nothing(self):
+        # Nothing taken yet: the taps start on frame 0 as a fresh one does.
+        feed = Counting(1000)
+        splitter = audioroute.Splitter(feed, taps=2)
+        splitter.clear()
+        self.assertEqual(feed.pulls, 0)
+        self.assertEqual(first_frame(splitter.tap(1)), 0)
+
+    def test_clear_on_a_released_splitter_raises(self):
+        splitter = audioroute.Splitter(source(), taps=2)
+        splitter.deinit()
+        with self.assertRaises(ValueError):
+            splitter.clear()
 
     def test_a_tap_can_feed_a_dynamics(self):
         splitter = audioroute.Splitter(source(), 2)

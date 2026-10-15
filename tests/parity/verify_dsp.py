@@ -106,6 +106,9 @@ PROBES = (
     ("ladder_probe.py", "audioladder", {}, None),
     ("dynamics_extras_probe.py", "audiodynamics", {}, None),
     ("dynamics_options_probe.py", "audiodynamics", {}, None),
+    # A mono Dynamics on source buffers shorter than its block: the native
+    # builds wrote each stretch at the stereo stride.
+    ("dynamics_short_buffer_probe.py", "audiodynamics", {}, None),
     ("waveshaper_probe.py", "audioshaper", {}, None),
     # A probe of its own rather than cases appended above: one comparison
     # covers a probe's whole output, so a `SampleHold` case added to
@@ -163,6 +166,9 @@ PROBES = (
     # A mixer voice borrowing a mono tap's buffer, a looping voice over a
     # double-buffered RawSample, and a Port's pass-through (audiodsp#178).
     ("route_borrow_probe.py", "audioroute", {}, None),
+    # Splitter.clear() lets go of what the ring held and nobody read, so a
+    # graph a bypass stopped pulling comes back on new audio.
+    ("splitter_clear_probe.py", "audioroute", {}, None),
     # A host reset of a Mixer keeps its voices where they are (audiodsp#178).
     ("mixer_reset_probe.py", "audiomixer",
      {"circuitpython": "CircuitPython's own Mixer stops every voice on a "

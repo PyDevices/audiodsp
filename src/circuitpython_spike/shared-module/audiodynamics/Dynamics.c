@@ -69,8 +69,12 @@ audioio_get_buffer_result_t audiodynamics_dynamics_get_buffer(
             self->key_pending += run * self->base.channel_count;
             self->key_pending_frames -= run;
         }
+        // The block is interleaved at the node's own channel count: a stride
+        // of 2 put a mono stretch twice as far in as it belonged and left
+        // stale frames between.
         audiodsp_dynamics_process_s16_key(&self->config, &self->state,
-            &self->buffer[produced * 2], self->pending, key, run);
+            &self->buffer[produced * self->base.channel_count],
+            self->pending, key, run);
         self->pending += run * self->base.channel_count;
         self->pending_frames -= run;
         produced += run;

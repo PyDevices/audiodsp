@@ -46,6 +46,12 @@ uint32_t audiodsp_splitter_write(audiodsp_splitter_state_t *state,
     return taken;
 }
 
+void audiodsp_splitter_clear(audiodsp_splitter_state_t *state) {
+    for (uint32_t tap = 0; tap < AUDIODSP_SPLITTER_MAX_TAPS; ++tap) {
+        state->read_pos[tap] = state->write_pos;
+    }
+}
+
 uint32_t audiodsp_splitter_take(audiodsp_splitter_state_t *state, uint32_t tap,
     uint32_t *start_frame) {
     const uint32_t available = state->write_pos - state->read_pos[tap];
