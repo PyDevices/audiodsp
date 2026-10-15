@@ -11,8 +11,8 @@ of native nodes (a different chain per instrument, covering every node type
 that renders), at one of two sample rates. They are rendered alone first,
 then all at once, each on its own thread. On a build with the GIL the threads
 take turns and the test still holds them to their solo renders; on a
-free-threaded build with the GIL off they run in parallel, and the test also
-checks that importing audiodsp left the GIL off.
+free-threaded build they run in parallel, and another test checks that
+importing audiodsp leaves the GIL off.
 
 The last test breaks the contract on purpose: one thread renders a chain
 while another reconfigures the same nodes as fast as it can. What comes out
@@ -44,14 +44,17 @@ import audioverb
 import synthio
 
 FREE_THREADED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+#: Every module the wheel installs that needs nothing beyond it (audiorender
+#: needs numpy).
+MODULES = ("_audiodsp", "audiocore", "synthio", "audiomixer", "audiofilters",
+           "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics",
+           "audioroute", "audiomath", "audioecho", "audioshaper",
+           "audioladder", "audioconvolve", "audiobiquad", "audioverb",
+           "audiomodal", "audiometer", "audiopump", "audiovorbis",
+           "audiodsp_util")
 INSTRUMENTS = 16
 BLOCKS = 60
 RATES = (48000, 44100)
-
-
-def gil_enabled():
-    probe = getattr(sys, "_is_gil_enabled", None)
-    return True if probe is None else probe()
 
 
 def curve(drive):
@@ -131,11 +134,19 @@ class FreeThreadingTest(unittest.TestCase):
 
     @unittest.skipUnless(FREE_THREADED, "not a free-threaded build")
     def test_the_gil_stays_off(self):
-        # Importing every audiodsp module above must not have turned it on.
-        # Run with -X gil=0, or PYTHON_GIL=0, to hold a build to this.
-        if getattr(sys.flags, "gil", None) == 1:
-            self.skipTest("the GIL was forced on (-X gil=1)")
-        self.assertFalse(gil_enabled(), "importing audiodsp enabled the GIL")
+        # In a child interpreter that imports audiodsp's modules and nothing
+        # else, so another package that turns the GIL back on can't be
+        # mistaken for this one.
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import sys\n"
+             "for name in %r:\n"
+             "    __import__(name)\n"
+             "print(sys._is_gil_enabled())" % (MODULES,)],
+            capture_output=True, text=True, timeout=120)
+        self.assertEqual(
+            (result.returncode, result.stdout.strip()), (0, "False"),
+            "importing audiodsp enabled the GIL: %s" % result.stderr[-2000:])
 
     def test_every_instrument_renders_its_solo_bytes(self):
         renders = [None] * INSTRUMENTS
