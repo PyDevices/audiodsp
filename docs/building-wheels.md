@@ -11,10 +11,12 @@ A GitHub Release `vX.Y.Z` — matching the `VERSION` file, which is also where
 `_audiodsp.__version__` comes from — invokes the organization's reusable
 publishing workflow (the pin is the `@publishing-vN` ref in
 `.github/workflows/publish-release-packages.yml`) with
-`build-kind: native-and-wasm`. It builds and validates exactly **18** wheels:
+`build-kind: native-and-wasm`. It builds and validates exactly **24** wheels:
 
-- CPython 3.11–3.14, manylinux_2_28 x86_64, Windows AMD64, and
-  macosx_arm64 — 12.
+- CPython 3.11–3.15, plus the free-threaded 3.15t, on manylinux_2_28 x86_64,
+  Windows AMD64, and macosx_arm64 — 18. The 3.15t wheel loads with the GIL
+  turned back on: `_audiodsp` doesn't yet declare that it runs safely
+  without it.
 - CPython 3.13–3.14, Android API 21 arm64_v8a/x86_64 — 4.
 - CPython 3.13–3.14, Pyodide wasm32 — 2.
 
@@ -37,7 +39,7 @@ everything for macOS that CI can prove" — see the organization
 installs, and runs the full unit/contract/parity suite and
 `tools/validate_api.py` on `macos-latest`, and its `macos-wheels` job
 runs the same cibuildwheel the release path uses — compiling the native
-extension for CPython 3.11–3.14 and running the import smoke test in
+extension for CPython 3.11–3.15 and 3.15t and running the import smoke test in
 each wheel — on every push, publishing nothing. Hardware audio output
 on a real Mac remains **community-verified**: no Mac is on our bench,
 and a field report is what promotes that claim.

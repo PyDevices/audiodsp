@@ -84,7 +84,10 @@ jobs:
       # requires-python, so the three cp310 wheels stopped being built, and
       # this number did not follow. The first release afterwards, v0.5.0,
       # tagged and then published nothing (#122).
-      expected-wheel-count: 18
+      # 24 since 3.15 (2026-10-15): six more desktop wheels, cp315 and
+      # cp315t on each of the three desktops; Android and wasm stay at
+      # cp313/cp314 (pyproject.toml's skip list).
+      expected-wheel-count: 24
       wheel-filename-prefix: pydevices_audiodsp
       # Production PyPI too, for final releases (2026-09-23): the name
       # was parked at 0.6.0 by mirroring TestPyPI's files, and its Trusted
