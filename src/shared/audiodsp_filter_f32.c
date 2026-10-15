@@ -301,8 +301,8 @@ static void biquad_svf_observe(double g, double k, double m1, double m2,
 static void biquad_enter_svf(audiodsp_biquad_f32_state_t *state,
     uint32_t channels) {
     double rows[2][2];
-    biquad_svf_observe(state->svf_g, state->svf_k, state->svf_m1,
-        state->svf_m2, rows);
+    biquad_svf_observe((double)state->svf_g, (double)state->svf_k,
+        (double)state->svf_m1, (double)state->svf_m2, rows);
     const double det = rows[0][0] * rows[1][1] - rows[0][1] * rows[1][0];
     const double scale = (rows[0][0] * rows[0][0] + rows[0][1] * rows[0][1]) *
         (rows[1][0] * rows[1][0] + rows[1][1] * rows[1][1]);
@@ -312,7 +312,7 @@ static void biquad_enter_svf(audiodsp_biquad_f32_state_t *state,
             state->ic1[channel] = state->ic2[channel] = 0.0f;
             continue;
         }
-        const double y0 = state->s1[channel];
+        const double y0 = (double)state->s1[channel];
         const double y1 = (double)state->s2[channel] -
             (double)state->a1 * y0;
         state->ic1[channel] = flush((float)((rows[1][1] * y0 -
@@ -326,10 +326,11 @@ static void biquad_enter_svf(audiodsp_biquad_f32_state_t *state,
 static void biquad_leave_svf(audiodsp_biquad_f32_state_t *state,
     uint32_t channels) {
     double rows[2][2];
-    biquad_svf_observe(state->svf_g, state->svf_k, state->svf_m1,
-        state->svf_m2, rows);
+    biquad_svf_observe((double)state->svf_g, (double)state->svf_k,
+        (double)state->svf_m1, (double)state->svf_m2, rows);
     for (uint32_t channel = 0; channel < channels; ++channel) {
-        const double i1 = state->ic1[channel], i2 = state->ic2[channel];
+        const double i1 = (double)state->ic1[channel];
+        const double i2 = (double)state->ic2[channel];
         const double y0 = rows[0][0] * i1 + rows[0][1] * i2;
         const double y1 = rows[1][0] * i1 + rows[1][1] * i2;
         state->s1[channel] = flush((float)y0);
