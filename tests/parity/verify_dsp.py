@@ -124,6 +124,10 @@ PROBES = (
     # rendering what it rendered.
     ("convolve_state_probe.py", "audioconvolve", {}, None),
     ("filter_f32_probe.py", "audiobiquad", {}, None),
+    # Coefficients moved under a live tone, every branch of the walk
+    # (audiocomponents#162). Its own file, so the probe above keeps
+    # rendering what it rendered.
+    ("filter_f32_move_probe.py", "audiobiquad", {}, None),
     ("modal_probe.py", "audiomodal", {}, None),
     # audiometer reads levels rather than rendering PCM; the bytes it prints
     # are the comparison. Not built into CircuitPython (circuitpython.mk).

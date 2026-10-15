@@ -33,6 +33,11 @@ would not exist on a stock board. This module is the extension:
 `BlockInput` -- an `LFO`, a `Math`, or a plain number -- read once per
 processed chunk, exactly as `audiofilters.Filter` reads its own.
 
+A `Biquad` whose `frequency`, `Q`, `gain_db` or `mode` changes while it is
+playing walks to the new filter over about 20 ms rather than stepping, so a
+jump in one call does not ring its old memory through the new section at
+full scale (audiocomponents#162). `mix` is not walked.
+
 Two things this does that the ported nodes cannot:
 
 - **Silence in, silence out.** State is `float`, and any state word below

@@ -41,6 +41,10 @@ learn what is being promised.
 | B10 | `clear()` leaves the node as a freshly built one, every mode | exact |
 | B11 | A band-pass peaks at 0 dB at its own centre | 0.05 dB at and above 100 Hz; 0.15 dB at the 20-63 Hz corner |
 | B12 | Presents as a sample; a starved node yields silence, not a short block | exact |
+| B13 | A corner jumped to the bottom in one call does not slam the rail | peak under 1.35x the input; at the rail for no more than 8 frames (Notch: 64) |
+| B14 | After that jump the output settles onto the new filter's | within 64 LSB inside 75 ms |
+| B15 | A slow sweep set once a block does not zipper | curvature spike under 4 LSB |
+| B16 | Nothing moves when the coefficients do not | exact, a block at a time against one call |
 
 **B11's recorded departure is CLOSED (audiodsp#64, 2026-09-09).** It had two
 causes and only one of them was the filter. The measurement ended before the
@@ -369,6 +373,196 @@ class SurfaceTest(unittest.TestCase):
             audiocore.get_buffer(node)
             seen.add(round(node.coefficient, 6))
         self.assertGreater(len(seen), 3)
+
+
+# -- coefficient moves (audiocomponents#162) ---------------------------------
+
+RAMP_RATE = 48000
+OPT_MODE, OPT_FREQUENCY, OPT_Q = 0, 1, 2
+
+
+def _words(data):
+    return array("h", data)
+
+
+def _triangle(frames, period=200, level=32767):
+    """A triangle of `period` samples, full scale unless asked otherwise --
+    240 Hz at 48 kHz, the material audiocomponents#162 was measured on."""
+    values = array("h")
+    for frame in range(frames):
+        phase = (frame % period) / period
+        values.append(int(round(level * (4.0 * abs(phase - 0.5) - 1.0))))
+    return values
+
+
+def _kernel(mode, hz, q):
+    state = _audiodsp.BiquadF32State(sample_rate=RAMP_RATE, channel_count=1)
+    state.configure(OPT_MODE, mode)
+    state.configure(OPT_FREQUENCY, hz)
+    state.configure(OPT_Q, q)
+    state.finish()
+    return state
+
+
+def _render(state, source, moves=(), block=256):
+    """`source` through `state` a block at a time; `moves` is a list of
+    `(frame, hz)` set at the block boundary at or after `frame`, the way a
+    class's setter lands between two blocks."""
+    out = array("h")
+    pending = sorted(moves)
+    for start in range(0, len(source), block):
+        while pending and pending[0][0] <= start:
+            state.configure(OPT_FREQUENCY, pending.pop(0)[1])
+            state.finish()
+        out.extend(_words(state.process(source[start:start + block])))
+    return out
+
+
+def _longest_rail_run(values):
+    longest = run = 0
+    for value in values:
+        run = run + 1 if value >= 32767 or value <= -32768 else 0
+        longest = max(longest, run)
+    return longest
+
+
+#: The three modes audiocomponents#162 names, each at the top of its class's
+#: range and at the default resonance.
+JUMPED = ((audiobiquad.LOW_PASS, "LowPass", 20000.0),
+          (audiobiquad.BAND_PASS, "BandPass", 16000.0),
+          (audiobiquad.NOTCH, "Notch", 20000.0))
+
+
+def jump_figures(mode, top, q=0.7071067811865476, level=32767):
+    """(peak, longest run at the rail, frames to settle) after `top` -> 20 Hz.
+
+    Settling is measured against the same filter built at 20 Hz from the
+    start, which is where the output belongs once the move is over."""
+    lead, after = 4800, 14400
+    source = _triangle(lead + after, level=level)
+    moved = _render(_kernel(mode, top, q), source, [(lead, 20.0)])
+    settled = _render(_kernel(mode, 20.0, q), source)
+    tail = moved[lead:]
+    peak = max(abs(value) for value in tail)
+    last = -1
+    for index in range(len(tail)):
+        if abs(tail[index] - settled[lead + index]) > 64:
+            last = index
+    return peak, _longest_rail_run(tail), last + 1
+
+
+def sweep_spike(block=256):
+    """The worst curvature spike a slow sweep leaves on a sine.
+
+    A 1 kHz sine through a low-pass whose corner walks 2 kHz -> 500 Hz over a
+    second, set once a block. A smoothly moving filter leaves a smoothly
+    modulated sine, whose second difference is -w^2 times itself; a corner
+    that steps at a block boundary leaves a kink there. Returns the largest
+    `|d2y + w^2 y|` in LSB, past the first 0.1 s."""
+    frames = RAMP_RATE
+    w = 2 * math.pi * 1000.0 / RAMP_RATE
+    source = array("h", (int(round(20000 * math.sin(w * frame)))
+                         for frame in range(frames)))
+    moves = [(start, 2000.0 * (0.25 ** (start / frames)))
+             for start in range(0, frames, block)]
+    out = _render(_kernel(audiobiquad.LOW_PASS, 2000.0, 0.7071), source,
+                  moves, block)
+    k = (2 * math.sin(w / 2)) ** 2
+    return max(abs(out[n + 1] - 2 * out[n] + out[n - 1] + k * out[n])
+               for n in range(4800, frames - 1))
+
+
+class CoefficientMoveTest(unittest.TestCase):
+    """B13-B16: audiocomponents#162.
+
+    The kernel is transposed direct form II, and kept its state across a
+    coefficient jump: state built at 20 kHz, read through a 20 Hz filter,
+    rang at full scale -- 512 frames pinned at +32767 on the issue's
+    material, then a swing back over about 100 ms. It now moves to new
+    coefficients over about 20 ms (`AUDIODSP_BIQUAD_F32_RAMP_MS`, 1024 frames
+    at 48 kHz), and holds still when nothing moved.
+    """
+
+    def test_a_jump_to_the_bottom_does_not_slam_the_rail(self):
+        """B13. Before the fix every mode sat at the rail for 1394-1599
+        frames, on the 12000 LSB triangle as on the full-scale one.
+
+        Measured after: LowPass peaks at 11955 and BandPass at 10964 on the
+        12000 LSB triangle, neither reaching the rail at full scale. Notch
+        peaks at 15337, 1.28x, and touches the rail for 34 frames at full
+        scale: a notch walked down past the triangle's fundamental in a few
+        milliseconds swings the band output it subtracts out of phase for a
+        period or so. That is a sweep's sound, the same 1.3x from a 10 or a
+        40 ms walk, and a fraction of the thump it replaces."""
+        for mode, name, top in JUMPED:
+            for level in (12000, 32767):
+                with self.subTest(mode=name, level=level):
+                    peak, rail, _settle = jump_figures(mode, top,
+                                                       level=level)
+                    self.assertLessEqual(
+                        rail, 64 if mode == audiobiquad.NOTCH else 8)
+                    if level < 32767:
+                        self.assertLess(peak, 1.35 * level)
+
+    def test_the_jump_settles_onto_the_new_filter(self):
+        """B14. Before the fix the three took 101-103 ms; after, 54-60 ms,
+        of which the walk is 21 ms and the rest is the 20 Hz section's own
+        settling."""
+        for mode, name, top in JUMPED:
+            with self.subTest(mode=name):
+                _peak, _rail, settle = jump_figures(mode, top, level=12000)
+                self.assertLess(settle, RAMP_RATE * 75 // 1000)
+
+    def test_a_slow_sweep_does_not_zipper(self):
+        """B15. 34.8 LSB before the fix, the corner stepping once a block;
+        2.0 after, which is the int16 rounding of the material itself."""
+        self.assertLess(sweep_spike(), 4)
+
+    def test_nothing_moves_when_the_coefficients_do_not(self):
+        """B16. A block at a time with the same value set before every block
+        renders what one call renders: setting a value that is already in
+        force is not a move."""
+        source = _triangle(9600)
+        for mode, name, top in JUMPED:
+            with self.subTest(mode=name):
+                whole = _words(_kernel(mode, 1000.0, 2.0).process(source))
+                again = _render(_kernel(mode, 1000.0, 2.0), source,
+                                [(start, 1000.0)
+                                 for start in range(0, 9600, 256)])
+                self.assertEqual(whole, again)
+
+    def test_every_corner_and_q_stays_bounded(self):
+        """Jumps between the extremes at every Q the node accepts, both
+        ways, in every mode, then silence: what is left decays. Before the
+        fix a jump to 0 Hz could not: the section there has a double pole
+        on the unit circle, and state carried into it grew without end.
+
+        The material is quiet on purpose. A Q 60 section walked from 20 kHz
+        to 5 Hz across a loud triangle passes +35 dB of resonance over every
+        partial, and what it rings with is clipped at the rail for seconds:
+        decaying underneath, but a clipped output cannot show it."""
+        source = _triangle(9600, period=37, level=500)
+        for mode in range(7):
+            for q in (0.05, 0.5, 0.7071, 4.0, 16.0, 32.0, 60.0):
+                for low, high in ((20.0, 23990.0), (0.0, 1000.0),
+                                  (5.0, 20000.0)):
+                    with self.subTest(mode=mode, q=q, low=low, high=high):
+                        state = _kernel(mode, high, q)
+                        moves = [(2400, low), (4800, high), (7200, low)]
+                        _render(state, source, moves)
+                        quiet = _render(state, array("h", bytes(
+                            2 * 3 * RAMP_RATE)))
+                        window = RAMP_RATE // 2
+                        first = max(abs(v) for v in quiet[:window])
+                        last = max(abs(v) for v in quiet[-window:])
+                        # Three seconds of silence, compared a half-second
+                        # (two periods at 5 Hz) at each end. A Q 60 corner
+                        # at 5 Hz rings for seconds, so the bar is
+                        # "decaying", not "zero"; a runaway grows or sits at
+                        # the rail.
+                        self.assertTrue(last == 0 or last < first,
+                                        "silence after the moves left %d "
+                                        "then %d" % (first, last))
 
 
 if __name__ == "__main__":
