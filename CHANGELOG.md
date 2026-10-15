@@ -1,3 +1,13 @@
+## v0.6.7.dev1 (2026-10-15)
+
+- CPython extension: declare that it doesn't need the GIL (free-threaded 3.15t) (#268)
+- Retire the soundtrack render reference (#269)
+- synthio (CPython): one block clock per thread, so threads stop stepping each other's LFOs (#266)
+- CPython extension: lock each node per call, fill the meter table at load, own TankState's table items (#267)
+- Build wheels for CPython 3.15 and 3.15t (#265)
+- Biquad: spell out the float-to-double promotions in the SVF handover (#264)
+- Changelog: say what 0.6.6 carries (#263)
+
 ## v0.6.6 (2026-10-15)
 
 - The same source as v0.6.6rc9; the release candidates below list what changed since 0.6.5
