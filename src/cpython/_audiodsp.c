@@ -4052,6 +4052,14 @@ static int audiodsp_clear(PyObject *module) {
 
 static PyModuleDef_Slot audiodsp_slots[] = {
     {Py_mod_exec, audiodsp_exec},
+#ifdef Py_mod_gil
+    // A free-threaded build keeps the GIL off with this module loaded. Each
+    // node call holds its own node's critical section (AUDIODSP_LOCKED_*
+    // above) and the module's shared tables are filled at exec, so threads
+    // rendering different nodes need nothing more. One node used from two
+    // threads at once is unsupported, as it always was.
+    {Py_mod_gil, Py_MOD_GIL_NOT_USED},
+#endif
     {0, NULL},
 };
 
