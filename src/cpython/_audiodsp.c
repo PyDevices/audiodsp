@@ -43,6 +43,68 @@
 #define AUDIODSP_REVISION "unknown"
 #endif
 
+// Every method, getter, setter and __init__ of the node types below runs
+// inside a critical section on its own object. Without the GIL, a call that
+// reconfigures a node (a new curve, a new room, __init__ run again) while
+// another thread is in the middle of rendering it would free buffers the
+// render is still reading; with it, the second call waits. On a build with
+// the GIL these are no-ops (and before 3.13 they do not exist). Using one
+// node from two threads at once is still not supported: the lock keeps the
+// interpreter alive, it doesn't make the interleaving of two callers mean
+// anything.
+#ifndef Py_BEGIN_CRITICAL_SECTION
+#define Py_BEGIN_CRITICAL_SECTION(op) {
+#define Py_END_CRITICAL_SECTION() }
+#endif
+
+// Each wraps an existing implementation `name`, whose self is a `type *`, as
+// `name_locked`, which is what the type's tables point at. Every PyCFunction
+// shape a node type uses (METH_NOARGS, METH_O, METH_VARARGS) is self plus one
+// object.
+#define AUDIODSP_LOCKED_ARGS(name, type) \
+    static PyObject *name##_locked(PyObject *self, PyObject *arg) { \
+        PyObject *result; \
+        Py_BEGIN_CRITICAL_SECTION(self); \
+        result = name((type *)self, arg); \
+        Py_END_CRITICAL_SECTION(); \
+        return result; \
+    }
+#define AUDIODSP_LOCKED_KW(name, type) \
+    static PyObject *name##_locked(PyObject *self, PyObject *args, \
+        PyObject *kwargs) { \
+        PyObject *result; \
+        Py_BEGIN_CRITICAL_SECTION(self); \
+        result = name((type *)self, args, kwargs); \
+        Py_END_CRITICAL_SECTION(); \
+        return result; \
+    }
+#define AUDIODSP_LOCKED_INIT(name, type) \
+    static int name##_locked(PyObject *self, PyObject *args, \
+        PyObject *kwargs) { \
+        int result; \
+        Py_BEGIN_CRITICAL_SECTION(self); \
+        result = name((type *)self, args, kwargs); \
+        Py_END_CRITICAL_SECTION(); \
+        return result; \
+    }
+#define AUDIODSP_LOCKED_GET(name, type) \
+    static PyObject *name##_locked(PyObject *self, void *closure) { \
+        PyObject *result; \
+        Py_BEGIN_CRITICAL_SECTION(self); \
+        result = name((type *)self, closure); \
+        Py_END_CRITICAL_SECTION(); \
+        return result; \
+    }
+#define AUDIODSP_LOCKED_SET(name, type) \
+    static int name##_locked(PyObject *self, PyObject *value, \
+        void *closure) { \
+        int result; \
+        Py_BEGIN_CRITICAL_SECTION(self); \
+        result = name((type *)self, value, closure); \
+        Py_END_CRITICAL_SECTION(); \
+        return result; \
+    }
+
 typedef struct {
     PyObject *error;
     PyObject *buffer_owner_type;
@@ -138,22 +200,28 @@ static PyObject *buffer_owner_itemsize(audiodsp_buffer_owner_t *self, void *clos
     return PyLong_FromSsize_t(self->acquired ? self->view.itemsize : 0);
 }
 
+AUDIODSP_LOCKED_ARGS(buffer_owner_release, audiodsp_buffer_owner_t)
+AUDIODSP_LOCKED_ARGS(buffer_owner_bytes, audiodsp_buffer_owner_t)
 static PyMethodDef buffer_owner_methods[] = {
-    {"release", (PyCFunction)buffer_owner_release, METH_NOARGS, NULL},
-    {"bytes", (PyCFunction)buffer_owner_bytes, METH_NOARGS, NULL},
+    {"release", (PyCFunction)buffer_owner_release_locked, METH_NOARGS, NULL},
+    {"bytes", (PyCFunction)buffer_owner_bytes_locked, METH_NOARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_GET(buffer_owner_format, audiodsp_buffer_owner_t)
+AUDIODSP_LOCKED_GET(buffer_owner_nbytes, audiodsp_buffer_owner_t)
+AUDIODSP_LOCKED_GET(buffer_owner_itemsize, audiodsp_buffer_owner_t)
 static PyGetSetDef buffer_owner_getset[] = {
-    {"format", (getter)buffer_owner_format, NULL, NULL, NULL},
-    {"nbytes", (getter)buffer_owner_nbytes, NULL, NULL, NULL},
-    {"itemsize", (getter)buffer_owner_itemsize, NULL, NULL, NULL},
+    {"format", (getter)buffer_owner_format_locked, NULL, NULL, NULL},
+    {"nbytes", (getter)buffer_owner_nbytes_locked, NULL, NULL, NULL},
+    {"itemsize", (getter)buffer_owner_itemsize_locked, NULL, NULL, NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(buffer_owner_init, audiodsp_buffer_owner_t)
 static PyType_Slot buffer_owner_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, buffer_owner_init},
+    {Py_tp_init, buffer_owner_init_locked},
     {Py_tp_dealloc, buffer_owner_dealloc},
     {Py_tp_traverse, buffer_owner_traverse},
     {Py_tp_clear, buffer_owner_clear},
@@ -414,28 +482,41 @@ static PyObject *rawsample_get_max_buffer_length(
     return PyLong_FromUnsignedLong(self->info.max_buffer_length);
 }
 
+AUDIODSP_LOCKED_ARGS(rawsample_deinit, audiodsp_rawsample_object_t)
+AUDIODSP_LOCKED_KW(rawsample_reset_buffer, audiodsp_rawsample_object_t)
+AUDIODSP_LOCKED_KW(rawsample_get_buffer, audiodsp_rawsample_object_t)
+AUDIODSP_LOCKED_ARGS(rawsample_enter, audiodsp_rawsample_object_t)
+AUDIODSP_LOCKED_ARGS(rawsample_exit, audiodsp_rawsample_object_t)
 static PyMethodDef rawsample_methods[] = {
-    {"deinit", (PyCFunction)rawsample_deinit, METH_NOARGS, NULL},
-    {"_reset_buffer", (PyCFunction)rawsample_reset_buffer, METH_VARARGS | METH_KEYWORDS, NULL},
-    {"_get_buffer", (PyCFunction)rawsample_get_buffer, METH_VARARGS | METH_KEYWORDS, NULL},
-    {"__enter__", (PyCFunction)rawsample_enter, METH_NOARGS, NULL},
-    {"__exit__", (PyCFunction)rawsample_exit, METH_VARARGS, NULL},
+    {"deinit", (PyCFunction)rawsample_deinit_locked, METH_NOARGS, NULL},
+    {"_reset_buffer", (PyCFunction)rawsample_reset_buffer_locked, METH_VARARGS | METH_KEYWORDS, NULL},
+    {"_get_buffer", (PyCFunction)rawsample_get_buffer_locked, METH_VARARGS | METH_KEYWORDS, NULL},
+    {"__enter__", (PyCFunction)rawsample_enter_locked, METH_NOARGS, NULL},
+    {"__exit__", (PyCFunction)rawsample_exit_locked, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_GET(rawsample_get_sample_rate, audiodsp_rawsample_object_t)
+AUDIODSP_LOCKED_GET(rawsample_get_bits_per_sample, audiodsp_rawsample_object_t)
+AUDIODSP_LOCKED_GET(rawsample_get_channel_count, audiodsp_rawsample_object_t)
+AUDIODSP_LOCKED_GET(rawsample_get_samples_signed, audiodsp_rawsample_object_t)
+AUDIODSP_LOCKED_GET(rawsample_get_single_buffer, audiodsp_rawsample_object_t)
+AUDIODSP_LOCKED_GET(rawsample_get_max_buffer_length, audiodsp_rawsample_object_t)
+AUDIODSP_LOCKED_SET(rawsample_set_sample_rate, audiodsp_rawsample_object_t)
 static PyGetSetDef rawsample_getset[] = {
-    {"sample_rate", (getter)rawsample_get_sample_rate, (setter)rawsample_set_sample_rate, NULL, NULL},
-    {"bits_per_sample", (getter)rawsample_get_bits_per_sample, NULL, NULL, NULL},
-    {"channel_count", (getter)rawsample_get_channel_count, NULL, NULL, NULL},
-    {"samples_signed", (getter)rawsample_get_samples_signed, NULL, NULL, NULL},
-    {"single_buffer", (getter)rawsample_get_single_buffer, NULL, NULL, NULL},
-    {"max_buffer_length", (getter)rawsample_get_max_buffer_length, NULL, NULL, NULL},
+    {"sample_rate", (getter)rawsample_get_sample_rate_locked, (setter)rawsample_set_sample_rate_locked, NULL, NULL},
+    {"bits_per_sample", (getter)rawsample_get_bits_per_sample_locked, NULL, NULL, NULL},
+    {"channel_count", (getter)rawsample_get_channel_count_locked, NULL, NULL, NULL},
+    {"samples_signed", (getter)rawsample_get_samples_signed_locked, NULL, NULL, NULL},
+    {"single_buffer", (getter)rawsample_get_single_buffer_locked, NULL, NULL, NULL},
+    {"max_buffer_length", (getter)rawsample_get_max_buffer_length_locked, NULL, NULL, NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(rawsample_init, audiodsp_rawsample_object_t)
 static PyType_Slot rawsample_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, rawsample_init},
+    {Py_tp_init, rawsample_init_locked},
     {Py_tp_dealloc, rawsample_dealloc},
     {Py_tp_traverse, rawsample_traverse},
     {Py_tp_clear, rawsample_clear},
@@ -530,24 +611,31 @@ static PyObject *envelope_state_kind(audiodsp_envelope_state_object_t *self,
     return PyLong_FromLong(self->state.state);
 }
 
+AUDIODSP_LOCKED_ARGS(envelope_state_step, audiodsp_envelope_state_object_t)
+AUDIODSP_LOCKED_ARGS(envelope_state_release, audiodsp_envelope_state_object_t)
+AUDIODSP_LOCKED_ARGS(envelope_state_reattack, audiodsp_envelope_state_object_t)
+AUDIODSP_LOCKED_KW(envelope_state_set_definition, audiodsp_envelope_state_object_t)
 static PyMethodDef envelope_state_methods[] = {
-    {"step", (PyCFunction)envelope_state_step, METH_O, NULL},
-    {"release", (PyCFunction)envelope_state_release, METH_NOARGS, NULL},
-    {"reattack", (PyCFunction)envelope_state_reattack, METH_NOARGS, NULL},
-    {"set_definition", (PyCFunction)envelope_state_set_definition,
+    {"step", (PyCFunction)envelope_state_step_locked, METH_O, NULL},
+    {"release", (PyCFunction)envelope_state_release_locked, METH_NOARGS, NULL},
+    {"reattack", (PyCFunction)envelope_state_reattack_locked, METH_NOARGS, NULL},
+    {"set_definition", (PyCFunction)envelope_state_set_definition_locked,
      METH_VARARGS | METH_KEYWORDS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_GET(envelope_state_level, audiodsp_envelope_state_object_t)
+AUDIODSP_LOCKED_GET(envelope_state_kind, audiodsp_envelope_state_object_t)
 static PyGetSetDef envelope_state_getset[] = {
-    {"level", (getter)envelope_state_level, NULL, NULL, NULL},
-    {"state", (getter)envelope_state_kind, NULL, NULL, NULL},
+    {"level", (getter)envelope_state_level_locked, NULL, NULL, NULL},
+    {"state", (getter)envelope_state_kind_locked, NULL, NULL, NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(envelope_state_init, audiodsp_envelope_state_object_t)
 static PyType_Slot envelope_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, envelope_state_init},
+    {Py_tp_init, envelope_state_init_locked},
     {Py_tp_methods, envelope_state_methods},
     {Py_tp_getset, envelope_state_getset},
     {0, NULL},
@@ -673,16 +761,20 @@ static PyObject *biquad_state_process_s16(audiodsp_biquad_state_object_t *self,
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(biquad_state_reset, audiodsp_biquad_state_object_t)
+AUDIODSP_LOCKED_ARGS(biquad_state_process, audiodsp_biquad_state_object_t)
+AUDIODSP_LOCKED_ARGS(biquad_state_process_s16, audiodsp_biquad_state_object_t)
 static PyMethodDef biquad_state_methods[] = {
-    {"reset", (PyCFunction)biquad_state_reset, METH_NOARGS, NULL},
-    {"process_i32", (PyCFunction)biquad_state_process, METH_VARARGS, NULL},
-    {"process_s16", (PyCFunction)biquad_state_process_s16, METH_VARARGS, NULL},
+    {"reset", (PyCFunction)biquad_state_reset_locked, METH_NOARGS, NULL},
+    {"process_i32", (PyCFunction)biquad_state_process_locked, METH_VARARGS, NULL},
+    {"process_s16", (PyCFunction)biquad_state_process_s16_locked, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(biquad_state_init, audiodsp_biquad_state_object_t)
 static PyType_Slot biquad_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, biquad_state_init},
+    {Py_tp_init, biquad_state_init_locked},
     {Py_tp_methods, biquad_state_methods},
     {0, NULL},
 };
@@ -862,24 +954,32 @@ static PyObject *dynamics_state_get_sample_rate(
     return PyLong_FromUnsignedLong(self->config.sample_rate);
 }
 
+AUDIODSP_LOCKED_ARGS(dynamics_state_set_sample_rate, audiodsp_dynamics_object_t)
+AUDIODSP_LOCKED_ARGS(dynamics_state_configure, audiodsp_dynamics_object_t)
+AUDIODSP_LOCKED_ARGS(dynamics_state_finish, audiodsp_dynamics_object_t)
+AUDIODSP_LOCKED_ARGS(dynamics_state_reset, audiodsp_dynamics_object_t)
+AUDIODSP_LOCKED_ARGS(dynamics_state_process, audiodsp_dynamics_object_t)
 static PyMethodDef dynamics_state_methods[] = {
-    {"set_sample_rate", (PyCFunction)dynamics_state_set_sample_rate, METH_O, NULL},
-    {"configure", (PyCFunction)dynamics_state_configure, METH_VARARGS, NULL},
-    {"finish", (PyCFunction)dynamics_state_finish, METH_NOARGS, NULL},
-    {"reset", (PyCFunction)dynamics_state_reset, METH_NOARGS, NULL},
-    {"process", (PyCFunction)dynamics_state_process, METH_VARARGS, NULL},
+    {"set_sample_rate", (PyCFunction)dynamics_state_set_sample_rate_locked, METH_O, NULL},
+    {"configure", (PyCFunction)dynamics_state_configure_locked, METH_VARARGS, NULL},
+    {"finish", (PyCFunction)dynamics_state_finish_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)dynamics_state_reset_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)dynamics_state_process_locked, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_GET(dynamics_state_gain_reduction_db, audiodsp_dynamics_object_t)
+AUDIODSP_LOCKED_GET(dynamics_state_get_sample_rate, audiodsp_dynamics_object_t)
 static PyGetSetDef dynamics_state_getset[] = {
-    {"gain_reduction_db", (getter)dynamics_state_gain_reduction_db, NULL, NULL, NULL},
-    {"sample_rate", (getter)dynamics_state_get_sample_rate, NULL, NULL, NULL},
+    {"gain_reduction_db", (getter)dynamics_state_gain_reduction_db_locked, NULL, NULL, NULL},
+    {"sample_rate", (getter)dynamics_state_get_sample_rate_locked, NULL, NULL, NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(dynamics_state_init, audiodsp_dynamics_object_t)
 static PyType_Slot dynamics_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, dynamics_state_init},
+    {Py_tp_init, dynamics_state_init_locked},
     {Py_tp_dealloc, dynamics_state_dealloc},
     {Py_tp_methods, dynamics_state_methods},
     {Py_tp_getset, dynamics_state_getset},
@@ -983,17 +1083,22 @@ static PyObject *splitter_ring_clear(audiodsp_splitter_object_t *self,
     Py_RETURN_NONE;
 }
 
+AUDIODSP_LOCKED_ARGS(splitter_ring_write, audiodsp_splitter_object_t)
+AUDIODSP_LOCKED_ARGS(splitter_ring_starved, audiodsp_splitter_object_t)
+AUDIODSP_LOCKED_ARGS(splitter_ring_take, audiodsp_splitter_object_t)
+AUDIODSP_LOCKED_ARGS(splitter_ring_clear, audiodsp_splitter_object_t)
 static PyMethodDef splitter_ring_methods[] = {
-    {"write", (PyCFunction)splitter_ring_write, METH_O, NULL},
-    {"starved", (PyCFunction)splitter_ring_starved, METH_O, NULL},
-    {"take", (PyCFunction)splitter_ring_take, METH_O, NULL},
-    {"clear", (PyCFunction)splitter_ring_clear, METH_NOARGS, NULL},
+    {"write", (PyCFunction)splitter_ring_write_locked, METH_O, NULL},
+    {"starved", (PyCFunction)splitter_ring_starved_locked, METH_O, NULL},
+    {"take", (PyCFunction)splitter_ring_take_locked, METH_O, NULL},
+    {"clear", (PyCFunction)splitter_ring_clear_locked, METH_NOARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(splitter_ring_init, audiodsp_splitter_object_t)
 static PyType_Slot splitter_ring_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, splitter_ring_init},
+    {Py_tp_init, splitter_ring_init_locked},
     {Py_tp_methods, splitter_ring_methods},
     {0, NULL},
 };
@@ -1205,19 +1310,26 @@ static PyObject *feedback_delay_state_process_silence(
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(feedback_delay_state_configure, audiodsp_feedback_delay_object_t)
+AUDIODSP_LOCKED_ARGS(feedback_delay_state_wow_shape, audiodsp_feedback_delay_object_t)
+AUDIODSP_LOCKED_ARGS(feedback_delay_state_finish, audiodsp_feedback_delay_object_t)
+AUDIODSP_LOCKED_ARGS(feedback_delay_state_reset, audiodsp_feedback_delay_object_t)
+AUDIODSP_LOCKED_ARGS(feedback_delay_state_process, audiodsp_feedback_delay_object_t)
+AUDIODSP_LOCKED_ARGS(feedback_delay_state_process_silence, audiodsp_feedback_delay_object_t)
 static PyMethodDef feedback_delay_state_methods[] = {
-    {"configure", (PyCFunction)feedback_delay_state_configure, METH_VARARGS, NULL},
-    {"set_wow_shape", (PyCFunction)feedback_delay_state_wow_shape, METH_O, NULL},
-    {"finish", (PyCFunction)feedback_delay_state_finish, METH_NOARGS, NULL},
-    {"reset", (PyCFunction)feedback_delay_state_reset, METH_NOARGS, NULL},
-    {"process", (PyCFunction)feedback_delay_state_process, METH_O, NULL},
-    {"process_silence", (PyCFunction)feedback_delay_state_process_silence, METH_O, NULL},
+    {"configure", (PyCFunction)feedback_delay_state_configure_locked, METH_VARARGS, NULL},
+    {"set_wow_shape", (PyCFunction)feedback_delay_state_wow_shape_locked, METH_O, NULL},
+    {"finish", (PyCFunction)feedback_delay_state_finish_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)feedback_delay_state_reset_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)feedback_delay_state_process_locked, METH_O, NULL},
+    {"process_silence", (PyCFunction)feedback_delay_state_process_silence_locked, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(feedback_delay_state_init, audiodsp_feedback_delay_object_t)
 static PyType_Slot feedback_delay_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, feedback_delay_state_init},
+    {Py_tp_init, feedback_delay_state_init_locked},
     {Py_tp_dealloc, feedback_delay_state_dealloc},
     {Py_tp_methods, feedback_delay_state_methods},
     {0, NULL},
@@ -1326,18 +1438,24 @@ static PyObject *biquad_f32_state_process(audiodsp_biquad_f32_object_t *self,
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(biquad_f32_state_configure, audiodsp_biquad_f32_object_t)
+AUDIODSP_LOCKED_ARGS(biquad_f32_state_finish, audiodsp_biquad_f32_object_t)
+AUDIODSP_LOCKED_ARGS(biquad_f32_state_reset, audiodsp_biquad_f32_object_t)
+AUDIODSP_LOCKED_ARGS(biquad_f32_state_coefficients, audiodsp_biquad_f32_object_t)
+AUDIODSP_LOCKED_ARGS(biquad_f32_state_process, audiodsp_biquad_f32_object_t)
 static PyMethodDef biquad_f32_state_methods[] = {
-    {"configure", (PyCFunction)biquad_f32_state_configure, METH_VARARGS, NULL},
-    {"finish", (PyCFunction)biquad_f32_state_finish, METH_NOARGS, NULL},
-    {"reset", (PyCFunction)biquad_f32_state_reset, METH_NOARGS, NULL},
-    {"coefficients", (PyCFunction)biquad_f32_state_coefficients, METH_NOARGS, NULL},
-    {"process", (PyCFunction)biquad_f32_state_process, METH_O, NULL},
+    {"configure", (PyCFunction)biquad_f32_state_configure_locked, METH_VARARGS, NULL},
+    {"finish", (PyCFunction)biquad_f32_state_finish_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)biquad_f32_state_reset_locked, METH_NOARGS, NULL},
+    {"coefficients", (PyCFunction)biquad_f32_state_coefficients_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)biquad_f32_state_process_locked, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(biquad_f32_state_init, audiodsp_biquad_f32_object_t)
 static PyType_Slot biquad_f32_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, biquad_f32_state_init},
+    {Py_tp_init, biquad_f32_state_init_locked},
     {Py_tp_methods, biquad_f32_state_methods},
     {0, NULL},
 };
@@ -1456,18 +1574,24 @@ static PyObject *allpass_f32_state_process(
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(allpass_f32_state_configure, audiodsp_allpass_f32_object_t)
+AUDIODSP_LOCKED_ARGS(allpass_f32_state_finish, audiodsp_allpass_f32_object_t)
+AUDIODSP_LOCKED_ARGS(allpass_f32_state_reset, audiodsp_allpass_f32_object_t)
+AUDIODSP_LOCKED_ARGS(allpass_f32_state_coefficient, audiodsp_allpass_f32_object_t)
+AUDIODSP_LOCKED_ARGS(allpass_f32_state_process, audiodsp_allpass_f32_object_t)
 static PyMethodDef allpass_f32_state_methods[] = {
-    {"configure", (PyCFunction)allpass_f32_state_configure, METH_VARARGS, NULL},
-    {"finish", (PyCFunction)allpass_f32_state_finish, METH_NOARGS, NULL},
-    {"reset", (PyCFunction)allpass_f32_state_reset, METH_NOARGS, NULL},
-    {"coefficient", (PyCFunction)allpass_f32_state_coefficient, METH_NOARGS, NULL},
-    {"process", (PyCFunction)allpass_f32_state_process, METH_O, NULL},
+    {"configure", (PyCFunction)allpass_f32_state_configure_locked, METH_VARARGS, NULL},
+    {"finish", (PyCFunction)allpass_f32_state_finish_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)allpass_f32_state_reset_locked, METH_NOARGS, NULL},
+    {"coefficient", (PyCFunction)allpass_f32_state_coefficient_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)allpass_f32_state_process_locked, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(allpass_f32_state_init, audiodsp_allpass_f32_object_t)
 static PyType_Slot allpass_f32_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, allpass_f32_state_init},
+    {Py_tp_init, allpass_f32_state_init_locked},
     {Py_tp_dealloc, allpass_f32_state_dealloc},
     {Py_tp_methods, allpass_f32_state_methods},
     {0, NULL},
@@ -1612,19 +1736,26 @@ static PyObject *waveshaper_state_process(audiodsp_shaper_object_t *self,
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(waveshaper_state_load_curve, audiodsp_shaper_object_t)
+AUDIODSP_LOCKED_ARGS(waveshaper_state_configure, audiodsp_shaper_object_t)
+AUDIODSP_LOCKED_ARGS(waveshaper_state_finish, audiodsp_shaper_object_t)
+AUDIODSP_LOCKED_ARGS(waveshaper_state_reset, audiodsp_shaper_object_t)
+AUDIODSP_LOCKED_ARGS(waveshaper_state_recentre, audiodsp_shaper_object_t)
+AUDIODSP_LOCKED_ARGS(waveshaper_state_process, audiodsp_shaper_object_t)
 static PyMethodDef waveshaper_state_methods[] = {
-    {"load_curve", (PyCFunction)waveshaper_state_load_curve, METH_O, NULL},
-    {"configure", (PyCFunction)waveshaper_state_configure, METH_VARARGS, NULL},
-    {"finish", (PyCFunction)waveshaper_state_finish, METH_NOARGS, NULL},
-    {"reset", (PyCFunction)waveshaper_state_reset, METH_NOARGS, NULL},
-    {"recentre", (PyCFunction)waveshaper_state_recentre, METH_NOARGS, NULL},
-    {"process", (PyCFunction)waveshaper_state_process, METH_O, NULL},
+    {"load_curve", (PyCFunction)waveshaper_state_load_curve_locked, METH_O, NULL},
+    {"configure", (PyCFunction)waveshaper_state_configure_locked, METH_VARARGS, NULL},
+    {"finish", (PyCFunction)waveshaper_state_finish_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)waveshaper_state_reset_locked, METH_NOARGS, NULL},
+    {"recentre", (PyCFunction)waveshaper_state_recentre_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)waveshaper_state_process_locked, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(waveshaper_state_init, audiodsp_shaper_object_t)
 static PyType_Slot waveshaper_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, waveshaper_state_init},
+    {Py_tp_init, waveshaper_state_init_locked},
     {Py_tp_dealloc, waveshaper_state_dealloc},
     {Py_tp_methods, waveshaper_state_methods},
     {0, NULL},
@@ -1731,17 +1862,22 @@ static PyObject *samplehold_state_process(audiodsp_samplehold_object_t *self,
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(samplehold_state_configure, audiodsp_samplehold_object_t)
+AUDIODSP_LOCKED_ARGS(samplehold_state_ratio, audiodsp_samplehold_object_t)
+AUDIODSP_LOCKED_ARGS(samplehold_state_reset, audiodsp_samplehold_object_t)
+AUDIODSP_LOCKED_ARGS(samplehold_state_process, audiodsp_samplehold_object_t)
 static PyMethodDef samplehold_state_methods[] = {
-    {"configure", (PyCFunction)samplehold_state_configure, METH_VARARGS, NULL},
-    {"ratio", (PyCFunction)samplehold_state_ratio, METH_NOARGS, NULL},
-    {"reset", (PyCFunction)samplehold_state_reset, METH_NOARGS, NULL},
-    {"process", (PyCFunction)samplehold_state_process, METH_VARARGS, NULL},
+    {"configure", (PyCFunction)samplehold_state_configure_locked, METH_VARARGS, NULL},
+    {"ratio", (PyCFunction)samplehold_state_ratio_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)samplehold_state_reset_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)samplehold_state_process_locked, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(samplehold_state_init, audiodsp_samplehold_object_t)
 static PyType_Slot samplehold_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, samplehold_state_init},
+    {Py_tp_init, samplehold_state_init_locked},
     {Py_tp_dealloc, samplehold_state_dealloc},
     {Py_tp_methods, samplehold_state_methods},
     {0, NULL},
@@ -1835,17 +1971,22 @@ static PyObject *ladder_state_process(audiodsp_ladder_object_t *self,
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(ladder_state_configure, audiodsp_ladder_object_t)
+AUDIODSP_LOCKED_ARGS(ladder_state_finish, audiodsp_ladder_object_t)
+AUDIODSP_LOCKED_ARGS(ladder_state_reset, audiodsp_ladder_object_t)
+AUDIODSP_LOCKED_ARGS(ladder_state_process, audiodsp_ladder_object_t)
 static PyMethodDef ladder_state_methods[] = {
-    {"configure", (PyCFunction)ladder_state_configure, METH_VARARGS, NULL},
-    {"finish", (PyCFunction)ladder_state_finish, METH_NOARGS, NULL},
-    {"reset", (PyCFunction)ladder_state_reset, METH_NOARGS, NULL},
-    {"process", (PyCFunction)ladder_state_process, METH_O, NULL},
+    {"configure", (PyCFunction)ladder_state_configure_locked, METH_VARARGS, NULL},
+    {"finish", (PyCFunction)ladder_state_finish_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)ladder_state_reset_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)ladder_state_process_locked, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(ladder_state_init, audiodsp_ladder_object_t)
 static PyType_Slot ladder_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, ladder_state_init},
+    {Py_tp_init, ladder_state_init_locked},
     {Py_tp_methods, ladder_state_methods},
     {0, NULL},
 };
@@ -1899,9 +2040,17 @@ static int tank_state_status(audiodsp_tank_status_t status) {
 
 static int tank_state_floats(PyObject *sequence, float *out, uint32_t limit,
     uint32_t *count) {
-    PyObject *fast = PySequence_Fast(sequence, "expected a sequence of numbers");
-    if (fast == NULL) return -1;
-    const Py_ssize_t length = PySequence_Fast_GET_SIZE(fast);
+    // A tuple, not PySequence_Fast: a list's items would be borrowed, and
+    // PyFloat_AsDouble can run an item's __float__, which may change the
+    // list (or another thread may) and free the item being read.
+    PyObject *fast = PySequence_Tuple(sequence);
+    if (fast == NULL) {
+        if (PyErr_ExceptionMatches(PyExc_TypeError)) {
+            PyErr_SetString(PyExc_TypeError, "expected a sequence of numbers");
+        }
+        return -1;
+    }
+    const Py_ssize_t length = PyTuple_GET_SIZE(fast);
     if ((uint32_t)length > limit) {
         Py_DECREF(fast);
         PyErr_SetString(PyExc_ValueError, "too many values");
@@ -1909,7 +2058,7 @@ static int tank_state_floats(PyObject *sequence, float *out, uint32_t limit,
     }
     for (Py_ssize_t index = 0; index < length; ++index) {
         const double value =
-            PyFloat_AsDouble(PySequence_Fast_GET_ITEM(fast, index));
+            PyFloat_AsDouble(PyTuple_GET_ITEM(fast, index));
         if (value == -1.0 && PyErr_Occurred()) {
             Py_DECREF(fast);
             return -1;
@@ -2101,19 +2250,26 @@ static PyObject *tank_state_process_silence(
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(tank_state_configure, audiodsp_tank_object_t)
+AUDIODSP_LOCKED_ARGS(tank_state_finish, audiodsp_tank_object_t)
+AUDIODSP_LOCKED_ARGS(tank_state_reset, audiodsp_tank_object_t)
+AUDIODSP_LOCKED_ARGS(tank_state_recut, audiodsp_tank_object_t)
+AUDIODSP_LOCKED_ARGS(tank_state_process, audiodsp_tank_object_t)
+AUDIODSP_LOCKED_ARGS(tank_state_process_silence, audiodsp_tank_object_t)
 static PyMethodDef tank_state_methods[] = {
-    {"configure", (PyCFunction)tank_state_configure, METH_VARARGS, NULL},
-    {"finish", (PyCFunction)tank_state_finish, METH_NOARGS, NULL},
-    {"reset", (PyCFunction)tank_state_reset, METH_NOARGS, NULL},
-    {"recut", (PyCFunction)tank_state_recut, METH_VARARGS, NULL},
-    {"process", (PyCFunction)tank_state_process, METH_O, NULL},
-    {"process_silence", (PyCFunction)tank_state_process_silence, METH_O, NULL},
+    {"configure", (PyCFunction)tank_state_configure_locked, METH_VARARGS, NULL},
+    {"finish", (PyCFunction)tank_state_finish_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)tank_state_reset_locked, METH_NOARGS, NULL},
+    {"recut", (PyCFunction)tank_state_recut_locked, METH_VARARGS, NULL},
+    {"process", (PyCFunction)tank_state_process_locked, METH_O, NULL},
+    {"process_silence", (PyCFunction)tank_state_process_silence_locked, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(tank_state_init, audiodsp_tank_object_t)
 static PyType_Slot tank_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, tank_state_init},
+    {Py_tp_init, tank_state_init_locked},
     {Py_tp_dealloc, tank_state_dealloc},
     {Py_tp_methods, tank_state_methods},
     {0, NULL},
@@ -2264,19 +2420,26 @@ static PyObject *modal_state_process(audiodsp_modal_object_t *self,
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(modal_state_configure, audiodsp_modal_object_t)
+AUDIODSP_LOCKED_ARGS(modal_state_set_mode, audiodsp_modal_object_t)
+AUDIODSP_LOCKED_ARGS(modal_state_finish, audiodsp_modal_object_t)
+AUDIODSP_LOCKED_ARGS(modal_state_reset, audiodsp_modal_object_t)
+AUDIODSP_LOCKED_ARGS(modal_state_silent, audiodsp_modal_object_t)
+AUDIODSP_LOCKED_ARGS(modal_state_process, audiodsp_modal_object_t)
 static PyMethodDef modal_state_methods[] = {
-    {"configure", (PyCFunction)modal_state_configure, METH_VARARGS, NULL},
-    {"set_mode", (PyCFunction)modal_state_set_mode, METH_VARARGS, NULL},
-    {"finish", (PyCFunction)modal_state_finish, METH_NOARGS, NULL},
-    {"reset", (PyCFunction)modal_state_reset, METH_NOARGS, NULL},
-    {"silent", (PyCFunction)modal_state_silent, METH_NOARGS, NULL},
-    {"process", (PyCFunction)modal_state_process, METH_O, NULL},
+    {"configure", (PyCFunction)modal_state_configure_locked, METH_VARARGS, NULL},
+    {"set_mode", (PyCFunction)modal_state_set_mode_locked, METH_VARARGS, NULL},
+    {"finish", (PyCFunction)modal_state_finish_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)modal_state_reset_locked, METH_NOARGS, NULL},
+    {"silent", (PyCFunction)modal_state_silent_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)modal_state_process_locked, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(modal_state_init, audiodsp_modal_object_t)
 static PyType_Slot modal_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, modal_state_init},
+    {Py_tp_init, modal_state_init_locked},
     {Py_tp_dealloc, modal_state_dealloc},
     {Py_tp_methods, modal_state_methods},
     {0, NULL},
@@ -2554,22 +2717,32 @@ static PyObject *convolver_state_process_silence(
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(convolver_state_configure, audiodsp_convolver_object_t)
+AUDIODSP_LOCKED_ARGS(convolver_state_load, audiodsp_convolver_object_t)
+AUDIODSP_LOCKED_ARGS(convolver_state_synthesize, audiodsp_convolver_object_t)
+AUDIODSP_LOCKED_ARGS(convolver_state_room_peak, audiodsp_convolver_object_t)
+AUDIODSP_LOCKED_ARGS(convolver_state_reset, audiodsp_convolver_object_t)
+AUDIODSP_LOCKED_ARGS(convolver_state_taps, audiodsp_convolver_object_t)
+AUDIODSP_LOCKED_ARGS(convolver_state_peak_gain, audiodsp_convolver_object_t)
+AUDIODSP_LOCKED_ARGS(convolver_state_process, audiodsp_convolver_object_t)
+AUDIODSP_LOCKED_ARGS(convolver_state_process_silence, audiodsp_convolver_object_t)
 static PyMethodDef convolver_state_methods[] = {
-    {"configure", (PyCFunction)convolver_state_configure, METH_VARARGS, NULL},
-    {"load", (PyCFunction)convolver_state_load, METH_VARARGS, NULL},
-    {"synthesize", (PyCFunction)convolver_state_synthesize, METH_VARARGS, NULL},
-    {"room_peak", (PyCFunction)convolver_state_room_peak, METH_VARARGS, NULL},
-    {"reset", (PyCFunction)convolver_state_reset, METH_NOARGS, NULL},
-    {"taps", (PyCFunction)convolver_state_taps, METH_NOARGS, NULL},
-    {"peak_gain", (PyCFunction)convolver_state_peak_gain, METH_NOARGS, NULL},
-    {"process", (PyCFunction)convolver_state_process, METH_O, NULL},
-    {"process_silence", (PyCFunction)convolver_state_process_silence, METH_O, NULL},
+    {"configure", (PyCFunction)convolver_state_configure_locked, METH_VARARGS, NULL},
+    {"load", (PyCFunction)convolver_state_load_locked, METH_VARARGS, NULL},
+    {"synthesize", (PyCFunction)convolver_state_synthesize_locked, METH_VARARGS, NULL},
+    {"room_peak", (PyCFunction)convolver_state_room_peak_locked, METH_VARARGS, NULL},
+    {"reset", (PyCFunction)convolver_state_reset_locked, METH_NOARGS, NULL},
+    {"taps", (PyCFunction)convolver_state_taps_locked, METH_NOARGS, NULL},
+    {"peak_gain", (PyCFunction)convolver_state_peak_gain_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)convolver_state_process_locked, METH_O, NULL},
+    {"process_silence", (PyCFunction)convolver_state_process_silence_locked, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(convolver_state_init, audiodsp_convolver_object_t)
 static PyType_Slot convolver_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, convolver_state_init},
+    {Py_tp_init, convolver_state_init_locked},
     {Py_tp_dealloc, convolver_state_dealloc},
     {Py_tp_methods, convolver_state_methods},
     {0, NULL},
@@ -2654,17 +2827,22 @@ static PyObject *meter_state_stats(audiodsp_meter_object_t *self, PyObject *unus
         (unsigned long long)st.elapsed_us);
 }
 
+AUDIODSP_LOCKED_ARGS(meter_state_configure, audiodsp_meter_object_t)
+AUDIODSP_LOCKED_ARGS(meter_state_feed, audiodsp_meter_object_t)
+AUDIODSP_LOCKED_ARGS(meter_state_read, audiodsp_meter_object_t)
+AUDIODSP_LOCKED_ARGS(meter_state_stats, audiodsp_meter_object_t)
 static PyMethodDef meter_state_methods[] = {
-    {"configure", (PyCFunction)meter_state_configure, METH_VARARGS, NULL},
-    {"feed", (PyCFunction)meter_state_feed, METH_VARARGS, NULL},
-    {"read", (PyCFunction)meter_state_read, METH_NOARGS, NULL},
-    {"stats", (PyCFunction)meter_state_stats, METH_NOARGS, NULL},
+    {"configure", (PyCFunction)meter_state_configure_locked, METH_VARARGS, NULL},
+    {"feed", (PyCFunction)meter_state_feed_locked, METH_VARARGS, NULL},
+    {"read", (PyCFunction)meter_state_read_locked, METH_NOARGS, NULL},
+    {"stats", (PyCFunction)meter_state_stats_locked, METH_NOARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(meter_state_init, audiodsp_meter_object_t)
 static PyType_Slot meter_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, meter_state_init},
+    {Py_tp_init, meter_state_init_locked},
     {Py_tp_dealloc, meter_state_dealloc},
     {Py_tp_methods, meter_state_methods},
     {0, NULL},
@@ -2882,17 +3060,22 @@ static PyObject *vorbis_stream_close(audiodsp_vorbis_object_t *self, PyObject *u
     Py_RETURN_NONE;
 }
 
+AUDIODSP_LOCKED_ARGS(vorbis_stream_info, audiodsp_vorbis_object_t)
+AUDIODSP_LOCKED_ARGS(vorbis_stream_read, audiodsp_vorbis_object_t)
+AUDIODSP_LOCKED_ARGS(vorbis_stream_seek, audiodsp_vorbis_object_t)
+AUDIODSP_LOCKED_ARGS(vorbis_stream_close, audiodsp_vorbis_object_t)
 static PyMethodDef vorbis_stream_methods[] = {
-    {"info", (PyCFunction)vorbis_stream_info, METH_NOARGS, NULL},
-    {"read", (PyCFunction)vorbis_stream_read, METH_VARARGS, NULL},
-    {"seek", (PyCFunction)vorbis_stream_seek, METH_VARARGS, NULL},
-    {"close", (PyCFunction)vorbis_stream_close, METH_NOARGS, NULL},
+    {"info", (PyCFunction)vorbis_stream_info_locked, METH_NOARGS, NULL},
+    {"read", (PyCFunction)vorbis_stream_read_locked, METH_VARARGS, NULL},
+    {"seek", (PyCFunction)vorbis_stream_seek_locked, METH_VARARGS, NULL},
+    {"close", (PyCFunction)vorbis_stream_close_locked, METH_NOARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(vorbis_stream_init, audiodsp_vorbis_object_t)
 static PyType_Slot vorbis_stream_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, vorbis_stream_init},
+    {Py_tp_init, vorbis_stream_init_locked},
     {Py_tp_dealloc, vorbis_stream_dealloc},
     {Py_tp_methods, vorbis_stream_methods},
     {0, NULL},
@@ -3121,17 +3304,22 @@ static PyObject *suboctave_state_process(audiodsp_suboctave_object_t *self,
     return result;
 }
 
+AUDIODSP_LOCKED_ARGS(suboctave_state_configure, audiodsp_suboctave_object_t)
+AUDIODSP_LOCKED_ARGS(suboctave_state_finish, audiodsp_suboctave_object_t)
+AUDIODSP_LOCKED_ARGS(suboctave_state_reset, audiodsp_suboctave_object_t)
+AUDIODSP_LOCKED_ARGS(suboctave_state_process, audiodsp_suboctave_object_t)
 static PyMethodDef suboctave_state_methods[] = {
-    {"configure", (PyCFunction)suboctave_state_configure, METH_VARARGS, NULL},
-    {"finish", (PyCFunction)suboctave_state_finish, METH_NOARGS, NULL},
-    {"reset", (PyCFunction)suboctave_state_reset, METH_NOARGS, NULL},
-    {"process", (PyCFunction)suboctave_state_process, METH_O, NULL},
+    {"configure", (PyCFunction)suboctave_state_configure_locked, METH_VARARGS, NULL},
+    {"finish", (PyCFunction)suboctave_state_finish_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)suboctave_state_reset_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)suboctave_state_process_locked, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
 
+AUDIODSP_LOCKED_INIT(suboctave_state_init, audiodsp_suboctave_object_t)
 static PyType_Slot suboctave_state_slots[] = {
     {Py_tp_new, PyType_GenericNew},
-    {Py_tp_init, suboctave_state_init},
+    {Py_tp_init, suboctave_state_init_locked},
     {Py_tp_methods, suboctave_state_methods},
     {0, NULL},
 };
@@ -3668,6 +3856,9 @@ static PyMethodDef audiodsp_methods[] = {
 
 static int audiodsp_exec(PyObject *module) {
     audiodsp_state_t *state = PyModule_GetState(module);
+    // Before any thread can meter: the shared level table is otherwise filled
+    // on first use, unguarded.
+    audiodsp_meter_init();
     state->buffer_owner_type = PyType_FromModuleAndSpec(module, &buffer_owner_spec, NULL);
     if (state->buffer_owner_type == NULL) return -1;
     if (PyModule_AddObjectRef(module, "BufferOwner", state->buffer_owner_type) < 0) return -1;
