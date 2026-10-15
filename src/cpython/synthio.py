@@ -3,7 +3,9 @@
 from array import array
 from collections import namedtuple
 from enum import Enum
+import itertools
 import math
+import threading
 
 import _audiodsp
 from audiocore import GET_BUFFER_MORE_DATA, _AudioSample
@@ -13,8 +15,28 @@ _DEFAULT_WAVEFORM = array("h", (-32768, 32767))
 _MIDI_BASE_FREQUENCIES = (8372, 8870, 9397, 9956, 10548, 11175, 11840,
                           12544, 13290, 14080, 14917, 15804)
 _DEFAULT_LFO_WAVEFORM = array("h", (0, 32767, 0, -32767))
-_BLOCK_TICK = 0
-_BLOCK_SECONDS = 0.0
+_EPOCHS = itertools.count()
+
+
+class _BlockClock(threading.local):
+    """The block clock of the render in progress on this thread.
+
+    Each render (a synthesizer's block, an effect's block) advances it, and
+    every LFO and Math block it evaluates reads it: `tick` says whether a block
+    has already stepped this render, `seconds` how far a step goes. It was one
+    value for the whole process, as CircuitPython's is; that let synthesizers
+    rendering on different threads step each other's LFOs. One thread renders
+    one block at a time, so within a thread nothing changes, nested renders
+    included. Each thread's ticks start in their own range, so a block handed
+    from one thread to another never sees a tick it has already stepped on.
+    """
+
+    def __init__(self):
+        self.tick = next(_EPOCHS) << 40
+        self.seconds = 0.0
+
+
+_CLOCK = _BlockClock()
 
 
 class _CircuitEnum(Enum):
@@ -82,14 +104,14 @@ def _value(value):
         return 0.0
     evaluator = getattr(value, "_evaluate", None)
     if evaluator is not None:
-        return float(evaluator(_BLOCK_TICK))
+        return float(evaluator(_CLOCK.tick))
     return float(value.value if hasattr(value, "value") else value)
 
 
 def _advance_blocks(sample_rate, sample_count=256):
-    global _BLOCK_TICK, _BLOCK_SECONDS
-    _BLOCK_TICK += 1
-    _BLOCK_SECONDS = sample_count / sample_rate
+    clock = _CLOCK
+    clock.tick += 1
+    clock.seconds = sample_count / sample_rate
 
 
 class Math:
@@ -148,7 +170,6 @@ class Math:
 
 class LFO:
     def __init__(self, waveform=None, *, rate=1, scale=1, offset=0, phase_offset=0, once=False, interpolate=True):
-        global _BLOCK_SECONDS
         self.waveform = waveform
         self.rate, self.scale, self.offset = rate, scale, offset
         self.phase_offset = phase_offset
@@ -156,8 +177,8 @@ class LFO:
         self._phase = 0.0
         self._last_tick = -1
         self._cached_value = 0.0
-        _BLOCK_SECONDS = 0.0
-        self._evaluate(_BLOCK_TICK)
+        _CLOCK.seconds = 0.0
+        self._evaluate(_CLOCK.tick)
 
     @property
     def value(self):
@@ -170,7 +191,7 @@ class LFO:
     def _evaluate(self, tick):
         if self._last_tick == tick:
             return self._cached_value
-        rate = _value(self.rate) * _BLOCK_SECONDS
+        rate = _value(self.rate) * _CLOCK.seconds
         phase_offset = _value(self.phase_offset)
         phase = self._phase + rate + phase_offset
         if self.once:
@@ -193,10 +214,10 @@ class LFO:
         return result
 
     def _tick(self, seconds=1 / 48000):
-        global _BLOCK_TICK, _BLOCK_SECONDS
-        _BLOCK_TICK += 1
-        _BLOCK_SECONDS = seconds
-        return self._evaluate(_BLOCK_TICK)
+        clock = _CLOCK
+        clock.tick += 1
+        clock.seconds = seconds
+        return self._evaluate(clock.tick)
 
     def retrigger(self):
         self._phase = 0.0

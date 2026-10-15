@@ -13,8 +13,8 @@ def _value(value):
     if evaluator is not None:
         # Import lazily: synthio imports audiocore and effects may in turn
         # be imported while applications are assembling their graph.
-        from synthio import _BLOCK_TICK
-        return float(evaluator(_BLOCK_TICK))
+        from synthio import _CLOCK
+        return float(evaluator(_CLOCK.tick))
     return float(value.value if hasattr(value, "value") else value)
 
 
