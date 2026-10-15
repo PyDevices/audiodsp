@@ -82,7 +82,10 @@ def chain(index, rate, source):
                                                           offset=1500)),
                  audiobiquad.AllPass(sample_rate=rate, mix=0.5)]
     elif kind == 4:
-        nodes = [audiomodal.Bank(sample_rate=rate)]
+        bank = audiomodal.Bank(sample_rate=rate, modes=4, mix=0.5)
+        bank.set_modes(((180.0, 0.4, 0.5), (433.0, 0.25, 0.3),
+                        (871.0, 0.12, 0.2), (2210.0, 0.05, 0.1)))
+        nodes = [bank]
     elif kind == 5:
         nodes = [audiomath.SubOctave(sample_rate=rate),
                  audiofreeverb.Freeverb(sample_rate=rate, channel_count=2,
@@ -194,7 +197,7 @@ RECONFIGURE = textwrap.dedent("""
                 pass
 
     def reconfigure():
-        for turn in range(400):
+        for turn in range(2000):
             for call in (
                 lambda: shaper._state.load_curve(
                     bytes(memoryview(curve(1 + turn % 5)).cast("B"))),
