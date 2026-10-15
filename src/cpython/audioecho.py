@@ -51,7 +51,11 @@ Python's to bake and C only looks it up:
         wow_hz=0.5, wow_depth_ms=2.5, wow_shape=clock)
 
 `wow_shape=None` puts the sine back. The table is *borrowed*, not copied:
-keep a reference to it for as long as the node is alive.
+keep a reference to it for as long as the node is alive. A new table on a
+node whose wow is swinging does not land on the next frame, which would move
+the read head by the depth times the difference between the tables, a pitch
+blip: the depth ramps to zero over `wow_depth_ramp_ms`, the table changes
+there, and the depth ramps back. At zero depth it changes at once.
 
 `delay_slew` walks the read head to a new `delay_ms` instead of jumping to
 it, in delay-seconds per second - the same number at any sample rate. 0 (the

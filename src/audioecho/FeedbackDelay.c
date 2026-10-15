@@ -120,10 +120,15 @@ static void feedback_delay_apply_kwargs(audioecho_feedback_delay_obj_t *self,
     if (live) {
         audiodsp_pump_lock_acquire();
     }
-    self->config = next;
     if (shaped) {
+        // A state still on the table being replaced keeps reading it until
+        // its depth reaches zero, so that object is kept until the swap.
+        if (self->state.wow_shape_playing == self->config.wow_shape) {
+            self->wow_shape_playing = self->wow_shape;
+        }
         self->wow_shape = shape;
     }
+    self->config = next;
     if (live) {
         audiodsp_pump_lock_release();
     }
@@ -168,6 +173,7 @@ static mp_obj_t audioecho_feedback_delay_make_new(const mp_obj_type_t *type,
     self->base.single_buffer = false;
     self->source = MP_OBJ_NULL;
     self->wow_shape = MP_OBJ_NULL;
+    self->wow_shape_playing = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
     self->source_done = false;
@@ -337,6 +343,7 @@ static mp_obj_t audioecho_feedback_delay_deinit(mp_obj_t self_in) {
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
     self->wow_shape = mp_const_none;
+    self->wow_shape_playing = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
     self->source_done = false;
