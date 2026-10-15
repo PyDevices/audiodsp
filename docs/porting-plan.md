@@ -157,13 +157,9 @@ audiocomponents with the instruments.
 
 micropython-vst3 has since been cut over to import these packages instead
 of carrying its own copies, so that checkout is no longer an independent
-oracle for them: it *is* them. What still holds it honest is
-`tests/parity/golden/vst3_render_reference.json`, captured from the
-plug-in's six soundtrack pieces before the cutover and compared with
-`tests/parity/capture_render_reference.py --verify` — whose interpreter
-now needs `audioinstruments` and `audioeffects` installed from
-audiocomponents, since they are no longer in this tree. Re-capture it after
-any DSP change here, or it stops meaning anything.
+oracle for them: it *is* them. The soundtrack render reference that stood in
+for it (`capture_render_reference.py` and its golden) was retired on
+2026-10-15, along with the soundtrack it rendered.
 
 ### Output devices (the only new design work)
 
