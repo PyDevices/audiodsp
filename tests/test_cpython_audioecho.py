@@ -800,6 +800,87 @@ class WowDepthRampTimeTest(unittest.TestCase):
         self.assertEqual(after, default)
 
 
+def shape_words(sign):
+    import math
+    return array("h", [int(round(sign * 32767 * math.sin(2 * math.pi * i / 256)))
+                       for i in range(256)])
+
+
+class WowShapeSwapTest(unittest.TestCase):
+    """A new `wow_shape` on a swinging wow ramps the depth to zero over
+    `wow_depth_ramp_ms`, changes the table there, and ramps back.
+
+    Swapped at once, the read head moved by the depth times the difference
+    between the two tables on the next frame, a pitch blip: at the crest of
+    a 3 ms swing, a table turned upside down is 6 ms in one sample. At zero
+    depth the table moves nothing. 160 frames down and 160 back at 8 kHz,
+    then the node is the node built with the new table.
+    """
+
+    def _pair(self, **ramp):
+        tone = sine_words(4096, 250.0, 20000)
+        up = shape_words(1)
+        down = shape_words(-1)
+        moved = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=3.0, wow_shape=up, **ramp)
+        built = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=3.0, wow_shape=down)
+        for node in (moved, built):
+            node.play(audiocore.RawSample(tone, sample_rate=SAMPLE_RATE,
+                                          channel_count=CHANNELS))
+        lead = words(moved, WowDepthGlideTest.CREST_BLOCKS)
+        words(built, WowDepthGlideTest.CREST_BLOCKS)
+        moved.set(wow_shape=down)
+        return lead, words(moved, 4), words(built, 4)
+
+    def test_a_shape_change_glides(self):
+        lead, after, _built = self._pair()
+        left = lead[0::CHANNELS]
+        own = max(abs(b - a) for a, b in zip(left[200:], left[201:]))
+        moved = left[-1:] + after[0::CHANNELS]
+        step = max(abs(b - a) for a, b in zip(moved, moved[1:]))
+        self.assertLess(step, own * 1.5)
+
+    def test_after_the_dip_it_is_the_node_built_with_that_shape(self):
+        _lead, after, built = self._pair()
+        self.assertNotEqual(after[300 * CHANNELS:320 * CHANNELS],
+                            built[300 * CHANNELS:320 * CHANNELS])
+        self.assertEqual(after[320 * CHANNELS:], built[320 * CHANNELS:])
+
+    def test_the_dip_takes_the_ramp_time(self):
+        _lead, after, built = self._pair(wow_depth_ramp_ms=50.0)
+        self.assertNotEqual(after[700 * CHANNELS:800 * CHANNELS],
+                            built[700 * CHANNELS:800 * CHANNELS])
+        self.assertEqual(after[800 * CHANNELS:], built[800 * CHANNELS:])
+
+    def test_the_same_table_again_changes_nothing(self):
+        tone = sine_words(4096, 250.0, 20000)
+        up = shape_words(1)
+        nodes = [delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                       wow_hz=0.7, wow_depth_ms=3.0, wow_shape=up)
+                 for _ in range(2)]
+        for node in nodes:
+            node.play(audiocore.RawSample(tone, sample_rate=SAMPLE_RATE,
+                                          channel_count=CHANNELS))
+            words(node, WowDepthGlideTest.CREST_BLOCKS)
+        nodes[0].set(wow_shape=up)
+        self.assertEqual(words(nodes[0], 4), words(nodes[1], 4))
+
+    def test_a_shape_at_zero_depth_goes_in_at_once(self):
+        tone = sine_words(4096, 250.0, 20000)
+        moved = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=0.0, wow_shape=shape_words(1))
+        built = delay(max_delay_ms=50, delay_ms=20.0, feedback=0.0, mix=2.0,
+                      wow_hz=0.7, wow_depth_ms=0.0, wow_shape=shape_words(-1))
+        for node in (moved, built):
+            node.play(audiocore.RawSample(tone, sample_rate=SAMPLE_RATE,
+                                          channel_count=CHANNELS))
+            words(node, 2)
+        moved.set(wow_shape=shape_words(-1), wow_depth_ms=3.0)
+        built.set(wow_depth_ms=3.0)
+        self.assertEqual(words(moved, 4), words(built, 4))
+
+
 def _f32(value):
     return struct.unpack("f", struct.pack("f", value))[0]
 

@@ -347,6 +347,9 @@ void audiodsp_feedback_delay_state_init(audiodsp_feedback_delay_state_t *state,
     state->wow_depth_target = 0.0f;
     state->wow_depth_step = 0.0f;
     state->wow_depth_left = 0;
+    state->wow_shape_playing = NULL;
+    state->wow_shape_playing_shift = 0;
+    state->wow_shape_dipping = false;
     state->wow_value = 0.0f;
     state->wow_parked = false;
     state->shift_engaged = false;
@@ -792,28 +795,56 @@ static void feedback_delay_run(
     // that is not moving is the same float it always was and renders the
     // same bytes. A fresh state starts on its depth, as the delay does.
     const float depth_target = config->wow_depth_frames;
+    // At the default 20 ms this is exactly sample_rate / 50: 20 x rate is a
+    // whole number float holds exactly, and its thousandth is either whole
+    // or at least 0.02 from one, so the truncation lands where the integer
+    // division did.
+    uint32_t ramp = (uint32_t)(config->wow_depth_ramp_ms
+        * (float)config->sample_rate / 1000.0f);
+    if (ramp < 1u) {
+        ramp = 1u;
+    }
+    const bool shape_moved = config->wow_shape != state->wow_shape_playing ||
+        config->wow_shape_shift != state->wow_shape_playing_shift;
     if (state->wow_depth_current < 0.0f) {
         state->wow_depth_current = depth_target;
         state->wow_depth_target = depth_target;
         state->wow_depth_left = 0;
-    } else if (depth_target != state->wow_depth_target) {
-        // At the default 20 ms this is exactly sample_rate / 50: 20 x rate
-        // is a whole number float holds exactly, and its thousandth is
-        // either whole or at least 0.02 from one, so the truncation lands
-        // where the integer division did.
-        uint32_t ramp = (uint32_t)(config->wow_depth_ramp_ms
-            * (float)config->sample_rate / 1000.0f);
-        if (ramp < 1u) {
-            ramp = 1u;
+        // A fresh state starts on its table, as it starts on its depth.
+        state->wow_shape_playing = config->wow_shape;
+        state->wow_shape_playing_shift = config->wow_shape_shift;
+        state->wow_shape_dipping = false;
+    } else {
+        if (shape_moved && !state->wow_shape_dipping) {
+            if (state->wow_depth_current == 0.0f) {
+                // No swing to move: the table changes here and now.
+                state->wow_shape_playing = config->wow_shape;
+                state->wow_shape_playing_shift = config->wow_shape_shift;
+            } else {
+                // Down to zero first; the swap and the ramp back are in the
+                // frame loop, where the depth lands on zero.
+                state->wow_shape_dipping = true;
+                state->wow_depth_target = 0.0f;
+                state->wow_depth_step =
+                    -state->wow_depth_current / (float)ramp;
+                state->wow_depth_left = ramp;
+            }
         }
-        state->wow_depth_target = depth_target;
-        state->wow_depth_step =
-            (depth_target - state->wow_depth_current) / (float)ramp;
-        state->wow_depth_left = ramp;
+        if (!state->wow_shape_dipping &&
+            depth_target != state->wow_depth_target) {
+            state->wow_depth_target = depth_target;
+            state->wow_depth_step =
+                (depth_target - state->wow_depth_current) / (float)ramp;
+            state->wow_depth_left = ramp;
+        }
     }
     float depth = state->wow_depth_current;
     uint32_t depth_left = state->wow_depth_left;
-    const float depth_step = state->wow_depth_step;
+    float depth_step = state->wow_depth_step;
+    float depth_goal = state->wow_depth_target;
+    bool dipping = state->wow_shape_dipping;
+    const int16_t *shape = state->wow_shape_playing;
+    uint32_t shape_bits = state->wow_shape_playing_shift;
     // While the cut high-pass is out its state is held at zero, the state
     // at which its output is its input (audiodsp#159). Left frozen, putting
     // the filter back in subtracted whatever it last held from silence,
@@ -895,15 +926,15 @@ static void feedback_delay_run(
         // and no sine can be it. With a table the shape is Python's to bake
         // and this only looks it up.
         float wow = state->wow_sine;
-        if (config->wow_shape != NULL) {
+        if (shape != NULL) {
             state->wow_phase += state->wow_parked ? 0u : wow_phase_step;
-            const uint32_t bits = config->wow_shape_shift;
+            const uint32_t bits = shape_bits;
             const uint32_t index = state->wow_phase >> (32u - bits);
             const uint32_t mask = (1u << bits) - 1u;
             const float fraction =
                 (float)(state->wow_phase << bits) * (1.0f / 4294967296.0f);
-            const float low = (float)config->wow_shape[index];
-            const float high = (float)config->wow_shape[(index + 1u) & mask];
+            const float low = (float)shape[index];
+            const float high = (float)shape[(index + 1u) & mask];
             // Q15, read the way the line is: a table is a waveform, not an
             // index.
             wow = (low + fraction * (high - low)) * (1.0f / 32768.0f);
@@ -948,7 +979,19 @@ static void feedback_delay_run(
 
         if (depth_left > 0u) {
             --depth_left;
-            depth = depth_left == 0u ? depth_target : depth + depth_step;
+            depth = depth_left == 0u ? depth_goal : depth + depth_step;
+            if (depth_left == 0u && dipping) {
+                // At zero: the new table moves nothing, so it goes in here,
+                // and the depth ramps back to wherever it is asked to be now.
+                dipping = false;
+                shape = config->wow_shape;
+                shape_bits = config->wow_shape_shift;
+                depth_goal = depth_target;
+                if (depth_goal != 0.0f) {
+                    depth_step = depth_goal / (float)ramp;
+                    depth_left = ramp;
+                }
+            }
         }
         const float offset = state->delay_current + depth * wow;
         if (shift_path) {
@@ -1107,6 +1150,11 @@ static void feedback_delay_run(
     }
     state->wow_depth_current = depth;
     state->wow_depth_left = depth_left;
+    state->wow_depth_step = depth_step;
+    state->wow_depth_target = depth_goal;
+    state->wow_shape_dipping = dipping;
+    state->wow_shape_playing = shape;
+    state->wow_shape_playing_shift = shape_bits;
 
     // Near the floor, a damping state that has stopped moving lands on its
     // input (audiodsp#157). In float32 the one-pole approaches a steady tap

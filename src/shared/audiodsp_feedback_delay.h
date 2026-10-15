@@ -202,6 +202,16 @@ typedef struct {
     float wow_depth_target;
     float wow_depth_step;
     uint32_t wow_depth_left;
+    // The `wow_shape` the read head is actually following, and whether a
+    // new one is waiting for the depth to reach zero. A table changed while
+    // the wow is swinging would move the read head by the depth times the
+    // difference between the two tables on the next frame, a pitch blip; so
+    // the depth ramps to zero over `wow_depth_ramp_ms`, the table changes
+    // there, where it moves nothing, and the depth ramps back. The binding
+    // keeps the playing table alive until the swap. NULL is the sine.
+    const int16_t *wow_shape_playing;
+    uint32_t wow_shape_playing_shift;
+    bool wow_shape_dipping;
     // The wow value the read head was last moved by, and whether the
     // oscillator has parked at centre after `wow_hz` went to 0.
     float wow_value;

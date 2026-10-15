@@ -1021,6 +1021,11 @@ typedef struct {
     // allocator put there next.
     Py_buffer wow_shape;
     int wow_shape_held;
+    // The table the state still reads while a new one waits for the wow
+    // depth to ramp to zero (`state.wow_shape_playing`), held the same way
+    // until the swap.
+    Py_buffer wow_shape_playing;
+    int wow_shape_playing_held;
 } audiodsp_feedback_delay_object_t;
 
 static void feedback_delay_release_shape(
@@ -1029,6 +1034,30 @@ static void feedback_delay_release_shape(
         PyBuffer_Release(&self->wow_shape);
         self->wow_shape_held = 0;
     }
+    if (self->wow_shape_playing_held) {
+        PyBuffer_Release(&self->wow_shape_playing);
+        self->wow_shape_playing_held = 0;
+    }
+}
+
+// The config's table is about to be replaced (it was `old`). A state still
+// reading it keeps doing so until its depth reaches zero, so its view moves
+// to `wow_shape_playing`; otherwise it is let go.
+static void feedback_delay_retire_shape(
+    audiodsp_feedback_delay_object_t *self, const int16_t *old) {
+    if (!self->wow_shape_held) {
+        return;
+    }
+    if (self->state.wow_shape_playing == old) {
+        if (self->wow_shape_playing_held) {
+            PyBuffer_Release(&self->wow_shape_playing);
+        }
+        self->wow_shape_playing = self->wow_shape;
+        self->wow_shape_playing_held = 1;
+    } else {
+        PyBuffer_Release(&self->wow_shape);
+    }
+    self->wow_shape_held = 0;
 }
 
 static int feedback_delay_state_init(audiodsp_feedback_delay_object_t *self,
@@ -1101,9 +1130,10 @@ static PyObject *feedback_delay_state_configure(
 // of int16 Q15 whose length is a power of two.
 static PyObject *feedback_delay_state_wow_shape(
     audiodsp_feedback_delay_object_t *self, PyObject *argument) {
+    const int16_t *old = self->config.wow_shape;
     if (argument == Py_None) {
         audiodsp_feedback_delay_set_wow_shape(&self->config, NULL, 0);
-        feedback_delay_release_shape(self);
+        feedback_delay_retire_shape(self, old);
         Py_RETURN_NONE;
     }
     Py_buffer view;
@@ -1117,7 +1147,7 @@ static PyObject *feedback_delay_state_wow_shape(
             "wow_shape must be 2 to 4096 int16 samples, a power of two");
         return NULL;
     }
-    feedback_delay_release_shape(self);
+    feedback_delay_retire_shape(self, old);
     self->wow_shape = view;
     self->wow_shape_held = 1;
     Py_RETURN_NONE;

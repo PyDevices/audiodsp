@@ -23,6 +23,10 @@ typedef struct {
     // The `wow_shape` table, kept here so the collector can see it: the
     // config borrows the samples and nothing else references the object.
     mp_obj_t wow_shape;
+    // The table the read head still follows while a new one waits for the
+    // wow depth to ramp to zero (`state.wow_shape_playing`), kept alive the
+    // same way until the swap.
+    mp_obj_t wow_shape_playing;
     audiodsp_feedback_delay_config_t config;
     audiodsp_feedback_delay_state_t state;
     int16_t buffer[AUDIODSP_FEEDBACK_DELAY_FRAMES * 2];
