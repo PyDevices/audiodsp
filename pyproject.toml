@@ -19,6 +19,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Programming Language :: C",
 ]
 dependencies = []
@@ -74,8 +75,11 @@ audiodsp_util = "lib/audiodsp_util"
 version = {file = "VERSION"}
 
 [tool.cibuildwheel]
-build = "cp311-* cp312-* cp313-* cp314-*"
-skip = "*musllinux* *-win32"
+build = "cp311-* cp312-* cp313-* cp314-* cp315-* cp315t-*"
+# 3.15 and its free-threaded build (3.15t) on the desktops only: Android and
+# Pyodide have no 3.15 users yet, and each would add wheels the release's
+# expected count would have to follow.
+skip = "*musllinux* *-win32 cp315*-android_* cp315*-pyodide_*"
 test-command = "python -c \"from array import array; import audiocore, synthio; s=synthio.Synthesizer(sample_rate=8000); s.press(69); r,b=audiocore.get_buffer(s); assert r == 1 and b.format == 'B' and len(b) == 512; import audiopump; assert audiopump.driver() == 'none'\""
 
 # auto64 -- the runner's own 64-bit architecture -- NOT ["x86_64",
