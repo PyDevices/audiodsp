@@ -1,3 +1,6 @@
+## v0.6.7 (2026-10-16)
+
+
 ## v0.6.7.dev1 (2026-10-15)
 
 - CPython extension: declare that it doesn't need the GIL (free-threaded 3.15t) (#268)
