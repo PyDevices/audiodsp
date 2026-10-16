@@ -154,7 +154,8 @@ class SurfaceTest(unittest.TestCase):
 
     def test_attach_needs_a_board(self):
         with self.assertRaises(NotImplementedError):
-            audiometer.Meter(8).attach(audiometer.UAC)
+            audiometer.Meter(8).attach(object(), 48000)
+        self.assertFalse(hasattr(audiometer, "UAC"))
 
     def test_deinit(self):
         m = audiometer.Meter(8)

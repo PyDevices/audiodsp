@@ -4,15 +4,12 @@
 //   m = audiometer.Meter(bands=32, low_hz=35, high_hz=20000)
 //   m.feed(pcm, 48000, channel_count=2)       # from Python, anywhere
 //   m.attach(tap, 48000)                      # an audiopump.Tap, read in C
-//   m.attach(audiometer.UAC)                  # usbif's sound card, in its pump
 //   seq, levels, peak, rms = m.levels()       # one byte a band, half-dB steps
 //
-// The three ways in differ in where the work runs. feed() runs it in the
+// The two ways in differ in where the work runs. feed() runs it in the
 // caller. A tap is drained in C each time levels() is called, so the work
-// lands on the reader's thread and the pump pays nothing. UAC is fed by
-// usbif's I2S pump with every block it reads, on the pump's own core: usbif
-// finds audiometer_uac_feed() through a weak symbol, so a firmware with usbif
-// and no audiodsp still builds, and one with both meters the sound card.
+// lands on the reader's thread and the pump pays nothing. A tap meters any
+// pump stream, whether it came from a file, I2S or USB.
 //
 // SPDX-License-Identifier: MIT
 
@@ -27,56 +24,6 @@
 #include "shared/audiodsp_meter.h"
 #include "shared/audiodsp_port.h"
 
-#if defined(__GNUC__) || defined(__clang__)
-#define AM_LOAD_ACQ(p)     __atomic_load_n((p), __ATOMIC_ACQUIRE)
-#define AM_STORE_REL(p, v) __atomic_store_n((p), (v), __ATOMIC_RELEASE)
-#define AM_FENCE()         __atomic_thread_fence(__ATOMIC_SEQ_CST)
-#else
-// the variables below are volatile; MSVC builds have no second core to fence
-#define AM_LOAD_ACQ(p)     (*(p))
-#define AM_STORE_REL(p, v) (*(p) = (v))
-#define AM_FENCE()         ((void)0)
-#endif
-
-#define AUDIOMETER_UAC (1)
-
-// --- the sound card's feed --------------------------------------------------
-//
-// One meter at a time listens to the sound card. The pump sets busy around
-// each feed; detaching clears the pointer and then waits for busy to drop, so
-// a meter is never freed under the pump.
-
-static audiodsp_meter_t *volatile audiometer_uac_meter;
-static volatile uint32_t audiometer_uac_busy;
-
-void AUDIODSP_HOT audiometer_uac_feed(const int16_t *frames, uint32_t n, uint32_t channels, uint32_t rate) {
-    AM_STORE_REL(&audiometer_uac_busy, 1);
-    AM_FENCE();
-    audiodsp_meter_t *m = AM_LOAD_ACQ(&audiometer_uac_meter);
-    if (m != NULL) {
-        audiodsp_meter_feed_s16(m, frames, n, channels, rate);
-    }
-    AM_STORE_REL(&audiometer_uac_busy, 0);
-}
-
-// False when the pump never let go, and the meter must then be leaked.
-static bool audiometer_uac_release(audiodsp_meter_t *m) {
-    if (AM_LOAD_ACQ(&audiometer_uac_meter) != m) {
-        return true;
-    }
-    AM_STORE_REL(&audiometer_uac_meter, (audiodsp_meter_t *)NULL);
-    AM_FENCE();
-    // One block's feed is well under a millisecond; a second is a pump gone
-    // wrong, and the meter is then leaked rather than freed under it.
-    const audiodsp_port_ops_t *port = audiodsp_port();
-    for (int i = 0; i < 10000 && AM_LOAD_ACQ(&audiometer_uac_busy); i++) {
-        if (port->sleep_us) {
-            port->sleep_us(100);
-        }
-    }
-    return !AM_LOAD_ACQ(&audiometer_uac_busy);
-}
-
 // --- Meter ------------------------------------------------------------------
 
 typedef struct {
@@ -85,8 +32,6 @@ typedef struct {
     mp_obj_t tap;               // MP_OBJ_NULL when no tap is attached
     uint32_t tap_cursor, tap_rate, tap_channels;
     uint32_t lapped;
-    bool uac;
-    bool stuck;                 // the pump never let go: leak rather than free
 } audiometer_meter_obj_t;
 
 static audiometer_meter_obj_t *audiometer_get(mp_obj_t self_in) {
@@ -106,10 +51,6 @@ static void audiometer_configure_args(audiometer_meter_obj_t *self, mp_int_t ban
 }
 
 static void audiometer_detach_all(audiometer_meter_obj_t *self) {
-    if (self->uac) {
-        self->stuck = !audiometer_uac_release(self->m);
-        self->uac = false;
-    }
     self->tap = MP_OBJ_NULL;
 }
 
@@ -126,8 +67,6 @@ static mp_obj_t audiometer_meter_make_new(const mp_obj_type_t *type, size_t n_ar
     audiometer_meter_obj_t *self = mp_obj_malloc_with_finaliser(audiometer_meter_obj_t, type);
     self->m = NULL;
     self->tap = MP_OBJ_NULL;
-    self->uac = false;
-    self->stuck = false;
     self->lapped = 0;
     self->m = audiodsp_meter_new();
     if (self->m == NULL) {
@@ -161,7 +100,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(audiometer_meter_configure_obj, 2, audiometer_
 // feed(buffer, sample_rate, channel_count=2): interleaved s16 frames
 static mp_obj_t audiometer_meter_feed(size_t n_args, const mp_obj_t *args) {
     audiometer_meter_obj_t *self = audiometer_get(args[0]);
-    if (self->uac || self->tap != MP_OBJ_NULL) {
+    if (self->tap != MP_OBJ_NULL) {
         mp_raise_ValueError(MP_ERROR_TEXT("meter is attached to a source; detach() first"));
     }
     mp_buffer_info_t buf;
@@ -176,22 +115,13 @@ static mp_obj_t audiometer_meter_feed(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiometer_meter_feed_obj, 3, 4, audiometer_meter_feed);
 
-// attach(audiometer.UAC) or attach(tap, sample_rate)
+// attach(tap, sample_rate)
 static mp_obj_t audiometer_meter_attach(size_t n_args, const mp_obj_t *args) {
     audiometer_meter_obj_t *self = audiometer_get(args[0]);
     audiometer_detach_all(self);
     mp_obj_t src = args[1];
-    if (mp_obj_is_small_int(src) && MP_OBJ_SMALL_INT_VALUE(src) == AUDIOMETER_UAC) {
-        audiodsp_meter_t *other = AM_LOAD_ACQ(&audiometer_uac_meter);
-        if (other != NULL && other != self->m) {
-            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("another Meter is attached to the sound card"));
-        }
-        AM_STORE_REL(&audiometer_uac_meter, self->m);
-        self->uac = true;
-        return mp_const_none;
-    }
     if (!mp_obj_is_type(src, &audiopump_tap_type)) {
-        mp_raise_TypeError(MP_ERROR_TEXT("attach() takes audiometer.UAC or an audiopump.Tap"));
+        mp_raise_TypeError(MP_ERROR_TEXT("attach() takes an audiopump.Tap"));
     }
     if (n_args < 3) {
         mp_raise_TypeError(MP_ERROR_TEXT("a tap needs its sample_rate"));
@@ -275,8 +205,7 @@ static mp_obj_t audiometer_meter_stats(mp_obj_t self_in) {
     PUT(MP_QSTR_max_analysis_us, mp_obj_new_int_from_uint(st.max_analysis_us));
     PUT(MP_QSTR_elapsed_us, mp_obj_new_int_from_ull(st.elapsed_us));
     PUT(MP_QSTR_lapped, mp_obj_new_int_from_uint(self->lapped));
-    PUT(MP_QSTR_source, self->uac ? MP_OBJ_NEW_QSTR(MP_QSTR_uac)
-        : self->tap != MP_OBJ_NULL ? MP_OBJ_NEW_QSTR(MP_QSTR_tap) : mp_const_none);
+    PUT(MP_QSTR_source, self->tap != MP_OBJ_NULL ? MP_OBJ_NEW_QSTR(MP_QSTR_tap) : mp_const_none);
     #undef PUT
     return d;
 }
@@ -286,9 +215,7 @@ static mp_obj_t audiometer_meter_deinit(mp_obj_t self_in) {
     audiometer_meter_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->m != NULL) {
         audiometer_detach_all(self);
-        if (!self->stuck) {
-            audiodsp_meter_free(self->m);
-        }
+        audiodsp_meter_free(self->m);
         self->m = NULL;
     }
     return mp_const_none;
@@ -338,7 +265,6 @@ static const mp_rom_map_elem_t audiometer_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audiometer) },
     AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_Meter), MP_ROM_PTR(&audiometer_meter_type) },
-    { MP_ROM_QSTR(MP_QSTR_UAC), MP_ROM_INT(AUDIOMETER_UAC) },
     { MP_ROM_QSTR(MP_QSTR_MAX_BANDS), MP_ROM_INT(AUDIODSP_METER_MAX_BANDS) },
     { MP_ROM_QSTR(MP_QSTR_db_byte), MP_ROM_PTR(&audiometer_db_byte_obj) },
 };
