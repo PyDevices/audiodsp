@@ -56,6 +56,7 @@ import audioladder
 import audiomath
 import audiomixer
 import audiomodal
+import audiosampler
 import audioroute
 import audioshaper
 import audioverb
@@ -122,6 +123,7 @@ NODES = (
     ("audiomath.SubOctave", lambda: audiomath.SubOctave(**PCM)),
     ("audiomixer.Mixer", lambda: audiomixer.Mixer(voice_count=2, **PCM)),
     ("audiomodal.Bank", lambda: audiomodal.Bank(modes=4, **PCM)),
+    ("audiosampler.Sampler", lambda: audiosampler.Sampler(voice_count=2, **PCM)),
     ("audioroute.MidSide", lambda: audioroute.MidSide(**PCM)),
     ("audioroute.Port", lambda: audioroute.Port(source())),
     ("audioroute.SplitterTap", lambda: audioroute.Splitter(
@@ -244,7 +246,7 @@ OWN = (
     "audiobiquad.AllPass", "audiobiquad.Biquad", "audioconvolve.Convolver",
     "audiodynamics.Dynamics", "audioecho.FeedbackDelay", "audioladder.Ladder",
     "audiomath.Multiply", "audiomath.SubOctave", "audiomodal.Bank",
-    "audioroute.MidSide", "audioroute.Port", "audioshaper.SampleHold",
+    "audioroute.MidSide", "audiosampler.Sampler", "audioroute.Port", "audioshaper.SampleHold",
     "audioshaper.Waveshaper", "audioverb.Tank",
 )
 

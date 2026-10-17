@@ -7,8 +7,7 @@ There is no Python to freeze:
 - The native modules (``audiocore``, ``synthio``, ``audiodynamics``,
   ``audioroute``, ``audiomath``, ``audioecho``, ``audioshaper``,
   ``audioladder``, ``audioconvolve``, ``audiobiquad``, ``audioverb``,
-  ``audiomodal``
-  and the rest) are compiled into the firmware by
+  ``audiomodal``, ``audiosampler`` and the rest) are compiled into the firmware by
   ``micropython.mk`` /
   ``micropython.cmake`` (for CircuitPython, ``micropython.mk`` hands over to
   ``circuitpython.mk``).

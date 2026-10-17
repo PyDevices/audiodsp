@@ -98,6 +98,19 @@ class SamplerVoice:
         self._sampler._check()
         self._sampler._state.stop(self._index)
 
+    def deinit(self):
+        """Stop the voice and let go of its buffer. A voice has nothing of
+        its own to release; this is `stop()` under the name every node
+        answers to."""
+        if not self._sampler.__dict__.get("_deinited", False):
+            self._sampler._state.stop(self._index)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.deinit()
+
     @property
     def playing(self):
         return self._sampler._state.playing(self._index)

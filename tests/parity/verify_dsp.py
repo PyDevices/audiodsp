@@ -129,6 +129,7 @@ PROBES = (
     # rendering what it rendered.
     ("filter_f32_move_probe.py", "audiobiquad", {}, None),
     ("modal_probe.py", "audiomodal", {}, None),
+    ("sampler_probe.py", "audiosampler", {}, None),
     # audiometer reads levels rather than rendering PCM; the bytes it prints
     # are the comparison. Not built into CircuitPython (circuitpython.mk).
     ("meter_probe.py", "audiometer",

@@ -76,8 +76,8 @@ python -m pip install pydevices-audiodsp
 This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiodelays`, `audiofreeverb`, `audiospeed`, `audiodynamics`, `audioroute`,
 `audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audioconvolve`,
-`audiobiquad`, `audioverb`, `audiomodal`, `audiometer`, `audiopump`,
-`audiovorbis`, and the `audiorender` package.
+`audiobiquad`, `audioverb`, `audiomodal`, `audiosampler`, `audiometer`,
+`audiopump`, `audiovorbis`, and the `audiorender` package.
 `audiomp3` remains firmware-only. The distribution declares no *required*
 runtime dependencies and does not itself publish an `audiodsp` import; its
 version is the `VERSION` file, which is also what `_audiodsp.__version__`
@@ -160,7 +160,8 @@ feedback loop with an odd saturator inside it), `audioconvolve` (apply a
 measured or synthesized impulse response, by partitioned FFT), `audioverb`
 (a reverberation tank whose line lengths and output taps come from Python),
 `audiomodal` (a bank of resonators, which is what a struck object is),
-`audioroute.MidSide` (scale the difference between a stereo pair's channels)
+`audiosampler` (recorded notes played at any pitch, looped, under an
+envelope), `audioroute.MidSide` (scale the difference between a stereo pair's channels)
 and `audiobiquad` (below) have no ancestor anywhere and are audiodsp's own.
 Every one of them builds into CircuitPython 11 too, as a user C module from
 this repository's `micropython.mk` (`make BOARD=... USER_C_MODULES=/path/to/audiodsp`
@@ -400,6 +401,56 @@ not to be.
 
 See [docs/upstream-diff.md](docs/upstream-diff.md) for why this is a node
 rather than a chain of `audiobiquad.Biquad`, measured rather than argued.
+
+### `audiosampler.Sampler`
+
+Recorded notes, played at any pitch. `audiomixer.Mixer` plays sources at
+their own rate and `synthio` plays single-cycle waveforms; neither can take a
+recorded note, play it a fourth up, loop a region of it while the key is held
+and let the rest of it out when the key lifts. `Sampler` does that, which is
+what a SoundFont instrument and every drum machine need.
+
+```python
+sampler = audiosampler.Sampler(voice_count=8, sample_rate=48000)
+audio_out.play(sampler)
+sampler.voice[0].play(piano_c4, rate=44100, pitch=2 ** (5 / 12),
+                      loop_start=11000, loop_end=19000,
+                      loop_mode=audiosampler.LOOP_UNTIL_RELEASE,
+                      attack=0.005, release=0.3)
+...
+sampler.voice[0].release()
+```
+
+A `Sampler` is an audio source like a `Mixer`: play it into an output, a
+mixer voice or an effect. Notes start on its voices. A buffer is mono signed
+16-bit — an `array('h')`, a `memoryview`, anything with a buffer — and `rate`
+is the buffer's own sample rate (the sampler's when left out), so the step per
+output frame is `pitch * rate / sample_rate` and a 44.1 kHz recording plays at
+the right speed through a 48 kHz output without being told anything else.
+The buffer is held for as long as the voice sounds and let go when it stops.
+
+The loop modes are SoundFont's `sampleModes` under their own numbers, so a
+reader writes the file's value straight in: `LOOP_NONE` (0) plays to the end
+and stops, `LOOP_FOREVER` (1) loops `[loop_start, loop_end)` until
+`release()` or `stop()`, and `LOOP_UNTIL_RELEASE` (3) loops while the key is
+held, then plays on past the loop to the end of the buffer.
+
+Each voice has an amplitude DAHDSR — `delay`, `attack`, `hold`, `decay` and
+`release` in seconds, `sustain` a linear level — run per sample in C, so a
+two-millisecond attack is a slope and not a step. `delay` postpones the start
+of the sound itself, which is what a flam wants. `level`, `pan` and `pitch`
+are live properties: a change lands at the next block, the first two as a
+ramp across it so a fader move is not a click, and the third is how a pitch
+bend is played. `release()` enters the release stage from wherever the
+envelope is; `stop()` is silence from the next block; `playing` says whether
+the voice still sounds.
+
+Every voice is mixed in one C call per block, summed in float and quantised
+once, through a 4-point Hermite interpolator — so a loop at pitch 1.0 is a
+wire. Measured on a desktop: 24 looping stereo voices at 48 kHz in about
+25 µs of the 5333 µs block. See
+[docs/upstream-diff.md](docs/upstream-diff.md) for why the position is
+fixed point and how the pitch is verified by measurement.
 
 ### `audioverb.Tank`
 
