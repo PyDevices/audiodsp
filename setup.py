@@ -66,6 +66,7 @@ setup(
                 "src/shared/audiodsp_convolve.c",
                 "src/shared/audiodsp_tank.c",
                 "src/shared/audiodsp_modal.c",
+                "src/shared/audiodsp_sampler.c",
                 "src/shared/audiodsp_meter.c",
                 # Xiph's Tremor, included into this one file from
                 # third_party/tremor; docs/vorbis.md.
