@@ -44,6 +44,16 @@
 // The gain each sample uses walks from the value the last block ended on to
 // the one asked for, so a move is a short slope rather than an edge.
 //
+// WHY STOP FADES, AND WHERE THE FADE PLAYS. A voice cut from mid-waveform
+// to nothing is a step, and a step is a click: a choked hi-hat ticks, and a
+// voice stolen for a new note ticks under it. So `stop()` hands what the
+// voice is sounding to the voice's tail -- a second slot behind it -- which
+// ramps it to zero over AUDIODSP_SAMPLER_FADE, while the voice itself is
+// free at once. `play()` on a voice still sounding does the same, so the old
+// note fades under the new one rather than being cut by it. The tail is a
+// slot per voice rather than a pool so the binding knows, without asking,
+// which buffer each one is reading.
+//
 // The pulling loop is not here, for the same reason it is not in
 // audiodsp_modal.c: each runtime reaches its audio graph differently. Nor is
 // any memory: the binding owns the voice table, the mix accumulator and the
@@ -73,6 +83,19 @@
 
 //: The longest any one envelope stage may be, in seconds.
 #define AUDIODSP_SAMPLER_MAX_STAGE 60.0f
+
+//: How long `stop()`, or a `play()` that takes over a sounding voice, takes
+//: to fade the old note to zero, in seconds. A linear ramp of T puts its
+//: splatter below about 1/T: 5 ms is 200 Hz, under the band a click is heard
+//: in, where 2 ms (500 Hz) still ticks on a loud sample. Longer smears a
+//: choke into a release. 5 ms is also 240 frames at 48 kHz, inside one
+//: 256-frame block, so the fade is over by the end of the block that heard
+//: the stop. A note already releasing faster than this keeps its own pace.
+#define AUDIODSP_SAMPLER_FADE 0.005f
+
+//: How many voice slots a binding allocates for `voice_count` voices: each
+//: voice, then each voice's tail, which plays out a stopped note's fade.
+#define AUDIODSP_SAMPLER_SLOTS(voice_count) (2u * (voice_count))
 
 //: How a voice treats `[loop_start, loop_end)`. The numbers are SoundFont's
 //: `sampleModes` so an instrument reader writes the file's value straight
@@ -139,7 +162,10 @@ typedef struct {
     uint32_t channel_count;
     uint32_t frames;
     uint32_t voice_count;
-    audiodsp_sampler_voice_t *voices; // borrowed: voice_count entries
+    uint32_t fade_samples;            // AUDIODSP_SAMPLER_FADE, at least 1
+    // Borrowed: AUDIODSP_SAMPLER_SLOTS(voice_count) entries. Voice `i` is
+    // `voices[i]` and its tail is `voices[voice_count + i]`.
+    audiodsp_sampler_voice_t *voices;
     float *mix;                       // borrowed: frames * channel_count floats
 } audiodsp_sampler_t;
 
@@ -149,10 +175,12 @@ void audiodsp_sampler_init(audiodsp_sampler_t *self, uint32_t sample_rate,
 
 void audiodsp_sampler_note_init(audiodsp_sampler_note_t *note);
 
-// Starts `index` on `data` (mono signed 16-bit, `length` frames). Values are
-// clamped here, once, rather than in each binding. Returns false, and starts
+// Starts `index` on `data` (mono signed 16-bit, `length` frames). A note the
+// voice was still sounding moves to the voice's tail and fades out there,
+// under the new one. Values are clamped here, once, rather than in each binding. Returns false, and starts
 // nothing, when the loop bounds do not fit the buffer, when the loop mode is
-// not one of the three, or when the buffer is empty -- the bindings raise.
+// not one of the three, or when the buffer is empty -- the bindings raise;
+// a refused play() leaves the voice and its tail as they were.
 bool audiodsp_sampler_play(audiodsp_sampler_t *self, uint32_t index,
     const int16_t *data, uint32_t length, const audiodsp_sampler_note_t *note);
 
@@ -160,10 +188,26 @@ bool audiodsp_sampler_play(audiodsp_sampler_t *self, uint32_t index,
 // voice also stops wrapping and plays on to the end of the buffer.
 void audiodsp_sampler_release(audiodsp_sampler_t *self, uint32_t index);
 
-// Stops at once, no fade.
+// Stops the voice: it is idle at once, and what it was sounding fades to
+// zero on its tail over AUDIODSP_SAMPLER_FADE, or sooner if it was already
+// releasing faster. A voice still in its delay, never heard, just stops.
 void audiodsp_sampler_stop(audiodsp_sampler_t *self, uint32_t index);
 
+// Silences the voice and its tail at once, no fade: for a binding letting go
+// of every buffer, as deinit() does.
+void audiodsp_sampler_cut(audiodsp_sampler_t *self, uint32_t index);
+
 bool audiodsp_sampler_playing(const audiodsp_sampler_t *self, uint32_t index);
+
+// True when a stop() or play() on `index` now would hand a note to its tail:
+// the voice is past its delay and its envelope is above zero. A binding asks
+// before the call, and on true moves its hold on the voice's buffer to the
+// tail's.
+bool audiodsp_sampler_audible(const audiodsp_sampler_t *self, uint32_t index);
+
+// True while the voice's tail is still fading a note out. A binding lets go
+// of the tail's buffer once a render leaves this false.
+bool audiodsp_sampler_fading(const audiodsp_sampler_t *self, uint32_t index);
 
 // Live changes. Level and pan land as a ramp across the next block; pitch
 // lands at the next block.
@@ -174,8 +218,9 @@ void audiodsp_sampler_set_pan(audiodsp_sampler_t *self, uint32_t index,
 void audiodsp_sampler_set_pitch(audiodsp_sampler_t *self, uint32_t index,
     float pitch);
 
-// Mixes every sounding voice into `out`: `frames` interleaved frames of
-// `channel_count` signed 16-bit samples. Silent when nothing sounds. Returns
-// how many voices are still sounding afterwards, so a binding can let go of
-// the buffers of the ones that finished.
+// Mixes every sounding voice, and every fading tail, into `out`: `frames`
+// interleaved frames of `channel_count` signed 16-bit samples. Silent when
+// nothing sounds. Returns how many voices (tails not counted) are still
+// sounding afterwards, so a binding can let go of the buffers of the ones
+// that finished.
 uint32_t audiodsp_sampler_render_s16(audiodsp_sampler_t *self, int16_t *out);

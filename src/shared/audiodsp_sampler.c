@@ -57,10 +57,15 @@ void audiodsp_sampler_init(audiodsp_sampler_t *self, uint32_t sample_rate,
     self->channel_count = channel_count;
     self->frames = frames;
     self->voice_count = voice_count;
+    self->fade_samples = seconds_to_samples(AUDIODSP_SAMPLER_FADE, sample_rate);
+    if (self->fade_samples == 0u) {
+        self->fade_samples = 1u;
+    }
     self->voices = voices;
     self->mix = mix;
-    memset(voices, 0, voice_count * sizeof(*voices));
-    for (uint32_t i = 0; i < voice_count; ++i) {
+    const uint32_t slots = AUDIODSP_SAMPLER_SLOTS(voice_count);
+    memset(voices, 0, slots * sizeof(*voices));
+    for (uint32_t i = 0; i < slots; ++i) {
         voices[i].level = 1.0f;
         voices[i].pitch = 1.0f;
         voices[i].rate_ratio = 1.0f;
@@ -163,6 +168,34 @@ static void stage_done(audiodsp_sampler_voice_t *voice) {
 
 // --- the voice table -----------------------------------------------------------
 
+static bool audible(const audiodsp_sampler_voice_t *voice) {
+    return voice->stage != AUDIODSP_SAMPLER_STAGE_IDLE &&
+           voice->stage != AUDIODSP_SAMPLER_STAGE_DELAY &&
+           voice->env > 0.0f;
+}
+
+// Moves what voice `index` is sounding to its tail, as a release that reaches
+// zero within the fade, and leaves the voice idle. A release already due to
+// finish sooner keeps its own slope. A tail still fading an older note is
+// overwritten: that is a third note on one voice inside 5 ms.
+static void hand_to_tail(audiodsp_sampler_t *self, uint32_t index) {
+    audiodsp_sampler_voice_t *voice = &self->voices[index];
+    if (audible(voice)) {
+        audiodsp_sampler_voice_t *tail =
+            &self->voices[self->voice_count + index];
+        const uint32_t fade = self->fade_samples;
+        bool keep = voice->stage == AUDIODSP_SAMPLER_STAGE_RELEASE &&
+            voice->stage_left <= fade;
+        *tail = *voice;
+        tail->stage = AUDIODSP_SAMPLER_STAGE_RELEASE;
+        if (!keep) {
+            tail->stage_left = fade;
+            tail->env_step = -tail->env / (float)fade;
+        }
+    }
+    enter_stage(voice, AUDIODSP_SAMPLER_STAGE_IDLE);
+}
+
 bool audiodsp_sampler_play(audiodsp_sampler_t *self, uint32_t index,
     const int16_t *data, uint32_t length,
     const audiodsp_sampler_note_t *note) {
@@ -181,6 +214,7 @@ bool audiodsp_sampler_play(audiodsp_sampler_t *self, uint32_t index,
         return false;
     }
 
+    hand_to_tail(self, index);
     audiodsp_sampler_voice_t *voice = &self->voices[index];
     voice->data = data;
     voice->length = length;
@@ -246,7 +280,26 @@ void audiodsp_sampler_stop(audiodsp_sampler_t *self, uint32_t index) {
     if (index >= self->voice_count) {
         return;
     }
+    hand_to_tail(self, index);
+}
+
+void audiodsp_sampler_cut(audiodsp_sampler_t *self, uint32_t index) {
+    if (index >= self->voice_count) {
+        return;
+    }
     enter_stage(&self->voices[index], AUDIODSP_SAMPLER_STAGE_IDLE);
+    enter_stage(&self->voices[self->voice_count + index],
+        AUDIODSP_SAMPLER_STAGE_IDLE);
+}
+
+bool audiodsp_sampler_audible(const audiodsp_sampler_t *self, uint32_t index) {
+    return index < self->voice_count && audible(&self->voices[index]);
+}
+
+bool audiodsp_sampler_fading(const audiodsp_sampler_t *self, uint32_t index) {
+    return index < self->voice_count &&
+           self->voices[self->voice_count + index].stage !=
+           AUDIODSP_SAMPLER_STAGE_IDLE;
 }
 
 bool audiodsp_sampler_playing(const audiodsp_sampler_t *self, uint32_t index) {
@@ -413,7 +466,8 @@ uint32_t audiodsp_sampler_render_s16(audiodsp_sampler_t *self, int16_t *out) {
     const uint32_t words = self->frames * self->channel_count;
     uint32_t sounding = 0;
     bool any = false;
-    for (uint32_t v = 0; v < self->voice_count; ++v) {
+    const uint32_t slots = AUDIODSP_SAMPLER_SLOTS(self->voice_count);
+    for (uint32_t v = 0; v < slots; ++v) {
         audiodsp_sampler_voice_t *voice = &self->voices[v];
         if (voice->stage == AUDIODSP_SAMPLER_STAGE_IDLE) {
             continue;
@@ -423,7 +477,8 @@ uint32_t audiodsp_sampler_render_s16(audiodsp_sampler_t *self, int16_t *out) {
             any = true;
         }
         render_voice(self, voice);
-        if (voice->stage != AUDIODSP_SAMPLER_STAGE_IDLE) {
+        if (v < self->voice_count &&
+            voice->stage != AUDIODSP_SAMPLER_STAGE_IDLE) {
             ++sounding;
         }
     }

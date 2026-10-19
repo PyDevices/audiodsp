@@ -24,9 +24,13 @@ audioio_get_buffer_result_t audiosampler_sampler_get_buffer(
     // A voice that ran out this block lets go of its buffer here, so a
     // one-shot drum sample is reclaimable without anyone calling stop().
     for (uint32_t v = 0; v < self->sampler.voice_count; v++) {
+        audiosampler_samplervoice_obj_t *voice =
+            MP_OBJ_TO_PTR(self->voice[v]);
         if (!audiodsp_sampler_playing(&self->sampler, v)) {
-            ((audiosampler_samplervoice_obj_t *)MP_OBJ_TO_PTR(self->voice[v]))
-                ->sample = mp_const_none;
+            voice->sample = mp_const_none;
+        }
+        if (!audiodsp_sampler_fading(&self->sampler, v)) {
+            voice->tail_sample = mp_const_none;
         }
     }
     *buffer = (uint8_t *)self->buffer;

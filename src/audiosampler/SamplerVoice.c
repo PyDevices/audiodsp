@@ -15,6 +15,7 @@ mp_obj_t audiosampler_samplervoice_new(audiosampler_sampler_obj_t *parent,
     self->parent = parent;
     self->index = index;
     self->sample = mp_const_none;
+    self->tail_sample = mp_const_none;
     self->level = mp_obj_new_float(1.0);
     self->pan = mp_obj_new_float(0.0);
     self->pitch = mp_obj_new_float(1.0);
@@ -92,9 +93,15 @@ static mp_obj_t audiosampler_samplervoice_play(size_t n_args,
     // the kernel's play() and the reference store would read a buffer the
     // GC may already be free to take.
     audiodsp_pump_lock_acquire();
+    bool handed = audiodsp_sampler_audible(&self->parent->sampler, self->index);
     bool started = audiodsp_sampler_play(&self->parent->sampler, self->index,
         (const int16_t *)info.buf, (uint32_t)(info.len / 2), &note);
     if (started) {
+        // The note this replaced fades out on the tail, still reading its
+        // buffer.
+        if (handed) {
+            self->tail_sample = self->sample;
+        }
         self->sample = args[ARG_buffer].u_obj;
     }
     audiodsp_pump_lock_release();
@@ -129,10 +136,15 @@ static mp_obj_t audiosampler_samplervoice_release(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiosampler_samplervoice_release_obj,
     audiosampler_samplervoice_release);
 
+// Stop the voice: it is free at once, and the note fades out over 5 ms on
+// the voice's tail rather than being cut.
 static mp_obj_t audiosampler_samplervoice_stop(mp_obj_t self_in) {
     audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_check_for_deinit(&self->parent->base);
     audiodsp_pump_lock_acquire();
+    if (audiodsp_sampler_audible(&self->parent->sampler, self->index)) {
+        self->tail_sample = self->sample;
+    }
     audiodsp_sampler_stop(&self->parent->sampler, self->index);
     self->sample = mp_const_none;
     audiodsp_pump_lock_release();
@@ -224,15 +236,17 @@ MP_PROPERTY_GETSET(audiosampler_samplervoice_pitch_obj,
     (mp_obj_t)&audiosampler_samplervoice_get_pitch_obj,
     (mp_obj_t)&audiosampler_samplervoice_set_pitch_obj);
 
-// `deinit()` on a voice is `stop()` plus letting go of the buffer: a voice
+// `deinit()` on a voice is `stop()`, with no fade, plus letting go of the
+// buffer: a voice
 // has nothing of its own to release, it belongs to its Sampler, but every
 // type in these bindings answers deinit() so a caller can release whatever
 // it holds without asking what it is.
 static mp_obj_t audiosampler_samplervoice_deinit(mp_obj_t self_in) {
     audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiodsp_pump_lock_acquire();
-    audiodsp_sampler_stop(&self->parent->sampler, self->index);
+    audiodsp_sampler_cut(&self->parent->sampler, self->index);
     self->sample = mp_const_none;
+    self->tail_sample = mp_const_none;
     audiodsp_pump_lock_release();
     return mp_const_none;
 }

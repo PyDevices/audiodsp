@@ -2459,6 +2459,8 @@ static PyType_Spec modal_state_spec = {
 // object holds the Py_buffer that keeps the exporter alive and unresized for
 // as long as the voice sounds, and lets go of it when the voice stops --
 // whether Python stopped it or the sample ran out, which `render` reports.
+// `buffers` and `held` have a slot per kernel slot: voice `i` at `i`, and
+// the tail fading out voice `i`'s last note at `voice_count + i`.
 typedef struct {
     PyObject_HEAD
     audiodsp_sampler_t sampler;
@@ -2473,6 +2475,25 @@ static void sampler_state_drop(audiodsp_sampler_object_t *self, uint32_t index) 
     if (self->held != NULL && self->held[index]) {
         self->held[index] = 0;
         PyBuffer_Release(&self->buffers[index]);
+    }
+}
+
+static void sampler_state_drop_all(audiodsp_sampler_object_t *self) {
+    const uint32_t slots = AUDIODSP_SAMPLER_SLOTS(self->sampler.voice_count);
+    for (uint32_t i = 0; self->voices != NULL && i < slots; ++i) {
+        sampler_state_drop(self, i);
+    }
+}
+
+// The kernel has just handed voice `index`'s note to its tail: the hold on
+// the buffer goes with it.
+static void sampler_state_hand(audiodsp_sampler_object_t *self, uint32_t index) {
+    const uint32_t tail = self->sampler.voice_count + index;
+    sampler_state_drop(self, tail);
+    if (self->held[index]) {
+        self->buffers[tail] = self->buffers[index];
+        self->held[tail] = 1;
+        self->held[index] = 0;
     }
 }
 
@@ -2504,19 +2525,18 @@ static int sampler_state_init(audiodsp_sampler_object_t *self, PyObject *args,
         PyErr_SetString(PyExc_ValueError, "voice_count out of range");
         return -1;
     }
-    for (uint32_t i = 0; self->voices != NULL && i < self->sampler.voice_count; ++i) {
-        sampler_state_drop(self, i);
-    }
+    sampler_state_drop_all(self);
     PyMem_Free(self->voices);
     PyMem_Free(self->mix);
     PyMem_Free(self->out);
     PyMem_Free(self->buffers);
     PyMem_Free(self->held);
-    self->voices = PyMem_Calloc(voice_count, sizeof(audiodsp_sampler_voice_t));
+    const uint32_t slots = AUDIODSP_SAMPLER_SLOTS(voice_count);
+    self->voices = PyMem_Calloc(slots, sizeof(audiodsp_sampler_voice_t));
     self->mix = PyMem_Calloc((size_t)frames * channel_count, sizeof(float));
     self->out = PyMem_Calloc((size_t)frames * channel_count, sizeof(int16_t));
-    self->buffers = PyMem_Calloc(voice_count, sizeof(Py_buffer));
-    self->held = PyMem_Calloc(voice_count, 1);
+    self->buffers = PyMem_Calloc(slots, sizeof(Py_buffer));
+    self->held = PyMem_Calloc(slots, 1);
     if (self->voices == NULL || self->mix == NULL || self->out == NULL ||
         self->buffers == NULL || self->held == NULL) {
         PyErr_NoMemory();
@@ -2529,9 +2549,7 @@ static int sampler_state_init(audiodsp_sampler_object_t *self, PyObject *args,
 
 static void sampler_state_dealloc(audiodsp_sampler_object_t *self) {
     PyTypeObject *type = Py_TYPE(self);
-    for (uint32_t i = 0; self->voices != NULL && i < self->sampler.voice_count; ++i) {
-        sampler_state_drop(self, i);
-    }
+    sampler_state_drop_all(self);
     PyMem_Free(self->voices);
     PyMem_Free(self->mix);
     PyMem_Free(self->out);
@@ -2613,14 +2631,17 @@ static PyObject *sampler_state_play(audiodsp_sampler_object_t *self,
     note.release = (float)release;
     // Let go of what this voice was reading only once the new buffer is
     // known to be good, so a refused play() leaves the voice as it was.
-    audiodsp_sampler_voice_t saved = self->voices[index];
+    // The kernel leaves the voice and its tail untouched on a refusal.
+    bool handed = audiodsp_sampler_audible(&self->sampler, index);
     if (!audiodsp_sampler_play(&self->sampler, index, (const int16_t *)view.buf,
         (uint32_t)(view.len / 2), &note)) {
-        self->voices[index] = saved;
         PyBuffer_Release(&view);
         PyErr_SetString(PyExc_ValueError,
             "loop_mode must be 0, 1 or 3 and the loop must fit the buffer");
         return NULL;
+    }
+    if (handed) {
+        sampler_state_hand(self, index);
     }
     sampler_state_drop(self, index);
     self->buffers[index] = view;
@@ -2643,8 +2664,23 @@ static PyObject *sampler_state_stop(audiodsp_sampler_object_t *self,
     PyObject *arg) {
     uint32_t index;
     if (sampler_state_voice(self, arg, &index) < 0) return NULL;
+    if (audiodsp_sampler_audible(&self->sampler, index)) {
+        sampler_state_hand(self, index);
+    }
     audiodsp_sampler_stop(&self->sampler, index);
     sampler_state_drop(self, index);
+    Py_RETURN_NONE;
+}
+
+// No fade: the voice and its tail are silent at once and both buffers are
+// let go, for deinit().
+static PyObject *sampler_state_cut(audiodsp_sampler_object_t *self,
+    PyObject *arg) {
+    uint32_t index;
+    if (sampler_state_voice(self, arg, &index) < 0) return NULL;
+    audiodsp_sampler_cut(&self->sampler, index);
+    sampler_state_drop(self, index);
+    sampler_state_drop(self, self->sampler.voice_count + index);
     Py_RETURN_NONE;
 }
 
@@ -2691,8 +2727,10 @@ static PyObject *sampler_state_set_pitch(audiodsp_sampler_object_t *self,
 static PyObject *sampler_state_sounding(audiodsp_sampler_object_t *self,
     PyObject *unused) {
     uint32_t count = 0;
+    // A tail still fading counts: it is sound the output has yet to play.
     for (uint32_t i = 0; i < self->sampler.voice_count; ++i) {
         count += audiodsp_sampler_playing(&self->sampler, i) ? 1u : 0u;
+        count += audiodsp_sampler_fading(&self->sampler, i) ? 1u : 0u;
     }
     return PyLong_FromUnsignedLong(count);
 }
@@ -2704,6 +2742,9 @@ static PyObject *sampler_state_render(audiodsp_sampler_object_t *self,
         if (!audiodsp_sampler_playing(&self->sampler, i)) {
             sampler_state_drop(self, i);
         }
+        if (!audiodsp_sampler_fading(&self->sampler, i)) {
+            sampler_state_drop(self, self->sampler.voice_count + i);
+        }
     }
     return PyBytes_FromStringAndSize((const char *)self->out,
         (Py_ssize_t)self->sampler.frames * self->sampler.channel_count * 2);
@@ -2712,6 +2753,7 @@ static PyObject *sampler_state_render(audiodsp_sampler_object_t *self,
 AUDIODSP_LOCKED_KW(sampler_state_play, audiodsp_sampler_object_t)
 AUDIODSP_LOCKED_ARGS(sampler_state_release, audiodsp_sampler_object_t)
 AUDIODSP_LOCKED_ARGS(sampler_state_stop, audiodsp_sampler_object_t)
+AUDIODSP_LOCKED_ARGS(sampler_state_cut, audiodsp_sampler_object_t)
 AUDIODSP_LOCKED_ARGS(sampler_state_playing, audiodsp_sampler_object_t)
 AUDIODSP_LOCKED_ARGS(sampler_state_set_level, audiodsp_sampler_object_t)
 AUDIODSP_LOCKED_ARGS(sampler_state_set_pan, audiodsp_sampler_object_t)
@@ -2722,6 +2764,7 @@ static PyMethodDef sampler_state_methods[] = {
     {"play", (PyCFunction)sampler_state_play_locked, METH_VARARGS | METH_KEYWORDS, NULL},
     {"release", (PyCFunction)sampler_state_release_locked, METH_O, NULL},
     {"stop", (PyCFunction)sampler_state_stop_locked, METH_O, NULL},
+    {"cut", (PyCFunction)sampler_state_cut_locked, METH_O, NULL},
     {"playing", (PyCFunction)sampler_state_playing_locked, METH_O, NULL},
     {"set_level", (PyCFunction)sampler_state_set_level_locked, METH_VARARGS, NULL},
     {"set_pan", (PyCFunction)sampler_state_set_pan_locked, METH_VARARGS, NULL},
