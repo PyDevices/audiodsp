@@ -1,3 +1,12 @@
+## v0.6.8.dev1 (2026-10-19)
+
+- Roadmap: more sampler voices, and a fade on a stolen voice
+- audiopump.Ring: a C producer's write, for a USB host's capture stream
+- audiosampler: a sample player with pitch, loops and an envelope (#272)
+- audiometer: the UAC source goes with usbif's device pump; a Tap meters any pump stream
+- audiopump: Ring.from_usb takes a USB streaming endpoint straight into the ring
+- ci: bump pypa/cibuildwheel from 4.2.1 to 4.3.1 in the actions group
+
 ## v0.6.7 (2026-10-16)
 
 
