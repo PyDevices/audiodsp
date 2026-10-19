@@ -19,6 +19,8 @@ sits within a float32 rounding of one -- a whole LSB apart, not a rounding.
 | the flipping values are enumerated, not sampled | at level 100/127 exactly 56 of the 65536 int16 values flip -- 28 on the left scale (Q15 25800), 28 on the right (25801), sharing none |
 | the twin renders the float32 answer | all 56, both channels, through a real `Mixer` block |
 | the old float64 twin would fail this | the float64 formula differs on every one of the 56 |
+| a voice at unity is passed through, not scaled | after the block that opens the level gate, a unity voice's output is byte-identical to its input and renders without one `_f32` call -- audiodsp#273 |
+| any other level still scales | the same material at 0.5 differs from its input, and matches the float32 arithmetic sample for sample |
 | the level gate is not what is being measured | the leading zero pair opens it on the first word, so nothing here renders at level zero |
 
 The other half of the evidence is not here, because CPython alone cannot
@@ -31,6 +33,7 @@ what CI can run, which has no interpreters.
 import array
 import struct
 import unittest
+from unittest import mock
 
 import audiocore
 import audiomixer
@@ -136,6 +139,69 @@ class MixerLevelIsSinglePrecision(unittest.TestCase):
                 head = 512 * channels
                 self.assertEqual(list(rendered[head:len(values)]),
                                  list(values[head:]))
+
+    def _steady_state(self, channels, level, blocks=3):
+        """Render `blocks` blocks of a looping ramp after one that opens the
+        level gate, returning (input blocks, output blocks, `_f32` calls
+        made while rendering them)."""
+        mixer = audiomixer.Mixer(
+            voice_count=1, sample_rate=SAMPLE_RATE, channel_count=channels,
+            bits_per_sample=16, samples_signed=True, buffer_size=BUFFER_SIZE)
+        mixer.voice[0].level = level
+        frames_per_block = mixer._render_size // (2 * channels)
+        values = array.array("h", [0] * (frames_per_block * channels))
+        for index in range(frames_per_block * blocks * channels):
+            values.append(((index * 37) % 20000) - 10000 or 1)
+        self.assertEqual(len(values) * 2, mixer._render_size * (blocks + 1))
+        mixer.play(audiocore.RawSample(
+            values, sample_rate=SAMPLE_RATE, channel_count=channels),
+            loop=True)
+        audiocore.get_buffer(mixer)         # the block that opens the gate
+        calls = []
+        real = audiomixer._f32
+
+        def counting(value):
+            calls.append(value)
+            return real(value)
+        with mock.patch.object(audiomixer, "_f32", counting):
+            out = [bytes(audiocore.get_buffer(mixer)[1])
+                   for _ in range(blocks)]
+        size = mixer._render_size
+        src = values.tobytes()[size:]
+        return [src[i * size:(i + 1) * size] for i in range(blocks)], out, calls
+
+    def test_a_unity_voice_is_passed_through_unscaled(self):
+        """audiodsp#273: at level 1.0 the multiplier is exactly 1.0, so the
+        block is the source's bytes, and the per-sample scaling is skipped
+        rather than computed to the same answer."""
+        for channels in (1, 2):
+            with self.subTest(channels=channels):
+                src, out, calls = self._steady_state(channels, 1.0)
+                self.assertEqual(out, src)
+                self.assertEqual(calls, [])
+
+    def test_the_unity_levels_are_the_ones_whose_multiplier_is_one(self):
+        """The pass-through is keyed on a set of Q15 levels; this pins it to
+        the multiplier it stands for, so the two cannot drift apart."""
+        self.assertEqual(
+            tuple(level for level in range(32769) if _mod_mul(level) == 1.0),
+            audiomixer._UNITY_Q15)
+
+    def test_a_non_unity_voice_is_still_scaled(self):
+        for channels in (1, 2):
+            with self.subTest(channels=channels):
+                src, out, calls = self._steady_state(channels, 0.5)
+                self.assertNotEqual(out, src)
+                self.assertTrue(calls)
+                level = int(0.5 * 32768)
+                scales = (32767 * level >> 15, level) if channels == 2 else (level,)
+                for want, got in zip(src, out):
+                    a, b = array.array("h"), array.array("h")
+                    a.frombytes(want)
+                    b.frombytes(got)
+                    for index, (x, y) in enumerate(zip(a, b)):
+                        scale = scales[index % channels]
+                        self.assertEqual(y, _float32_scaled(x, scale))
 
     def test_the_flipping_values_are_exactly_these(self):
         """The enumeration is the test: a sampled probe would miss them.

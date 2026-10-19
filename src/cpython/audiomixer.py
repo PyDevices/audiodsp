@@ -52,6 +52,12 @@ def _mod_mul(level):
     return _f32(_f32(level) / _f32(32767.0))
 
 
+#: The Q15 levels `_mod_mul` maps to exactly 1.0: 32767 divided by itself, and
+#: 32768, the unity special case. A stereo voice at panning 0 sits at
+#: (32767, 32768), so both count.
+_UNITY_Q15 = (32767, 32768)
+
+
 def _source_chunk(sample):
     """The block a voice will mix from -- BORROWED from the source, not copied.
 
@@ -276,6 +282,18 @@ class Mixer(_AudioSample):
                     left = (left_scale * level) >> 15
                     right = (right_scale * level) >> 15
                 pending = (left, right)
+                if (voice._active_level[0] in _UNITY_Q15
+                        and voice._active_level[1] in _UNITY_Q15
+                        and left in _UNITY_Q15 and right in _UNITY_Q15):
+                    # Unity on both channels, now and pending: the multiplier
+                    # is exactly 1.0 for the whole block, whichever word a
+                    # pending move would have landed on, and `int(_f32(x *
+                    # 1.0))` is `x` for every int16. The block is a wire, so
+                    # it is mixed as it came and the loop below -- two struct
+                    # round trips a sample -- is skipped. audiodsp#273.
+                    voice._active_level = pending
+                    chunks.append(data)
+                    continue
                 # A level or pan move waits for a zero crossing so it cannot
                 # click. The samples are read two at a time because that is the
                 # packed 32-bit word the gate tests; see
