@@ -5,6 +5,82 @@ CircuitPython, newest first. For the current list of deliberate differences,
 and how and when to resync with upstream, start at
 [upstream-sync.md](upstream-sync.md).
 
+## `audiosampler`: a sample player, because a Mixer voice cannot change pitch
+
+Nothing in CircuitPython does this. `audiomixer.MixerVoice` pulls a *source*
+through the audiosample protocol at the source's own rate and adds the blocks
+up; `synthio.Note` plays a *waveform*, a single cycle, at a frequency. A
+recorded piano note played a fourth up, looping its sustain region while the
+key is held and letting the tail out when the key lifts, is neither of those.
+`audiosampler.Sampler` is that engine: N voices, each reading a mono 16-bit
+buffer at a pitch through an interpolator under an envelope, mixed in one C
+call per block (`shared/audiodsp_sampler.c`). It was added for the SoundFont
+reader and the drum machines in audiocomponents, which have no other way to
+exist.
+
+### Why the position is fixed point
+
+A voice's position is a 64-bit frame index, 32 bits of integer and 32 of
+fraction, stepped by `pitch * rate / sample_rate` in the same format. Two
+reasons, neither taste. A `float` accumulator has 24 bits of mantissa, so a
+loop a thousand frames long played for a minute accumulates the missing bits
+into audible tuning; and `docs/correctness-standard.md` holds every own node
+to three interpreters rendering it identically, and integer arithmetic is the
+one kind that three architectures cannot disagree about. Only the fraction
+becomes a float, for the interpolator. The step is computed once per `play()`
+or pitch change, in double, which is the single place a double appears.
+
+### Why cubic
+
+Linear interpolation of a sample played a fifth up puts the image of every
+partial above half the output rate back into the band about 30 dB down; a
+4-point Hermite puts it about 60 dB down for two more taps and two more
+multiplies a sample. The x-form 3rd-order Hermite passes through its samples
+exactly, which gives the module its identity trait: at pitch 1.0 a loop whose
+length is a whole number of frames stays on integer positions for ever and
+reads the buffer's own values (S3 in `tests/test_cpython_audiosampler.py`).
+
+### Why the envelope runs per sample, and level and pan ramp
+
+A two-millisecond attack is 96 samples at 48 kHz, well under a block; an
+envelope stepped per block would make it a stair of one step and a
+ten-millisecond release a click. Six linear segments in SoundFont's units —
+delay, attack, hold, decay, sustain, release — stepped every sample, with
+each stage setting the level it begins at exactly so rounding in the one
+before cannot accumulate. `delay` postpones the start of the sound rather than
+holding a playing sample at zero, so a drum machine can play a flam on one
+voice. A `level` or `pan` write from Python lands once a block; applied as a
+step it is a 190 Hz buzz at the fader's rate, so each sample's gain walks
+from where the last block ended to the value asked for.
+
+### The loop modes are SoundFont's numbers
+
+`LOOP_NONE` is 0, `LOOP_FOREVER` is 1 and `LOOP_UNTIL_RELEASE` is 3, so an
+instrument reader writes the file's `sampleModes` straight in; 2 is unused
+there and refused here. In mode 3, `release()` both enters the release stage
+and stops the voice wrapping, so the part of the buffer past the loop is heard
+under the release.
+
+### What it costs, measured on the desktop
+
+24 looping stereo voices at 48 kHz, each with a full envelope and a pan, in
+one 256-frame block: **24 µs** against the 5333 µs the block lasts (x86-64,
+gcc -O2, `tests/test_cpython_audiosampler.py` S17 prints the number on every
+run). Memory is the voice table (about 100 bytes a voice), a float
+accumulator of one block, and the output block. The buffers are the caller's,
+held by reference while a voice sounds.
+
+### How it is verified
+
+`tests/parity/sampler_probe.py` in `verify_dsp`'s set, for the three-target
+agreement `docs/correctness-standard.md` asks of an own node: an integer
+triangle wave through binary-fraction pitches and whole-sample envelope
+times, with the blocks at which a one-shot ends, a released mode-3 voice
+reaches its end and a release fades to silence printed as integers beside the
+PCM. `tests/test_cpython_audiosampler.py` carries seventeen traits with their
+bars — pitch by zero-crossing measurement at every semitone over two octaves,
+within 0.05% — and the planted step fault (x1.01), which failed nine of them.
+
 ## `audiodelays.Flanger`: a pull returns when the source has nothing to give
 
 `Flanger` has the pull loop the pitch shifters and `Echo` had upstream, in

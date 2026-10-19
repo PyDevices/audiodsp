@@ -37,6 +37,7 @@ import audioecho
 import audioladder
 import audiomath
 import audiomodal
+import audiosampler
 import audioroute
 import audioshaper
 import audioverb
@@ -83,6 +84,18 @@ def modal_bank():
 
 #: (name, builder, feed). `feed(node, start)` attaches every input the node
 #: takes, each starting at frame `start`.
+
+
+def _note(start, frames=4000, a=97):
+    """A mono buffer for a sampler voice, from frame `start` of the same
+    ramp `raw()` makes, so a fresh sampler started here renders what a
+    reset one goes on rendering."""
+    return array("h", [(((frame * a) % 2001) - 1000) * 12
+                       for frame in range(start, frames)])
+
+
+def _sampler_play(node, start):
+    node.voice[0].play(_note(start), loop_mode=audiosampler.LOOP_NONE)
 def _play(node, start):
     node.play(raw(start))
 
@@ -114,6 +127,8 @@ NODES = (
      _play_and_modulate),
     ("audiomath.SubOctave", lambda: audiomath.SubOctave(**PCM), _play),
     ("audiomodal.Bank", modal_bank, _play),
+    ("audiosampler.Sampler", lambda: audiosampler.Sampler(
+        voice_count=1, **PCM), _sampler_play),
     ("audioroute.MidSide", lambda: audioroute.MidSide(width=1.4, **PCM),
      _play),
     ("audioshaper.Waveshaper", lambda: audioshaper.Waveshaper(

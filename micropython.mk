@@ -95,6 +95,7 @@ SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_fft.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_convolve.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_tank.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_modal.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_sampler.c
 
 # --- the pump engine: the portable half of the live audio path --------------
 #
@@ -210,8 +211,8 @@ SRC_USERMOD_C += \
 # --- tier 6: audiodynamics (Dynamics, DYN_*), audioroute (Splitter,
 #     MidSide), audiomath (Multiply, SubOctave), audioecho
 #     (FeedbackDelay), audioladder (Ladder), audioconvolve (Convolver),
-#     audiobiquad (Biquad, AllPass), audioverb (Tank) and
-#     audiomodal (Bank) ---
+#     audiobiquad (Biquad, AllPass), audioverb (Tank),
+#     audiomodal (Bank) and audiosampler (Sampler, SamplerVoice) ---
 #
 # The modules here are not CircuitPython ports. The first two come from
 # micropython-vst3's `vstaudio` usermod, which grew them for its effects
@@ -226,8 +227,11 @@ SRC_USERMOD_C += \
 # in the way audiofreeverb's are, and audiomodal sums a bank of
 # resonators before the quantiser, which a chain of audiobiquads cannot
 # do at any width (audioroute.Splitter stops at four taps) or any depth
-# (every node in the chain quantises, and a quiet mode is then noise).
-# See docs/upstream-diff.md.
+# (every node in the chain quantises, and a quiet mode is then noise),
+# and audiosampler plays a recorded buffer at a pitch through an
+# interpolator under an envelope, which a Mixer voice cannot (it pulls a
+# source at the source's own rate) and synthio cannot (a waveform there is
+# one cycle). See docs/upstream-diff.md.
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiodynamics/Dynamics.c \
     $(MPAUDIO_SRC_DIR)/audiodynamics/module.c
@@ -268,6 +272,10 @@ SRC_USERMOD_C += \
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiomodal/Bank.c \
     $(MPAUDIO_SRC_DIR)/audiomodal/module.c
+SRC_USERMOD_C += \
+    $(MPAUDIO_SRC_DIR)/audiosampler/Sampler.c \
+    $(MPAUDIO_SRC_DIR)/audiosampler/SamplerVoice.c \
+    $(MPAUDIO_SRC_DIR)/audiosampler/module.c
 
 # --- tier 5: audiomp3 (MP3Decoder) ---
 #
