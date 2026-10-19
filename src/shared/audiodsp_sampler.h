@@ -175,9 +175,9 @@ void audiodsp_sampler_init(audiodsp_sampler_t *self, uint32_t sample_rate,
 
 void audiodsp_sampler_note_init(audiodsp_sampler_note_t *note);
 
-// Starts `index` on `data`. A note the voice was still sounding moves to the
-// voice's tail and fades out there, under the new one. (mono signed 16-bit, `length` frames). Values are
-// clamped here, once, rather than in each binding. Returns false, and starts
+// Starts `index` on `data` (mono signed 16-bit, `length` frames). A note the
+// voice was still sounding moves to the voice's tail and fades out there,
+// under the new one. Values are clamped here, once, rather than in each binding. Returns false, and starts
 // nothing, when the loop bounds do not fit the buffer, when the loop mode is
 // not one of the three, or when the buffer is empty -- the bindings raise;
 // a refused play() leaves the voice and its tail as they were.
