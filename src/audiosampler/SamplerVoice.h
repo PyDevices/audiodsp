@@ -18,6 +18,10 @@ typedef struct {
     // for as long as the voice sounds. Cleared when the voice stops, whether
     // Python stopped it or the sample ran out.
     mp_obj_t sample;
+    // The buffer the voice's tail is reading while it fades out a note that
+    // stop(), or a play() over it, took off the voice. Cleared once the fade
+    // ends.
+    mp_obj_t tail_sample;
     // What Python last asked for, handed back by the getters: the kernel
     // keeps the clamped float32 and these keep the caller's number.
     mp_obj_t level;

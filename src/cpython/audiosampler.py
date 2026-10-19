@@ -70,8 +70,8 @@ class SamplerVoice:
              delay=0.0, attack=0.0, hold=0.0, decay=0.0, sustain=1.0,
              release=0.0):
         """Start `buffer` (mono signed 16-bit) on this voice, replacing
-        whatever it was playing. `loop_end` left out means the end of the
-        buffer. Raises ValueError for a loop that does not fit the buffer or
+        whatever it was playing, which fades out over 5 ms under the new
+        note. `loop_end` left out means the end of the buffer. Raises ValueError for a loop that does not fit the buffer or
         a `loop_mode` that is not 0, 1 or 3."""
         self._sampler._check()
         self._sampler._state.play(
@@ -94,16 +94,17 @@ class SamplerVoice:
         self._sampler._state.release(self._index)
 
     def stop(self):
-        """Stop at once, no fade."""
+        """Stop the voice. It is free at once, and the note fades to
+        silence over 5 ms rather than being cut."""
         self._sampler._check()
         self._sampler._state.stop(self._index)
 
     def deinit(self):
         """Stop the voice and let go of its buffer. A voice has nothing of
-        its own to release; this is `stop()` under the name every node
-        answers to."""
+        its own to release; this is `stop()`, with no fade, under the name
+        every node answers to."""
         if not self._sampler.__dict__.get("_deinited", False):
-            self._sampler._state.stop(self._index)
+            self._sampler._state.cut(self._index)
 
     def __enter__(self):
         return self
@@ -190,18 +191,18 @@ class Sampler(_AudioSample):
 
     @property
     def playing(self):
-        """True while any voice sounds."""
+        """True while any voice sounds, a stopped note's fade included."""
         return self._state.sounding() > 0
 
     def stop(self):
-        """Stop every voice at once."""
+        """Stop every voice at once, each with a voice's 5 ms fade."""
         self._check()
         for voice in self.voice:
             voice.stop()
 
     def _release(self):
         for index in range(len(self.voice)):
-            self._state.stop(index)
+            self._state.cut(index)
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         # A host reset keeps every voice as it is, as audiomixer's does: a

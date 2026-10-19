@@ -19,7 +19,7 @@ never to a previous version of its own output.
 | S4 | `LOOP_NONE` stops at the end; `LOOP_FOREVER` does not stop | exact |
 | S5 | `LOOP_UNTIL_RELEASE` never leaves the loop while held, and plays on to the end after `release()` | exact |
 | S6 | `release()` fades linearly over `release` seconds and `playing` then goes False | 2% of the time, exact on `playing` |
-| S7 | `stop()` is silence from the next block | exact |
+| S7 | `stop()` frees the voice at once and fades the note to zero within 5 ms: monotone, no step larger than the ramp; `deinit()` still cuts | exact |
 | S8 | Attack, decay and sustain land where asked | 2% |
 | S9 | `delay` holds the sound back, not just the envelope | within one frame |
 | S10 | Pan is a linear balance: -1 is silence on the right; 0 is the level on both | exact |
@@ -27,9 +27,11 @@ never to a previous version of its own output.
 | S12 | A live pitch change takes effect from the next block | S1's bar |
 | S13 | Voices sum linearly, and the sum clamps at the rails rather than wrapping | 1 LSB; exact |
 | S14 | A loop that does not fit, or a mode that is not 0, 1 or 3, is refused | raises |
-| S15 | The buffer is held while the voice sounds, and let go when it stops | exact |
+| S15 | The buffer is held while the voice sounds or its stop fade plays, and let go when the fade ends | exact |
 | S16 | A Sampler plays into a Mixer like any other source | non-silent |
 | S17 | 24 looping stereo voices render inside the 5333 us block | measured |
+| S18 | `play()` over a sounding voice fades the old note out under the new one, as S7 | exact |
+| S19 | A voice already releasing keeps releasing when stopped, no slower than the 5 ms fade | exact |
 
 S3 is this module's form of the identity trait `docs/correctness-standard.md`
 asks of every own node: an exact answer through the interpolator rather than
@@ -52,6 +54,7 @@ it breaks is C: the harness that would plant it is a rebuild.
 
 | Fault | Breaks | What was measured |
 |---|---|---|
+| `hand_to_tail()` sends the voice straight to idle, the cut every stop was before the fade | S7, S15, S18, S19 | `Sampler.playing` is already False the moment `stop()` returns, with a fade still owed; S18's old note drops from 20000 to 0 in one frame under the new one, against a bar of 85; S19's slow release is cut the same way (19894 in one frame, bar 84) and its fast one never sounds; S15's buffer is free the moment `stop()` returns. Measured 2026-10-19, when the fade went in. |
 | `step_for()` scales the step by 1.01 | S1, S2, S3, S4, S9, S10, S12, S14, S16 | every pitch lands 1% high: 187.5 Hz asked, 189.37 measured; 375 asked, 378.77 measured; the wire S3 fails because the position leaves the integers (981 asked, 991 read), and every trait that compares a block against the buffer's own values fails with it. Nine of seventeen. |
 """
 
@@ -66,6 +69,7 @@ import audiosampler
 
 RATE = 48000
 BLOCK = audiosampler.FRAMES
+FADE = 240            # 5 ms at 48 kHz: the stop fade, in frames
 CYCLE = 128           # frames in one period of the test tone
 TONE_HZ = RATE / CYCLE  # 375 Hz
 
@@ -96,6 +100,11 @@ def zero_crossing_hz(samples, skip=BLOCK, rate=RATE):
     if len(crossings) < 2:
         return 0.0
     return (len(crossings) - 1) * rate / float(crossings[-1] - crossings[0])
+
+
+def flat(value=20000, frames=CYCLE):
+    """A loop that reads one value, so the output is the envelope times it."""
+    return array("h", [value] * frames)
 
 
 def peak(samples):
@@ -199,14 +208,80 @@ class SamplerTraits(unittest.TestCase):
         # (0.1013 s) and not inside 18 (0.096 s).
         self.assertGreater(peaks[-1], 0)
 
-    def test_s7_stop_is_silence_from_the_next_block(self):
+    def assertFadesOut(self, samples, start, frames=FADE):
+        """`samples` falls from `start` to zero within `frames`, never
+        rising and never stepping further than a linear ramp over `frames`
+        does (plus one LSB of rounding)."""
+        bar = -(-start // frames) + 1
+        previous = start
+        for i, value in enumerate(samples):
+            self.assertLessEqual(value, previous, "rose at frame %d" % i)
+            self.assertLessEqual(previous - value, bar,
+                                 "stepped %d at frame %d, bar %d"
+                                 % (previous - value, i, bar))
+            previous = value
+        self.assertEqual(samples[frames:], [0] * (len(samples) - frames))
+
+    def test_s7_stop_fades_out_within_five_ms(self):
         sampler = mono()
-        sampler.voice[0].play(sine_cycle(), loop_mode=audiosampler.LOOP_FOREVER,
+        sampler.voice[0].play(flat(), loop_mode=audiosampler.LOOP_FOREVER,
                               release=1.0)
-        render(sampler, 2)
+        self.assertEqual(render(sampler, 2)[-1], 20000)
         sampler.voice[0].stop()
         self.assertFalse(sampler.voice[0].playing)
+        self.assertTrue(sampler.playing)  # the fade is still to play
+        out = render(sampler, 1)
+        self.assertGreater(out[0], 19000)
+        self.assertFadesOut(out, 20000)
+        self.assertFalse(sampler.playing)
         self.assertEqual(render(sampler, 1), [0] * BLOCK)
+        # Sampler.stop() is a voice's stop() on every voice.
+        sampler.voice[0].play(flat(), loop_mode=audiosampler.LOOP_FOREVER)
+        render(sampler, 1)
+        sampler.stop()
+        self.assertFadesOut(render(sampler, 1), 20000)
+        # deinit() lets go of the buffer, so it cannot fade: it cuts.
+        sampler.voice[0].play(flat(), loop_mode=audiosampler.LOOP_FOREVER)
+        render(sampler, 1)
+        sampler.voice[0].deinit()
+        self.assertEqual(render(sampler, 1), [0] * BLOCK)
+
+    def test_s18_a_steal_fades_the_old_note_under_the_new(self):
+        sampler = mono()
+        sampler.voice[0].play(flat(), loop_mode=audiosampler.LOOP_FOREVER)
+        render(sampler, 2)
+        sampler.voice[0].play(flat(10000), loop_mode=audiosampler.LOOP_FOREVER)
+        self.assertTrue(sampler.voice[0].playing)
+        out = render(sampler, 1)
+        self.assertFadesOut([v - 10000 for v in out], 20000)
+        self.assertEqual(render(sampler, 1), [10000] * BLOCK)
+        # A stop and a play in one breath, as an instrument steals: the
+        # same fade.
+        sampler.voice[0].stop()
+        sampler.voice[0].play(flat(5000), loop_mode=audiosampler.LOOP_FOREVER)
+        out = render(sampler, 1)
+        self.assertFadesOut([v - 5000 for v in out], 10000)
+
+    def test_s19_a_release_keeps_its_pace_but_no_slower_than_the_fade(self):
+        sampler = mono()
+        # A slow release, stopped: the fade takes over from where it got to.
+        sampler.voice[0].play(flat(), loop_mode=audiosampler.LOOP_FOREVER,
+                              release=1.0)
+        render(sampler, 1)
+        sampler.voice[0].release()
+        level = render(sampler, 1)[-1]
+        self.assertLess(level, 20000)
+        sampler.voice[0].stop()
+        self.assertFadesOut(render(sampler, 1), level)
+        # A release due to end inside the fade ends when it would have.
+        sampler.voice[0].play(flat(), loop_mode=audiosampler.LOOP_FOREVER,
+                              release=0.001)  # 48 frames
+        render(sampler, 1)
+        sampler.voice[0].release()
+        sampler.voice[0].stop()
+        out = render(sampler, 1)
+        self.assertGreater(out[0], 19000)
+        self.assertFadesOut(out, 20000, frames=48)
 
     def test_s8_attack_decay_sustain(self):
         sampler = mono()
@@ -246,6 +321,8 @@ class SamplerTraits(unittest.TestCase):
         out = render(sampler, 2)
         self.assertEqual(channel(out, 0), list(cycle) * (2 * BLOCK // CYCLE))
         self.assertEqual(channel(out, 1), [0] * (2 * BLOCK))
+        sampler.voice[0].stop()
+        render(sampler, 1)  # let the first note's fade (S18) play out
         sampler.voice[0].play(cycle, loop_mode=audiosampler.LOOP_FOREVER, pan=0.0,
                               level=0.5)
         out = render(sampler, 2)
@@ -337,7 +414,10 @@ class SamplerTraits(unittest.TestCase):
         with self.assertRaises(BufferError):
             cycle.append(0)
         sampler.voice[0].stop()
-        cycle.append(0)  # let go
+        with self.assertRaises(BufferError):
+            cycle.append(0)  # still read by the stop fade
+        render(sampler, 1)
+        cycle.append(0)  # the fade ended: let go
         sampler.voice[0].play(cycle, loop_mode=audiosampler.LOOP_NONE)
         with self.assertRaises(BufferError):
             cycle.append(0)

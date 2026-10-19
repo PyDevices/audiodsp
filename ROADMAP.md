@@ -16,8 +16,6 @@ audio pump holding up under live use such as a stompbox or a stage rig.
 - More sampler voices: `audiosampler.Sampler` caps at 64 voices
   (`SAMPLER_MAX_VOICES`), while 64 voices render in under half a millisecond per
   21 ms period on a desktop. A dense General MIDI piece wants more.
-- A short fade on a sampler voice's `stop()`, so stealing a voice to make room for
-  a new note doesn't click.
 
 Bugs, and things you need that don't work yet, go to
 [issues](https://github.com/PyDevices/audiodsp/issues).

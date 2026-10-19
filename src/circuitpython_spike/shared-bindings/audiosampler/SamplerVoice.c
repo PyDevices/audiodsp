@@ -22,6 +22,7 @@ mp_obj_t audiosampler_samplervoice_new(audiosampler_sampler_obj_t *parent,
     self->parent = parent;
     self->index = index;
     self->sample = mp_const_none;
+    self->tail_sample = mp_const_none;
     self->level = mp_obj_new_float(1.0);
     self->pan = mp_obj_new_float(0.0);
     self->pitch = mp_obj_new_float(1.0);
@@ -51,7 +52,8 @@ static float float_arg(mp_obj_t value, float fallback) {
 //|         release: float = 0.0,
 //|     ) -> None:
 //|         """Start ``buffer`` (mono signed 16-bit) on this voice, replacing
-//|         whatever it was playing. ``rate`` is the buffer's own sample rate,
+//|         whatever it was playing, which fades out over 5 ms under the new
+//|         note. ``rate`` is the buffer's own sample rate,
 //|         the sampler's when left out, so the step per output frame is
 //|         ``pitch * rate / sample_rate``. ``loop_end`` left out means the end
 //|         of the buffer. The envelope stages are in seconds and ``sustain``
@@ -119,11 +121,16 @@ static mp_obj_t audiosampler_samplervoice_play(size_t n_args,
     note.sustain = float_arg(args[ARG_sustain].u_obj, 1.0f);
     note.release = float_arg(args[ARG_release].u_obj, 0.0f);
 
+    bool handed = audiodsp_sampler_audible(&self->parent->sampler, self->index);
     if (!audiodsp_sampler_play(&self->parent->sampler, self->index,
         (const int16_t *)(const void *)info.buf, (uint32_t)(info.len / 2),
         &note)) {
         mp_raise_ValueError(MP_ERROR_TEXT(
             "loop_mode must be 0, 1 or 3 and the loop must fit the buffer"));
+    }
+    // The note this replaced fades out on the tail, still reading its buffer.
+    if (handed) {
+        self->tail_sample = self->sample;
     }
     self->sample = args[ARG_buffer].u_obj;
     self->level = args[ARG_level].u_obj == mp_const_none
@@ -154,11 +161,15 @@ MP_DEFINE_CONST_FUN_OBJ_1(audiosampler_samplervoice_release_obj,
     audiosampler_samplervoice_release);
 
 //|     def stop(self) -> None:
-//|         """Stop at once, no fade."""
+//|         """Stop the voice. It is free at once, and the note fades to
+//|         silence over 5 ms rather than being cut."""
 //|         ...
 static mp_obj_t audiosampler_samplervoice_stop(mp_obj_t self_in) {
     audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_check_for_deinit(&self->parent->base);
+    if (audiodsp_sampler_audible(&self->parent->sampler, self->index)) {
+        self->tail_sample = self->sample;
+    }
     audiodsp_sampler_stop(&self->parent->sampler, self->index);
     self->sample = mp_const_none;
     return mp_const_none;
@@ -257,14 +268,15 @@ MP_PROPERTY_GETSET(audiosampler_samplervoice_pitch_obj,
 
 //|     def deinit(self) -> None:
 //|         """Stop the voice and let go of its buffer. A voice has nothing of
-//|         its own to release; this is `stop()` under the name every node
-//|         answers to."""
+//|         its own to release; this is `stop()`, with no fade, under the name
+//|         every node answers to."""
 //|         ...
 //|
 static mp_obj_t audiosampler_samplervoice_deinit(mp_obj_t self_in) {
     audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    audiodsp_sampler_stop(&self->parent->sampler, self->index);
+    audiodsp_sampler_cut(&self->parent->sampler, self->index);
     self->sample = mp_const_none;
+    self->tail_sample = mp_const_none;
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audiosampler_samplervoice_deinit_obj,

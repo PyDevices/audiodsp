@@ -99,7 +99,8 @@ static mp_obj_t audiosampler_sampler_make_new(const mp_obj_type_t *type,
     self->base.samples_signed = 1;
     self->base.single_buffer = false;
 
-    self->voices = m_malloc((size_t)voice_count * sizeof(audiodsp_sampler_voice_t));
+    self->voices = m_malloc((size_t)AUDIODSP_SAMPLER_SLOTS(voice_count) *
+        sizeof(audiodsp_sampler_voice_t));
     self->mix = m_malloc((size_t)(frames * channel_count) * sizeof(float));
     self->buffer = m_malloc((size_t)(frames * width));
     audiodsp_sampler_init(&self->sampler, (uint32_t)sample_rate,
@@ -139,12 +140,13 @@ MP_PROPERTY_GETTER(audiosampler_sampler_voice_count_obj,
     (mp_obj_t)&audiosampler_sampler_get_voice_count_obj);
 
 //|     playing: bool
-//|     """True while any voice sounds."""
+//|     """True while any voice sounds, a stopped note's fade included."""
 static mp_obj_t audiosampler_sampler_obj_get_playing(mp_obj_t self_in) {
     audiosampler_sampler_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_check_for_deinit(&self->base);
     for (uint32_t v = 0; v < self->sampler.voice_count; v++) {
-        if (audiodsp_sampler_playing(&self->sampler, v)) {
+        if (audiodsp_sampler_playing(&self->sampler, v) ||
+            audiodsp_sampler_fading(&self->sampler, v)) {
             return mp_const_true;
         }
     }
@@ -156,15 +158,19 @@ MP_PROPERTY_GETTER(audiosampler_sampler_playing_obj,
     (mp_obj_t)&audiosampler_sampler_get_playing_obj);
 
 //|     def stop(self) -> None:
-//|         """Stop every voice at once, no fade."""
+//|         """Stop every voice at once, each with a voice's 5 ms fade."""
 //|         ...
 static mp_obj_t audiosampler_sampler_stop(mp_obj_t self_in) {
     audiosampler_sampler_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_check_for_deinit(&self->base);
     for (uint32_t v = 0; v < self->sampler.voice_count; v++) {
+        audiosampler_samplervoice_obj_t *voice =
+            MP_OBJ_TO_PTR(self->voice[v]);
+        if (audiodsp_sampler_audible(&self->sampler, v)) {
+            voice->tail_sample = voice->sample;
+        }
         audiodsp_sampler_stop(&self->sampler, v);
-        ((audiosampler_samplervoice_obj_t *)MP_OBJ_TO_PTR(self->voice[v]))
-            ->sample = mp_const_none;
+        voice->sample = mp_const_none;
     }
     return mp_const_none;
 }
@@ -178,9 +184,11 @@ static mp_obj_t audiosampler_sampler_deinit(mp_obj_t self_in) {
     audiosampler_sampler_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_mark_deinit(&self->base);
     for (uint32_t v = 0; v < self->sampler.voice_count; v++) {
-        audiodsp_sampler_stop(&self->sampler, v);
-        ((audiosampler_samplervoice_obj_t *)MP_OBJ_TO_PTR(self->voice[v]))
-            ->sample = mp_const_none;
+        audiosampler_samplervoice_obj_t *voice =
+            MP_OBJ_TO_PTR(self->voice[v]);
+        audiodsp_sampler_cut(&self->sampler, v);
+        voice->sample = mp_const_none;
+        voice->tail_sample = mp_const_none;
     }
     return mp_const_none;
 }

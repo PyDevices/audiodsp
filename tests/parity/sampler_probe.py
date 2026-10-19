@@ -14,6 +14,10 @@ Three of the sections are invariants rather than PCM:
 - **fade** prints the block at which a released voice went silent and
   `playing` went False. Both numbers come from the release time, so a
   per-block envelope would move them.
+- **choke** prints the last frame of the block after a `stop()` that still
+  sounded: the fade is 5 ms, 40 frames at 8 kHz, so 39 is the claim and 255
+  would be no fade at all, a cut a block late. Its PCM, and that of a
+  `play()` over a sounding voice, is emitted beside it.
 - **held** prints how many frames of the buffer's tail were heard while a
   mode-3 voice was still held: zero is the claim.
 
@@ -131,6 +135,36 @@ def fade():
     print("fade", quiet, stopped)
 
 
+def choke():
+    sampler = build(1, 1)
+    sampler.voice[0].play(triangle(), loop_mode=sampler_module.LOOP_FOREVER)
+    audiocore.get_buffer(sampler)
+    sampler.voice[0].stop()
+    heard = words(bytes(audiocore.get_buffer(sampler)[1]))
+    last = -1
+    for index, value in enumerate(heard):
+        if value:
+            last = index
+    print("choke", last)
+
+    # A steal: a new note over one still sounding, and a stop() with a
+    # play() straight after it, both fading the old note under the new.
+    sampler = build(2, 2)
+    sampler.voice[0].play(triangle(), pitch=1.5, pan=-0.5,
+                          loop_mode=sampler_module.LOOP_FOREVER)
+    sampler.voice[1].play(triangle(), pitch=0.75,
+                          loop_mode=sampler_module.LOOP_FOREVER, release=0.25)
+    audiocore.get_buffer(sampler)
+    sampler.voice[1].release()
+    audiocore.get_buffer(sampler)
+    sampler.voice[0].play(triangle(), rate=4000, pan=0.25,
+                          loop_mode=sampler_module.LOOP_FOREVER)
+    sampler.voice[1].stop()
+    sampler.voice[1].play(triangle(), pitch=2.0,
+                          loop_mode=sampler_module.LOOP_FOREVER)
+    emit("steal", sampler, 2)
+
+
 def main():
     # The wire: pitch 1.0 on a whole-frame loop reads the buffer's own values.
     for channels in (1, 2):
@@ -159,6 +193,7 @@ def main():
 
     ends()
     fade()
+    choke()
 
 
 main()
