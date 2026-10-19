@@ -1,3 +1,9 @@
+## v0.6.8.dev2 (2026-10-19)
+
+- audiodsp_sampler.h: the play() comment, unscrambled
+- audiosampler: fade a stopped or stolen voice out over 5 ms
+- audiomixer: pass a unity-level voice through without scaling it
+
 ## v0.6.8.dev1 (2026-10-19)
 
 - Roadmap: more sampler voices, and a fade on a stolen voice
