@@ -15,9 +15,8 @@ full-scale sine. ``seq`` counts analyses, about 60 a second of audio, so a
 reader can tell fresh levels from a stopped stream.
 
 On a board the meter can also listen without Python touching a sample:
-``attach(tap, sample_rate)`` reads an ``audiopump.Tap`` in C, and
-``attach(audiometer.UAC)`` is fed by usbif's sound card in its own pump. Neither
-exists on CPython, where there is no pump to attach to, so ``attach()`` raises.
+``attach(tap, sample_rate)`` reads an ``audiopump.Tap`` in C. There is no pump
+to attach to on CPython, so ``attach()`` raises there.
 """
 
 import _audiodsp
@@ -28,9 +27,6 @@ __revision__ = _audiodsp.__revision__
 
 MAX_BANDS = _audiodsp.METER_MAX_BANDS
 #: attach() this to meter usbif's sound card (MicroPython on a board only).
-UAC = 1
-
-
 def db_byte(power):
     """The level byte a power reads as (1.0 is a full-scale sine)."""
     return _audiodsp.meter_db_byte(power)

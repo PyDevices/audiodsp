@@ -71,6 +71,13 @@
 
 #include "audiopump/audiopump_ring.h"
 
+// A MicroPython port whose machine.USBDevice streams isochronous endpoints
+// and lets a C module feed on them (MP_USBD_HAS_SINK) can make the USB
+// interrupt this ring's producer: Ring.from_usb().
+#if MICROPY_HW_ENABLE_USB_RUNTIME_DEVICE
+#include "shared/tinyusb/mp_usbd.h"
+#endif
+
 #define AUDIOPUMP_RING_FNV_OFFSET (0xcbf29ce484222325ULL)
 #define AUDIOPUMP_RING_FNV_PRIME  (0x100000001b3ULL)
 
@@ -190,6 +197,64 @@ static audioio_get_buffer_result_t AUDIODSP_HOT audiopump_ring_get_buffer(
 }
 
 // --- the producer side: this runs on the interpreter thread ---------------
+
+// The producer side again, for a C producer on another task: each packet of
+// a USB isochronous stream, from a sound card's OUT endpoint (the USB
+// interrupt, through from_usb() below) or a hosted microphone's IN endpoint
+// (a USB host's stream, audiopump_ring.h). The same protocol as write():
+// whole frames, the digest, and the release last.
+uint32_t AUDIODSP_HOT audiopump_ring_sink_write(void *ctx, const uint8_t *src, uint32_t len) {
+    audiopump_ring_obj_t *self = ctx;
+    const uint32_t w = self->w;
+    const uint32_t room = self->cap - (w - AUDIOPUMP_RING_LOAD_ACQ(&self->r));
+    uint32_t n = len;
+    if (n > room) {
+        n = room;
+        self->overruns++;
+    }
+    n -= n % self->frame;
+    if (n == 0) {
+        return 0;
+    }
+    const uint32_t at = self->wpos;
+    uint32_t first = self->cap - at;
+    if (first > n) {
+        first = n;
+    }
+    memcpy(self->ring + at, src, first);
+    if (n > first) {
+        memcpy(self->ring, src + first, n - first);
+    }
+    uint64_t digest = self->in_digest;
+    for (uint32_t i = 0; i < n; i++) {
+        digest ^= src[i];
+        digest *= AUDIOPUMP_RING_FNV_PRIME;
+    }
+    self->in_digest = digest;
+    self->wrote += n;
+    self->wpos = (at + n) % self->cap;
+    AUDIOPUMP_RING_STORE_REL(&self->w, w + n);
+    return n;
+}
+
+#if defined(MP_USBD_HAS_SINK)
+// Ring.from_usb(ep, packet): a USB sound card's isochronous OUT endpoint
+// writes straight into this ring from the USB interrupt, packet bytes at a
+// time, and the pump plays it; Ring.from_usb(ep, None) stops. While it runs
+// the interrupt is the ring's one producer: don't also write() to it.
+static mp_obj_t audiopump_ring_from_usb(mp_obj_t self_in, mp_obj_t ep_in, mp_obj_t packet_in) {
+    audiopump_ring_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
+    uint8_t ep = (uint8_t)mp_obj_get_int(ep_in);
+    if (packet_in == mp_const_none) {
+        mp_usbd_stream_sink(ep, NULL, NULL, mp_const_none, 0);
+    } else {
+        mp_usbd_stream_sink(ep, audiopump_ring_sink_write, self, self_in, (uint16_t)mp_obj_get_int(packet_in));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(audiopump_ring_from_usb_obj, audiopump_ring_from_usb);
+#endif
 
 static mp_obj_t AUDIODSP_HOT audiopump_ring_write(mp_obj_t self_in,
     mp_obj_t buf_in) {
@@ -389,6 +454,9 @@ static const mp_rom_map_elem_t audiopump_ring_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_stats), MP_ROM_PTR(&audiopump_ring_stats_obj) },
     { MP_ROM_QSTR(MP_QSTR_clear), MP_ROM_PTR(&audiopump_ring_clear_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&audiopump_ring_deinit_obj) },
+    #if defined(MP_USBD_HAS_SINK)
+    { MP_ROM_QSTR(MP_QSTR_from_usb), MP_ROM_PTR(&audiopump_ring_from_usb_obj) },
+    #endif
     AUDIOSAMPLE_FIELDS,
 };
 static MP_DEFINE_CONST_DICT(audiopump_ring_locals,
