@@ -198,11 +198,12 @@ static audioio_get_buffer_result_t AUDIODSP_HOT audiopump_ring_get_buffer(
 
 // --- the producer side: this runs on the interpreter thread ---------------
 
-#if defined(MP_USBD_HAS_SINK)
-// The producer side again, called from the USB interrupt with each packet
-// of a sound card's isochronous OUT stream. The same protocol as write():
+// The producer side again, for a C producer on another task: each packet of
+// a USB isochronous stream, from a sound card's OUT endpoint (the USB
+// interrupt, through from_usb() below) or a hosted microphone's IN endpoint
+// (a USB host's stream, audiopump_ring.h). The same protocol as write():
 // whole frames, the digest, and the release last.
-static uint32_t AUDIODSP_HOT audiopump_ring_usb_sink(void *ctx, const uint8_t *src, uint32_t len) {
+uint32_t AUDIODSP_HOT audiopump_ring_sink_write(void *ctx, const uint8_t *src, uint32_t len) {
     audiopump_ring_obj_t *self = ctx;
     const uint32_t w = self->w;
     const uint32_t room = self->cap - (w - AUDIOPUMP_RING_LOAD_ACQ(&self->r));
@@ -236,6 +237,7 @@ static uint32_t AUDIODSP_HOT audiopump_ring_usb_sink(void *ctx, const uint8_t *s
     return n;
 }
 
+#if defined(MP_USBD_HAS_SINK)
 // Ring.from_usb(ep, packet): a USB sound card's isochronous OUT endpoint
 // writes straight into this ring from the USB interrupt, packet bytes at a
 // time, and the pump plays it; Ring.from_usb(ep, None) stops. While it runs
@@ -247,7 +249,7 @@ static mp_obj_t audiopump_ring_from_usb(mp_obj_t self_in, mp_obj_t ep_in, mp_obj
     if (packet_in == mp_const_none) {
         mp_usbd_stream_sink(ep, NULL, NULL, mp_const_none, 0);
     } else {
-        mp_usbd_stream_sink(ep, audiopump_ring_usb_sink, self, self_in, (uint16_t)mp_obj_get_int(packet_in));
+        mp_usbd_stream_sink(ep, audiopump_ring_sink_write, self, self_in, (uint16_t)mp_obj_get_int(packet_in));
     }
     return mp_const_none;
 }

@@ -16,3 +16,11 @@
 #include "py/obj.h"
 
 extern const mp_obj_type_t audiopump_ring_type;
+
+// A C producer's write, for another module that moves packets into a Ring
+// from its own task (a USB host's isochronous IN stream): `ctx` is the
+// Ring's pointer (MP_OBJ_TO_PTR). Takes whole frames, as many as fit, and
+// returns the bytes taken; never blocks, allocates or raises. One producer
+// at a time: while a C producer feeds the Ring, don't also write() to it.
+#define AUDIOPUMP_RING_HAS_SINK_WRITE (1)
+uint32_t audiopump_ring_sink_write(void *ctx, const uint8_t *src, uint32_t len);
