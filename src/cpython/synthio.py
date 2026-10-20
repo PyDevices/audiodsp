@@ -520,7 +520,11 @@ class Synthesizer(_AudioSample):
         for block in self.blocks:
             _value(block)
         channels = 1 if single_channel_output else self.channel_count
-        mixed = array("i", (0 for _ in range(sample_count * channels)))
+        # Built on the first voice that contributes. A block where nothing
+        # sounds (no notes held, or every one finished) is the common case
+        # for an app that keeps a synthesiser running between notes, and it
+        # should not pay for a zeroed accumulator and a mix-down of zeros.
+        mixed = None
         almost_one = 32767.0 / 32768.0
 
         def scaled(value, low=-almost_one, high=almost_one):
@@ -655,8 +659,11 @@ class Synthesizer(_AudioSample):
             )
             active[0], active[1] = loudness_left, loudness_right
             voice = memoryview(contribution).cast("i")
-            for index, value in enumerate(voice):
-                mixed[index] += value
+            if mixed is None:
+                mixed = array("i", voice)
+            else:
+                for index, value in enumerate(voice):
+                    mixed[index] += value
 
         # A silenced voice gets no envelope step, exactly as a channel set to
         # SYNTHIO_SILENCE is skipped by the advance loop upstream, and its
@@ -668,7 +675,13 @@ class Synthesizer(_AudioSample):
             self._refresh_envelope(note)
             note._envelope_state.step(sample_count)
 
-        output = _audiodsp.mixdown_i32(mixed, self.max_polyphony)
+        if mixed is None:
+            # Nothing contributed. Mixing down zeros gives zeros (a sample
+            # inside the limiter range passes through unchanged), so hand
+            # back silence without the call. Byte-identical to the full path.
+            output = bytes(sample_count * channels * 2)
+        else:
+            output = _audiodsp.mixdown_i32(mixed, self.max_polyphony)
         # Two, as `synthio/__init__.h`'s `int16_t *buffers[2]` is.
         return self._publish(output, 2)
 
