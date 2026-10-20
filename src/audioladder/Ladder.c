@@ -42,7 +42,8 @@ static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
             continue;
         }
         qstr name = mp_obj_str_get_qstr(kw->table[i].key);
-        if (name == MP_QSTR_sample_rate || name == MP_QSTR_channel_count) {
+        if (name == MP_QSTR_sample_rate || name == MP_QSTR_channel_count ||
+            name == MP_QSTR_buffer_size) {
             continue;
         }
         float value = (float)mp_obj_get_float(kw->table[i].value);
@@ -81,6 +82,7 @@ static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
 
     uint32_t sample_rate = 48000;
     uint32_t channel_count = 2;
+    mp_obj_t buffer_size = mp_const_none;
     for (size_t i = 0; i < kw_map.alloc; ++i) {
         if (!mp_map_slot_is_filled(&kw_map, i)) {
             continue;
@@ -90,6 +92,8 @@ static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
             sample_rate = (uint32_t)mp_obj_get_int(kw_map.table[i].value);
         } else if (name == MP_QSTR_channel_count) {
             channel_count = (uint32_t)mp_obj_get_int(kw_map.table[i].value);
+        } else if (name == MP_QSTR_buffer_size) {
+            buffer_size = kw_map.table[i].value;
         }
     }
     if (sample_rate < 1u) {
@@ -98,11 +102,26 @@ static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
     if (channel_count < 1u || channel_count > 2u) {
         mp_raise_ValueError(MP_ERROR_TEXT("channel_count must be 1 or 2"));
     }
+    // `buffer_size` is bytes per block, as on the CircuitPython effects, so a
+    // host running small blocks gets them without the latency of gathering
+    // 256 frames. The filter is per sample, so it is the same at any size.
+    uint32_t frames = AUDIODSP_LADDER_FRAMES;
+    if (buffer_size != mp_const_none) {
+        const mp_int_t bytes = mp_obj_get_int(buffer_size);
+        const mp_int_t width = 2 * (mp_int_t)channel_count;
+        if (bytes < width || bytes % width != 0 ||
+            bytes > (mp_int_t)AUDIODSP_LADDER_FRAMES * width) {
+            mp_raise_ValueError(MP_ERROR_TEXT(
+                "buffer_size must be whole frames, from one to 256"));
+        }
+        frames = (uint32_t)(bytes / width);
+    }
 
     audioladder_ladder_obj_t *self =
         mp_obj_malloc(audioladder_ladder_obj_t, type);
     self->base.sample_rate = sample_rate;
-    self->base.max_buffer_length = sizeof(self->buffer);
+    self->base.max_buffer_length = frames * 2u * channel_count;
+    self->frames = frames;
     self->base.bits_per_sample = 16;
     self->base.channel_count = (uint8_t)channel_count;
     self->base.samples_signed = 1;
@@ -163,7 +182,7 @@ static audioio_get_buffer_result_t audioladder_ladder_get_buffer(
     (void)channel;
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t produced = 0;
-    while (produced < AUDIODSP_LADDER_FRAMES) {
+    while (produced < self->frames) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -179,7 +198,7 @@ static audioio_get_buffer_result_t audioladder_ladder_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIODSP_LADDER_FRAMES - produced;
+        uint32_t run = self->frames - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
@@ -196,7 +215,7 @@ static audioio_get_buffer_result_t audioladder_ladder_get_buffer(
     // frames that arrive.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIODSP_LADDER_FRAMES;
+        produced = self->frames;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

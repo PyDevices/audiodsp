@@ -28,6 +28,7 @@
 #include "shared/audiodsp_shaper.h"
 #include "shared/audiodsp_samplehold.h"
 #include "shared/audiodsp_ladder.h"
+#include "shared/audiodsp_oscillator.h"
 #include "shared/audiodsp_tank.h"
 #include "shared/audiodsp_modal.h"
 #include "shared/audiodsp_sampler.h"
@@ -118,6 +119,7 @@ typedef struct {
     PyObject *waveshaper_state_type;
     PyObject *samplehold_state_type;
     PyObject *ladder_state_type;
+    PyObject *oscillator_state_type;
     PyObject *biquad_f32_state_type;
     PyObject *allpass_f32_state_type;
     PyObject *suboctave_state_type;
@@ -1998,6 +2000,157 @@ static PyType_Spec ladder_state_spec = {
     .basicsize = sizeof(audiodsp_ladder_object_t),
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
     .slots = ladder_state_slots,
+};
+
+// audiooscillator.Oscillator's phase and the half-finished sample its
+// band-limiting kernel is still adding to. The pulling loop over the four
+// inputs is the Python wrapper's; this renders one run of frames from the
+// inputs it is handed.
+
+typedef struct {
+    PyObject_HEAD
+    audiodsp_oscillator_config_t config;
+    audiodsp_oscillator_state_t state;
+} audiodsp_oscillator_object_t;
+
+static int oscillator_state_init(audiodsp_oscillator_object_t *self,
+    PyObject *args, PyObject *kwargs) {
+    unsigned int sample_rate = 48000;
+    unsigned int channel_count = 1;
+    static char *keywords[] = {"sample_rate", "channel_count", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|II:OscillatorState",
+        keywords, &sample_rate, &channel_count)) return -1;
+    if (sample_rate < 1) {
+        PyErr_SetString(PyExc_ValueError, "sample_rate must be at least 1");
+        return -1;
+    }
+    if (channel_count < 1 || channel_count > 2) {
+        PyErr_SetString(PyExc_ValueError, "channel_count must be 1 or 2");
+        return -1;
+    }
+    audiodsp_oscillator_config_init(&self->config, sample_rate);
+    audiodsp_oscillator_set_channel_count(&self->config, channel_count);
+    audiodsp_oscillator_config_finish(&self->config);
+    audiodsp_oscillator_state_init(&self->state);
+    return 0;
+}
+
+static PyObject *oscillator_state_configure(
+    audiodsp_oscillator_object_t *self, PyObject *args) {
+    int option;
+    double value;
+    if (!PyArg_ParseTuple(args, "id:configure", &option, &value)) return NULL;
+    if (option < AUDIODSP_OSCILLATOR_OPT_FREQUENCY ||
+        option > AUDIODSP_OSCILLATOR_OPT_PWM_DEPTH) {
+        PyErr_SetString(PyExc_ValueError, "unknown oscillator option");
+        return NULL;
+    }
+    audiodsp_oscillator_configure(&self->config,
+        (audiodsp_oscillator_option_t)option, (float)value);
+    Py_RETURN_NONE;
+}
+
+static PyObject *oscillator_state_finish(audiodsp_oscillator_object_t *self,
+    PyObject *unused) {
+    audiodsp_oscillator_config_finish(&self->config);
+    Py_RETURN_NONE;
+}
+
+static PyObject *oscillator_state_reset(audiodsp_oscillator_object_t *self,
+    PyObject *unused) {
+    audiodsp_oscillator_reset(&self->state);
+    Py_RETURN_NONE;
+}
+
+// process(frames, inputs): `inputs` is four entries, pitch, fm, pwm and sync,
+// each None or a (buffer, channel_count) pair holding at least `frames`
+// frames. Returns the rendered frames as bytes.
+static PyObject *oscillator_state_process(audiodsp_oscillator_object_t *self,
+    PyObject *args) {
+    unsigned int frames;
+    PyObject *inputs;
+    if (!PyArg_ParseTuple(args, "IO:process", &frames, &inputs)) return NULL;
+    if (!PyTuple_Check(inputs) ||
+        PyTuple_GET_SIZE(inputs) != AUDIODSP_OSCILLATOR_INPUTS) {
+        PyErr_SetString(PyExc_TypeError, "inputs must be a 4-tuple");
+        return NULL;
+    }
+    Py_buffer views[AUDIODSP_OSCILLATOR_INPUTS];
+    const int16_t *pointers[AUDIODSP_OSCILLATOR_INPUTS];
+    uint32_t strides[AUDIODSP_OSCILLATOR_INPUTS];
+    PyObject *result = NULL;
+    for (int index = 0; index < AUDIODSP_OSCILLATOR_INPUTS; ++index) {
+        pointers[index] = NULL;
+        strides[index] = 1;
+        views[index].obj = NULL;
+    }
+    for (int held = 0; held < AUDIODSP_OSCILLATOR_INPUTS; ++held) {
+        PyObject *entry = PyTuple_GET_ITEM(inputs, held);
+        if (entry == Py_None) {
+            continue;
+        }
+        PyObject *buffer;
+        unsigned int channels;
+        if (!PyArg_ParseTuple(entry, "OI:input", &buffer, &channels)) {
+            goto done;
+        }
+        if (channels < 1 || channels > 2) {
+            PyErr_SetString(PyExc_ValueError,
+                "an input's channel_count must be 1 or 2");
+            goto done;
+        }
+        if (PyObject_GetBuffer(buffer, &views[held], PyBUF_SIMPLE) < 0) {
+            views[held].obj = NULL;
+            goto done;
+        }
+        if ((size_t)views[held].len < (size_t)frames * 2u * channels) {
+            PyErr_SetString(PyExc_ValueError,
+                "an input is shorter than the frames asked for");
+            goto done;
+        }
+        pointers[held] = (const int16_t *)views[held].buf;
+        strides[held] = channels;
+    }
+    result = PyBytes_FromStringAndSize(NULL,
+        (Py_ssize_t)frames * 2 * (Py_ssize_t)self->config.channel_count);
+    if (result != NULL) {
+        audiodsp_oscillator_process_s16(&self->config, &self->state,
+            (int16_t *)PyBytes_AS_STRING(result), frames, pointers, strides);
+    }
+done:
+    for (int index = 0; index < AUDIODSP_OSCILLATOR_INPUTS; ++index) {
+        if (views[index].obj != NULL) {
+            PyBuffer_Release(&views[index]);
+        }
+    }
+    return result;
+}
+
+AUDIODSP_LOCKED_ARGS(oscillator_state_configure, audiodsp_oscillator_object_t)
+AUDIODSP_LOCKED_ARGS(oscillator_state_finish, audiodsp_oscillator_object_t)
+AUDIODSP_LOCKED_ARGS(oscillator_state_reset, audiodsp_oscillator_object_t)
+AUDIODSP_LOCKED_ARGS(oscillator_state_process, audiodsp_oscillator_object_t)
+static PyMethodDef oscillator_state_methods[] = {
+    {"configure", (PyCFunction)oscillator_state_configure_locked, METH_VARARGS, NULL},
+    {"finish", (PyCFunction)oscillator_state_finish_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)oscillator_state_reset_locked, METH_NOARGS, NULL},
+    {"process", (PyCFunction)oscillator_state_process_locked, METH_VARARGS, NULL},
+    {NULL, NULL, 0, NULL},
+};
+
+AUDIODSP_LOCKED_INIT(oscillator_state_init, audiodsp_oscillator_object_t)
+static PyType_Slot oscillator_state_slots[] = {
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, oscillator_state_init_locked},
+    {Py_tp_methods, oscillator_state_methods},
+    {0, NULL},
+};
+
+static PyType_Spec oscillator_state_spec = {
+    .name = "_audiodsp.OscillatorState",
+    .basicsize = sizeof(audiodsp_oscillator_object_t),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = oscillator_state_slots,
 };
 
 // audioverb.Tank's twelve lines, its predelay and its filters. All state, and
@@ -4366,6 +4519,13 @@ static int audiodsp_exec(PyObject *module) {
         state->ladder_state_type) < 0) return -1;
     if (PyModule_AddIntConstant(module, "LADDER_FRAMES",
         AUDIODSP_LADDER_FRAMES) < 0) return -1;
+    state->oscillator_state_type = PyType_FromModuleAndSpec(module,
+        &oscillator_state_spec, NULL);
+    if (state->oscillator_state_type == NULL) return -1;
+    if (PyModule_AddObjectRef(module, "OscillatorState",
+        state->oscillator_state_type) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "OSCILLATOR_FRAMES",
+        AUDIODSP_OSCILLATOR_FRAMES) < 0) return -1;
     state->biquad_f32_state_type = PyType_FromModuleAndSpec(module,
         &biquad_f32_state_spec, NULL);
     if (state->biquad_f32_state_type == NULL) return -1;
@@ -4469,6 +4629,7 @@ static int audiodsp_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->waveshaper_state_type);
     Py_VISIT(state->samplehold_state_type);
     Py_VISIT(state->ladder_state_type);
+    Py_VISIT(state->oscillator_state_type);
     Py_VISIT(state->biquad_f32_state_type);
     Py_VISIT(state->allpass_f32_state_type);
     Py_VISIT(state->suboctave_state_type);
@@ -4494,6 +4655,7 @@ static int audiodsp_clear(PyObject *module) {
     Py_CLEAR(state->waveshaper_state_type);
     Py_CLEAR(state->samplehold_state_type);
     Py_CLEAR(state->ladder_state_type);
+    Py_CLEAR(state->oscillator_state_type);
     Py_CLEAR(state->biquad_f32_state_type);
     Py_CLEAR(state->allpass_f32_state_type);
     Py_CLEAR(state->suboctave_state_type);

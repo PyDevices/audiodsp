@@ -27,7 +27,7 @@ audioio_get_buffer_result_t audioladder_ladder_get_buffer(
     (void)single_channel_output;
     (void)channel;
     uint32_t produced = 0;
-    while (produced < AUDIODSP_LADDER_FRAMES) {
+    while (produced < self->frames) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -43,7 +43,7 @@ audioio_get_buffer_result_t audioladder_ladder_get_buffer(
             self->pending = (const int16_t *)(const void *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIODSP_LADDER_FRAMES - produced;
+        uint32_t run = self->frames - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
@@ -60,7 +60,7 @@ audioio_get_buffer_result_t audioladder_ladder_get_buffer(
     // frames that arrive.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIODSP_LADDER_FRAMES;
+        produced = self->frames;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;

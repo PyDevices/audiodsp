@@ -474,3 +474,44 @@ class UniversalTraitTest(unittest.TestCase):
                        for _block in range(6))
         self.assertTrue(differed, "an uncleared node already matches a fresh "
                         "one, so the clear trait cannot fail")
+
+
+class BlockSizeTest(unittest.TestCase):
+    """`buffer_size` sets how many frames a pull hands out, the way the
+    CircuitPython effects take it, and nothing about the filter."""
+
+    def run_at(self, block):
+        frames = 1024
+        material = tone(frames, 700.0, 0.6)
+        options = {} if block is None else {"buffer_size": block * 4}
+        node = audioladder.Ladder(sample_rate=RATE, cutoff_hz=500.0,
+                                  resonance=3.8, drive=2.0, **options)
+        size = BLOCK if block is None else block
+        # One looping block refilled before each pull, as a host feeds a node.
+        window = array("h", [0] * (size * 2))
+        node.play(audiocore.RawSample(window, sample_rate=RATE,
+                                      channel_count=2))
+        out = bytearray()
+        lengths = set()
+        for start in range(0, frames, size):
+            window[:] = material[start * 2:(start + size) * 2]
+            data = bytes(audiocore.get_buffer(node)[1])
+            lengths.add(len(data))
+            out += data
+        return bytes(out), lengths
+
+    def test_a_64_frame_ladder_hands_out_64_frames(self):
+        _, lengths = self.run_at(64)
+        self.assertEqual(lengths, {64 * 4})
+
+    def test_every_block_size_renders_the_same_filter(self):
+        reference, _ = self.run_at(None)
+        for block in (64, 32, 1):
+            self.assertEqual(self.run_at(block)[0], reference, block)
+
+    def test_it_refuses_a_block_it_cannot_hand_out(self):
+        for size in (3, 2, 257 * 4):
+            with self.assertRaises(ValueError):
+                audioladder.Ladder(buffer_size=size)
+        self.assertEqual(audioladder.Ladder(
+            channel_count=1, buffer_size=128).max_buffer_length, 128)

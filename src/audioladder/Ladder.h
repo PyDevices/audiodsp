@@ -28,6 +28,8 @@ typedef struct {
     // blocks.
     const int16_t *pending;
     uint32_t pending_frames;
+    // Frames per output block: buffer_size's, at most AUDIODSP_LADDER_FRAMES.
+    uint32_t frames;
 } audioladder_ladder_obj_t;
 
 extern const mp_obj_type_t audioladder_ladder_type;

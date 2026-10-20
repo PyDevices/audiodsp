@@ -37,6 +37,7 @@ import audioecho
 import audioladder
 import audiomath
 import audiomodal
+import audiooscillator
 import audiosampler
 import audioroute
 import audioshaper
@@ -105,6 +106,10 @@ def _play_and_key(node, start):
     node.key(raw(start, a=53, b=71))
 
 
+def _modulate_fm(node, start):
+    node.modulate(fm=raw(start, a=29, b=37))
+
+
 def _play_and_modulate(node, start):
     node.play(raw(start))
     node.modulate(raw(start, a=29, b=37))
@@ -127,6 +132,8 @@ NODES = (
      _play_and_modulate),
     ("audiomath.SubOctave", lambda: audiomath.SubOctave(**PCM), _play),
     ("audiomodal.Bank", modal_bank, _play),
+    ("audiooscillator.Oscillator", lambda: audiooscillator.Oscillator(
+        frequency=700.0, fm_depth=300.0, **PCM), _modulate_fm),
     ("audiosampler.Sampler", lambda: audiosampler.Sampler(
         voice_count=1, **PCM), _sampler_play),
     ("audioroute.MidSide", lambda: audioroute.MidSide(width=1.4, **PCM),

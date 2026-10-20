@@ -27,6 +27,12 @@ the rate so the harmonics the saturator makes fold back less; it is on by
 default, because half the cost is the wrong saving on the one node whose job
 is to distort. `mix` is a plain crossfade, 0 a wire and 1 the filter.
 
+`buffer_size` is the size in bytes of each block handed out, as on the
+CircuitPython effects: a host running 64-frame blocks passes
+`buffer_size=64 * 2 * channel_count` and the filter keeps pace with it, with
+no latency and a cutoff that can move every 64 frames. It defaults to 256
+frames, which is also the most it can be. The filter is the same at any size.
+
 A module of its own rather than arguments on `audiofilters.Filter`,
 deliberately: an argument added to audiodsp's copy of a CircuitPython module
 would not exist on a stock board, so an effect written against it would
@@ -61,18 +67,34 @@ _OPTIONS = {
 }
 
 
+def _frames_for(buffer_size, channel_count):
+    """Frames per block for a `buffer_size` in bytes, as the CircuitPython
+    effects take it; None is the default block."""
+    if buffer_size is None:
+        return FRAMES
+    width = 2 * channel_count
+    buffer_size = int(buffer_size)
+    if buffer_size < width or buffer_size % width or \
+            buffer_size > FRAMES * width:
+        raise ValueError(
+            "buffer_size must be whole frames, from one to %d" % FRAMES)
+    return buffer_size // width
+
+
 class Ladder(_AudioSample):
     def __init__(self, sample_rate=48000, **options):
         channel_count = int(options.pop("channel_count", 2))
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
         options.pop("sample_rate", None)
+        self._frames = _frames_for(options.pop("buffer_size", None),
+                                   channel_count)
         self.sample_rate = int(sample_rate)
         self.bits_per_sample = 16
         self.channel_count = channel_count
         self.samples_signed = True
         self.single_buffer = False
-        self.max_buffer_length = FRAMES * 2 * channel_count
+        self.max_buffer_length = self._frames * 2 * channel_count
         self._deinited = False
         self._source = None
         self._pending = b""
@@ -133,7 +155,8 @@ class Ladder(_AudioSample):
         output = bytearray()
         produced = 0
         width = 2 * self.channel_count
-        while produced < FRAMES:
+        frames = self._frames
+        while produced < frames:
             if not self._pending:
                 if self._source is None:
                     break
@@ -142,7 +165,7 @@ class Ladder(_AudioSample):
                 if result == GET_BUFFER_ERROR or len(data) < width:
                     break
                 self._pending = data[:len(data) // width * width]
-            run = min(FRAMES - produced, len(self._pending) // width)
+            run = min(frames - produced, len(self._pending) // width)
             output += self._state.process(self._pending[:run * width])
             self._pending = self._pending[run * width:]
             produced += run
@@ -152,7 +175,7 @@ class Ladder(_AudioSample):
         # only advanced by frames that arrive.
         if produced == 0:
             return GET_BUFFER_MORE_DATA, self._publish(
-                bytes(FRAMES * 2 * self.channel_count))
+                bytes(frames * 2 * self.channel_count))
         return GET_BUFFER_MORE_DATA, self._publish(output)
 
 

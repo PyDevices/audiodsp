@@ -95,6 +95,7 @@ SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_fft.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_convolve.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_tank.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_modal.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_oscillator.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_sampler.c
 
 # --- the pump engine: the portable half of the live audio path --------------
@@ -210,7 +211,8 @@ SRC_USERMOD_C += \
 
 # --- tier 6: audiodynamics (Dynamics, DYN_*), audioroute (Splitter,
 #     MidSide), audiomath (Multiply, SubOctave), audioecho
-#     (FeedbackDelay), audioladder (Ladder), audioconvolve (Convolver),
+#     (FeedbackDelay), audioladder (Ladder), audiooscillator (Oscillator),
+#     audioconvolve (Convolver),
 #     audiobiquad (Biquad, AllPass), audioverb (Tank),
 #     audiomodal (Bank) and audiosampler (Sampler, SamplerVoice) ---
 #
@@ -219,7 +221,8 @@ SRC_USERMOD_C += \
 # library; the rest are audiodsp's own -- audiomath is the only way to modulate
 # a stream at audio rate and the only way to divide one down in frequency,
 # audioecho puts a filter inside a delay's feedback loop, audioladder puts
-# four one-poles and a saturator inside a filter's, audioconvolve applies a
+# four one-poles and a saturator inside a filter's, audiooscillator reads its
+# pitch, FM, pulse width and sync per sample, audioconvolve applies a
 # measured impulse response rather than imitating one, audiobiquad
 # filters in float so a tail reaches exact zero, which neither ported
 # kernel can (audiodsp#23, #36), and audioverb is a reverberation tank whose
@@ -259,6 +262,9 @@ SRC_USERMOD_C += \
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audioladder/Ladder.c \
     $(MPAUDIO_SRC_DIR)/audioladder/module.c
+SRC_USERMOD_C += \
+    $(MPAUDIO_SRC_DIR)/audiooscillator/Oscillator.c \
+    $(MPAUDIO_SRC_DIR)/audiooscillator/module.c
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audioconvolve/Convolver.c \
     $(MPAUDIO_SRC_DIR)/audioconvolve/module.c

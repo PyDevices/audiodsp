@@ -49,7 +49,7 @@ FREE_THREADED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
 MODULES = ("_audiodsp", "audiocore", "synthio", "audiomixer", "audiofilters",
            "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics",
            "audioroute", "audiomath", "audioecho", "audioshaper",
-           "audioladder", "audioconvolve", "audiobiquad", "audioverb",
+           "audioladder", "audiooscillator", "audioconvolve", "audiobiquad", "audioverb",
            "audiomodal", "audiosampler", "audiometer", "audiopump",
            "audiovorbis", "audiodsp_util")
 INSTRUMENTS = 16

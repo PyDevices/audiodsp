@@ -44,11 +44,12 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-#: The twelve modules that are ours. Upstream CircuitPython has no counterpart to
+#: The thirteen modules that are ours. Upstream CircuitPython has no counterpart to
 #: any of them, which is why we carry two bindings rather than one.
 MODULES = ("audiobiquad", "audioconvolve", "audiodynamics", "audioecho",
-           "audioladder", "audiomath", "audiomodal", "audioroute",
-           "audiosampler", "audioshaper", "audioverb", "audiovorbis")
+           "audioladder", "audiomath", "audiomodal", "audiooscillator",
+           "audioroute", "audiosampler", "audioshaper", "audioverb",
+           "audiovorbis")
 
 #: Both spellings are in use: audiodsp's MicroPython bindings mostly say
 #: `_locals_table` and the CircuitPython ones `_locals_dict_table`. A regex that
@@ -104,14 +105,15 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
         and `deinit()` and the CircuitPython copy has no lock to take.
         The surface is the same, which is all this file compares. Seventeen
         with `audiovorbis.VorbisDecoder`, whose two bindings differ the same
-        way. Twenty with `audiosampler.SampleBuffer`."""
+        way. Twenty with `audiosampler.SampleBuffer`, twenty-one with
+        `audiooscillator.Oscillator`."""
         micropython = {}
         circuitpython = {}
         for module in MODULES:
             micropython.update(micropython_surfaces(module))
             circuitpython.update(circuitpython_surfaces(module))
-        self.assertEqual(len(micropython), 20, sorted(micropython))
-        self.assertEqual(len(circuitpython), 20, sorted(circuitpython))
+        self.assertEqual(len(micropython), 21, sorted(micropython))
+        self.assertEqual(len(circuitpython), 21, sorted(circuitpython))
 
     def test_every_type_exists_on_both_sides(self):
         for module in MODULES:
