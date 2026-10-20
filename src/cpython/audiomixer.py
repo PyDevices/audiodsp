@@ -58,6 +58,57 @@ def _mod_mul(level):
 _UNITY_Q15 = (32767, 32768)
 
 
+def _scale_s16_levels_py(data, active_lo, active_hi, pending_lo, pending_hi, forced):
+    """Scale interleaved int16 pairs by a voice's levels, in Python.
+
+    A level or pan move waits for a zero crossing so it cannot click. The
+    samples are read two at a time because that is the packed 32-bit word the
+    gate tests; see audiodsp_assign_packed_level in
+    src/shared/audiodsp_synth_dsp.c, which is the authority this mirrors.
+    `forced` is the ascending sample indices where a source stretch ends: a
+    level move pending at one lands there, and the zero-crossing watch
+    restarts. `_audiodsp.scale_s16_levels` is the same loop in C, and is what
+    a Mixer uses when the extension has it; this is the fallback, and what
+    tests/test_cpython_mixer_scale.py holds it to, byte for byte.
+    """
+    import array
+    samples = array.array("h")
+    samples.frombytes(data)
+    active = [active_lo, active_hi]
+    pending = (pending_lo, pending_hi)
+    mul_lo, mul_hi = _mod_mul(active[0]), _mod_mul(active[1])
+    last_lo = last_hi = 0
+    forced = set(forced)
+    scaled = []
+    for index in range(0, len(samples), 2):
+        if index in forced and index:
+            active[0], active[1] = pending
+            mul_lo = _mod_mul(active[0])
+            mul_hi = _mod_mul(active[1])
+            last_lo = last_hi = 0
+        lo = samples[index]
+        hi = samples[index + 1] if index + 1 < len(samples) else 0
+        if active[0] != pending[0] or active[1] != pending[1]:
+            if (lo == 0 or hi == 0
+                    or ((last_lo or last_hi)
+                        and ((last_lo < 0) != (lo < 0)
+                             or (last_hi < 0) != (hi < 0)))):
+                active[0], active[1] = pending
+                mul_lo = _mod_mul(active[0])
+                mul_hi = _mod_mul(active[1])
+            else:
+                last_lo, last_hi = lo, hi
+        scaled.append(max(-32768, min(32767, int(_f32(lo * mul_lo)))))
+        if index + 1 < len(samples):
+            scaled.append(max(-32768, min(32767, int(_f32(hi * mul_hi)))))
+    return array.array("h", scaled).tobytes()
+
+
+#: The C kernel when this build of `_audiodsp` has it (audiodsp#273), else the
+#: Python loop above. The two are byte-identical.
+_scale_s16_levels = getattr(_audiodsp, "scale_s16_levels", _scale_s16_levels_py)
+
+
 def _source_chunk(sample):
     """The block a voice will mix from -- BORROWED from the source, not copied.
 
@@ -264,8 +315,6 @@ class Mixer(_AudioSample):
                             empty_fetches = 0
             data = bytes(output) + bytes(self._render_size - len(output))
             if self.bits_per_sample == 16:
-                import array
-                samples = array.array("h"); samples.frombytes(data)
                 from audiofilters import _value
                 level = int(min(1.0, max(0.0, _value(voice.level))) * 32768)
                 panning_value = min(32767 / 32768,
@@ -289,49 +338,18 @@ class Mixer(_AudioSample):
                     # is exactly 1.0 for the whole block, whichever word a
                     # pending move would have landed on, and `int(_f32(x *
                     # 1.0))` is `x` for every int16. The block is a wire, so
-                    # it is mixed as it came and the loop below -- two struct
+                    # it is mixed as it came and the scaling below -- two struct
                     # round trips a sample -- is skipped. audiodsp#273.
                     voice._active_level = pending
                     chunks.append(data)
                     continue
-                # A level or pan move waits for a zero crossing so it cannot
-                # click. The samples are read two at a time because that is the
-                # packed 32-bit word the gate tests; see
-                # audiodsp_assign_packed_level in src/shared/audiodsp_synth_dsp.c,
-                # which is the authority this mirrors.
-                active = list(voice._active_level)
-                mul_lo, mul_hi = _mod_mul(active[0]), _mod_mul(active[1])
-                last_lo = last_hi = 0
+                # A pending level is forced at the block boundary too: at most
+                # one block of delay.
                 # Stretch ends as sample-pair indices: a level move pending at
                 # one is forced there, and the zero-crossing watch restarts.
-                forced = {(end // 4) * 2 for end in stretch_ends}
-                scaled = []
-                for index in range(0, len(samples), 2):
-                    if index in forced and index:
-                        active[0], active[1] = pending
-                        mul_lo = _mod_mul(active[0])
-                        mul_hi = _mod_mul(active[1])
-                        last_lo = last_hi = 0
-                    lo = samples[index]
-                    hi = samples[index + 1] if index + 1 < len(samples) else 0
-                    if active[0] != pending[0] or active[1] != pending[1]:
-                        if (lo == 0 or hi == 0
-                                or ((last_lo or last_hi)
-                                    and ((last_lo < 0) != (lo < 0)
-                                         or (last_hi < 0) != (hi < 0)))):
-                            active[0], active[1] = pending
-                            mul_lo = _mod_mul(active[0])
-                            mul_hi = _mod_mul(active[1])
-                        else:
-                            last_lo, last_hi = lo, hi
-                    scaled.append(max(-32768, min(32767,
-                        int(_f32(lo * mul_lo)))))
-                    if index + 1 < len(samples):
-                        scaled.append(max(-32768, min(32767,
-                            int(_f32(hi * mul_hi)))))
-                # Forced at the block boundary too: at most one block of delay.
+                forced = sorted({(end // 4) * 2 for end in stretch_ends})
+                data = _scale_s16_levels(data, *voice._active_level, *pending, forced)
                 voice._active_level = pending
-                data = array.array("h", scaled).tobytes()
             chunks.append(data)
         size = max(map(len, chunks), default=0)
         chunks = [chunk + bytes(size - len(chunk)) for chunk in chunks]

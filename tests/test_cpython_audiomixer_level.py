@@ -192,7 +192,9 @@ class MixerLevelIsSinglePrecision(unittest.TestCase):
             with self.subTest(channels=channels):
                 src, out, calls = self._steady_state(channels, 0.5)
                 self.assertNotEqual(out, src)
-                self.assertTrue(calls)
+                # `calls` is not asserted: the C kernel scales without the
+                # Python `_f32` (audiodsp#273); tests/test_cpython_mixer_scale.py
+                # holds the two to the same bytes.
                 level = int(0.5 * 32768)
                 scales = (32767 * level >> 15, level) if channels == 2 else (level,)
                 for want, got in zip(src, out):

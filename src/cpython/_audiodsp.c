@@ -3701,6 +3701,104 @@ static PyObject *audiodsp_mix_s16(PyObject *module, PyObject *args) {
     return result;
 }
 
+/* One voice's level, as the single-precision multiplier the native mixer
+ * uses: `(float)level / (float)32767`, with Q15 32768 (a level of 1.0) as an
+ * exact 1.0. `_mod_mul` in audiomixer.py is the same arithmetic. */
+static float mixer_mod_mul(long level) {
+    if (level == 32768) return 1.0f;
+    return (float)level / (float)32767;
+}
+
+/* Scale a block of interleaved int16 pairs by a voice's per-channel level, the
+ * loop `Mixer._get_buffer` runs in Python for any voice that is not at
+ * unity: product in float32, truncation toward zero, clamp to int16. A level
+ * move (`pending`) lands at the first zero crossing, or is forced at each
+ * index in `forced` (ascending sample indices, where a source stretch ends),
+ * exactly as the Python loop does. */
+static PyObject *audiodsp_scale_s16_levels(PyObject *module, PyObject *args) {
+    Py_buffer data = {0};
+    long active_lo, active_hi, pending_lo, pending_hi;
+    PyObject *forced_object;
+    if (!PyArg_ParseTuple(args, "y*llllO:scale_s16_levels", &data, &active_lo,
+        &active_hi, &pending_lo, &pending_hi, &forced_object)) {
+        return NULL;
+    }
+    if (data.len % 2) {
+        PyBuffer_Release(&data);
+        PyErr_SetString(PyExc_ValueError, "data must be a whole number of int16 samples");
+        return NULL;
+    }
+    PyObject *forced_seq = PySequence_Fast(forced_object, "forced must be a sequence");
+    if (forced_seq == NULL) {
+        PyBuffer_Release(&data);
+        return NULL;
+    }
+    const Py_ssize_t forced_count = PySequence_Fast_GET_SIZE(forced_seq);
+    PyObject *result = PyBytes_FromStringAndSize(NULL, data.len);
+    if (result == NULL) {
+        Py_DECREF(forced_seq);
+        PyBuffer_Release(&data);
+        return NULL;
+    }
+    const int16_t *in = (const int16_t *)data.buf;
+    int16_t *out = (int16_t *)PyBytes_AS_STRING(result);
+    const Py_ssize_t count = data.len / 2;
+    long active[2] = {active_lo, active_hi};
+    float mul_lo = mixer_mod_mul(active[0]);
+    float mul_hi = mixer_mod_mul(active[1]);
+    int32_t last_lo = 0, last_hi = 0;
+    Py_ssize_t next_forced = 0;
+    for (Py_ssize_t index = 0; index < count; index += 2) {
+        while (next_forced < forced_count) {
+            Py_ssize_t at = PyLong_AsSsize_t(
+                PySequence_Fast_GET_ITEM(forced_seq, next_forced));
+            if (at == -1 && PyErr_Occurred()) {
+                Py_DECREF(result);
+                Py_DECREF(forced_seq);
+                PyBuffer_Release(&data);
+                return NULL;
+            }
+            if (at >= index) {
+                if (at == index && index) {
+                    active[0] = pending_lo;
+                    active[1] = pending_hi;
+                    mul_lo = mixer_mod_mul(active[0]);
+                    mul_hi = mixer_mod_mul(active[1]);
+                    last_lo = last_hi = 0;
+                }
+                break;
+            }
+            next_forced++;
+        }
+        const int32_t lo = in[index];
+        const int32_t hi = index + 1 < count ? in[index + 1] : 0;
+        if (active[0] != pending_lo || active[1] != pending_hi) {
+            if (lo == 0 || hi == 0
+                || ((last_lo || last_hi)
+                    && ((last_lo < 0) != (lo < 0) || (last_hi < 0) != (hi < 0)))) {
+                active[0] = pending_lo;
+                active[1] = pending_hi;
+                mul_lo = mixer_mod_mul(active[0]);
+                mul_hi = mixer_mod_mul(active[1]);
+            } else {
+                last_lo = lo;
+                last_hi = hi;
+            }
+        }
+        int32_t scaled = (int32_t)((float)lo * mul_lo);
+        out[index] = (int16_t)(scaled > INT16_MAX ? INT16_MAX
+                               : scaled < INT16_MIN ? INT16_MIN : scaled);
+        if (index + 1 < count) {
+            scaled = (int32_t)((float)hi * mul_hi);
+            out[index + 1] = (int16_t)(scaled > INT16_MAX ? INT16_MAX
+                                       : scaled < INT16_MIN ? INT16_MIN : scaled);
+        }
+    }
+    Py_DECREF(forced_seq);
+    PyBuffer_Release(&data);
+    return result;
+}
+
 static PyObject *audiodsp_oscillator_i32(PyObject *module, PyObject *args) {
     PyObject *waveform_object;
     unsigned int accumulator, dds_rate, waveform_start, waveform_end;
@@ -4171,6 +4269,7 @@ static PyObject *audiodsp_freeverb_s16(PyObject *module, PyObject *args) {
 
 static PyMethodDef audiodsp_methods[] = {
     {"mix_s16", audiodsp_mix_s16, METH_VARARGS, PyDoc_STR("Saturating mix of two native-endian signed 16-bit PCM buffers.")},
+    {"scale_s16_levels", audiodsp_scale_s16_levels, METH_VARARGS, PyDoc_STR("Scale interleaved int16 pairs by a voice's float32 Q15 levels, with a pending level move landing at a zero crossing or a forced index.")},
     {"oscillator_i32", audiodsp_oscillator_i32, METH_VARARGS, NULL},
     {"oscillator_raw_i32", audiodsp_oscillator_raw_i32, METH_VARARGS, NULL},
     {"ring_multiply_i32", audiodsp_ring_multiply_i32, METH_VARARGS, NULL},
