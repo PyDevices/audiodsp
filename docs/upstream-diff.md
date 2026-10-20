@@ -1646,6 +1646,17 @@ that no arrangement of the existing nodes reaches, and the program's vision
   too short for the whole 16 ms stretch matches a note rather than a chord
   and never searches on.
 
+  Nor does a splice where the other tap reads 8 LSB or less on average over
+  the stretch (audiodsp#290). There, the last of a fading repeat or silence,
+  rounding alone makes every match look poor, and a whole window's move had
+  nothing to match: it left the starting tap a window off the material that
+  came next. A 40 ms burst shifted once by `PitchShift` and repeated through
+  the loop at 22.05 kHz, -5 semitones, a 30 ms window and Feedback 0.3 came
+  back 17.6 to 20.0 dB under what Feedback leaves a repeat, where the burst
+  began 51 to 55 ms in; it is within 3.7 dB now (E20). Every chord E18 and
+  E19 hold reads as it did, as does the 450-chord sweep above: a held chord
+  reads far above the floor.
+
   Turning it off no longer steps back, and turning it on again no longer
   resumes a stale phase (audiodsp#177). Once the shifter has run,
   `loop_semitones=0` keeps the two-tap read and lets the crossfade run on at
