@@ -59,6 +59,7 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_convolve.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_tank.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_modal.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_oscillator.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_sampler.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_meter.c
     ${MPAUDIO_SRC_DIR}/audiometer/module.c
@@ -111,6 +112,8 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/audioshaper/module.c
     ${MPAUDIO_SRC_DIR}/audioladder/Ladder.c
     ${MPAUDIO_SRC_DIR}/audioladder/module.c
+    ${MPAUDIO_SRC_DIR}/audiooscillator/Oscillator.c
+    ${MPAUDIO_SRC_DIR}/audiooscillator/module.c
     ${MPAUDIO_SRC_DIR}/audioconvolve/Convolver.c
     ${MPAUDIO_SRC_DIR}/audioconvolve/module.c
     ${MPAUDIO_SRC_DIR}/audiobiquad/Biquad.c

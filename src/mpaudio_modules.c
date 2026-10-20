@@ -33,6 +33,6 @@
 // usermod. See audiodynamics/module.c, audioroute/module.c.
 
 // audiomath, audioecho, audioshaper, audioconvolve, audiobiquad,
-// audioverb, audiomodal and audiosampler (tier 6) are audiodsp's own, with
+// audioverb, audiomodal, audiooscillator and audiosampler (tier 6) are audiodsp's own, with
 // no ancestor anywhere.
 // See each module.c.

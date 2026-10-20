@@ -104,6 +104,11 @@ PROBES = (
     # the two above keep rendering what they rendered.
     ("feedback_delay_state_probe.py", "audioecho", {}, None),
     ("ladder_probe.py", "audioladder", {}, None),
+    # The ladder at the caller's block size: a 64-frame and a one-frame render
+    # are the default's, cut smaller. Its own file, so the probe above keeps
+    # rendering what it rendered.
+    ("ladder_frames_probe.py", "audioladder", {}, None),
+    ("oscillator_probe.py", "audiooscillator", {}, None),
     ("dynamics_extras_probe.py", "audiodynamics", {}, None),
     ("dynamics_options_probe.py", "audiodynamics", {}, None),
     # A mono Dynamics on source buffers shorter than its block: the native

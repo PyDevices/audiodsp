@@ -56,6 +56,7 @@ import audioladder
 import audiomath
 import audiomixer
 import audiomodal
+import audiooscillator
 import audiosampler
 import audioroute
 import audioshaper
@@ -123,6 +124,8 @@ NODES = (
     ("audiomath.SubOctave", lambda: audiomath.SubOctave(**PCM)),
     ("audiomixer.Mixer", lambda: audiomixer.Mixer(voice_count=2, **PCM)),
     ("audiomodal.Bank", lambda: audiomodal.Bank(modes=4, **PCM)),
+    ("audiooscillator.Oscillator", lambda: audiooscillator.Oscillator(
+        frequency=440.0, **PCM)),
     ("audiosampler.Sampler", lambda: audiosampler.Sampler(voice_count=2, **PCM)),
     ("audioroute.MidSide", lambda: audioroute.MidSide(**PCM)),
     ("audioroute.Port", lambda: audioroute.Port(source())),
@@ -246,6 +249,7 @@ OWN = (
     "audiobiquad.AllPass", "audiobiquad.Biquad", "audioconvolve.Convolver",
     "audiodynamics.Dynamics", "audioecho.FeedbackDelay", "audioladder.Ladder",
     "audiomath.Multiply", "audiomath.SubOctave", "audiomodal.Bank",
+    "audiooscillator.Oscillator",
     "audioroute.MidSide", "audiosampler.Sampler", "audioroute.Port", "audioshaper.SampleHold",
     "audioshaper.Waveshaper", "audioverb.Tank",
 )
@@ -271,6 +275,8 @@ CALLS = {
 #: Methods whose live call needs the node's own arguments.
 NODE_CALLS = {
     ("audioshaper.SampleHold", "set"): lambda n: n.set(num=400, den=217),
+    ("audiooscillator.Oscillator", "modulate"):
+        lambda n: n.modulate(sync=source()),
 }
 
 #: Not checked: releasing is the one call a released node must still take.

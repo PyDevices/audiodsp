@@ -75,8 +75,8 @@ python -m pip install pydevices-audiodsp
 
 This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiodelays`, `audiofreeverb`, `audiospeed`, `audiodynamics`, `audioroute`,
-`audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audioconvolve`,
-`audiobiquad`, `audioverb`, `audiomodal`, `audiosampler`, `audiometer`,
+`audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audiooscillator`,
+`audioconvolve`, `audiobiquad`, `audioverb`, `audiomodal`, `audiosampler`, `audiometer`,
 `audiopump`, `audiovorbis`, and the `audiorender` package.
 `audiomp3` remains firmware-only. The distribution declares no *required*
 runtime dependencies and does not itself publish an `audiodsp` import; its
@@ -156,7 +156,9 @@ a soft-clip and a cross-feed inside its feedback loop), `audioshaper` (a
 waveshaper whose curve is data, applied above the sample rate, and a
 sample-and-hold at an exact rational ratio),
 `audioladder` (a transistor ladder filter — four one-pole stages round a
-feedback loop with an odd saturator inside it), `audioconvolve` (apply a
+feedback loop with an odd saturator inside it), `audiooscillator` (a
+band-limited oscillator whose pitch, FM, pulse width and hard sync are audio
+streams, read sample by sample), `audioconvolve` (apply a
 measured or synthesized impulse response, by partitioned FFT), `audioverb`
 (a reverberation tank whose line lengths and output taps come from Python),
 `audiomodal` (a bank of resonators, which is what a struck object is),
@@ -359,11 +361,41 @@ ladder = audioladder.Ladder(
     passband_comp=0.0,      # 0..1, how much of the passband to give back
     oversample=2,           # 1 or 2; 2 folds back fewer of its harmonics
     mix=1.0,                # 0 a wire, 1 the filter
+    buffer_size=None,       # bytes a block, as on the effects; 256 frames
 )
 ladder.play(source)
 ladder.set(cutoff_hz=1200.0)   # any option, mid-stream, once a block
 ladder.clear()                 # empty the integrators; stops a sustained tone
 ```
+
+`audiooscillator` is the oscillator synthio does not have. synthio's moves its
+pitch once per block and reads a wavetable with no band limiting; this one
+reads its pitch, linear FM, pulse width and hard sync from audio streams every
+sample, so one oscillator can sync to another or be frequency-modulated by it:
+
+```python
+import audiooscillator as ao
+
+lead = ao.Oscillator(
+    sample_rate=48000,      # and channel_count=1 or 2
+    frequency=220.0,        # Hz, before the pitch input
+    waveform=ao.SAW,        # any sum of SAW, PULSE, TRIANGLE and SINE
+    waveform_right=ao.PULSE,  # the right channel's, from the same phase
+    pulse_width=0.5,        # 0.05..0.95
+    level=0.5,              # output for a waveform's full swing
+    pitch_octaves=10.0,     # octaves for a full-scale pitch input
+    fm_depth=300.0,         # Hz for a full-scale FM input, linear
+    pwm_depth=0.5,          # pulse width for a full-scale PWM input
+    buffer_size=None,       # bytes a block; 256 frames
+)
+lead.modulate(sync=ao.Oscillator(frequency=110.0, waveform=ao.PULSE))
+lead.set(frequency=330.0)   # any option, mid-stream
+lead.clear()                # phase back to zero
+```
+
+Steps are band-limited with PolyBLEP and the triangle's corners with
+PolyBLAMP. The output trails the phase by one sample, which is what lets a
+sync edge, which nothing can see coming, still correct the sample before it.
 
 See [docs/upstream-diff.md](docs/upstream-diff.md) for why its feedback loop
 is solved rather than delayed, and what that was measured to be worth.

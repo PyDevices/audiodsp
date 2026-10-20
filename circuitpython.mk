@@ -31,8 +31,8 @@ AUDIODSP_CP_SPIKE := $(AUDIODSP_CP_SRC)/circuitpython_spike
 CFLAGS_USERMOD += -I$(AUDIODSP_CP_SPIKE) -I$(AUDIODSP_CP_SRC)
 
 AUDIODSP_CP_MODULES := audiodynamics audioroute audiomath audioecho audioshaper \
-	audioladder audioconvolve audiobiquad audioverb audiomodal audiosampler \
-	audiovorbis
+	audioladder audiooscillator audioconvolve audiobiquad audioverb audiomodal \
+	audiosampler audiovorbis
 
 AUDIODSP_CP_SOURCES := \
 	$(foreach m,$(AUDIODSP_CP_MODULES),$(sort $(wildcard $(AUDIODSP_CP_SPIKE)/shared-bindings/$(m)/*.c))) \
@@ -48,6 +48,7 @@ AUDIODSP_CP_SOURCES += $(addprefix $(AUDIODSP_CP_SRC)/shared/, \
 	audiodsp_shaper.c \
 	audiodsp_samplehold.c \
 	audiodsp_ladder.c \
+	audiodsp_oscillator.c \
 	audiodsp_trig.c \
 	audiodsp_fft.c \
 	audiodsp_convolve.c \
