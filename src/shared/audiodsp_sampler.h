@@ -73,9 +73,13 @@
 #define AUDIODSP_SAMPLER_MAX_FRAMES 1024u
 
 //: The most voices one sampler may carry. The budget target is 24 at 48 kHz
-//: stereo; 64 leaves headroom without letting a Python mistake allocate
-//: unboundedly.
-#define AUDIODSP_SAMPLER_MAX_VOICES 64u
+//: stereo. 128 covers a dense General MIDI piece, which has more than 60 keys
+//: down at once and the release tails of the notes just let go besides. It
+//: costs nothing until a voice sounds: a binding sizes its table to the
+//: `voice_count` it is asked for, at most this, and an idle voice is skipped,
+//: so a board that cannot render this many asks for fewer. The ceiling stops
+//: a Python mistake allocating without bound.
+#define AUDIODSP_SAMPLER_MAX_VOICES 128u
 
 //: Pitch bounds, as a ratio. 1/64 is six octaves down; 64 is six up.
 #define AUDIODSP_SAMPLER_MIN_PITCH (1.0f / 64.0f)

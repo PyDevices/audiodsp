@@ -32,6 +32,10 @@ never to a previous version of its own output.
 | S17 | 24 looping stereo voices render inside the 5333 us block | measured |
 | S18 | `play()` over a sounding voice fades the old note out under the new one, as S7 | exact |
 | S19 | A voice already releasing keeps releasing when stopped, no slower than the 5 ms fade | exact |
+| S20 | A Sampler of 128 voices builds, sounds on every voice and sums them; one more than `MAX_VOICES` is refused | exact; raises |
+| S21 | The first 64 voices of a table of 128 render what a table of 64 does | exact |
+| S22 | A steal on the last voice of a table of 128 fades the old note out, as S18 | exact |
+| S23 | 128 looping stereo voices render inside the 5333 us block | measured |
 
 S3 is this module's form of the identity trait `docs/correctness-standard.md`
 asks of every own node: an exact answer through the interpolator rather than
@@ -460,6 +464,74 @@ class SamplerTraits(unittest.TestCase):
             best = min(best, (time.perf_counter() - started) / 500 * 1e6)
         budget = BLOCK / RATE * 1e6  # 5333 us
         print("\n24 looping stereo voices: %.1f us per %d-frame block "
+              "(budget %.0f us)" % (best, BLOCK, budget))
+        self.assertTrue(all(voice.playing for voice in sampler.voice))
+        self.assertLess(best, budget)
+
+
+    def test_s20_a_hundred_and_twenty_eight_voices_sound_and_sum(self):
+        self.assertGreaterEqual(audiosampler.MAX_VOICES, 128)
+        sampler = mono(128)
+        self.assertEqual(len(sampler.voice), 128)
+        for voice in sampler.voice:
+            voice.play(flat(100), loop_mode=audiosampler.LOOP_FOREVER)
+        self.assertTrue(all(voice.playing for voice in sampler.voice))
+        render(sampler, 1)  # a new note's level ramps in across its first block
+        self.assertEqual(render(sampler, 1), [128 * 100] * BLOCK)
+        sampler.deinit()
+        with self.assertRaises(ValueError):
+            mono(audiosampler.MAX_VOICES + 1)
+
+    def test_s21_a_bigger_table_renders_the_same_for_the_voices_in_use(self):
+        cycle = sine_cycle()
+        outs = []
+        for table in (64, 128):
+            sampler = audiosampler.Sampler(voice_count=table, channel_count=2,
+                                           sample_rate=RATE)
+            for index in range(64):
+                sampler.voice[index].play(
+                    cycle, pitch=2.0 ** ((index % 24 - 12) / 12.0),
+                    loop_mode=audiosampler.LOOP_FOREVER, level=0.01,
+                    pan=(index % 5 - 2) / 2.0, attack=0.01, decay=0.5,
+                    sustain=0.5)
+            outs.append(render(sampler, 8))
+            sampler.deinit()
+        self.assertGreater(peak(outs[0]), 1000)
+        self.assertEqual(outs[0], outs[1])
+
+    def test_s22_a_steal_on_the_last_voice_fades_the_old_note(self):
+        sampler = mono(128)
+        for voice in sampler.voice[:127]:
+            voice.play(flat(10), loop_mode=audiosampler.LOOP_FOREVER)
+        sampler.voice[127].play(flat(), loop_mode=audiosampler.LOOP_FOREVER)
+        render(sampler, 2)
+        sampler.voice[127].play(flat(10000),
+                                loop_mode=audiosampler.LOOP_FOREVER)
+        out = render(sampler, 1)
+        self.assertFadesOut([v - 127 * 10 - 10000 for v in out], 20000)
+        self.assertEqual(render(sampler, 1), [127 * 10 + 10000] * BLOCK)
+        sampler.deinit()
+
+    def test_s23_a_hundred_and_twenty_eight_voices_inside_the_block(self):
+        sampler = audiosampler.Sampler(voice_count=128, channel_count=2,
+                                       sample_rate=RATE)
+        cycle = sine_cycle()
+        for index, voice in enumerate(sampler.voice):
+            voice.play(cycle, pitch=2.0 ** ((index % 24 - 12) / 12.0),
+                       loop_mode=audiosampler.LOOP_FOREVER, level=0.01,
+                       pan=(index % 5 - 2) / 2.0, attack=0.01, decay=0.5,
+                       sustain=0.5)
+        state = sampler._state
+        for _ in range(20):
+            state.render()
+        best = float("inf")
+        for _ in range(3):
+            started = time.perf_counter()
+            for _ in range(500):
+                state.render()
+            best = min(best, (time.perf_counter() - started) / 500 * 1e6)
+        budget = BLOCK / RATE * 1e6
+        print("\n128 looping stereo voices: %.1f us per %d-frame block "
               "(budget %.0f us)" % (best, BLOCK, budget))
         self.assertTrue(all(voice.playing for voice in sampler.voice))
         self.assertLess(best, budget)
