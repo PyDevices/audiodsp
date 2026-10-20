@@ -39,7 +39,7 @@
 //|         samples_signed: bool = True,
 //|         sample_rate: int = 48000,
 //|     ) -> None:
-//|         """Create a sampler. ``voice_count`` (1 to 64) and ``channel_count``
+//|         """Create a sampler. ``voice_count`` (1 to 128) and ``channel_count``
 //|         (1 or 2) size the allocation and cannot change afterwards.
 //|         ``buffer_size`` is the output block in bytes, 256 frames by
 //|         default. ``bits_per_sample`` and ``samples_signed`` are accepted so

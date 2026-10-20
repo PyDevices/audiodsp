@@ -70,9 +70,19 @@ run). On an ESP32-P4 at 400 MHz, 64 voices of a dense General MIDI file
 took about 5 ms of the block before the frames between a voice's events got
 a loop of their own (state in registers, two frames' interpolation worked
 out together for the in-order core, the same arithmetic in the same order,
-so the same bits): about 2.4 ms after. Memory is the voice table (about 100 bytes a voice), a float
-accumulator of one block, and the output block. The buffers are the caller's,
-held by reference while a voice sounds.
+so the same bits): about 2.4 ms after. Memory is the voice table (about 100 bytes a voice, two
+slots each), a float accumulator of one block, and the output block. The
+buffers are the caller's, held by reference while a voice sounds.
+
+A `Sampler` carries up to 128 voices (`audiosampler.MAX_VOICES`). Cost
+grows with the voices sounding, not the table: a thousand and twenty-four
+frames (one 21.3 ms period) take 0.28 ms with 64 voices sounding and 0.55 ms
+with 128 on CPython, and 0.67 ms and 1.27 ms on the MicroPython unix port
+(x86-64, one core, every voice looping, panned and pitched apart); 64 voices
+sounding in a table of 128 take the same as in a table of 64. A board
+renders voices at its own pace, so scale the P4's 64 voices (2.4 ms of a
+5.3 ms block) to what you ask of it, and give `voice_count` the number it
+can keep up with.
 
 ### How it is verified
 

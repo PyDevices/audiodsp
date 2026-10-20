@@ -40,7 +40,7 @@
 //| """The most frames a block may carry (1024)."""
 //|
 //| MAX_VOICES: int
-//| """The most voices one Sampler may carry (64)."""
+//| """The most voices one Sampler may carry (128)."""
 //|
 //| LOOP_NONE: int
 //| """Play to the end of the buffer and stop (SoundFont sampleModes 0)."""
