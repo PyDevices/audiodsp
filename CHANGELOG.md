@@ -1,3 +1,9 @@
+## v0.6.8.dev3 (2026-10-20)
+
+- audiosampler: SampleBuffer, sample memory outside the collected heap; and a voice renders its clean frames in a loop of their own
+- tests: drop an unused import
+- synthio (CPython): a block where nothing sounds returns silence without mixing down (#278)
+
 ## v0.6.8.dev2 (2026-10-19)
 
 - audiodsp_sampler.h: the play() comment, unscrambled
