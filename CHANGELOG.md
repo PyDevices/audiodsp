@@ -1,3 +1,10 @@
+## v0.6.8.dev4 (2026-10-20)
+
+- audiooscillator: a band-limited oscillator with sync, FM, PWM and pitch at audio rate
+- audioladder: buffer_size, so a host's 64-frame blocks need no chunking
+- audiomixer (CPython): scale a voice at any level in C, not in Python (#273)
+- audioecho.FeedbackDelay: a splice that nothing near fits searches on
+
 ## v0.6.8.dev3 (2026-10-20)
 
 - audiosampler: SampleBuffer, sample memory outside the collected heap; and a voice renders its clean frames in a loop of their own
