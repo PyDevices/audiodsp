@@ -448,9 +448,19 @@ the voice still sounds.
 Every voice is mixed in one C call per block, summed in float and quantised
 once, through a 4-point Hermite interpolator — so a loop at pitch 1.0 is a
 wire. Measured on a desktop: 24 looping stereo voices at 48 kHz in about
-25 µs of the 5333 µs block. See
-[docs/upstream-diff.md](docs/upstream-diff.md) for why the position is
+25 µs of the 5333 µs block; on an ESP32-P4 at 400 MHz, about 37 µs a voice.
+See [docs/upstream-diff.md](docs/upstream-diff.md) for why the position is
 fixed point and how the pitch is verified by measurement.
+
+`SampleBuffer(size)` is memory for the samples, outside the collected heap:
+`size` zeroed bytes, with a buffer, so you can read into it and play views of
+it. A bank of samples in bytearrays makes every `gc.collect()` read all of
+them looking for pointers, which on a board with megabytes of samples is
+seconds; a `SampleBuffer`'s bytes are never read. A view of one doesn't keep
+it alive, so hold the buffer itself for as long as a voice plays from it.
+`deinit()`, or the buffer being collected, frees the bytes. On a board whose
+audio driver says where (PSRAM on the ESP32 ports) they come from there; on
+CPython it is a bytearray.
 
 ### `audioverb.Tank`
 

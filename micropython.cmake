@@ -120,6 +120,7 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/audioverb/module.c
     ${MPAUDIO_SRC_DIR}/audiomodal/Bank.c
     ${MPAUDIO_SRC_DIR}/audiomodal/module.c
+    ${MPAUDIO_SRC_DIR}/audiosampler/SampleBuffer.c
     ${MPAUDIO_SRC_DIR}/audiosampler/Sampler.c
     ${MPAUDIO_SRC_DIR}/audiosampler/SamplerVoice.c
     ${MPAUDIO_SRC_DIR}/audiosampler/module.c

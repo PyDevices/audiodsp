@@ -2,10 +2,12 @@
 // for why this port uses a single registration file per module.
 //
 // Two classes, as audiomixer has: the Sampler, which is the audio source, and
-// its voices, which are what a note is played on.
+// its voices, which are what a note is played on. And a third, SampleBuffer:
+// memory for the samples they read, outside the collected heap.
 //
 // SPDX-License-Identifier: MIT
 
+#include "audiosampler/SampleBuffer.h"
 #include "audiosampler/Sampler.h"
 #include "audiosampler/SamplerVoice.h"
 
@@ -19,6 +21,8 @@ static const mp_rom_map_elem_t audiosampler_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_Sampler), MP_ROM_PTR(&audiosampler_sampler_type) },
     { MP_ROM_QSTR(MP_QSTR_SamplerVoice),
       MP_ROM_PTR(&audiosampler_samplervoice_type) },
+    { MP_ROM_QSTR(MP_QSTR_SampleBuffer),
+      MP_ROM_PTR(&audiosampler_samplebuffer_type) },
     // The block size, the two ceilings and the three loop modes, so a reader
     // writes a SoundFont's sampleModes value straight in. The CPython wrapper
     // exports the same six names.

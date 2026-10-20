@@ -147,6 +147,29 @@ class SamplerVoice:
         self._sampler._state.set_pitch(self._index, self._pitch)
 
 
+class SampleBuffer(bytearray):
+    """`size` zeroed bytes for a sampler's voices to read.
+
+    On a board, the MicroPython build takes them from outside the collected
+    heap, so a collection never reads them: a SoundFont arena of bytearrays
+    there costs every `gc.collect()` the time to read it all. A memoryview of
+    one does not keep it alive on that build, so hold the buffer itself while
+    a voice plays from it. Here, a bytearray; `deinit()` empties it.
+    """
+
+    def deinit(self):
+        try:
+            del self[:]
+        except BufferError:  # a view still holds it: freed with the last one
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.deinit()
+
+
 class Sampler(_AudioSample):
     def __init__(self, *, voice_count=8, channel_count=2, sample_rate=48000,
                  buffer_size=None, bits_per_sample=16, samples_signed=True):
@@ -215,5 +238,5 @@ class Sampler(_AudioSample):
         return GET_BUFFER_MORE_DATA, self._publish(self._state.render())
 
 
-__all__ = ("Sampler", "SamplerVoice", "LOOP_NONE", "LOOP_FOREVER",
+__all__ = ("Sampler", "SamplerVoice", "SampleBuffer", "LOOP_NONE", "LOOP_FOREVER",
            "LOOP_UNTIL_RELEASE")

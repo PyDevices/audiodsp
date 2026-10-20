@@ -8,6 +8,7 @@
 #include "py/runtime.h"
 
 #include "shared-bindings/audiosampler/__init__.h"
+#include "shared-bindings/audiosampler/SampleBuffer.h"
 #include "shared-bindings/audiosampler/Sampler.h"
 #include "shared-bindings/audiosampler/SamplerVoice.h"
 
@@ -56,6 +57,8 @@ static const mp_rom_map_elem_t audiosampler_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_Sampler), MP_ROM_PTR(&audiosampler_sampler_type) },
     { MP_ROM_QSTR(MP_QSTR_SamplerVoice),
       MP_ROM_PTR(&audiosampler_samplervoice_type) },
+    { MP_ROM_QSTR(MP_QSTR_SampleBuffer),
+      MP_ROM_PTR(&audiosampler_samplebuffer_type) },
     { MP_ROM_QSTR(MP_QSTR_FRAMES), MP_ROM_INT(AUDIODSP_SAMPLER_FRAMES) },
     { MP_ROM_QSTR(MP_QSTR_MAX_FRAMES),
       MP_ROM_INT(AUDIODSP_SAMPLER_MAX_FRAMES) },
