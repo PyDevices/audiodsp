@@ -273,6 +273,7 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiomodal/Bank.c \
     $(MPAUDIO_SRC_DIR)/audiomodal/module.c
 SRC_USERMOD_C += \
+    $(MPAUDIO_SRC_DIR)/audiosampler/SampleBuffer.c \
     $(MPAUDIO_SRC_DIR)/audiosampler/Sampler.c \
     $(MPAUDIO_SRC_DIR)/audiosampler/SamplerVoice.c \
     $(MPAUDIO_SRC_DIR)/audiosampler/module.c

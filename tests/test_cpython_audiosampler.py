@@ -465,5 +465,38 @@ class SamplerTraits(unittest.TestCase):
         self.assertLess(best, budget)
 
 
+class SampleBufferTraits(unittest.TestCase):
+    """Memory for samples: zeroed, writable through a view, and a voice
+    playing from a view of it sounds as it does from an array."""
+
+    def test_zeroed_writable_and_sized(self):
+        buf = audiosampler.SampleBuffer(64)
+        self.assertEqual(len(buf), 64)
+        self.assertEqual(bytes(buf), bytes(64))
+        view = memoryview(buf)
+        view[0:2] = b"\x01\x02"
+        self.assertEqual(bytes(buf)[:2], b"\x01\x02")
+        del view
+        buf.deinit()
+        self.assertEqual(len(buf), 0)
+
+    def test_a_voice_plays_from_it_as_from_an_array(self):
+        cycle = sine_cycle()
+        buf = audiosampler.SampleBuffer(len(cycle) * 2)
+        memoryview(buf)[:] = cycle.tobytes()
+        outs = []
+        for source in (cycle, memoryview(buf).cast("h")):
+            sampler = mono()
+            sampler.voice[0].play(source, loop_mode=audiosampler.LOOP_FOREVER)
+            outs.append(render(sampler, 4))
+            sampler.deinit()
+        self.assertEqual(outs[0], outs[1])
+        self.assertGreater(peak(outs[0]), 10000)
+
+    def test_a_negative_size_is_refused(self):
+        with self.assertRaises(ValueError):
+            audiosampler.SampleBuffer(-1)
+
+
 if __name__ == "__main__":
     unittest.main()

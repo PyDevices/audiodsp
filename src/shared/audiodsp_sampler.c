@@ -380,6 +380,130 @@ static inline void wrap(audiodsp_sampler_voice_t *voice) {
     }
 }
 
+// How many frames from here, at most `most`, need none of the per-frame
+// tests: frame j reads taps [index-1, index+2] all inside the buffer (or the
+// loop), its stage does not end on it, and stepping past it neither wraps nor
+// runs off the end. Frame j is at position + j * step; asking that
+// position + (j + 1) * step stay below (limit - 2) << 32 covers all three
+// position tests at once, since a frame at or past that bound is the only
+// kind that can reach a tap, a wrap or the end. Zero when the next frame is
+// one of those.
+static uint32_t clean_run(const audiodsp_sampler_voice_t *voice,
+    uint32_t most) {
+    const uint64_t position = voice->position;
+    if ((position >> 32) < 1u) {
+        return 0;
+    }
+    const uint32_t limit = voice->looping ? voice->loop_end : voice->length;
+    if (limit < 3u) {
+        return 0;
+    }
+    const uint64_t bound = (uint64_t)(limit - 2u) << 32;
+    const uint64_t step = voice->step;
+    if (step == 0u || position + step >= bound) {
+        return 0;
+    }
+    uint64_t run = (bound - 1u - position) / step;
+    if (run > most) {
+        run = most;
+    }
+    if (voice->stage != AUDIODSP_SAMPLER_STAGE_SUSTAIN) {
+        // The frame that takes stage_left to zero ends the stage: not here.
+        if (voice->stage_left <= 1u) {
+            return 0;
+        }
+        if (run > voice->stage_left - 1u) {
+            run = voice->stage_left - 1u;
+        }
+    }
+    return (uint32_t)run;
+}
+
+// One sample, as the general path makes it: a 4-point Hermite of the taps
+// around `position`.
+static inline float tap_run(const int16_t *data, uint64_t position) {
+    const uint32_t index = (uint32_t)(position >> 32);
+    const float x = (float)(uint32_t)position * (1.0f / 4294967296.0f);
+    return hermite((float)data[index - 1u], (float)data[index],
+        (float)data[index + 1u], (float)data[index + 2u], x);
+}
+
+// `run` clean frames from frame `i`. The voice's state lives in locals for
+// the run, so the stores into the mix (floats, which the compiler must
+// assume can alias the voice's own floats) don't force it back to memory
+// every frame; and two frames' Hermites are worked out before either is
+// mixed, so an in-order core has the second's arithmetic to do while the
+// first's is still in the pipeline. Each frame's numbers are the general
+// path's, in the general path's order. Leaves the gains in `gain_run`.
+static uint32_t render_run(audiodsp_sampler_t *self,
+    audiodsp_sampler_voice_t *voice, uint32_t i, uint32_t run,
+    float g0, float g1, float dg0, float dg1) {
+    float *mix = self->mix;
+    const int16_t *data = voice->data;
+    const uint64_t step = voice->step;
+    const bool ramp = voice->stage != AUDIODSP_SAMPLER_STAGE_SUSTAIN;
+    const float env_step = voice->env_step;
+    uint64_t position = voice->position;
+    float env = voice->env;
+    const uint32_t end = i + run;
+    if (self->channel_count == 2u) {
+        for (; i + 1u < end; i += 2u) {
+            float a = tap_run(data, position);
+            float b = tap_run(data, position + step);
+            a *= env;
+            mix[2u * i] += a * g0;
+            mix[2u * i + 1u] += a * g1;
+            g0 += dg0;
+            g1 += dg1;
+            if (ramp) {
+                env += env_step;
+            }
+            b *= env;
+            mix[2u * i + 2u] += b * g0;
+            mix[2u * i + 3u] += b * g1;
+            g0 += dg0;
+            g1 += dg1;
+            if (ramp) {
+                env += env_step;
+            }
+            position += step + step;
+        }
+        if (i < end) {
+            float a = tap_run(data, position);
+            a *= env;
+            mix[2u * i] += a * g0;
+            mix[2u * i + 1u] += a * g1;
+            g0 += dg0;
+            g1 += dg1;
+            if (ramp) {
+                env += env_step;
+            }
+            position += step;
+            ++i;
+        }
+    } else {
+        for (; i < end; ++i) {
+            float a = tap_run(data, position);
+            a *= env;
+            mix[i] += a * g0;
+            g0 += dg0;
+            g1 += dg1;
+            if (ramp) {
+                env += env_step;
+            }
+            position += step;
+        }
+    }
+    voice->position = position;
+    voice->env = env;
+    if (ramp) {
+        voice->stage_left -= run;
+    }
+    voice->gain_run[0] = g0;
+    voice->gain_run[1] = g1;
+    return i;
+}
+
 AUDIODSP_HOT
 static void render_voice(audiodsp_sampler_t *self,
     audiodsp_sampler_voice_t *voice) {
@@ -414,6 +538,19 @@ static void render_voice(audiodsp_sampler_t *self,
 
     const int16_t *data = voice->data;
     for (; i < frames; ++i) {
+        // Most of a block is frames that need none of the tests below: every
+        // tap inside the buffer, no stage ending, no wrap and no end. Those
+        // go through the run loop, in registers and two at a time, with the
+        // same arithmetic in the same order, so the output is the same bits.
+        uint32_t run = clean_run(voice, frames - i);
+        if (run >= 2u) {
+            i = render_run(self, voice, i, run, g0, g1, dg0, dg1);
+            g0 = voice->gain_run[0];
+            g1 = voice->gain_run[1];
+            if (i >= frames) {
+                break;
+            }
+        }
         const uint32_t index = (uint32_t)(voice->position >> 32);
         const float x = (float)(uint32_t)voice->position *
             (1.0f / 4294967296.0f);

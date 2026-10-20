@@ -155,6 +155,8 @@ typedef struct {
     float level;
     float pan;
     float gain[2];
+    // Where a run of clean frames left the gains, mid-block (render only).
+    float gain_run[2];
 } audiodsp_sampler_voice_t;
 
 typedef struct {

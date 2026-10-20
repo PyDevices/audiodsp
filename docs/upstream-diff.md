@@ -66,7 +66,11 @@ under the release.
 24 looping stereo voices at 48 kHz, each with a full envelope and a pan, in
 one 256-frame block: **24 µs** against the 5333 µs the block lasts (x86-64,
 gcc -O2, `tests/test_cpython_audiosampler.py` S17 prints the number on every
-run). Memory is the voice table (about 100 bytes a voice), a float
+run). On an ESP32-P4 at 400 MHz, 64 voices of a dense General MIDI file
+took about 5 ms of the block before the frames between a voice's events got
+a loop of their own (state in registers, two frames' interpolation worked
+out together for the in-order core, the same arithmetic in the same order,
+so the same bits): about 2.4 ms after. Memory is the voice table (about 100 bytes a voice), a float
 accumulator of one block, and the output block. The buffers are the caller's,
 held by reference while a voice sounds.
 

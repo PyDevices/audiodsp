@@ -91,7 +91,7 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
     def test_the_tables_are_found_at_all(self):
         """A control, because the failure mode of this file is a regex that
         matches nothing and then agrees with itself. Both sides must yield the
-        nineteen types.
+        twenty types.
 
         The count is deliberately a literal rather than a comparison of the two
         sides against each other: a node added to one binding and not the other
@@ -104,14 +104,14 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
         and `deinit()` and the CircuitPython copy has no lock to take.
         The surface is the same, which is all this file compares. Seventeen
         with `audiovorbis.VorbisDecoder`, whose two bindings differ the same
-        way."""
+        way. Twenty with `audiosampler.SampleBuffer`."""
         micropython = {}
         circuitpython = {}
         for module in MODULES:
             micropython.update(micropython_surfaces(module))
             circuitpython.update(circuitpython_surfaces(module))
-        self.assertEqual(len(micropython), 19, sorted(micropython))
-        self.assertEqual(len(circuitpython), 19, sorted(circuitpython))
+        self.assertEqual(len(micropython), 20, sorted(micropython))
+        self.assertEqual(len(circuitpython), 20, sorted(circuitpython))
 
     def test_every_type_exists_on_both_sides(self):
         for module in MODULES:
