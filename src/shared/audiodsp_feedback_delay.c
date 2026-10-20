@@ -529,11 +529,20 @@ static void feedback_delay_run(
 // match and keeps its level (E17 reads the same to 0.01 dB), and a delay too
 // short for the whole stretch, which matches a note rather than a chord,
 // never searches on. A splice that does costs twice the search.
+//
+// Nor does a splice where the other tap reads 8 LSB or less on average over
+// the stretch (ALIGN_FLOOR): the last of a fading repeat, or silence, where
+// rounding alone makes every match poor. A whole window's move there had
+// nothing to match, and it left the tap reading a window off the material
+// that came next: a 40 ms burst at 22.05 kHz, -5 semitones, a 30 ms window
+// and Feedback 0.3 came back on its third pass 19 dB under the level
+// Feedback leaves it, where before the far search it read 2.5 dB over.
 #define AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH 48
 #define AUDIODSP_FEEDBACK_DELAY_ALIGN_STEP_DIVISOR 3000u
 #define AUDIODSP_FEEDBACK_DELAY_ALIGN_STRIDE 6
 #define AUDIODSP_FEEDBACK_DELAY_ALIGN_DIVISOR 40u
 #define AUDIODSP_FEEDBACK_DELAY_ALIGN_POOR 8
+#define AUDIODSP_FEEDBACK_DELAY_ALIGN_FLOOR 8
 
 static int64_t align_score(const int16_t *line, uint32_t length,
     uint32_t channels, uint32_t write_frame, int32_t other, int32_t candidate,
@@ -671,15 +680,19 @@ static float splice_align(const audiodsp_feedback_delay_config_t *config,
             }
         }
         // Nothing near fits: search on, once, out to the far span, where the
-        // whole stretch can be read from all of it.
+        // whole stretch can be read from all of it, unless the other tap
+        // reads next to nothing.
         if (reach < far_span && pace == whole_pace &&
             base - far_span >= low && base + far_span <= high &&
-            found && best_score > 0 &&
-            best_score * AUDIODSP_FEEDBACK_DELAY_ALIGN_POOR >
-            align_level(state->line, length, state->write_frame, against,
-                pace)) {
-            reach = far_span;
-            continue;
+            found && best_score > 0) {
+            const int64_t level = align_level(state->line, length,
+                state->write_frame, against, pace);
+            if (level > (int64_t)AUDIODSP_FEEDBACK_DELAY_ALIGN_FLOOR *
+                AUDIODSP_FEEDBACK_DELAY_ALIGN_LENGTH &&
+                best_score * AUDIODSP_FEEDBACK_DELAY_ALIGN_POOR > level) {
+                reach = far_span;
+                continue;
+            }
         }
         break;
     }

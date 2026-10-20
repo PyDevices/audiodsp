@@ -32,6 +32,7 @@ its own output.
 | E17 | A held note through `loop_semitones` plays its shifted pitch, C2 to C6, up and down, at 48, 44.1 and 22.05 kHz | the line at f * r within 3 dB of the note's own level |
 | E18 | A held chord through `loop_semitones` keeps every note's shifted line | each within 5.7 dB of the note's own level, PitchShift's worst on the same chords |
 | E19 | E18 on chords and intervals no splice within half a window fits: A minor, E minor and D minor in the low register, a major sixth, a major seventh | E18's bar, 5.7 dB |
+| E20 | A short burst shifted by `audiodelays.PitchShift` and repeated through `loop_semitones` with feedback keeps each repeat's level, wherever the burst falls against the splices | each repeat's energy at least Feedback squared of the one before, less 6 dB |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -59,10 +60,12 @@ leaves them by the hundred. The cross-target half of this lives in the probe's
 """
 
 from array import array
+import math
 import struct
 import unittest
 
 import audiocore
+import audiodelays
 import audioecho
 
 SAMPLE_RATE = 8000
@@ -1238,6 +1241,77 @@ class UnfitChordSpliceTest(HeldChordSpliceTest):
             for midi, level in zip(midis, self._levels(midis, semitones)):
                 with self.subTest(semitones=semitones, chord=name, midi=midi):
                     self.assertGreaterEqual(level, -5.7)
+
+
+
+@unittest.skipIf(np is None, "E20 measures energy with numpy")
+class FadingRepeatSpliceTest(unittest.TestCase):
+    """E20, audiodsp#290. A burst shifted once by `audiodelays.PitchShift`,
+    then repeated through `loop_semitones` with feedback, as a pitch shifter
+    with feedback wires the two. Each repeat should come back Feedback
+    squared quieter in energy than the one before. When E19's far search
+    also ran where the other tap read only the last few LSB of a fading
+    repeat, it moved the starting tap a whole window off the burst that came
+    next: at 22.05 kHz, -5 semitones, a 30 ms window and Feedback 0.3, a
+    repeat came back 17.6 and 20.0 dB under that where the burst began 51
+    and 55 ms in. The far search now needs the other tap to read more than
+    8 LSB on average. The bar is 6 dB; the worst here is 3.7."""
+
+    RATE = 22050
+    FEEDBACK = 0.3
+    #: The 256ths read rate nearest -5 semitones.
+    STEP = 192
+    WINDOW_MS = 30.0
+    DELAY_MS = 100.0
+
+    def _repeats(self, start, hz=379.1, phase=1.0, laps=3):
+        """Each repeat's energy over the one before's, in dB, against
+        Feedback squared."""
+        rate = self.RATE
+        gate = int(0.04 * rate)
+        n = np.arange(gate)
+        burst = np.rint(10 ** (-8 / 20) * 32767 * np.hanning(gate) *
+                        np.sin(2 * np.pi * hz * n / rate + phase))
+        window = int(self.WINDOW_MS * rate / 1000 + 0.5)
+        overlap = int(rate * 4 / 3000 + 0.5)
+        lap = int(self.DELAY_MS * rate / 1000 + 0.5) + (window + overlap) // 2
+        frames = int(start + gate + (laps + 1) * lap + 2048)
+        values = np.zeros(frames)
+        values[start:start + gate] = burst
+        shift = audiodelays.PitchShift(
+            semitones=12 * math.log((self.STEP + 0.5) / 256, 2), mix=1.0,
+            window=window, overlap=overlap, buffer_size=512,
+            channel_count=1, sample_rate=rate, bits_per_sample=16,
+            samples_signed=True)
+        shift.play(audiocore.RawSample(
+            array("h", values.astype(np.int16).tolist()), sample_rate=rate))
+        # The loop reads half a window later once its splicer has run, so
+        # it is set half a window short and repeats every `lap`.
+        node = audioecho.FeedbackDelay(
+            sample_rate=rate, channel_count=1, max_delay_ms=300.0,
+            delay_frames=lap - window // 2, feedback=self.FEEDBACK, mix=2.0,
+            loop_semitones=12 * math.log(self.STEP / 256, 2),
+            loop_window_ms=window * 1000.0 / rate)
+        node.play(shift)
+        out = array("h")
+        while len(out) < frames:
+            out.frombytes(bytes(audiocore.get_buffer(node)[1]))
+        rendered = np.array(out[:frames], dtype=float)
+        centre = start + gate / 2 + (window + overlap) / 2
+        energy = []
+        for k in range(1, laps + 1):
+            mid = centre + k * lap
+            piece = rendered[int(mid - lap / 2):int(mid + lap / 2)]
+            energy.append(10 * math.log10((piece ** 2).sum() + 1))
+        want = 20 * math.log10(self.FEEDBACK)
+        return [energy[k + 1] - energy[k] - want for k in range(laps - 1)]
+
+    def test_each_repeat_keeps_its_level(self):
+        # Across one whole splice period (two windows), in 96-frame steps.
+        for start in range(256, 1580, 96):
+            for repeat, level in enumerate(self._repeats(start), 2):
+                with self.subTest(start=start, repeat=repeat):
+                    self.assertGreaterEqual(level, -6.0)
 
 
 if __name__ == "__main__":
