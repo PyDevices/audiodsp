@@ -31,6 +31,7 @@ its own output.
 | E16 | An upward `loop_semitones` climb does not fold back past Nyquist, at 48, 44.1 and 22.05 kHz | the strongest line under the series, with the loop running, within 10 dB of the shifter's own single pass |
 | E17 | A held note through `loop_semitones` plays its shifted pitch, C2 to C6, up and down, at 48, 44.1 and 22.05 kHz | the line at f * r within 3 dB of the note's own level |
 | E18 | A held chord through `loop_semitones` keeps every note's shifted line | each within 5.7 dB of the note's own level, PitchShift's worst on the same chords |
+| E19 | E18 on chords and intervals no splice within half a window fits: A minor, E minor and D minor in the low register, a major sixth, a major seventh | E18's bar, 5.7 dB |
 
 **E10 is audiodsp#153.** The feedback write rounded to nearest, so a repeat x
 came back as round(feedback * x) and every |x| <= 0.5 / (1 - feedback) was its
@@ -1183,7 +1184,7 @@ class HeldChordSpliceTest(unittest.TestCase):
     CHORDS = (("C3 triad", (48, 52, 55)), ("G2 and D4", (43, 62)),
               ("A2 and A#2", (45, 46)), ("C2 power chord", (36, 43, 48)))
 
-    def _levels(self, midis):
+    def _levels(self, midis, semitones=12.0):
         rate = self.RATE
         hz = [440.0 * 2.0 ** ((m - 69) / 12.0) for m in midis]
         n = np.arange(rate)
@@ -1191,7 +1192,7 @@ class HeldChordSpliceTest(unittest.TestCase):
         values = array("h", mixed.astype(np.int16).tolist())
         node = audioecho.FeedbackDelay(
             sample_rate=rate, channel_count=1, max_delay_ms=200.0,
-            delay_ms=50.0, feedback=0.0, mix=2.0, loop_semitones=12.0)
+            delay_ms=50.0, feedback=0.0, mix=2.0, loop_semitones=semitones)
         node.play(audiocore.RawSample(values, sample_rate=rate))
         out = array("h")
         while len(out) < rate:
@@ -1200,14 +1201,42 @@ class HeldChordSpliceTest(unittest.TestCase):
         window = np.hanning(len(held))
         spectrum = np.abs(np.fft.rfft(held * window)) / (window.sum() / 2)
         bins = np.fft.rfftfreq(len(held), 1.0 / rate)
-        return [20.0 * np.log10(spectrum[(bins > 2 * h * 0.99) &
-                                         (bins < 2 * h * 1.01)].max() /
+        ratio = 2.0 ** (semitones / 12.0)
+        return [20.0 * np.log10(spectrum[(bins > ratio * h * 0.99) &
+                                         (bins < ratio * h * 1.01)].max() /
                                 self.LEVEL + 1e-12) for h in hz]
 
     def test_held_chords_keep_every_note(self):
         for name, midis in self.CHORDS:
             for midi, level in zip(midis, self._levels(midis)):
                 with self.subTest(chord=name, midi=midi):
+                    self.assertGreaterEqual(level, -5.7)
+
+
+@unittest.skipIf(np is None, "E19 measures a spectrum and needs numpy")
+class UnfitChordSpliceTest(HeldChordSpliceTest):
+    """E19, audiodsp#246. Some chords have no offset within half a window
+    that holds every note in phase. The splice searched only that far, took
+    the least bad offset, and the note it fitted worst came and went: A2, C3
+    and E3 at +12 lost A2 by 19.5 dB and C3 by 13.1, F2 with D3 lost F2 by
+    60 dB. Where the best match that close still differs by more than an
+    eighth of the line's level, the splice now searches a whole window
+    either way, and every note here is back within E18's bar (1.4 dB at
+    worst)."""
+
+    #: (loop_semitones, name, notes).
+    CASES = ((12.0, "A2 minor", (45, 48, 52)),
+             (12.0, "E3 minor", (52, 55, 59)),
+             (12.0, "D3 minor", (50, 53, 57)),
+             (12.0, "F2 and D3", (41, 51)),
+             (12.0, "E3 and D#4", (52, 63)),
+             (7.0, "F2 and D3", (41, 51)),
+             (7.0, "E3 and D#4", (52, 63)))
+
+    def test_held_chords_keep_every_note(self):
+        for semitones, name, midis in self.CASES:
+            for midi, level in zip(midis, self._levels(midis, semitones)):
+                with self.subTest(semitones=semitones, chord=name, midi=midi):
                     self.assertGreaterEqual(level, -5.7)
 
 

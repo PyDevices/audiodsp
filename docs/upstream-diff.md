@@ -1599,10 +1599,10 @@ that no arrangement of the existing nodes reaches, and the program's vision
   (`tests/test_cpython_audioecho.py` E17; before, the median note at +12 was
   54 dB under). The mean read is still half a window late, and a click, which
   matches nothing, still lands where it did; on held material a repeat's read
-  moves by up to half the window either side of it, as much as it did before
-  the stretch grew. A search costs about 10 000 differences at the default
-  window, once per tap per crossfade turn, and less at a short window, which
-  splices more often. E17 holds held notes at windows of 3 to 25 ms and at
+  moves by up to half the window either side of it, or a whole window where
+  nothing near fits (below). A search costs about 10 000 differences at the
+  default window, once per tap per crossfade turn, twice that where it
+  searches on, and less at a short window, which splices more often. E17 holds held notes at windows of 3 to 25 ms and at
   delays of 3 to 8 ms as well as at the defaults.
 
   The stretch is 16 ms so a chord is matched as a chord. Compared over 32
@@ -1611,14 +1611,30 @@ that no arrangement of the existing nodes reaches, and the program's vision
   down and a C2 power chord's 23.0. Now every note of the four chords E18
   holds (a C3 triad, G2 and D4, A2 and A#2, a C2 power chord) stays within
   5.7 dB, `audiodelays.PitchShift`'s worst on them. A2 and A#2, a semitone
-  apart, sit on that bar: moved by 10 to 50 ms, the analysis reads A#2 at
-  6.1 to 6.3 dB. That is not every chord:
-  one line spliced at one offset cannot keep every note of every chord in
-  phase. Over seven more chords at +12 and +7, at 48 and 22.05 kHz, the worst
-  note measured 19.5 dB down (A minor, +12, 48 kHz) and power chords 1.4 dB
-  at most; `PitchShift` with an 85 ms window measured 13.8 dB on the same
-  set, and the loop shifter before any alignment lost 44 to 108 dB at
-  48 kHz.
+  apart, sit near that bar, and where the analysis falls decides the reading:
+  shifted, the two come out as one line near 229 Hz, between their 220 and
+  233, and moved by 10 to 50 ms the analysis has read 6.1 to 6.3 dB.
+
+  **A splice that nothing near fits searches on** (audiodsp#246). One line
+  spliced at one offset cannot keep every note of every chord in phase, and
+  half a window either way holds no offset that fits some chords at all: A2,
+  C3 and E3 have none from 3 ms to 37 ms that keeps every note within about
+  a fifth of a cycle. The close search took the least bad offset, and the note it fit
+  worst came and went: A minor at +12 lost A2 by 19.5 dB and C3 by 13.1, and
+  F2 with D3 lost F2 by 60. Where the best match within the close reach still
+  differs from the other tap by more than an eighth of what that tap reads,
+  the search goes on out to a whole window either way. Every note of the
+  seven cases E19 holds (A, E and D minor in the low register, a major sixth
+  and a major seventh, at +12 and +7) is now within 1.4 dB, and E18's C3
+  triad and power chord gain 2 and 4 dB. Over 450 random two- to four-note
+  chords from C2 up, at +12 (48 kHz), +5 (44.1 kHz) and -7 (32 kHz), the
+  worst note's median went from 3.2 to 1.2 dB down, a note more than 10 dB
+  down from 100 cases to 34, and the worst from 60 to 31 dB. Some chords
+  still lose a note by 15 to 31 dB, and some come out a few cents off pitch
+  (A2, E3 and C4 at +12, 13 to 28 cents, before and after). A held note
+  nearly always has a close match: E17 reads the same to 0.01 dB. A delay
+  too short for the whole 16 ms stretch matches a note rather than a chord
+  and never searches on.
 
   Turning it off no longer steps back, and turning it on again no longer
   resumes a stale phase (audiodsp#177). Once the shifter has run,
