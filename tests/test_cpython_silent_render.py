@@ -18,7 +18,6 @@ import array
 import unittest
 from unittest import mock
 
-import audiocore
 import synthio
 
 _ENVELOPE = synthio.Envelope(
