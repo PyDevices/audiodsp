@@ -4,6 +4,7 @@
 #include "shared/audiodsp_fp_contract.h"
 
 #include "shared/audiodsp_oscillator.h"
+#include "shared/audiodsp_exp2.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -123,38 +124,6 @@ void audiodsp_oscillator_reset(audiodsp_oscillator_state_t *state) {
     state->sync_last = 0.0f;
     state->pulse_high = 1;
     reset_pending(state);
-}
-
-// 2^x, the same bits on every target: libm's exp2f differs in the last place
-// between glibc, newlib and MicroPython's own, and this module is held to one
-// render everywhere. The integer part goes into the exponent; the fraction,
-// centred on a half so the series converges fast, is a seven-term Taylor
-// series, about 1e-7 relative at the ends.
-static float exp2_poly(float x) {
-    if (x > 60.0f) {
-        x = 60.0f;
-    } else if (x < -60.0f) {
-        x = -60.0f;
-    }
-    int whole = (int)x;
-    if ((float)whole > x) {
-        --whole;
-    }
-    const float g = (x - (float)whole) - 0.5f;
-    const float p = 1.0f + g * (0.69314718f + g * (0.24022651f
-        + g * (0.05550411f + g * (0.00961813f + g * (0.00133336f
-        + g * 0.00015404f)))));
-    float scale = 1.0f;
-    float step = whole >= 0 ? 2.0f : 0.5f;
-    unsigned int n = (unsigned int)(whole >= 0 ? whole : -whole);
-    while (n) {
-        if (n & 1u) {
-            scale *= step;
-        }
-        step *= step;
-        n >>= 1;
-    }
-    return 1.41421356f * p * scale;
 }
 
 // sin(2 pi phase) for phase in [0, 1), deterministic for the same reason.
@@ -325,7 +294,7 @@ void audiodsp_oscillator_process_s16(
                 config->pitch_scale != state->pitch_scale) {
                 state->pitch_last = value;
                 state->pitch_scale = config->pitch_scale;
-                state->pitch_ratio = exp2_poly((float)value
+                state->pitch_ratio = audiodsp_exp2_poly((float)value
                     * config->pitch_scale);
             }
             dt = config->frequency * config->inv_rate * state->pitch_ratio;

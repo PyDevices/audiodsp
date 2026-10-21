@@ -30,6 +30,12 @@ typedef struct {
     uint32_t pending_frames;
     // Frames per output block: buffer_size's, at most AUDIODSP_LADDER_FRAMES.
     uint32_t frames;
+    // The cutoff input, MP_OBJ_NULL when not connected, and its frames
+    // fetched but not yet consumed.
+    mp_obj_t cutoff;
+    const int16_t *cutoff_pending;
+    uint32_t cutoff_pending_frames;
+    uint8_t cutoff_channels;
 } audioladder_ladder_obj_t;
 
 extern const mp_obj_type_t audioladder_ladder_type;
