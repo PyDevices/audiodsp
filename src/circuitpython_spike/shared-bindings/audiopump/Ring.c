@@ -26,16 +26,20 @@
 //|         import audiobusio, board
 //|         from audiopump import Ring
 //|
-//|         ring = Ring(sample_rate=22050, channel_count=2, frames=256, capacity=8)
-//|         ring.write(first_blocks)          # fill before play()
+//|         ring = Ring(sample_rate=22050, channel_count=2, frames=256, capacity=16)
+//|         while ring.space() >= len(block):  # fill it before play()
+//|             ring.write(render(block))
 //|         out = audiobusio.I2SOut(board.I2S_BCLK, board.I2S_WCLK, board.I2S_DOUT)
 //|         out.play(ring)
 //|         while True:
-//|             if ring.space() >= len(block):
+//|             while ring.space() >= len(block):
 //|                 ring.write(render(block))
 //|
-//|     ``play()`` pulls its first block at once, so write at least one block
-//|     before it, or that first pull counts as an underrun."""
+//|     ``play()`` pulls at once, and an output may take several blocks at a
+//|     time: on ESP32 boards `audiobusio.I2SOut` takes about 3,000 frames when
+//|     it starts and about 1,000 at a time after. Make the ring larger than
+//|     that and fill it before ``play()``, or the first pulls count as
+//|     underruns."""
 //|
 //|     def __init__(
 //|         self,

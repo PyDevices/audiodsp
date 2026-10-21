@@ -189,13 +189,14 @@ import audiobusio, board
 from array import array
 from audiopump import Ring
 
-ring = Ring(sample_rate=22050, channel_count=1, frames=256, capacity=8)
+ring = Ring(sample_rate=22050, channel_count=1, frames=256, capacity=16)
 block = array("h", bytes(512))           # 256 mono frames
-ring.write(render(block))                # fill a little before play()
+while ring.space() >= len(block) * 2:    # fill it before play()
+    ring.write(render(block))
 out = audiobusio.I2SOut(board.I2S_BCLK, board.I2S_WCLK, board.I2S_DOUT)
 out.play(ring)
 while True:
-    if ring.space() >= len(block) * 2:
+    while ring.space() >= len(block) * 2:
         ring.write(render(block))
 ```
 
@@ -205,6 +206,13 @@ When your code falls behind, the output plays a block of silence rather than
 stopping, and `ring.stats()[3]` counts those underruns; a write that doesn't
 fit is short and returns the bytes it took. `capacity` is how many blocks the
 ring holds, which is also its latency.
+
+Size the ring for what your output takes at once, and fill it before
+`play()`. On ESP32 boards `I2SOut` takes about 3,000 frames the moment it
+starts and about 1,000 at a time after that, so a ring smaller than about
+4,000 frames underruns at the start however fast you write. 256-frame blocks
+with `capacity=16` (186 ms at 22,050 Hz) play a tone written from Python for
+30 s on an ESP32-S3 with no underruns.
 
 It is the same `audiopump.Ring` MicroPython's pump pulls, with the same
 methods (`write`, `space`, `level`, `stats`, `clear`, `deinit`), so one
