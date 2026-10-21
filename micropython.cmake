@@ -207,7 +207,6 @@ if(EXISTS ${MPAUDIO_MP3_SRC_DIR}/mp3dec.c)
     target_include_directories(usermod_mpaudio INTERFACE ${MPAUDIO_MP3_SRC_DIR})
     target_sources(usermod_mpaudio INTERFACE
         ${MPAUDIO_MP3_SRC_DIR}/bitstream.c
-        ${MPAUDIO_MP3_SRC_DIR}/buffers.c
         ${MPAUDIO_MP3_SRC_DIR}/dct32.c
         ${MPAUDIO_MP3_SRC_DIR}/dequant.c
         ${MPAUDIO_MP3_SRC_DIR}/dqchan.c
@@ -222,16 +221,18 @@ if(EXISTS ${MPAUDIO_MP3_SRC_DIR}/mp3dec.c)
         ${MPAUDIO_MP3_SRC_DIR}/subband.c
         ${MPAUDIO_MP3_SRC_DIR}/trigtabs.c
         ${MPAUDIO_SRC_DIR}/audiomp3/mp3_alloc.c
+        ${MPAUDIO_SRC_DIR}/audiomp3/mp3_buffers.c
         ${MPAUDIO_SRC_DIR}/audiomp3/MP3Decoder.c
         ${MPAUDIO_SRC_DIR}/audiomp3/module.c
     )
 
     # buffers.c's MPDEC_ALLOCATOR(x)/MPDEC_FREE(x) (used nowhere else in
-    # lib/mp3) route through this port's own mp3_alloc()/mp3_free() -- same
-    # -include + -fwrapv treatment as micropython.mk's buffers.o rule.
-    set_source_files_properties(${MPAUDIO_MP3_SRC_DIR}/buffers.c PROPERTIES
-        COMPILE_OPTIONS "-include;${MPAUDIO_SRC_DIR}/audiomp3/mp3_alloc.h;-DMPDEC_ALLOCATOR(x)=mp3_alloc(x);-DMPDEC_FREE(x)=mp3_free(x);-fwrapv"
-    )
+    # lib/mp3) route through this port's own mp3_alloc()/mp3_free(): the
+    # compile is src/audiomp3/mp3_buffers.c, which defines them and includes
+    # buffers.c. Not a set_source_files_properties() on buffers.c: that is
+    # scoped to this directory, and the ESP32 build compiles the linked copy of
+    # every usermod source from the project's directory, where it was lost
+    # (the buffers stayed static .bss, 23.8 kB of internal RAM).
 endif()
 
 # --- audiovorbis (VorbisDecoder) ---
