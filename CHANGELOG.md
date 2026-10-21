@@ -1,3 +1,8 @@
+## v0.6.8 (2026-10-21)
+
+- audioecho.FeedbackDelay: a splice on a fading repeat does not search on
+- audiosampler: raise the voice ceiling from 64 to 128 (#289)
+
 ## v0.6.8.dev4 (2026-10-20)
 
 - audiooscillator: a band-limited oscillator with sync, FM, PWM and pitch at audio rate
