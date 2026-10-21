@@ -78,7 +78,7 @@ This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audiooscillator`,
 `audioconvolve`, `audiobiquad`, `audioverb`, `audiomodal`, `audiosampler`, `audiometer`,
 `audiopump`, `audiovorbis`, and the `audiorender` package.
-`audiomp3` remains firmware-only. The distribution declares no *required*
+`audiomp3` and `audiograph` remain firmware-only. The distribution declares no *required*
 runtime dependencies and does not itself publish an `audiodsp` import; its
 version is the `VERSION` file, which is also what `_audiodsp.__version__`
 reports.
@@ -443,6 +443,18 @@ not to be.
 
 See [docs/upstream-diff.md](docs/upstream-diff.md) for why this is a node
 rather than a chain of `audiobiquad.Biquad`, measured rather than argued.
+
+### `audiograph.Graph`
+
+A whole patch rendered by one C call per block. You build a graph of nodes
+over the kernels above (the oscillator, the ladder, the biquad, the feedback
+delay) and a few small ones a voice needs (an ADSR, an LFO, noise, a mixer
+with ramped gains, a VCA), wire them through the graph's own block buffers,
+put each voice in a group, and call `run()` once a block; nothing in Python
+runs between the nodes. That is what lets a six-voice polysynth play in real
+time on an ESP32-P4. MicroPython only for now:
+[docs/audiograph.md](docs/audiograph.md) has the nodes, the wire and the
+limits.
 
 ### `audiosampler.Sampler`
 
