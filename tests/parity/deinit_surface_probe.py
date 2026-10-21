@@ -277,6 +277,8 @@ NODE_CALLS = {
     ("audioshaper.SampleHold", "set"): lambda n: n.set(num=400, den=217),
     ("audiooscillator.Oscillator", "modulate"):
         lambda n: n.modulate(sync=source()),
+    ("audioladder.Ladder", "modulate"):
+        lambda n: n.modulate(cutoff=source()),
 }
 
 #: Not checked: releasing is the one call a released node must still take.
