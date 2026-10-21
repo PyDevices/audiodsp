@@ -122,6 +122,9 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
     if (output != AUDIODSP_GRAPH_NONE && (output < 0 || (uint32_t)output >= graph->nbufs)) {
         return -1;
     }
+    if (output == AUDIODSP_GRAPH_NONE && kind != AUDIODSP_GRAPH_OUT) {
+        return -1;
+    }
     for (uint32_t i = 0; i < ninputs; ++i) {
         if (inputs[i] != AUDIODSP_GRAPH_NONE &&
             (inputs[i] < 0 || (uint32_t)inputs[i] >= graph->nbufs)) {
@@ -204,6 +207,8 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_FEEDBACK_DELAY_OPT_DAMPING_HZ] = d->config.damping_hz;
             node->param[AUDIODSP_FEEDBACK_DELAY_OPT_CUT_HZ] = d->config.cut_hz;
             node->param[AUDIODSP_FEEDBACK_DELAY_OPT_WOW_HZ] = d->config.wow_hz;
+            node->param[AUDIODSP_FEEDBACK_DELAY_OPT_CROSS_FEED] = d->config.cross_feed;
+            node->param[AUDIODSP_FEEDBACK_DELAY_OPT_LOOP_DRIVE] = d->config.loop_drive;
             break;
         }
         case AUDIODSP_GRAPH_ENV: {

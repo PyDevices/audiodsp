@@ -284,8 +284,8 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiosampler/Sampler.c \
     $(MPAUDIO_SRC_DIR)/audiosampler/SamplerVoice.c \
     $(MPAUDIO_SRC_DIR)/audiosampler/module.c
-# audiograph: the graph runner (spike, 2026-10-21): one C call renders a
-# whole patch per block from the kernels above. MicroPython only.
+# audiograph: the graph runner. One C call renders a whole patch per block
+# from the kernels above. MicroPython only (docs/audiograph.md).
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/shared/audiodsp_graph.c \
     $(MPAUDIO_SRC_DIR)/audiograph/Graph.c \

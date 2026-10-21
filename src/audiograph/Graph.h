@@ -1,7 +1,7 @@
 // audiograph.Graph -- MicroPython binding over shared/audiodsp_graph.c.
 //
-// A spike's module (graph-runner, 2026-10-21): the runner that renders a
-// whole patch in one call. MicroPython only for now.
+// The runner that renders a whole patch in one call. MicroPython only for
+// now; the CPython and CircuitPython bindings are on the roadmap.
 //
 // SPDX-License-Identifier: MIT
 

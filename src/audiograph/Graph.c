@@ -106,7 +106,7 @@ static mp_obj_t audiograph_graph_add(size_t n_args, const mp_obj_t *args) {
     int index = audiodsp_graph_add(&self->graph, (audiodsp_graph_kind_t)kind,
         (uint32_t)group, inputs, (uint32_t)len, output, data, arg);
     if (index < 0) {
-        mp_raise_ValueError(MP_ERROR_TEXT("graph is full or a buffer id is out of range"));
+        mp_raise_ValueError(MP_ERROR_TEXT("graph is full, a buffer id is out of range, or the node has no output"));
     }
     return MP_OBJ_NEW_SMALL_INT(index);
 }

@@ -1,9 +1,9 @@
 // Runtime-neutral graph runner: one C call renders a whole patch per block.
 //
-// New code -- not a CircuitPython port. A spike (the graph-runner spike,
-// 2026-10-21): the question is whether a polyphonic patch built from the
-// kernels in this directory can run in real time on an ESP32-P4 once the
-// per-node Python between them is gone.
+// New code -- not a CircuitPython port. A polyphonic patch built from the
+// kernels in this directory runs in real time on an ESP32-P4 once the
+// per-node Python between them is gone: this is the C that runs between
+// them instead. The binding is src/audiograph/ (MicroPython).
 //
 // The runner owns the block buffers. A graph is a list of nodes in the
 // order they run; each node names the buffers it reads and the buffer it
@@ -156,8 +156,9 @@ void audiodsp_graph_init(audiodsp_graph_t *graph, uint32_t sample_rate,
     audiodsp_graph_node_t *nodes, uint32_t max_nodes);
 
 // Appends a node. `data` is the caller's, of audiodsp_graph_node_data_size
-// bytes, zeroed. Returns the node's index, or -1 when the graph is full or
-// a buffer id is out of range.
+// bytes, zeroed. Returns the node's index, or -1 when the graph is full, a
+// buffer id is out of range, or a node other than OUT has no output buffer
+// (every other kind writes one; OUT writes the caller's buffer instead).
 int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
     uint32_t group, const int16_t *inputs, uint32_t ninputs, int16_t output,
     void *data, float arg);
