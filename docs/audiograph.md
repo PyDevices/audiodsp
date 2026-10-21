@@ -2,9 +2,9 @@
 
 `audiograph.Graph` renders a whole patch in one C call per block. You build
 the graph once, from nodes that call the kernels audiodsp already has (the
-oscillator, the ladder, the float biquad, the feedback delay) and a few small
-ones a voice needs (an envelope, an LFO, noise, a mixer, a VCA), then call
-`run()` once a block. Nothing in Python runs between the nodes, which is what
+oscillator, the ladder, the float biquad, the feedback delay, the all-pass
+cascade, the sample-and-hold) and a few small ones a voice needs (an envelope,
+an LFO, noise, a mixer, a VCA, a glide), then call `run()` once a block. Nothing in Python runs between the nodes, which is what
 lets a six-voice polysynth built from these kernels play in real time on an
 ESP32-P4, where the same patch run node by node from Python could not.
 
@@ -79,17 +79,61 @@ rather than its last block.
 | `BIQUAD` | audio | `BIQUAD_MODE`, `BIQUAD_FREQUENCY`, `BIQUAD_Q`, `BIQUAD_GAIN_DB`, `BIQUAD_MIX` | audiobiquad's float biquad |
 | `FBDELAY` | audio | `DELAY_MS`, `DELAY_FEEDBACK`, `DELAY_MIX`, `DELAY_DAMPING_HZ`, `DELAY_WOW_HZ`, `DELAY_WOW_DEPTH_MS` and audioecho's other options by number; built with `arg` = the line's length in ms; `table(node, int16_array)` sets its wow shape | audioecho's FeedbackDelay |
 | `ENV` | gate | `ENV_ATTACK`, `ENV_DECAY`, `ENV_RELEASE` in seconds, `ENV_SUSTAIN` 0..1 | an ADSR, 0..`UNIT`, each stage a one-pole approach, the attack aimed past 1.0 so it arrives with a slope |
-| `LFO` | | `LFO_RATE` Hz, `LFO_AMPLITUDE` counts | a triangle |
+| `LFO` | | `LFO_RATE` Hz, `LFO_AMPLITUDE` counts, `LFO_SHAPE` (`LFO_TRIANGLE`, `LFO_SINE`, `LFO_SAW`, `LFO_SQUARE`, `LFO_RANDOM`) | that shape, ±amplitude, [below](#lfo-shapes) |
 | `NOISE` | | 0: amplitude in counts | white noise |
 | `MIX` | up to eight | 0..7: a gain per input, `MIX_OFFSET` in counts | offset + the gains times the inputs; a gain that moved ramps across the block |
 | `VCA` | audio, cv_a, cv_b | `VCA_GAIN`, `VCA_SELECT` (cv_a below 0.5, else cv_b) | audio times the chosen CV over `UNIT`, times the gain |
 | `OUT` | left, right | 0: scale | writes the run's output buffer: interleaved stereo, or the mean when the graph is mono |
+| `PHASER` | audio | `PHASER_FREQUENCY` Hz, `PHASER_FEEDBACK` −0.99..0.99, `PHASER_MIX` 0..1; built with `arg` = stages (0 is 4) | audiobiquad's `AllPass` on one channel: first-order all-pass stages, one feedback around the chain, a dry/wet mix |
+| `LAG` | note, pitch, legato | `LAG_TIME` s, `LAG_MODE` (`LAG_OFF`, `LAG_ON`, `LAG_AUTO`), `LAG_SHAPE` (`LAG_LINEAR`, `LAG_ONE_POLE`) | the note glided, with the bend (pitch − note) on top, [below](#glide) |
+| `SAMPLE_HOLD` | signal, clock | `SH_LAG` coefficient 0..1, `SH_RATE` Hz | the signal held at each rising edge of the clock, or `SH_RATE` times a second with the clock open, [below](#sample-and-hold) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
-`audioecho`), re-exported on `audiograph` so a caller needs no other module.
+`audioecho`, and `audiobiquad.AllPass` for `PHASER`), re-exported on
+`audiograph` so a caller needs no other module.
 An input left `None` is open: an oscillator without a pitch input plays
 `OSC_FREQUENCY`, a ladder without a cutoff input sits at `LADDER_CUTOFF_HZ`.
+
+### LFO shapes
+
+Every shape comes from one phase that starts at 0 and has taken one step by
+the first sample, so LFOs of different shapes at one rate stay in step: a saw
+and a square at 3 Hz are one LFO's two outputs. The triangle is `1 - |4p - 2|`
+(its bottom at the start of the cycle), the sine `sin(2πp)`, the saw `1 - 2p`
+(falling), the square +1 for the first half of the cycle and −1 for the
+second. `LFO_RANDOM` draws a new level, uniform in ±amplitude, at each rising
+edge of that square (the start of each cycle) and holds it; choosing it draws
+one at once if the square is high. The sine is a polynomial rather than the
+C library's, so every target computes the same one.
+
+The phase adds a float step each sample, which runs up to 0.06% off the rate
+over a long render: at 1 Hz, 0.0065 of a cycle in ten seconds.
+
+### Glide
+
+`LAG` glides a pitch CV to each new note. The target is the note input's first
+sample in each block, so a note that steps at a block boundary glides exactly.
+With `LAG_LINEAR` (the default) the glide is a straight line that takes
+`LAG_TIME` seconds wherever it starts from, and a new note in mid-glide starts
+a new one from where the pitch is. `LAG_MODE` is `LAG_ON` (the default),
+`LAG_OFF`, or `LAG_AUTO`, which glides only when the legato input is above 0.5
+at the start of the block. `LAG_ONE_POLE` is a one-pole approach instead, with
+the coefficient `exp(-1 / (time * sample_rate * 0.35))`; it ignores the mode,
+and passes the note through at a time of a millisecond or less. When the pitch
+input is connected, the output is the glided note plus (pitch − note), so a
+bend rides on top of the glide without being slowed by it. `reset(node)` makes
+the next block start on its note.
+
+### Sample and hold
+
+`SAMPLE_HOLD` latches its signal at every rising edge of its clock (above 0.1
+on the wire, as an envelope's gate is) and holds it, two edges in one block
+included. `SH_LAG` above 0 slews the output toward the held value with a
+one-pole of that per-sample coefficient (0.999 is very slow). With the clock
+input open and `SH_RATE` set, the node refreshes that many times a second
+instead, through audioshaper's `SampleHold` kernel (whole hertz, exact for
+ever); with neither, it holds.
 
 ## Output
 
@@ -118,12 +162,20 @@ ramp and to the output node. Each planted fault, a mixer added before the
 node it reads, a filter left out of the chain, a cutoff sent to a node no
 output reads, makes it fail; CI runs the faults first.
 
-`tests/parity/verify_graph.py` renders one patch with every node kind in it
-(two voices with their groups parking, a fed buffer, moved gains and
-cutoffs, a delay reset mid-tail, a mono graph) on CPython and on each
-interpreter you name, and compares every output sample. The tolerance is 0
-counts: the three compile the same C and are handed the same floats, so any
-difference is a defect rather than rounding. Its two planted faults, one
-input sample one count off and one `set()` a block late, each make it fail.
-CI runs it against MicroPython in both float widths; the three-way with the
-CircuitPython unix build is a local run.
+`tests/parity/verify_graph.py` renders two probes on CPython and on each
+interpreter you name, and compares every sample. `graph_parity_probe.py` is one
+patch with the runner's first node kinds in it (two voices with their groups
+parking, a fed buffer, moved gains and cutoffs, a delay reset mid-tail, a mono
+graph); `graph_nodes_probe.py` is the phaser, the glide, every LFO shape and
+the sample-and-hold. The tolerance is 0 counts: the three compile the same C
+and are handed the same floats, so any difference is a defect rather than
+rounding. Each planted fault makes it fail: one input sample one count off, one
+`set()` a block late, a phaser's frequency a block late, a legato flag flipped,
+a shape switched a block late, a clock edge a sample late. CI runs it against
+MicroPython in both float widths; the three-way with the CircuitPython unix
+build is a local run.
+
+`tests/test_cpython_audiograph_nodes.py` holds the newer nodes to what they
+stand in for: `PHASER` to `audiobiquad.AllPass` at 0 counts, the glide, the
+LFO's shapes and the sample-and-hold to the Python cores of the same name in
+vrack, with each bar in the file's table.

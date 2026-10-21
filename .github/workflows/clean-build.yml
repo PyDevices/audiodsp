@@ -235,10 +235,12 @@ jobs:
           "$MP" "$PROBE" | tee /tmp/graph.txt
           grep -q "GRAPH PASS" /tmp/graph.txt
 
-      # The same graph on CPython (the wheel installed above) and on this
+      # The same graphs on CPython (the wheel installed above) and on this
       # MicroPython, compared sample for sample with a tolerance of 0 counts.
-      # Each planted fault (one input count off, one set() a block late) goes
-      # into the MicroPython render only, and the comparison must FAIL first.
+      # Each planted fault (one input count off, one set() a block late, and
+      # one for each of the phaser, the glide, the LFO shapes and the
+      # sample-and-hold) goes into the MicroPython render only, and the
+      # comparison must FAIL first.
       # The three-way with the CircuitPython unix build is a local run, as
       # for verify_dsp.
       - name: A graph renders the same samples on CPython and MicroPython
@@ -246,7 +248,7 @@ jobs:
           MP=$GITHUB_WORKSPACE/micropython/ports/unix/build-standard/micropython
           PY=$GITHUB_WORKSPACE/audiodsp/.ci-venv/bin/python
           cd audiodsp
-          for planted in lsb late; do
+          for planted in lsb late phaser lag lfo hold; do
             if "$PY" tests/parity/verify_graph.py --micropython "$MP" --fault $planted > /dev/null; then
               echo "the planted fault passed, so this comparison proves nothing: $planted" >&2
               exit 1
