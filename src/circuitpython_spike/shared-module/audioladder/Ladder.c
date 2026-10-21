@@ -47,9 +47,39 @@ audioio_get_buffer_result_t audioladder_ladder_get_buffer(
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audiodsp_ladder_process_s16(&self->config, &self->state,
-            &self->buffer[produced * self->base.channel_count],
-            self->pending, run);
+        const int16_t *cutoff = NULL;
+        if (self->cutoff != MP_OBJ_NULL) {
+            if (self->cutoff_pending_frames == 0) {
+                uint8_t *raw = NULL;
+                uint32_t raw_bytes = 0;
+                audioio_get_buffer_result_t result = audiosample_get_buffer(
+                    self->cutoff, false, 0, &raw, &raw_bytes);
+                const uint32_t width = 2u * self->cutoff_channels;
+                // An input that has run dry counts as zero for this run.
+                if (result != GET_BUFFER_ERROR && raw != NULL &&
+                    raw_bytes >= width) {
+                    self->cutoff_pending = (const int16_t *)(const void *)raw;
+                    self->cutoff_pending_frames = raw_bytes / width;
+                }
+            }
+            if (self->cutoff_pending_frames != 0) {
+                if (run > self->cutoff_pending_frames) {
+                    run = self->cutoff_pending_frames;
+                }
+                cutoff = self->cutoff_pending;
+            }
+        }
+        if (cutoff == NULL) {
+            audiodsp_ladder_process_s16(&self->config, &self->state,
+                &self->buffer[produced * self->base.channel_count],
+                self->pending, run);
+        } else {
+            audiodsp_ladder_process_cutoff_s16(&self->config, &self->state,
+                &self->buffer[produced * self->base.channel_count],
+                self->pending, run, cutoff, self->cutoff_channels);
+            self->cutoff_pending += run * self->cutoff_channels;
+            self->cutoff_pending_frames -= run;
+        }
         self->pending += run * self->base.channel_count;
         self->pending_frames -= run;
         produced += run;

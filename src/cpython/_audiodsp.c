@@ -1933,7 +1933,7 @@ static PyObject *ladder_state_configure(audiodsp_ladder_object_t *self,
     double value;
     if (!PyArg_ParseTuple(args, "id:configure", &option, &value)) return NULL;
     if (option < AUDIODSP_LADDER_OPT_CUTOFF_HZ ||
-        option > AUDIODSP_LADDER_OPT_MIX) {
+        option > AUDIODSP_LADDER_OPT_CUTOFF_OCTAVES) {
         PyErr_SetString(PyExc_ValueError, "unknown ladder option");
         return NULL;
     }
@@ -1975,15 +1975,68 @@ static PyObject *ladder_state_process(audiodsp_ladder_object_t *self,
     return result;
 }
 
+// process(), with the cutoff read every sample from `cutoff`: whole frames of
+// signed 16-bit audio, `channels` samples a frame, of which the first is
+// read. A separate method so the unmodulated path keeps its single argument.
+static PyObject *ladder_state_process_cutoff(audiodsp_ladder_object_t *self,
+    PyObject *args) {
+    PyObject *input_object;
+    PyObject *cutoff_object;
+    unsigned int channels;
+    if (!PyArg_ParseTuple(args, "OOI:process_cutoff", &input_object,
+        &cutoff_object, &channels)) return NULL;
+    if (channels < 1 || channels > 2) {
+        PyErr_SetString(PyExc_ValueError,
+            "the cutoff input's channel_count must be 1 or 2");
+        return NULL;
+    }
+    Py_buffer input = {0};
+    Py_buffer cutoff = {0};
+    PyObject *result = NULL;
+    const Py_ssize_t width = 2 * (Py_ssize_t)self->config.channel_count;
+    Py_ssize_t frames = 0;
+    if (PyObject_GetBuffer(input_object, &input, PyBUF_SIMPLE) < 0) {
+        return NULL;
+    }
+    if (PyObject_GetBuffer(cutoff_object, &cutoff, PyBUF_SIMPLE) < 0) {
+        PyBuffer_Release(&input);
+        return NULL;
+    }
+    if (input.len % width) {
+        PyErr_SetString(PyExc_ValueError,
+            "input must be whole 16-bit frames for the configured channel count");
+        goto done;
+    }
+    frames = input.len / width;
+    if (cutoff.len < frames * 2 * (Py_ssize_t)channels) {
+        PyErr_SetString(PyExc_ValueError,
+            "the cutoff input is shorter than the frames given");
+        goto done;
+    }
+    result = PyBytes_FromStringAndSize(NULL, input.len);
+    if (result != NULL) {
+        audiodsp_ladder_process_cutoff_s16(&self->config, &self->state,
+            (int16_t *)PyBytes_AS_STRING(result), (const int16_t *)input.buf,
+            (uint32_t)frames, (const int16_t *)cutoff.buf, channels);
+    }
+done:
+    PyBuffer_Release(&cutoff);
+    PyBuffer_Release(&input);
+    return result;
+}
+
 AUDIODSP_LOCKED_ARGS(ladder_state_configure, audiodsp_ladder_object_t)
 AUDIODSP_LOCKED_ARGS(ladder_state_finish, audiodsp_ladder_object_t)
 AUDIODSP_LOCKED_ARGS(ladder_state_reset, audiodsp_ladder_object_t)
 AUDIODSP_LOCKED_ARGS(ladder_state_process, audiodsp_ladder_object_t)
+AUDIODSP_LOCKED_ARGS(ladder_state_process_cutoff, audiodsp_ladder_object_t)
 static PyMethodDef ladder_state_methods[] = {
     {"configure", (PyCFunction)ladder_state_configure_locked, METH_VARARGS, NULL},
     {"finish", (PyCFunction)ladder_state_finish_locked, METH_NOARGS, NULL},
     {"reset", (PyCFunction)ladder_state_reset_locked, METH_NOARGS, NULL},
     {"process", (PyCFunction)ladder_state_process_locked, METH_O, NULL},
+    {"process_cutoff", (PyCFunction)ladder_state_process_cutoff_locked,
+        METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 

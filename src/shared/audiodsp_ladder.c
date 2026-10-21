@@ -39,8 +39,10 @@
 #include "shared/audiodsp_fp_contract.h"
 
 #include "shared/audiodsp_ladder.h"
+#include "shared/audiodsp_exp2.h"
 
 #include <math.h>
+#include <stddef.h>
 
 #define AUDIODSP_LADDER_PI 3.14159265358979323846f
 
@@ -70,6 +72,19 @@ static float ladder_saturate(float value) {
     return clipped - clipped * clipped * clipped * (1.0f / 3.0f);
 }
 
+// Everything that follows from g, for the configured cutoff and for the
+// cutoff input alike, so the two run the same arithmetic.
+static void ladder_finish_coeffs(audiodsp_ladder_coeffs_t *coeffs,
+    float resonance, float g) {
+    coeffs->g = g;
+    const float squared = g * g;
+    coeffs->g4 = squared * squared;
+    coeffs->loop_gain = resonance * coeffs->g4;
+    coeffs->inv_one_plus_loop = 1.0f / (1.0f + coeffs->loop_gain);
+    coeffs->loop_over_three =
+        coeffs->loop_gain * coeffs->inv_one_plus_loop * (1.0f / 3.0f);
+}
+
 // Everything the per-sample loop reads, from everything the caller set.
 // One tanf() and one division, per set() rather than per sample.
 static void ladder_update_coefficients(audiodsp_ladder_config_t *config) {
@@ -80,14 +95,46 @@ static void ladder_update_coefficients(audiodsp_ladder_config_t *config) {
     // is what "wide open" means.
     const float cutoff = clampf(config->cutoff_hz, 1.0f, rate * 0.49f);
     const float warped = tanf(AUDIODSP_LADDER_PI * cutoff / rate);
-    config->g = warped / (1.0f + warped);
-    const float squared = config->g * config->g;
-    config->g4 = squared * squared;
-    config->loop_gain = config->resonance * config->g4;
-    config->inv_one_plus_loop = 1.0f / (1.0f + config->loop_gain);
-    config->loop_over_three =
-        config->loop_gain * config->inv_one_plus_loop * (1.0f / 3.0f);
+    ladder_finish_coeffs(&config->coeffs, config->resonance,
+        warped / (1.0f + warped));
     config->output_gain = 1.0f + config->passband_comp * config->resonance;
+    config->cutoff_scale = config->cutoff_octaves * (1.0f / 32768.0f);
+    config->pi_over_rate = AUDIODSP_LADDER_PI / rate;
+    config->cutoff_max = rate * 0.49f;
+    ++config->revision;
+}
+
+// sin(w) and cos(w) for w in (0, 0.49 pi], as series in w: the cutoff input
+// derives g every sample, and libm's tanf is neither the same bits on every
+// target nor cheap on a part without one in hardware. Seven terms each, which
+// leaves the error under 1e-9 at the top of the range and relative, not
+// absolute, at the bottom, where g is small and a cancellation would cost it
+// its digits.
+static float ladder_sin(float w) {
+    const float w2 = w * w;
+    return w * (1.0f + w2 * (-1.0f / 6.0f + w2 * (1.0f / 120.0f
+        + w2 * (-1.0f / 5040.0f + w2 * (1.0f / 362880.0f
+        + w2 * (-1.0f / 39916800.0f + w2 * (1.0f / 6227020800.0f)))))));
+}
+
+static float ladder_cos(float w) {
+    const float w2 = w * w;
+    return 1.0f + w2 * (-0.5f + w2 * (1.0f / 24.0f + w2 * (-1.0f / 720.0f
+        + w2 * (1.0f / 40320.0f + w2 * (-1.0f / 3628800.0f
+        + w2 * (1.0f / 479001600.0f + w2 * (-1.0f / 87178291200.0f)))))));
+}
+
+// The coefficients for one sample of the cutoff input. tan/(1 + tan) is
+// sin/(sin + cos), which is one division and no tan.
+static void ladder_cutoff_coeffs(const audiodsp_ladder_config_t *config,
+    int32_t value, audiodsp_ladder_coeffs_t *coeffs) {
+    const float cutoff = clampf(config->cutoff_hz *
+        audiodsp_exp2_poly((float)value * config->cutoff_scale),
+        1.0f, config->cutoff_max);
+    const float w = cutoff * config->pi_over_rate;
+    const float sine = ladder_sin(w);
+    ladder_finish_coeffs(coeffs, config->resonance,
+        sine / (sine + ladder_cos(w)));
 }
 
 void audiodsp_ladder_config_init(audiodsp_ladder_config_t *config,
@@ -99,6 +146,10 @@ void audiodsp_ladder_config_init(audiodsp_ladder_config_t *config,
     config->drive = 1.0f;
     config->passband_comp = 0.0f;
     config->mix = 1.0f;
+    // Ten octaves for a full-scale input, the same as audiooscillator's
+    // pitch input, so one wire moves an oscillator and a filter alike.
+    config->cutoff_octaves = 10.0f;
+    config->revision = 0;
     config->poles = (uint8_t)AUDIODSP_LADDER_STAGES;
     // 2x by default. The filter is nonlinear, so it makes harmonics of
     // whatever it is given, and the ones above the band fold back. Half the
@@ -169,6 +220,12 @@ void audiodsp_ladder_configure(audiodsp_ladder_config_t *config,
             // filter has. 0 is a wire, sample for sample.
             config->mix = clampf(value, 0.0f, 1.0f);
             break;
+        case AUDIODSP_LADDER_OPT_CUTOFF_OCTAVES:
+            // Any sign: a negative depth closes the filter as the input
+            // rises. However large, the cutoff it reaches is clamped to the
+            // same band `cutoff_hz` is.
+            config->cutoff_octaves = value;
+            break;
     }
     ladder_update_coefficients(config);
 }
@@ -186,6 +243,10 @@ void audiodsp_ladder_state_init(audiodsp_ladder_state_t *state) {
         state->previous_last[channel] = 0.0f;
         state->previous_input[channel] = 0.0f;
     }
+    // No int16 is INT32_MIN, so the first cutoff sample always derives its
+    // coefficients.
+    state->cutoff_last = INT32_MIN;
+    state->cutoff_revision = 0;
 }
 
 void audiodsp_ladder_reset(audiodsp_ladder_state_t *state) {
@@ -194,9 +255,9 @@ void audiodsp_ladder_reset(audiodsp_ladder_state_t *state) {
 
 // Solve y + a*sat(y) = c for y. See the file header for why this is a solve
 // and not a delay, and why it converges.
-static float ladder_solve(const audiodsp_ladder_config_t *config, float c,
+static float ladder_solve(const audiodsp_ladder_coeffs_t *coeffs, float c,
     float seed) {
-    const float saturated = config->loop_gain * (2.0f / 3.0f);
+    const float saturated = coeffs->loop_gain * (2.0f / 3.0f);
     // Where the saturator is clamped the equation is linear, so these two
     // tests are exact, not approximations: y >= 1 exactly when
     // c >= 1 + a*sat(1).
@@ -208,11 +269,11 @@ static float ladder_solve(const audiodsp_ladder_config_t *config, float c,
     if (y <= -1.0f) {
         return y;
     }
-    const float base = c * config->inv_one_plus_loop;
+    const float base = c * coeffs->inv_one_plus_loop;
     y = seed;
     for (int step = 0; step < AUDIODSP_LADDER_SOLVE_STEPS; ++step) {
         y = clampf(y, -1.0f, 1.0f);
-        y = base + config->loop_over_three * (y * y * y);
+        y = base + coeffs->loop_over_three * (y * y * y);
     }
     // The solution is inside the clamp by construction -- the two branches
     // above took every case where it is not.
@@ -223,9 +284,10 @@ static float ladder_solve(const audiodsp_ladder_config_t *config, float c,
 // `x` is already driven and in the +-1 domain; the return is the tapped
 // stage, before the passband compensation and the mix.
 static float ladder_step(const audiodsp_ladder_config_t *config,
-    audiodsp_ladder_state_t *state, uint32_t channel, float x) {
+    const audiodsp_ladder_coeffs_t *coeffs, audiodsp_ladder_state_t *state,
+    uint32_t channel, float x) {
     float *integrator = state->integrator[channel];
-    const float g = config->g;
+    const float g = coeffs->g;
     const float one_minus_g = 1.0f - g;
 
     // What each stage contributes to its own output with no input: the state
@@ -242,7 +304,7 @@ static float ladder_step(const audiodsp_ladder_config_t *config,
     // the four states are already holding.
     const float carried =
         ((held[0] * g + held[1]) * g + held[2]) * g + held[3];
-    const float c = config->g4 * x + carried;
+    const float c = coeffs->g4 * x + carried;
 
     // Extrapolating the last two solved samples costs one multiply and one
     // subtract and removes most of the solver's work: at audio rates the
@@ -250,7 +312,7 @@ static float ladder_step(const audiodsp_ladder_config_t *config,
     // its last two points lands very close to the next.
     const float seed =
         2.0f * state->last[channel] - state->previous_last[channel];
-    const float solved = ladder_solve(config, c, seed);
+    const float solved = ladder_solve(coeffs, c, seed);
     state->previous_last[channel] = state->last[channel];
     state->last[channel] = solved;
 
@@ -283,6 +345,40 @@ static int16_t to_s16(float value) {
     return (int16_t)(value >= 0.0f ? value + 0.5f : value - 0.5f);
 }
 
+// One frame, every channel, at the coefficients given. Inline, so the
+// unmodulated loop below compiles to what it was before the cutoff input.
+static inline void ladder_frame(const audiodsp_ladder_config_t *config,
+    const audiodsp_ladder_coeffs_t *coeffs, audiodsp_ladder_state_t *state,
+    int16_t *out, const int16_t *in, uint32_t channels, bool doubled,
+    float drive, float mix, float gain) {
+    for (uint32_t channel = 0; channel < channels; ++channel) {
+        const float dry = (float)in[channel] * (1.0f / 32768.0f);
+        float wet;
+        if (doubled) {
+            // Linear interpolation up, a two-tap average down: half a
+            // sample of group delay for the pair, which is why the node
+            // reports no latency. A nonlinearity makes harmonics of what
+            // it is given and the ones above the band fold back, so the
+            // point is to make them above a band twice as wide and then
+            // throw that half away.
+            const float middle =
+                0.5f * (state->previous_input[channel] + dry);
+            const float first =
+                ladder_step(config, coeffs, state, channel, middle * drive);
+            const float second =
+                ladder_step(config, coeffs, state, channel, dry * drive);
+            wet = 0.5f * (first + second);
+        } else {
+            wet = ladder_step(config, coeffs, state, channel, dry * drive);
+        }
+        // Kept whether or not it was used, so turning oversampling on
+        // mid-stream does not start from a stale sample.
+        state->previous_input[channel] = dry;
+        wet *= gain;
+        out[channel] = to_s16((dry + (wet - dry) * mix) * 32768.0f);
+    }
+}
+
 void audiodsp_ladder_process_s16(const audiodsp_ladder_config_t *config,
     audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {
@@ -291,34 +387,40 @@ void audiodsp_ladder_process_s16(const audiodsp_ladder_config_t *config,
     const float drive = config->drive;
     const float mix = config->mix;
     const float gain = config->output_gain;
+    const audiodsp_ladder_coeffs_t *coeffs = &config->coeffs;
     for (uint32_t frame = 0; frame < frames; ++frame) {
-        for (uint32_t channel = 0; channel < channels; ++channel) {
-            const float dry =
-                (float)in[frame * channels + channel] * (1.0f / 32768.0f);
-            float wet;
-            if (doubled) {
-                // Linear interpolation up, a two-tap average down: half a
-                // sample of group delay for the pair, which is why the node
-                // reports no latency. A nonlinearity makes harmonics of what
-                // it is given and the ones above the band fold back, so the
-                // point is to make them above a band twice as wide and then
-                // throw that half away.
-                const float middle =
-                    0.5f * (state->previous_input[channel] + dry);
-                const float first =
-                    ladder_step(config, state, channel, middle * drive);
-                const float second =
-                    ladder_step(config, state, channel, dry * drive);
-                wet = 0.5f * (first + second);
-            } else {
-                wet = ladder_step(config, state, channel, dry * drive);
+        ladder_frame(config, coeffs, state, &out[frame * channels],
+            &in[frame * channels], channels, doubled, drive, mix, gain);
+    }
+}
+
+void audiodsp_ladder_process_cutoff_s16(const audiodsp_ladder_config_t *config,
+    audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames, const int16_t *cutoff, uint32_t cutoff_stride) {
+    if (cutoff == NULL) {
+        audiodsp_ladder_process_s16(config, state, out, in, frames);
+        return;
+    }
+    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    const bool doubled = config->oversample >= 2u;
+    const float drive = config->drive;
+    const float mix = config->mix;
+    const float gain = config->output_gain;
+    for (uint32_t frame = 0; frame < frames; ++frame) {
+        const int32_t value = cutoff[frame * cutoff_stride];
+        const audiodsp_ladder_coeffs_t *coeffs = &config->coeffs;
+        // Zero is the filter as configured, with the configured set's own
+        // bits, so a silent input renders exactly what no input does.
+        if (value != 0) {
+            if (value != state->cutoff_last ||
+                config->revision != state->cutoff_revision) {
+                state->cutoff_last = value;
+                state->cutoff_revision = config->revision;
+                ladder_cutoff_coeffs(config, value, &state->cutoff_coeffs);
             }
-            // Kept whether or not it was used, so turning oversampling on
-            // mid-stream does not start from a stale sample.
-            state->previous_input[channel] = dry;
-            wet *= gain;
-            out[frame * channels + channel] =
-                to_s16((dry + (wet - dry) * mix) * 32768.0f);
+            coeffs = &state->cutoff_coeffs;
         }
+        ladder_frame(config, coeffs, state, &out[frame * channels],
+            &in[frame * channels], channels, doubled, drive, mix, gain);
     }
 }

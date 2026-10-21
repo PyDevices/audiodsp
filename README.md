@@ -361,12 +361,21 @@ ladder = audioladder.Ladder(
     passband_comp=0.0,      # 0..1, how much of the passband to give back
     oversample=2,           # 1 or 2; 2 folds back fewer of its harmonics
     mix=1.0,                # 0 a wire, 1 the filter
+    cutoff_octaves=10.0,    # octaves for a full-scale cutoff input
     buffer_size=None,       # bytes a block, as on the effects; 256 frames
 )
 ladder.play(source)
 ladder.set(cutoff_hz=1200.0)   # any option, mid-stream, once a block
+ladder.modulate(cutoff=lfo)    # the cutoff read from a stream, every sample
 ladder.clear()                 # empty the integrators; stops a sustained tone
 ```
+
+`set()` moves the cutoff once a block, which is plenty for an envelope or a
+knob. Sweep it with an audio-rate signal that way and you hear the staircase,
+a buzz at the block rate. The `cutoff` input reads the cutoff every sample
+instead, as `cutoff_hz * 2 ** (v * cutoff_octaves)` for an input at `v` of
+full scale (first channel only), so filter FM sounds like filter FM. An input
+of zero, or none at all, is the filter exactly as `cutoff_hz` sets it.
 
 `audiooscillator` is the oscillator synthio does not have. synthio's moves its
 pitch once per block and reads a wavetable with no band limiting; this one

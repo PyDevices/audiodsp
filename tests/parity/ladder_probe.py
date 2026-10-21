@@ -138,3 +138,53 @@ emit("clamped", node, 4)
 node = ladder.Ladder(sample_rate=SAMPLE_RATE, cutoff_hz=400.0,
                      resonance=4.2)
 emit("starved", node, 2)
+
+# The cutoff read every sample from an audio input. The input is a triangle
+# computed in integers, so it is the same bytes everywhere; what is compared
+# is the coefficients the node derives from it each sample, through its own
+# exp2 and sine and cosine series rather than libm's.
+
+
+def sweep(frames=1600, level=24000, period=29, channels=1):
+    values = array("h", [0] * (frames * channels))
+    half = period // 2
+    for frame in range(frames):
+        step = frame % period
+        rise = step if step < half else period - step
+        shape = rise * 2 * level // half - level
+        for channel in range(channels):
+            values[frame * channels + channel] = \
+                shape if channel == 0 else -shape
+    return audiocore.RawSample(values, sample_rate=SAMPLE_RATE,
+                               channel_count=channels)
+
+
+def held(value, frames=1600):
+    return audiocore.RawSample(array("h", [value] * frames),
+                               sample_rate=SAMPLE_RATE, channel_count=1)
+
+
+node = ladder.Ladder(sample_rate=SAMPLE_RATE, cutoff_hz=600.0,
+                     resonance=3.8, drive=2.0, cutoff_octaves=3.0)
+node.modulate(cutoff=sweep())
+node.play(buzz())
+emit("swept", node, 6)
+
+# Plain rate, a stereo input of which only the first channel is read, and a
+# negative depth.
+node = ladder.Ladder(sample_rate=SAMPLE_RATE, cutoff_hz=900.0,
+                     resonance=4.1, oversample=1, cutoff_octaves=-2.0,
+                     cutoff=sweep(channels=2, period=53))
+node.play(buzz())
+emit("swept-plain", node, 6)
+
+# A held input takes the cached coefficients; a depth changed mid-stream must
+# not keep them; a disconnected input is the filter as set.
+node = ladder.Ladder(sample_rate=SAMPLE_RATE, cutoff_hz=500.0,
+                     resonance=3.9, cutoff=held(-9000))
+node.play(buzz())
+emit("held-a", node, 2)
+node.set(cutoff_octaves=4.0)
+emit("held-b", node, 2)
+node.modulate(cutoff=None)
+emit("held-c", node, 2)

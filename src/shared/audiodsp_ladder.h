@@ -57,7 +57,26 @@ typedef enum {
     AUDIODSP_LADDER_OPT_PASSBAND_COMP,
     AUDIODSP_LADDER_OPT_OVERSAMPLE,
     AUDIODSP_LADDER_OPT_MIX,
+    AUDIODSP_LADDER_OPT_CUTOFF_OCTAVES,
 } audiodsp_ladder_option_t;
+
+//: What the per-sample loop reads that the cutoff moves. Held apart so the
+//: cutoff input can derive a set of its own every sample, through the same
+//: loop the configured set goes through.
+typedef struct {
+    // TPT one-pole coefficient: tan(pi*fc/fs') / (1 + tan(pi*fc/fs')), where
+    // fs' is sample_rate * oversample.
+    float g;
+    // g to the fourth: the forward gain of the whole chain at DC.
+    float g4;
+    // resonance * g4 -- the loop gain the solver works against.
+    float loop_gain;
+    // 1 / (1 + loop_gain), and loop_gain/(3*(1 + loop_gain)). The solver is
+    // written so that these two constants are all it needs: no division and
+    // no library call per sample.
+    float inv_one_plus_loop;
+    float loop_over_three;
+} audiodsp_ladder_coeffs_t;
 
 //: Everything derived from the constructor/`set()` arguments. Held apart from
 //: the running state so `set()` can rewrite it mid-stream without disturbing
@@ -74,25 +93,25 @@ typedef struct {
     float drive;
     float passband_comp;
     float mix;
+    // Octaves the cutoff moves for a full-scale cutoff input.
+    float cutoff_octaves;
     uint8_t poles;
     uint8_t oversample;
     // --- derived, all computed in ladder_update_coefficients() ---
-    // TPT one-pole coefficient: tan(pi*fc/fs') / (1 + tan(pi*fc/fs')), where
-    // fs' is sample_rate * oversample. One tanf() per set(), never per
+    // The coefficients at `cutoff_hz`. One tanf() per set(), never per
     // sample.
-    float g;
-    // g to the fourth: the forward gain of the whole chain at DC.
-    float g4;
-    // resonance * g4 -- the loop gain the solver works against.
-    float loop_gain;
-    // 1 / (1 + loop_gain), and loop_gain/(3*(1 + loop_gain)). The solver is
-    // written so that these two constants are all it needs: no division and
-    // no library call per sample.
-    float inv_one_plus_loop;
-    float loop_over_three;
+    audiodsp_ladder_coeffs_t coeffs;
     // 1 + passband_comp * resonance: what the tapped output is scaled by to
     // give back the passband the feedback subtracts.
     float output_gain;
+    // What the cutoff input needs to derive its own coefficients: octaves per
+    // input count, pi / fs', and the band the cutoff is clamped to.
+    float cutoff_scale;
+    float pi_over_rate;
+    float cutoff_max;
+    // Bumped by every change, so a coefficient set the state cached from the
+    // cutoff input is known to be stale.
+    uint32_t revision;
 } audiodsp_ladder_config_t;
 
 typedef struct {
@@ -108,6 +127,11 @@ typedef struct {
     // The previous input sample, per channel: the 2x upsampler interpolates
     // between it and the current one.
     float previous_input[2];
+    // The last cutoff input, the config revision it was read against, and
+    // the coefficients it gave, so a held cutoff costs nothing per sample.
+    int32_t cutoff_last;
+    uint32_t cutoff_revision;
+    audiodsp_ladder_coeffs_t cutoff_coeffs;
 } audiodsp_ladder_state_t;
 
 void audiodsp_ladder_config_init(audiodsp_ladder_config_t *config,
@@ -138,3 +162,17 @@ void audiodsp_ladder_reset(audiodsp_ladder_state_t *state);
 void audiodsp_ladder_process_s16(const audiodsp_ladder_config_t *config,
     audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames);
+
+// The same, with the cutoff read from an audio stream every sample:
+// `frames` frames of signed 16-bit audio with `cutoff_stride` samples between
+// frames, of which only the first channel is read. The cutoff is
+//
+//   cutoff_hz * 2^(cutoff/32768 * cutoff_octaves)
+//
+// clamped to the same band `cutoff_hz` is. An input of zero is the filter as
+// configured, sample for sample; NULL is the same as
+// audiodsp_ladder_process_s16(). With oversampling on, both of an output
+// sample's steps run at that sample's cutoff.
+void audiodsp_ladder_process_cutoff_s16(const audiodsp_ladder_config_t *config,
+    audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames, const int16_t *cutoff, uint32_t cutoff_stride);

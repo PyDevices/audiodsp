@@ -27,6 +27,19 @@ the rate so the harmonics the saturator makes fold back less; it is on by
 default, because half the cost is the wrong saving on the one node whose job
 is to distort. `mix` is a plain crossfade, 0 a wire and 1 the filter.
 
+`cutoff` is an audio input that moves the cutoff every sample, which is what
+filter FM at an audio rate needs: `set(cutoff_hz=...)` moves it once a block,
+and a cutoff swept by an audio-rate signal that way buzzes at the block rate.
+Connect it with `modulate(cutoff=source)` or in the constructor. Only its
+first channel is read, as a fraction `v` of full scale (-1..1), and the
+cutoff is `cutoff_hz * 2 ** (v * cutoff_octaves)`, clamped to the same band
+`cutoff_hz` is. `cutoff_octaves` defaults to 10, the same scale as
+`audiooscillator`'s pitch input. An input that is not connected, or runs
+dry, counts as zero, and zero is the filter exactly as `cutoff_hz` sets it.
+
+    ladder.modulate(cutoff=lfo)
+    ladder.set(cutoff_octaves=2.0)
+
 `buffer_size` is the size in bytes of each block handed out, as on the
 CircuitPython effects: a host running 64-frame blocks passes
 `buffer_size=64 * 2 * channel_count` and the filter keeps pace with it, with
@@ -41,7 +54,8 @@ and says so on import.
 """
 
 from audiocore import (
-    GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer,
+    GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, _sample_method,
+    get_buffer,
 )
 import _audiodsp
 
@@ -64,7 +78,11 @@ _OPTIONS = {
     "passband_comp": 4,
     "oversample": 5,
     "mix": 6,
+    "cutoff_octaves": 7,
 }
+
+#: The inputs `modulate()` connects.
+_INPUTS = ("cutoff",)
 
 
 def _frames_for(buffer_size, channel_count):
@@ -82,7 +100,7 @@ def _frames_for(buffer_size, channel_count):
 
 
 class Ladder(_AudioSample):
-    def __init__(self, sample_rate=48000, **options):
+    def __init__(self, sample_rate=48000, cutoff=None, **options):
         channel_count = int(options.pop("channel_count", 2))
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
@@ -98,10 +116,14 @@ class Ladder(_AudioSample):
         self._deinited = False
         self._source = None
         self._pending = b""
+        self._cutoff = None
+        self._cutoff_channels = 1
+        self._cutoff_pending = b""
         self._state = _audiodsp.LadderState(
             sample_rate=self.sample_rate, channel_count=channel_count)
         self._apply(options)
         self._state.finish()
+        self._connect({"cutoff": cutoff})
 
     def _apply(self, options):
         for name, value in options.items():
@@ -109,6 +131,31 @@ class Ladder(_AudioSample):
             if slot is None:
                 raise TypeError("unknown Ladder option %r" % (name,))
             self._state.configure(slot, float(value))
+
+    def _connect(self, inputs):
+        if "cutoff" not in inputs:
+            return
+        sample = inputs["cutoff"]
+        channels = 1
+        if sample is not None:
+            # Not an audio source -- a number meant for `cutoff_hz`, say --
+            # is a TypeError, as it is on the native builds.
+            _sample_method(sample, "_get_buffer")
+            channels = int(getattr(sample, "channel_count", 1))
+            if channels not in (1, 2):
+                raise ValueError("an input must be mono or stereo")
+        self._cutoff = sample
+        self._cutoff_channels = channels
+        self._cutoff_pending = b""
+
+    def modulate(self, **inputs):
+        """Connect inputs by name: `cutoff`. None disconnects it; an input
+        not named is left as it is."""
+        self._check()
+        for name in inputs:
+            if name not in _INPUTS:
+                raise TypeError("unknown Ladder input %r" % (name,))
+        self._connect(inputs)
 
     def set(self, **options):
         """Change settings mid-stream. The integrators keep their charge;
@@ -138,6 +185,8 @@ class Ladder(_AudioSample):
 
     def _release(self):
         self.stop()
+        self._cutoff = None
+        self._cutoff_pending = b""
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
@@ -149,6 +198,15 @@ class Ladder(_AudioSample):
         # self-oscillating filter restarted with its integrators still
         # charged carries the previous take's tone into the new one.
         self._state.reset()
+
+    def _take_cutoff(self):
+        # An input that has run dry counts as zero for this run.
+        result, data = get_buffer(self._cutoff, False, 0)
+        width = 2 * self._cutoff_channels
+        data = bytes(data)
+        if result == GET_BUFFER_ERROR or len(data) < width:
+            return b""
+        return data[:len(data) // width * width]
 
     def _get_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
@@ -166,7 +224,21 @@ class Ladder(_AudioSample):
                     break
                 self._pending = data[:len(data) // width * width]
             run = min(frames - produced, len(self._pending) // width)
-            output += self._state.process(self._pending[:run * width])
+            cutoff = None
+            if self._cutoff is not None:
+                if not self._cutoff_pending:
+                    self._cutoff_pending = self._take_cutoff()
+                if self._cutoff_pending:
+                    step = 2 * self._cutoff_channels
+                    run = min(run, len(self._cutoff_pending) // step)
+                    cutoff = self._cutoff_pending[:run * step]
+                    self._cutoff_pending = self._cutoff_pending[run * step:]
+            if cutoff is None:
+                output += self._state.process(self._pending[:run * width])
+            else:
+                output += self._state.process_cutoff(
+                    self._pending[:run * width], cutoff,
+                    self._cutoff_channels)
             self._pending = self._pending[run * width:]
             produced += run
         # A starved chain gets silence rather than a short block: this node

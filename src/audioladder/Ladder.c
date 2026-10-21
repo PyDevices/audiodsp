@@ -26,6 +26,7 @@ static const ladder_option_name_t ladder_option_names[] = {
     { MP_QSTR_passband_comp, AUDIODSP_LADDER_OPT_PASSBAND_COMP },
     { MP_QSTR_oversample, AUDIODSP_LADDER_OPT_OVERSAMPLE },
     { MP_QSTR_mix, AUDIODSP_LADDER_OPT_MIX },
+    { MP_QSTR_cutoff_octaves, AUDIODSP_LADDER_OPT_CUTOFF_OCTAVES },
 };
 
 // Every option is read and checked into a copy of the config before
@@ -43,7 +44,8 @@ static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
         }
         qstr name = mp_obj_str_get_qstr(kw->table[i].key);
         if (name == MP_QSTR_sample_rate || name == MP_QSTR_channel_count ||
-            name == MP_QSTR_buffer_size) {
+            name == MP_QSTR_buffer_size ||
+            (!live && name == MP_QSTR_cutoff)) {
             continue;
         }
         float value = (float)mp_obj_get_float(kw->table[i].value);
@@ -72,6 +74,51 @@ static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
     if (live) {
         audiodsp_pump_lock_release();
     }
+}
+
+// Connects the cutoff input if `kw` names it. Checked first, stored after
+// under the lock, so a bad one leaves the input as it was. `strict` is
+// modulate()'s: from the constructor every other keyword is an option.
+static void ladder_apply_inputs(audioladder_ladder_obj_t *self,
+    const mp_map_t *kw, bool strict) {
+    bool named = false;
+    mp_obj_t chosen = MP_OBJ_NULL;
+    uint8_t channels = 1;
+    for (size_t i = 0; i < kw->alloc; ++i) {
+        if (!mp_map_slot_is_filled(kw, i)) {
+            continue;
+        }
+        qstr name = mp_obj_str_get_qstr(kw->table[i].key);
+        if (name != MP_QSTR_cutoff) {
+            if (strict) {
+                mp_raise_msg_varg(&mp_type_TypeError,
+                    MP_ERROR_TEXT("unknown Ladder input '%q'"), name);
+            }
+            continue;
+        }
+        mp_obj_t sample = kw->table[i].value;
+        named = true;
+        chosen = MP_OBJ_NULL;
+        channels = 1;
+        if (sample != mp_const_none) {
+            audiosample_base_t *base = audiosample_check(sample);
+            if (base->channel_count < 1 || base->channel_count > 2) {
+                mp_raise_ValueError(
+                    MP_ERROR_TEXT("an input must be mono or stereo"));
+            }
+            chosen = sample;
+            channels = base->channel_count;
+        }
+    }
+    if (!named) {
+        return;
+    }
+    audiodsp_pump_lock_acquire();
+    self->cutoff = chosen;
+    self->cutoff_channels = channels;
+    self->cutoff_pending = NULL;
+    self->cutoff_pending_frames = 0;
+    audiodsp_pump_lock_release();
 }
 
 static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
@@ -129,6 +176,10 @@ static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
     self->source = MP_OBJ_NULL;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->cutoff = MP_OBJ_NULL;
+    self->cutoff_pending = NULL;
+    self->cutoff_pending_frames = 0;
+    self->cutoff_channels = 1;
 
     audiodsp_ladder_config_init(&self->config, sample_rate);
     audiodsp_ladder_set_channel_count(&self->config, channel_count);
@@ -136,6 +187,7 @@ static mp_obj_t audioladder_ladder_make_new(const mp_obj_type_t *type,
 
     ladder_apply_kwargs(self, &kw_map, false);
     audiodsp_ladder_config_finish(&self->config);
+    ladder_apply_inputs(self, &kw_map, false);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -163,6 +215,17 @@ static mp_obj_t audioladder_ladder_set(size_t n_args, const mp_obj_t *args,
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audioladder_ladder_set_obj, 1,
     audioladder_ladder_set);
+
+static mp_obj_t audioladder_ladder_modulate(size_t n_args,
+    const mp_obj_t *args, mp_map_t *kw_args) {
+    audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    audiosample_check_for_deinit(&self->base);
+    (void)n_args;
+    ladder_apply_inputs(self, kw_args, true);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(audioladder_ladder_modulate_obj, 1,
+    audioladder_ladder_modulate);
 
 static mp_obj_t audioladder_ladder_clear(mp_obj_t self_in) {
     audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -202,9 +265,39 @@ static audioio_get_buffer_result_t audioladder_ladder_get_buffer(
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
-        audiodsp_ladder_process_s16(&self->config, &self->state,
-            &self->buffer[produced * self->base.channel_count],
-            self->pending, run);
+        const int16_t *cutoff = NULL;
+        if (self->cutoff != MP_OBJ_NULL) {
+            if (self->cutoff_pending_frames == 0) {
+                uint8_t *raw = NULL;
+                uint32_t raw_bytes = 0;
+                audioio_get_buffer_result_t result = audiosample_get_buffer(
+                    self->cutoff, false, 0, &raw, &raw_bytes);
+                const uint32_t width = 2u * self->cutoff_channels;
+                // An input that has run dry counts as zero for this run.
+                if (result != GET_BUFFER_ERROR && raw != NULL &&
+                    raw_bytes >= width) {
+                    self->cutoff_pending = (const int16_t *)raw;
+                    self->cutoff_pending_frames = raw_bytes / width;
+                }
+            }
+            if (self->cutoff_pending_frames != 0) {
+                if (run > self->cutoff_pending_frames) {
+                    run = self->cutoff_pending_frames;
+                }
+                cutoff = self->cutoff_pending;
+            }
+        }
+        if (cutoff == NULL) {
+            audiodsp_ladder_process_s16(&self->config, &self->state,
+                &self->buffer[produced * self->base.channel_count],
+                self->pending, run);
+        } else {
+            audiodsp_ladder_process_cutoff_s16(&self->config, &self->state,
+                &self->buffer[produced * self->base.channel_count],
+                self->pending, run, cutoff, self->cutoff_channels);
+            self->cutoff_pending += run * self->cutoff_channels;
+            self->cutoff_pending_frames -= run;
+        }
         self->pending += run * self->base.channel_count;
         self->pending_frames -= run;
         produced += run;
@@ -257,6 +350,9 @@ static mp_obj_t audioladder_ladder_deinit(mp_obj_t self_in) {
     self->source = mp_const_none;
     self->pending = NULL;
     self->pending_frames = 0;
+    self->cutoff = MP_OBJ_NULL;
+    self->cutoff_pending = NULL;
+    self->cutoff_pending_frames = 0;
     audiodsp_pump_lock_release();
     return mp_const_none;
 }
@@ -268,6 +364,8 @@ static const mp_rom_map_elem_t audioladder_ladder_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___exit__), MP_ROM_PTR(&default___exit___obj) },
     { MP_ROM_QSTR(MP_QSTR_play), MP_ROM_PTR(&audioladder_ladder_play_obj) },
     { MP_ROM_QSTR(MP_QSTR_set), MP_ROM_PTR(&audioladder_ladder_set_obj) },
+    { MP_ROM_QSTR(MP_QSTR_modulate),
+      MP_ROM_PTR(&audioladder_ladder_modulate_obj) },
     { MP_ROM_QSTR(MP_QSTR_clear), MP_ROM_PTR(&audioladder_ladder_clear_obj) },
     AUDIOSAMPLE_FIELDS,
 };
@@ -278,8 +376,17 @@ static MP_DEFINE_CONST_DICT(audioladder_ladder_locals,
 // audiodsp#112: the pump refuses a file-backed source at handover,
 // and the protocol had no way to look past the tail.
 static mp_obj_t audioladder_ladder_sources(mp_obj_t self_in, uint8_t index) {
-    return index == 0 ? ((audioladder_ladder_obj_t *)MP_OBJ_TO_PTR(self_in))->source
-                      : MP_OBJ_NULL;
+    audioladder_ladder_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    // An empty slot is mp_const_none and the walk asks for the next one;
+    // MP_OBJ_NULL ends it, so a source not yet played must not hide the
+    // cutoff input behind it.
+    if (index == 0) {
+        return self->source == MP_OBJ_NULL ? mp_const_none : self->source;
+    }
+    if (index == 1) {
+        return self->cutoff == MP_OBJ_NULL ? mp_const_none : self->cutoff;
+    }
+    return MP_OBJ_NULL;
 }
 
 static const audiosample_p_t audioladder_ladder_proto = {
