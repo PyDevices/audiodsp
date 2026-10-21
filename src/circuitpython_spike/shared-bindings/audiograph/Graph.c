@@ -248,7 +248,7 @@ static mp_obj_t audiograph_graph_run(size_t n_args, const mp_obj_t *args) {
         if (block < 0 || (size_t)(block + 1) * block_bytes > info.len) {
             mp_raise_ValueError(MP_ERROR_TEXT("out is too small for that block"));
         }
-        out = (int16_t *)((uint8_t *)info.buf + (size_t)block * block_bytes);
+        out = (int16_t *)(void *)((uint8_t *)info.buf + (size_t)block * block_bytes);
     }
     uint32_t enable = 0xFFFFFFFFu;
     if (n_args > 3) {
