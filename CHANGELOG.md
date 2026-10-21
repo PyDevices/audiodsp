@@ -1,3 +1,8 @@
+## v0.6.9.dev3 (2026-10-21)
+
+- audiograph: a C graph runner over the existing kernels (MicroPython only)
+- Spike: audiograph, a C graph runner over the existing kernels (MicroPython only)
+
 ## v0.6.9.dev2 (2026-10-21)
 
 - audiomath.cast_into: a float block into an int16 buffer, allocating nothing
