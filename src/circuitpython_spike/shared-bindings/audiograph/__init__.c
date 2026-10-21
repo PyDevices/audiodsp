@@ -14,8 +14,8 @@
 //|
 //| The `audiograph` module builds a graph from nodes that call audiodsp's
 //| kernels (the oscillator, the ladder, the float biquad, the feedback
-//| delay) and a few small ones a voice needs (an envelope, an LFO, noise, a
-//| mixer, a VCA), then renders it with one ``run()`` a block. It is not part
+//| delay, the all-pass, the sample-and-hold) and a few small ones a voice
+//| needs (an envelope, an LFO, noise, a mixer, a VCA, a glide), then renders it with one ``run()`` a block. It is not part
 //| of CircuitPython upstream; it comes from PyDevices' audiodsp, and a graph
 //| renders the same samples here as on MicroPython and CPython.
 //|
@@ -36,6 +36,9 @@ static const mp_rom_map_elem_t audiograph_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_MIX), MP_ROM_INT(AUDIODSP_GRAPH_MIX) },
     { MP_ROM_QSTR(MP_QSTR_VCA), MP_ROM_INT(AUDIODSP_GRAPH_VCA) },
     { MP_ROM_QSTR(MP_QSTR_OUT), MP_ROM_INT(AUDIODSP_GRAPH_OUT) },
+    { MP_ROM_QSTR(MP_QSTR_PHASER), MP_ROM_INT(AUDIODSP_GRAPH_PHASER) },
+    { MP_ROM_QSTR(MP_QSTR_LAG), MP_ROM_INT(AUDIODSP_GRAPH_LAG) },
+    { MP_ROM_QSTR(MP_QSTR_SAMPLE_HOLD), MP_ROM_INT(AUDIODSP_GRAPH_SAMPLE_HOLD) },
     { MP_ROM_QSTR(MP_QSTR_ALWAYS), MP_ROM_INT(AUDIODSP_GRAPH_ALWAYS) },
     { MP_ROM_QSTR(MP_QSTR_UNIT), MP_ROM_INT(16384) },
     // parameter indices of the new nodes; the kernels' nodes take their
@@ -49,6 +52,22 @@ static const mp_rom_map_elem_t audiograph_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_MIX_OFFSET), MP_ROM_INT(AUDIODSP_GRAPH_MIX_OFFSET) },
     { MP_ROM_QSTR(MP_QSTR_VCA_GAIN), MP_ROM_INT(AUDIODSP_GRAPH_VCA_GAIN) },
     { MP_ROM_QSTR(MP_QSTR_VCA_SELECT), MP_ROM_INT(AUDIODSP_GRAPH_VCA_SELECT) },
+    { MP_ROM_QSTR(MP_QSTR_LFO_SHAPE), MP_ROM_INT(AUDIODSP_GRAPH_LFO_SHAPE) },
+    { MP_ROM_QSTR(MP_QSTR_LFO_TRIANGLE), MP_ROM_INT(AUDIODSP_GRAPH_LFO_TRIANGLE) },
+    { MP_ROM_QSTR(MP_QSTR_LFO_SINE), MP_ROM_INT(AUDIODSP_GRAPH_LFO_SINE) },
+    { MP_ROM_QSTR(MP_QSTR_LFO_SAW), MP_ROM_INT(AUDIODSP_GRAPH_LFO_SAW) },
+    { MP_ROM_QSTR(MP_QSTR_LFO_SQUARE), MP_ROM_INT(AUDIODSP_GRAPH_LFO_SQUARE) },
+    { MP_ROM_QSTR(MP_QSTR_LFO_RANDOM), MP_ROM_INT(AUDIODSP_GRAPH_LFO_RANDOM) },
+    { MP_ROM_QSTR(MP_QSTR_LAG_TIME), MP_ROM_INT(AUDIODSP_GRAPH_LAG_TIME) },
+    { MP_ROM_QSTR(MP_QSTR_LAG_MODE), MP_ROM_INT(AUDIODSP_GRAPH_LAG_MODE) },
+    { MP_ROM_QSTR(MP_QSTR_LAG_SHAPE), MP_ROM_INT(AUDIODSP_GRAPH_LAG_SHAPE) },
+    { MP_ROM_QSTR(MP_QSTR_LAG_OFF), MP_ROM_INT(AUDIODSP_GRAPH_LAG_OFF) },
+    { MP_ROM_QSTR(MP_QSTR_LAG_ON), MP_ROM_INT(AUDIODSP_GRAPH_LAG_ON) },
+    { MP_ROM_QSTR(MP_QSTR_LAG_AUTO), MP_ROM_INT(AUDIODSP_GRAPH_LAG_AUTO) },
+    { MP_ROM_QSTR(MP_QSTR_LAG_LINEAR), MP_ROM_INT(AUDIODSP_GRAPH_LAG_LINEAR) },
+    { MP_ROM_QSTR(MP_QSTR_LAG_ONE_POLE), MP_ROM_INT(AUDIODSP_GRAPH_LAG_ONE_POLE) },
+    { MP_ROM_QSTR(MP_QSTR_SH_LAG), MP_ROM_INT(AUDIODSP_GRAPH_SH_LAG) },
+    { MP_ROM_QSTR(MP_QSTR_SH_RATE), MP_ROM_INT(AUDIODSP_GRAPH_SH_RATE) },
     // the kernels' option numbers, so a caller needs no other module
     { MP_ROM_QSTR(MP_QSTR_OSC_FREQUENCY), MP_ROM_INT(AUDIODSP_OSCILLATOR_OPT_FREQUENCY) },
     { MP_ROM_QSTR(MP_QSTR_OSC_WAVEFORM), MP_ROM_INT(AUDIODSP_OSCILLATOR_OPT_WAVEFORM) },
@@ -76,6 +95,9 @@ static const mp_rom_map_elem_t audiograph_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_DELAY_DAMPING_HZ), MP_ROM_INT(AUDIODSP_FEEDBACK_DELAY_OPT_DAMPING_HZ) },
     { MP_ROM_QSTR(MP_QSTR_DELAY_WOW_HZ), MP_ROM_INT(AUDIODSP_FEEDBACK_DELAY_OPT_WOW_HZ) },
     { MP_ROM_QSTR(MP_QSTR_DELAY_WOW_DEPTH_MS), MP_ROM_INT(AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_MS) },
+    { MP_ROM_QSTR(MP_QSTR_PHASER_FREQUENCY), MP_ROM_INT(AUDIODSP_ALLPASS_F32_OPT_FREQUENCY) },
+    { MP_ROM_QSTR(MP_QSTR_PHASER_FEEDBACK), MP_ROM_INT(AUDIODSP_ALLPASS_F32_OPT_FEEDBACK) },
+    { MP_ROM_QSTR(MP_QSTR_PHASER_MIX), MP_ROM_INT(AUDIODSP_ALLPASS_F32_OPT_MIX) },
 };
 static MP_DEFINE_CONST_DICT(audiograph_module_globals,
     audiograph_module_globals_table);

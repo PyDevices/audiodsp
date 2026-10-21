@@ -4,12 +4,15 @@
     verify_graph.py --micropython PATH [--circuitpython PATH]
     verify_graph.py --micropython PATH --fault lsb     # must FAIL
     verify_graph.py --micropython PATH --fault late    # must FAIL
+    verify_graph.py --micropython PATH --fault phaser  # must FAIL (and lag, lfo, hold)
 
-Runs ``graph_parity_probe.py`` on this CPython (``audiograph`` from the
-installed wheel) and on each interpreter named, and compares the renders
-sample for sample: every output sample of every block, the buffers' peaks and
-a mono graph's blocks. The block headers (which voices ran, which were still
-sounding), the parameters read back and the probe's own checks must match
+Runs two probes on this CPython (``audiograph`` from the installed wheel) and
+on each interpreter named, and compares the renders sample for sample.
+``graph_parity_probe.py`` is the runner: every output sample of every block,
+the buffers' peaks and a mono graph's blocks. ``graph_nodes_probe.py`` is the
+phaser, the glide, the LFO's shapes and the sample-and-hold: every sample each
+of them writes. The block headers (which voices ran, which were still
+sounding), the parameters read back and the probes' own checks must match
 exactly.
 
 **The tolerance is 0 counts.** All three compile the same
@@ -24,9 +27,9 @@ Two interpreters are the minimum, and fewer is refused: one cannot disagree
 with itself. CI runs CPython against MicroPython; the three-way with the
 CircuitPython unix build is a local run, as for verify_dsp.py.
 
-``--fault`` plants a mistake on every interpreter after the first (the probe's
-docstring has what each one is), and the run must then fail. It is how this
-gate shows it can.
+``--fault`` plants a mistake on every interpreter after the first, in the
+probe it belongs to (each probe's docstring has what its faults are), and the
+run must then fail. It is how this gate shows it can.
 """
 
 import argparse
@@ -37,16 +40,22 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-PROBE = HERE / "graph_parity_probe.py"
+#: Each probe and the faults it can plant.
+PROBES = (
+    ("runner", HERE / "graph_parity_probe.py", ("lsb", "late")),
+    ("nodes", HERE / "graph_nodes_probe.py", ("phaser", "lag", "lfo", "hold")),
+)
+FAULTS = tuple(f for _, _, faults in PROBES for f in faults)
 #: Lines whose fields after the tag are samples, compared within the tolerance.
-SAMPLE_LINES = ("pcm", "peaks", "mono")
-#: Leading fields of a sample line that are not samples: a pcm line's block,
-#: enable mask and sounding mask, compared exactly.
-HEADER_FIELDS = {"pcm": 3, "peaks": 0, "mono": 0}
+SAMPLE_LINES = ("pcm", "peaks", "mono", "node")
+#: Leading fields of a sample line that are not samples, compared exactly: a
+#: pcm line's block, enable mask and sounding mask; a node line's block and
+#: node name.
+HEADER_FIELDS = {"pcm": 3, "peaks": 0, "mono": 0, "node": 2}
 
 
-def render(argv, fault, timeout):
-    command = argv + [str(PROBE)] + (["--fault", fault] if fault else [])
+def render(argv, probe, fault, timeout):
+    command = argv + [str(probe)] + (["--fault", fault] if fault else [])
     environment = os.environ.copy()
     environment["MICROPYPATH"] = "%s:%s" % (ROOT, ROOT / "lib")
     result = subprocess.run(command, cwd=str(ROOT), env=environment,
@@ -100,7 +109,7 @@ def main():
     parser.add_argument("--circuitpython", help="a CircuitPython with audiograph")
     parser.add_argument("--tolerance", type=float, default=0.0,
                         help="counts a sample may differ by (default 0)")
-    parser.add_argument("--fault", choices=("lsb", "late"),
+    parser.add_argument("--fault", choices=FAULTS,
                         help="plant a mistake on every interpreter but the first")
     parser.add_argument("--timeout", type=float, default=300.0,
                         help="seconds one render may take")
@@ -117,30 +126,33 @@ def main():
         raise SystemExit("this gate compares interpreters, so it needs at least "
                          "two: pass --micropython PATH (and --circuitpython PATH)")
 
-    renders = {}
     failed = False
-    for position, (name, argv) in enumerate(interpreters):
-        fault = args.fault if position else None
-        code, lines = render(argv, fault, args.timeout)
-        renders[name] = lines
-        if code:
-            print("FAIL  %-14s the probe failed its own checks (exit %d)" % (name, code))
-            for line in lines[-6:]:
-                print("        " + line[:120])
-            failed = True
-
     reference = interpreters[0][0]
-    for name, _ in interpreters[1:]:
-        compared, differing, worst, first, mismatches = compare(
-            renders[reference], renders[name], args.tolerance)
-        verdict = "FAIL" if mismatches else "ok  "
-        print("%s  %s = %s: %d samples, %d differ, worst %g counts (tolerance %g)"
-              % (verdict, reference, name, compared, differing, worst, args.tolerance))
-        if first:
-            print("        first difference at %s" % first)
-        for line in mismatches[:5]:
-            print("        " + line)
-        failed = failed or bool(mismatches)
+    for probe_name, probe, faults in PROBES:
+        renders = {}
+        for position, (name, argv) in enumerate(interpreters):
+            fault = args.fault if position and args.fault in faults else None
+            code, lines = render(argv, probe, fault, args.timeout)
+            renders[name] = lines
+            if code:
+                print("FAIL  %-14s %s: the probe failed its own checks (exit %d)"
+                      % (name, probe_name, code))
+                for line in lines[-6:]:
+                    print("        " + line[:120])
+                failed = True
+
+        for name, _ in interpreters[1:]:
+            compared, differing, worst, first, mismatches = compare(
+                renders[reference], renders[name], args.tolerance)
+            verdict = "FAIL" if mismatches else "ok  "
+            print("%s  %-6s %s = %s: %d samples, %d differ, worst %g counts "
+                  "(tolerance %g)" % (verdict, probe_name, reference, name,
+                                      compared, differing, worst, args.tolerance))
+            if first:
+                print("        first difference at %s" % first)
+            for line in mismatches[:5]:
+                print("        " + line)
+            failed = failed or bool(mismatches)
 
     if failed:
         print("GRAPH RENDERS DIFFER" + (" (fault planted: %s)" % args.fault

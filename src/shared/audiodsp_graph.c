@@ -1,6 +1,10 @@
 // The graph runner. See audiodsp_graph.h.
 // SPDX-License-Identifier: MIT
 
+// First, so no multiply-add here is fused on one target and not another: a
+// graph renders the same samples on every board (audiodsp_fp_contract.h).
+#include "shared/audiodsp_fp_contract.h"
+
 #include "shared/audiodsp_graph.h"
 
 #include <math.h>
@@ -49,7 +53,57 @@ typedef struct {
 
 typedef struct {
     float phase;
+    // The random shape: the level held for this cycle (-1..1), the square's
+    // state at the last sample, the shape last run, and the generator.
+    float level;
+    bool high;
+    uint8_t shape;
+    uint32_t rng;
 } graph_lfo_t;
+
+typedef struct {
+    audiodsp_allpass_f32_config_t config;
+    audiodsp_allpass_f32_state_t state;
+    // The stages' state follows, `config.stages` floats.
+    float lanes[];
+} graph_phaser_t;
+
+typedef struct {
+    // The linear shape (GlideCore in dsp/glide.py): the value has been seen,
+    // the note being glided to, the step per sample and the samples left.
+    bool primed;
+    float value;
+    float target;
+    float slope;
+    uint32_t left;
+    // The one-pole shape (GlideCore in dsp/utility.py), which starts at 0.
+    float pole;
+} graph_lag_t;
+
+typedef struct {
+    // vrack's SampleAndHoldCore: the clock's state at the last sample, the
+    // value held and the output slewing toward it.
+    bool high;
+    float held;
+    float out;
+    // The free-running hold when the clock is open: audioshaper's kernel.
+    audiodsp_samplehold_config_t config;
+    audiodsp_samplehold_state_t state;
+    uint32_t rate;
+} graph_sh_t;
+
+// audiobiquad.AllPass's default, for a PHASER built with `arg` 0.
+#define PHASER_DEFAULT_STAGES 4u
+
+static uint32_t phaser_stages(float arg) {
+    if (!(arg >= 1.0f)) {
+        return PHASER_DEFAULT_STAGES;
+    }
+    if (arg > (float)AUDIODSP_FILTER_F32_MAX_STAGES) {
+        return AUDIODSP_FILTER_F32_MAX_STAGES;
+    }
+    return (uint32_t)arg;
+}
 
 typedef struct {
     uint32_t rng;
@@ -84,6 +138,12 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_noise_t);
         case AUDIODSP_GRAPH_MIX:
             return sizeof(graph_mix_t);
+        case AUDIODSP_GRAPH_PHASER:
+            return sizeof(graph_phaser_t) + (size_t)phaser_stages(arg) * sizeof(float);
+        case AUDIODSP_GRAPH_LAG:
+            return sizeof(graph_lag_t);
+        case AUDIODSP_GRAPH_SAMPLE_HOLD:
+            return sizeof(graph_sh_t);
         default:
             return 0;
     }
@@ -221,10 +281,34 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_ENV_RELEASE] = 0.3f;
             break;
         }
-        case AUDIODSP_GRAPH_LFO:
+        case AUDIODSP_GRAPH_LFO: {
+            graph_lfo_t *d = data;
+            d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
             node->param[AUDIODSP_GRAPH_LFO_RATE] = 1.0f;
             node->param[AUDIODSP_GRAPH_LFO_AMPLITUDE] = 0.5f * AUDIODSP_GRAPH_UNIT;
+            node->param[AUDIODSP_GRAPH_LFO_SHAPE] = (float)AUDIODSP_GRAPH_LFO_TRIANGLE;
             break;
+        }
+        case AUDIODSP_GRAPH_PHASER: {
+            graph_phaser_t *d = data;
+            const uint32_t stages = phaser_stages(arg);
+            audiodsp_allpass_f32_config_init(&d->config, rate, 1, stages);
+            audiodsp_allpass_f32_config_finish(&d->config);
+            audiodsp_allpass_f32_state_init(&d->state, d->lanes, stages);
+            node->param[AUDIODSP_ALLPASS_F32_OPT_FREQUENCY] = d->config.frequency;
+            node->param[AUDIODSP_ALLPASS_F32_OPT_FEEDBACK] = d->config.feedback;
+            node->param[AUDIODSP_ALLPASS_F32_OPT_MIX] = d->config.mix;
+            break;
+        }
+        case AUDIODSP_GRAPH_LAG:
+            node->param[AUDIODSP_GRAPH_LAG_MODE] = (float)AUDIODSP_GRAPH_LAG_ON;
+            break;
+        case AUDIODSP_GRAPH_SAMPLE_HOLD: {
+            graph_sh_t *d = data;
+            audiodsp_samplehold_config_init(&d->config, 1u, 1u);
+            audiodsp_samplehold_state_init(&d->state, &d->config);
+            break;
+        }
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -304,12 +388,35 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             d->high = false;
             break;
         }
-        case AUDIODSP_GRAPH_LFO:
-            ((graph_lfo_t *)n->data)->phase = 0.0f;
+        case AUDIODSP_GRAPH_LFO: {
+            graph_lfo_t *d = n->data;
+            d->phase = 0.0f;
+            d->level = 0.0f;
+            d->high = false;
             break;
+        }
         case AUDIODSP_GRAPH_MIX:
             ((graph_mix_t *)n->data)->primed = false;
             break;
+        case AUDIODSP_GRAPH_PHASER:
+            audiodsp_allpass_f32_reset(&((graph_phaser_t *)n->data)->state);
+            break;
+        case AUDIODSP_GRAPH_LAG: {
+            graph_lag_t *d = n->data;
+            d->primed = false;
+            d->left = 0;
+            d->slope = 0.0f;
+            d->pole = 0.0f;
+            break;
+        }
+        case AUDIODSP_GRAPH_SAMPLE_HOLD: {
+            graph_sh_t *d = n->data;
+            d->high = false;
+            d->held = 0.0f;
+            d->out = 0.0f;
+            audiodsp_samplehold_reset(&d->state, &d->config);
+            break;
+        }
         default:
             break;
     }
@@ -359,6 +466,34 @@ static void derive(audiodsp_graph_t *graph, audiodsp_graph_node_t *n) {
                     (audiodsp_feedback_delay_option_t)i, n->param[i]);
             }
             audiodsp_feedback_delay_config_finish(&d->config);
+            break;
+        }
+        case AUDIODSP_GRAPH_PHASER: {
+            graph_phaser_t *d = n->data;
+            for (uint32_t i = 0; i <= AUDIODSP_ALLPASS_F32_OPT_MIX; ++i) {
+                audiodsp_allpass_f32_configure(&d->config,
+                    (audiodsp_allpass_f32_option_t)i, n->param[i]);
+            }
+            audiodsp_allpass_f32_config_finish(&d->config);
+            break;
+        }
+        case AUDIODSP_GRAPH_SAMPLE_HOLD: {
+            graph_sh_t *d = n->data;
+            // Whole hertz, at most the sample rate: the kernel's ratio is a
+            // pair of integers, so a rate it holds is exact for ever.
+            float hz = n->param[AUDIODSP_GRAPH_SH_RATE];
+            uint32_t rate = 0;
+            if (hz >= 0.5f) {
+                rate = hz >= (float)graph->sample_rate
+                    ? graph->sample_rate : (uint32_t)lrintf(hz);
+            }
+            if (rate != d->rate) {
+                d->rate = rate;
+                if (rate != 0 &&
+                    audiodsp_samplehold_config_set(&d->config, graph->sample_rate, rate)) {
+                    audiodsp_samplehold_reset(&d->state, &d->config);
+                }
+            }
             break;
         }
         case AUDIODSP_GRAPH_ENV: {
@@ -438,21 +573,250 @@ static void run_env(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
     d->val = val;
 }
 
+// sin(2 pi p) for a phase in [0, 1), in float and without libm: an odd
+// polynomial (Taylor to x^11) over the quarter cycle each phase folds into.
+// One polynomial in one order is one function on every target, where sinf()
+// is a different one on each libm. Worst error about 6e-8, under a hundredth
+// of a count at full scale.
+static float lfo_sine(float phase) {
+    float t = phase;
+    if (t >= 0.75f) {
+        t -= 1.0f;
+    } else if (t >= 0.25f) {
+        t = 0.5f - t;
+    }
+    const float x = t * 6.28318530717958648f;
+    const float x2 = x * x;
+    float r = -2.50521083854417188e-8f;     // -1/11!
+    r = r * x2 + 2.75573192239858907e-6f;   //  1/9!
+    r = r * x2 - 1.98412698412698413e-4f;   // -1/7!
+    r = r * x2 + 8.33333333333333333e-3f;   //  1/5!
+    r = r * x2 - 1.66666666666666667e-1f;   // -1/3!
+    r = r * x2 + 1.0f;
+    return r * x;
+}
+
+static uint32_t xorshift(uint32_t x) {
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    return x;
+}
+
 static void run_lfo(audiodsp_graph_node_t *n, int16_t *out, uint32_t frames,
     uint32_t sample_rate) {
     graph_lfo_t *d = n->data;
     const float dt = n->param[AUDIODSP_GRAPH_LFO_RATE] / (float)sample_rate;
     const float amp = n->param[AUDIODSP_GRAPH_LFO_AMPLITUDE];
+    // The nearest shape; anything out of range is the triangle.
+    const float pick = n->param[AUDIODSP_GRAPH_LFO_SHAPE] + 0.5f;
+    const uint8_t shape = pick >= 1.0f && pick < (float)AUDIODSP_GRAPH_LFO_SHAPES
+        ? (uint8_t)pick : (uint8_t)AUDIODSP_GRAPH_LFO_TRIANGLE;
     float phase = d->phase;
-    for (uint32_t i = 0; i < frames; ++i) {
-        phase += dt;
-        phase -= floorf(phase);
-        // 1 - |4p - 2|
-        float tri = 4.0f * phase - 2.0f;
-        tri = 1.0f - (tri < 0.0f ? -tri : tri);
-        out[i] = sat16(tri * amp);
+    switch (shape) {
+        case AUDIODSP_GRAPH_LFO_SINE:
+            for (uint32_t i = 0; i < frames; ++i) {
+                phase += dt;
+                phase -= floorf(phase);
+                out[i] = sat16(lfo_sine(phase) * amp);
+            }
+            break;
+        case AUDIODSP_GRAPH_LFO_SAW:
+            for (uint32_t i = 0; i < frames; ++i) {
+                phase += dt;
+                phase -= floorf(phase);
+                out[i] = sat16((1.0f - 2.0f * phase) * amp);
+            }
+            break;
+        case AUDIODSP_GRAPH_LFO_SQUARE:
+            for (uint32_t i = 0; i < frames; ++i) {
+                phase += dt;
+                phase -= floorf(phase);
+                out[i] = sat16(phase < 0.5f ? amp : -amp);
+            }
+            break;
+        case AUDIODSP_GRAPH_LFO_RANDOM: {
+            // A shape just chosen starts with the square low, so the first
+            // sample of a high half draws a level at once (Mono101LFO's
+            // switch to its random wave).
+            bool high = d->shape == AUDIODSP_GRAPH_LFO_RANDOM ? d->high : false;
+            float level = d->level;
+            uint32_t x = d->rng;
+            for (uint32_t i = 0; i < frames; ++i) {
+                phase += dt;
+                phase -= floorf(phase);
+                const bool up = phase < 0.5f;
+                if (up && !high) {
+                    x = xorshift(x);
+                    level = (float)(int32_t)x * (1.0f / 2147483648.0f);
+                }
+                high = up;
+                out[i] = sat16(level * amp);
+            }
+            d->high = high;
+            d->level = level;
+            d->rng = x;
+            break;
+        }
+        default:
+            for (uint32_t i = 0; i < frames; ++i) {
+                phase += dt;
+                phase -= floorf(phase);
+                // 1 - |4p - 2|
+                float tri = 4.0f * phase - 2.0f;
+                tri = 1.0f - (tri < 0.0f ? -tri : tri);
+                out[i] = sat16(tri * amp);
+            }
+            break;
     }
     d->phase = phase;
+    d->shape = shape;
+}
+
+static void run_lag(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_lag_t *d = n->data;
+    const int16_t *note = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs + (size_t)n->inputs[0] * graph->frames;
+    const int16_t *pitch = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs + (size_t)n->inputs[1] * graph->frames : NULL;
+    const int16_t *legato = n->ninputs > 2 && n->inputs[2] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs + (size_t)n->inputs[2] * graph->frames : NULL;
+    const float time = n->param[AUDIODSP_GRAPH_LAG_TIME];
+    const float target = note != NULL ? (float)note[0] : 0.0f;
+    float acc[AUDIODSP_GRAPH_MAX_FRAMES];
+    if (n->param[AUDIODSP_GRAPH_LAG_SHAPE] >= 0.5f) {
+        // dsp/utility.py's GlideCore: a one-pole toward the block's first
+        // sample, or the input as it is for a time of a millisecond or less.
+        if (!(time > 0.001f)) {
+            for (uint32_t i = 0; i < frames; ++i) {
+                acc[i] = note != NULL ? (float)note[i] : 0.0f;
+            }
+            d->pole = acc[frames - 1];
+        } else {
+            const float c = expf(-1.0f / (time * (float)graph->sample_rate * 0.35f));
+            float v = d->pole;
+            for (uint32_t i = 0; i < frames; ++i) {
+                v = target + (v - target) * c;
+                acc[i] = v;
+            }
+            d->pole = v;
+        }
+    } else {
+        // dsp/glide.py's GlideCore: a straight line to each new note that
+        // takes `time` seconds wherever it starts from.
+        if (!d->primed) {
+            d->value = d->target = target;
+            d->primed = true;
+        }
+        if (target != d->target) {
+            d->target = target;
+            const float mode = n->param[AUDIODSP_GRAPH_LAG_MODE];
+            const bool on = mode >= 0.5f && mode < 1.5f;
+            const bool aut = mode >= 1.5f;
+            const bool held = legato != NULL &&
+                (float)legato[0] > 0.5f * AUDIODSP_GRAPH_UNIT;
+            const double span = (double)time * (double)graph->sample_rate;
+            const uint32_t steps = span >= 1.0 && span < 4294967295.0
+                ? (uint32_t)span : (span >= 1.0 ? 4294967295u : 0u);
+            if (steps >= 1u && (on || (aut && held))) {
+                d->left = steps;
+                // In double, rounded once: the slope GlideCore computes.
+                d->slope = (float)(((double)target - (double)d->value) / (double)steps);
+            } else {
+                d->left = 0;
+                d->value = target;
+            }
+        }
+        if (d->left > 0u) {
+            const uint32_t k = d->left > frames ? frames : d->left;
+            const float start = d->value;
+            const float slope = d->slope;
+            float last = start;
+            for (uint32_t i = 0; i < k; ++i) {
+                last = (float)(i + 1u) * slope + start;
+                acc[i] = last;
+            }
+            d->left -= k;
+            if (d->left == 0u) {
+                last = target;
+                acc[k - 1u] = target;
+            }
+            d->value = last;
+            for (uint32_t i = k; i < frames; ++i) {
+                acc[i] = target;
+            }
+        } else {
+            for (uint32_t i = 0; i < frames; ++i) {
+                acc[i] = d->value;
+            }
+        }
+    }
+    if (pitch != NULL) {
+        // The bend rides on top unslid: + pitch - note, in that order.
+        for (uint32_t i = 0; i < frames; ++i) {
+            float v = acc[i] + (float)pitch[i];
+            out[i] = sat16(v - (note != NULL ? (float)note[i] : 0.0f));
+        }
+    } else {
+        for (uint32_t i = 0; i < frames; ++i) {
+            out[i] = sat16(acc[i]);
+        }
+    }
+}
+
+static void run_sample_hold(const audiodsp_graph_t *graph,
+    audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
+    graph_sh_t *d = n->data;
+    const int16_t *signal = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs + (size_t)n->inputs[0] * graph->frames;
+    const int16_t *clock = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs + (size_t)n->inputs[1] * graph->frames : NULL;
+    float lag = n->param[AUDIODSP_GRAPH_SH_LAG];
+    if (!(lag > 0.0f)) {
+        lag = 0.0f;
+    } else if (lag > 0.999999f) {
+        lag = 0.999999f;
+    }
+    int16_t staircase[AUDIODSP_GRAPH_MAX_FRAMES];
+    float held = d->held;
+    if (clock != NULL) {
+        // Every rising edge latches the signal's sample at that edge: the
+        // clock above 0.1 on the wire is high, as an envelope's gate is.
+        bool high = d->high;
+        for (uint32_t i = 0; i < frames; ++i) {
+            const bool g = (float)clock[i] > ENV_GATE_THRESHOLD;
+            if (g && !high) {
+                held = signal != NULL ? (float)signal[i] : 0.0f;
+            }
+            high = g;
+            staircase[i] = (int16_t)held;
+        }
+        d->high = high;
+    } else if (d->rate != 0u && signal != NULL) {
+        audiodsp_samplehold_process(&d->config, &d->state,
+            (uint8_t *)staircase, (const uint8_t *)signal, frames,
+            sizeof(int16_t));
+        held = (float)staircase[frames - 1];
+    } else {
+        for (uint32_t i = 0; i < frames; ++i) {
+            staircase[i] = (int16_t)held;
+        }
+    }
+    d->held = held;
+    if (lag == 0.0f) {
+        memcpy(out, staircase, frames * sizeof(int16_t));
+        d->out = held;
+        return;
+    }
+    // out slews toward what is held with a one-pole of coefficient `lag`.
+    float v = d->out;
+    for (uint32_t i = 0; i < frames; ++i) {
+        const float h = (float)staircase[i];
+        v = h + (v - h) * lag;
+        out[i] = sat16(v);
+    }
+    d->out = v;
 }
 
 static void run_noise(audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
@@ -655,6 +1019,22 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_OUT:
                 run_out(graph, n, out, frames);
+                break;
+            case AUDIODSP_GRAPH_PHASER: {
+                graph_phaser_t *d = n->data;
+                if (in0 == NULL) {
+                    memset(dst, 0, frames * sizeof(int16_t));
+                    in0 = dst;
+                }
+                audiodsp_allpass_f32_process_s16(&d->config, &d->state, dst,
+                    in0, frames);
+                break;
+            }
+            case AUDIODSP_GRAPH_LAG:
+                run_lag(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_SAMPLE_HOLD:
+                run_sample_hold(graph, n, dst, frames);
                 break;
             default:
                 break;

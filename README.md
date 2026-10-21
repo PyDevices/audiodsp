@@ -491,8 +491,9 @@ rather than a chain of `audiobiquad.Biquad`, measured rather than argued.
 
 A whole patch rendered by one C call per block. You build a graph of nodes
 over the kernels above (the oscillator, the ladder, the biquad, the feedback
-delay) and a few small ones a voice needs (an ADSR, an LFO, noise, a mixer
-with ramped gains, a VCA), wire them through the graph's own block buffers,
+delay, the all-pass, the sample-and-hold) and a few small ones a voice needs
+(an ADSR, an LFO of five shapes, noise, a mixer with ramped gains, a VCA, a
+glide), wire them through the graph's own block buffers,
 put each voice in a group, and call `run()` once a block; nothing in Python
 runs between the nodes. That is what lets a six-voice polysynth play in real
 time on an ESP32-P4. The same graph renders the same samples on CPython,

@@ -11,9 +11,10 @@
 // order they run; each node names the buffers it reads and the buffer it
 // writes, and holds the config and state of one kernel. The kernels are the
 // ones the audio nodes already call -- the oscillator, the ladder, the float
-// biquad, the feedback delay -- plus a few small ones a voice needs that only
-// existed in Python: an ADSR, a triangle LFO, white noise, a mixer with
-// ramped gains, a VCA and the output stage.
+// biquad, the feedback delay, the all-pass cascade, the sample-and-hold --
+// plus a few small ones a voice needs that only existed in Python: an ADSR,
+// an LFO, white noise, a mixer with ramped gains, a VCA, a glide and the
+// output stage.
 //
 // Buffers carry signed 16-bit samples on the same wire the bridges use:
 // 16384 counts is 1.0 (vrack's +10 V), so audio at +-0.5 is a quarter of
@@ -44,6 +45,7 @@
 #include "shared/audiodsp_feedback_delay.h"
 #include "shared/audiodsp_ladder.h"
 #include "shared/audiodsp_oscillator.h"
+#include "shared/audiodsp_samplehold.h"
 
 //: The longest block a run renders. The kernels' own block ceiling.
 #define AUDIODSP_GRAPH_MAX_FRAMES 256u
@@ -77,7 +79,8 @@ typedef enum {
     // inputs: gate. params: attack s, decay s, sustain 0..1, release s.
     // out: 0..1 on the wire. vrack's EnvelopeCore, sample by sample.
     AUDIODSP_GRAPH_ENV,
-    // params: rate Hz, amplitude (counts). out: a triangle, +-amplitude.
+    // params: rate Hz, amplitude (counts), shape. out: +-amplitude, the
+    // shape one of AUDIODSP_GRAPH_LFO_TRIANGLE..RANDOM from one phase.
     AUDIODSP_GRAPH_LFO,
     // params: amplitude (counts). out: uniform white noise, +-amplitude.
     AUDIODSP_GRAPH_NOISE,
@@ -91,6 +94,23 @@ typedef enum {
     // inputs: left, right. params: scale. Writes the run's output buffer:
     // interleaved stereo, or the mean of the two when the run is mono.
     AUDIODSP_GRAPH_OUT,
+    // Added after OUT so the kinds above keep their numbers.
+    //
+    // inputs: audio. params: audiodsp_allpass_f32_option_t (frequency,
+    // feedback, mix). audiobiquad.AllPass on one channel: first-order
+    // all-pass stages with one feedback around the chain and a dry/wet mix.
+    // Built with `arg` = stages (0 takes AllPass's default of 4).
+    AUDIODSP_GRAPH_PHASER,
+    // inputs: note, pitch, legato. params: time s, mode, shape. A glide on a
+    // pitch CV: the note's first sample each block is the target, and the
+    // bend (pitch - note) rides on top unslid. vrack's dsp/glide.py
+    // GlideCore (the linear shape) or dsp/utility.py's (the one-pole shape).
+    AUDIODSP_GRAPH_LAG,
+    // inputs: signal, clock. params: lag coefficient, rate Hz. Holds the
+    // signal at each rising edge of the clock (vrack's SampleAndHoldCore);
+    // with the clock open and a rate set, audioshaper's sample-and-hold
+    // kernel refreshes it that many times a second instead.
+    AUDIODSP_GRAPH_SAMPLE_HOLD,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -104,6 +124,54 @@ enum {
 enum {
     AUDIODSP_GRAPH_LFO_RATE = 0,
     AUDIODSP_GRAPH_LFO_AMPLITUDE,
+    AUDIODSP_GRAPH_LFO_SHAPE,
+};
+
+// LFO shapes, all from one phase that starts at 0 and has advanced one step
+// by the first sample, so nodes of different shapes at one rate stay in step.
+enum {
+    // 1 - |4p - 2|: the bottom at p = 0, the top at p = 0.5.
+    AUDIODSP_GRAPH_LFO_TRIANGLE = 0,
+    // sin(2 pi p).
+    AUDIODSP_GRAPH_LFO_SINE,
+    // 1 - 2p, falling.
+    AUDIODSP_GRAPH_LFO_SAW,
+    // +1 for the first half of the cycle, -1 for the second.
+    AUDIODSP_GRAPH_LFO_SQUARE,
+    // A new uniform level at each rising edge of the square (the start of
+    // each cycle), held for the cycle.
+    AUDIODSP_GRAPH_LFO_RANDOM,
+    AUDIODSP_GRAPH_LFO_SHAPES,
+};
+
+enum {
+    AUDIODSP_GRAPH_LAG_TIME = 0,
+    AUDIODSP_GRAPH_LAG_MODE,
+    AUDIODSP_GRAPH_LAG_SHAPE,
+};
+
+// LAG modes, GlideCore's numbers: the linear shape only.
+enum {
+    AUDIODSP_GRAPH_LAG_OFF = 0,
+    AUDIODSP_GRAPH_LAG_ON,
+    // Glide only when the legato input is above 0.5 at the block's start.
+    AUDIODSP_GRAPH_LAG_AUTO,
+};
+
+// LAG shapes.
+enum {
+    // Constant time: a straight line to each new note taking `time` seconds.
+    AUDIODSP_GRAPH_LAG_LINEAR = 0,
+    // A one-pole approach, the coefficient exp(-1 / (time * rate * 0.35)).
+    AUDIODSP_GRAPH_LAG_ONE_POLE,
+};
+
+enum {
+    // The per-sample one-pole coefficient the output slews with toward the
+    // held value: 0 none, 0.999 very slow.
+    AUDIODSP_GRAPH_SH_LAG = 0,
+    // Refreshes a second when the clock input is open; 0 holds for ever.
+    AUDIODSP_GRAPH_SH_RATE,
 };
 
 enum {
