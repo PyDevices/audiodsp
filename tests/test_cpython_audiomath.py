@@ -8,6 +8,7 @@ errors and the source behaviours only a Python-defined audiosample produces.
 """
 
 import math
+import struct
 import unittest
 from array import array
 
@@ -185,6 +186,141 @@ class SurfaceTest(unittest.TestCase):
         render(third, 4)
         third.clear()
         self.assertNotEqual(list(render(third, 1)), before)
+
+
+def _f32(value):
+    return struct.unpack("f", struct.pack("f", value))[0]
+
+
+def reference_cast(value, scale, typecode):
+    """What cast_into is specified to do, in Python: the product at the
+    source's width, rounded half away from zero, clamped, NaN to 0.
+
+    A float32 product is exact in a double (24 + 24 bits), so rounding that
+    double to float32 once is the float32 multiply."""
+    if typecode == "f":
+        product = _f32(_f32(value) * _f32(scale))
+    else:
+        product = value * scale
+    if product != product:
+        return 0
+    if product >= 32767:
+        return 32767
+    if product <= -32768:
+        return -32768
+    whole = int(product)  # toward zero, exact in this range
+    frac = product - whole
+    if frac >= 0.5:
+        whole += 1
+    elif frac <= -0.5:
+        whole -= 1
+    return whole
+
+
+class CastIntoTest(unittest.TestCase):
+    """audiomath.cast_into: a float block into an int16 buffer the caller owns.
+
+    The same C on every target is held identical by tests/parity/cast_probe.py
+    through verify_dsp.py, which also checks that the native builds allocate
+    nothing. This is the specification: the rounding, the rails and NaN."""
+
+    def cast(self, values, scale=None, typecode="f"):
+        src = array(typecode, values)
+        dst = array("h", bytes(2 * len(src)))
+        if scale is None:
+            self.assertIsNone(audiomath.cast_into(dst, src))
+        else:
+            self.assertIsNone(audiomath.cast_into(dst, src, scale))
+        return list(dst)
+
+    def test_halves_round_away_from_zero(self):
+        # Not to even (2.5 -> 2) and not toward zero (1.5 -> 1).
+        for typecode in ("f", "d"):
+            self.assertEqual(
+                [1, 2, 3, -1, -2, -3, 0, 0],
+                self.cast([0.5, 1.5, 2.5, -0.5, -1.5, -2.5, 0.49999997,
+                           -0.49999997], 1.0, typecode))
+
+    def test_default_scale_is_32767(self):
+        self.assertEqual([32767, -32767, 16384, 0],
+                         self.cast([1.0, -1.0, 0.5, 0.0]))
+
+    def test_rails_saturate(self):
+        inf = float("inf")
+        for typecode in ("f", "d"):
+            self.assertEqual(
+                [32767, -32768, 32767, -32768, 32767, -32768],
+                self.cast([1.5, -1.5, 1e30, -1e30, inf, -inf], None,
+                          typecode))
+            # The vrack bridge's scale: 1.0 is 16384, so +-2 is the rail.
+            self.assertEqual(
+                [16384, -16384, 32767, -32768, 32767, -32768],
+                self.cast([1.0, -1.0, 2.0, -2.0, 3.0, -3.0], 16384.0,
+                          typecode))
+            self.assertEqual([32767, -32768, 32767, -32768],
+                             self.cast([32767.4, -32768.4, 32767.6,
+                                        -32768.6], 1.0, typecode))
+
+    def test_nan_is_zero(self):
+        for typecode in ("f", "d"):
+            self.assertEqual([0, 0], self.cast([float("nan"), -float("nan")],
+                                               16384.0, typecode))
+
+    def test_matches_the_specification_across_a_sweep(self):
+        values = [((i * 7919) % 44001 - 22000) / 10000.0 for i in range(4001)]
+        values += [k / 16384.0 + 0.5 / 16384.0 for k in range(-40, 40)]
+        for typecode in ("f", "d"):
+            for scale in (16384.0, 32767.0, 12345.678, 1.0):
+                self.assertEqual(
+                    [reference_cast(v, scale, typecode) for v in values],
+                    self.cast(values, scale, typecode),
+                    "%s at %r" % (typecode, scale))
+
+    def test_scale_is_a_keyword(self):
+        dst = array("h", [0, 0])
+        audiomath.cast_into(dst, array("f", [0.25, -0.25]), scale=4)
+        self.assertEqual([1, -1], list(dst))
+
+    def test_writes_into_the_bytes_of_int16_samples(self):
+        dst = bytearray(4)
+        audiomath.cast_into(dst, array("d", [1.0, -1.0]), 100.0)
+        self.assertEqual(bytes(array("h", [100, -100])), bytes(dst))
+
+    def test_length_mismatch_raises(self):
+        for length in (2, 4, 0):
+            with self.assertRaises(ValueError):
+                audiomath.cast_into(array("h", [0] * length),
+                                    array("f", [0.0] * 3))
+        with self.assertRaises(ValueError):
+            audiomath.cast_into(bytearray(5), array("f", [0.0] * 3))
+
+    def test_wrong_types_raise(self):
+        with self.assertRaises(TypeError):
+            audiomath.cast_into(array("h", [0] * 3), array("h", [0] * 3))
+        with self.assertRaises(TypeError):
+            audiomath.cast_into(array("f", [0.0] * 3), array("f", [0.0] * 3))
+        # Read-only: CPython says BufferError, MicroPython TypeError.
+        with self.assertRaises((TypeError, BufferError)):
+            audiomath.cast_into(bytes(6), array("f", [0.0] * 3))
+
+    def test_numpy_arrays(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("numpy is not installed")
+        src = np.linspace(-2.5, 2.5, 1001, dtype=np.float32)
+        dst = np.zeros(1001, dtype=np.int16)
+        audiomath.cast_into(dst, src, 16384.0)
+        self.assertEqual([reference_cast(float(v), 16384.0, "f") for v in src],
+                         dst.tolist())
+        wide = src.astype(np.float64)
+        audiomath.cast_into(dst, wide, 16384.0)
+        self.assertEqual(
+            [reference_cast(float(v), 16384.0, "d") for v in wide],
+            dst.tolist())
+        # A strided view has no contiguous buffer to write through.
+        with self.assertRaises((TypeError, ValueError, BufferError)):
+            audiomath.cast_into(np.zeros(2002, dtype=np.int16)[::2], src)
 
 
 if __name__ == "__main__":

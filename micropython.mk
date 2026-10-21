@@ -83,6 +83,7 @@ SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_dynamics.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_splitter.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_midside.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_remix.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_cast.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_multiply.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_suboctave.c
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_feedback_delay.c

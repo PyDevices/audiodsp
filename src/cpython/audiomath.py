@@ -35,6 +35,10 @@ when the producer is stereo and the wire is mono (or the reverse): interleaved
 native-endian s16, 1↔2, optional writable destination so a caller can reuse
 scratch. `audiomixer.Mixer` cannot do this — its sources must already match
 `channel_count`.
+
+`cast_into` is not a node either. It turns a float block into the int16
+buffer a `RawSample` plays, in place, so a host that keeps its blocks in
+float (numpy, ulab) can feed a node every block without a temporary.
 """
 
 from audiocore import (
@@ -61,6 +65,20 @@ def remix_s16(source, src_channels, dst_channels, dest=None):
     """
     return _audiodsp.remix_s16(source, int(src_channels), int(dst_channels),
                               dest)
+
+
+def cast_into(dst, src, scale=32767.0):
+    """Write ``src * scale`` into ``dst`` as int16, allocating nothing.
+
+    ``src`` is float32 or float64 (a numpy array, an ``array('f')`` or
+    ``array('d')``, anything with that buffer); ``dst`` is int16, or the bytes
+    of int16 samples, as many as ``src`` has. Each sample is rounded half away
+    from zero and clamped to -32768..32767, and NaN becomes 0. The product is
+    taken at the source's width, so it is the number ``src * scale`` would
+    have made.
+    """
+    _audiodsp.cast_into(dst, src, float(scale))
+
 
 #: Option name -> the native configure() slot, in the order
 #: shared/audiodsp_suboctave.h declares them, which is the order the
@@ -283,4 +301,4 @@ class SubOctave(_AudioSample):
         return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
-__all__ = ("Multiply", "SubOctave")
+__all__ = ("Multiply", "SubOctave", "cast_into")

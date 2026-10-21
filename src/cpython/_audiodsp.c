@@ -20,6 +20,7 @@
 #include "shared/audiodsp_dynamics.h"
 #include "shared/audiodsp_splitter.h"
 #include "shared/audiodsp_midside.h"
+#include "shared/audiodsp_cast.h"
 #include "shared/audiodsp_remix.h"
 #include "shared/audiodsp_multiply.h"
 #include "shared/audiodsp_suboctave.h"
@@ -3765,6 +3766,88 @@ static PyObject *audiodsp_py_remix_s16(PyObject *module, PyObject *args) {
     return dest_obj;
 }
 
+// A buffer's struct format names one native item: "h", or "@h", "=h", and on a
+// little-endian host "<h" (numpy and memoryview spell the same thing several
+// ways). Returns the item's code, or 0 for anything else.
+static char audiodsp_native_format(const char *format) {
+    if (format == NULL) {
+        return 'B';
+    }
+    if (format[0] == '@' || format[0] == '=') {
+        format++;
+    }
+    #if PY_LITTLE_ENDIAN
+    else if (format[0] == '<') {
+        format++;
+    }
+    #else
+    else if (format[0] == '>' || format[0] == '!') {
+        format++;
+    }
+    #endif
+    if (format[0] == 0 || format[1] != 0) {
+        return 0;
+    }
+    return format[0];
+}
+
+// cast_into(dst, src, scale): shared/audiodsp_cast.h into a buffer the caller
+// owns. audiomath.cast_into gives scale its default.
+static PyObject *audiodsp_py_cast_into(PyObject *module, PyObject *args) {
+    PyObject *dst_obj;
+    PyObject *src_obj;
+    double scale;
+    if (!PyArg_ParseTuple(args, "OOd:cast_into", &dst_obj, &src_obj,
+        &scale)) {
+        return NULL;
+    }
+    Py_buffer dst = {0};
+    if (PyObject_GetBuffer(dst_obj, &dst,
+        PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS | PyBUF_FORMAT) < 0) {
+        return NULL;
+    }
+    char dst_code = audiodsp_native_format(dst.format);
+    if (dst_code != 'h' && dst_code != 'b' && dst_code != 'B'
+        && dst_code != 'c') {
+        PyBuffer_Release(&dst);
+        PyErr_SetString(PyExc_TypeError, "dst must be int16");
+        return NULL;
+    }
+    Py_buffer src = {0};
+    if (PyObject_GetBuffer(src_obj, &src,
+        PyBUF_C_CONTIGUOUS | PyBUF_FORMAT) < 0) {
+        PyBuffer_Release(&dst);
+        return NULL;
+    }
+    char src_code = audiodsp_native_format(src.format);
+    Py_ssize_t width = src_code == 'f' ? (Py_ssize_t)sizeof(float)
+        : src_code == 'd' ? (Py_ssize_t)sizeof(double) : 0;
+    if (width == 0) {
+        PyBuffer_Release(&dst);
+        PyBuffer_Release(&src);
+        PyErr_SetString(PyExc_TypeError, "src must be float32 or float64");
+        return NULL;
+    }
+    Py_ssize_t count = src.len / width;
+    if (dst.len != count * (Py_ssize_t)sizeof(int16_t)) {
+        PyBuffer_Release(&dst);
+        PyBuffer_Release(&src);
+        PyErr_SetString(PyExc_ValueError,
+            "dst and src must have the same length");
+        return NULL;
+    }
+    if (width == (Py_ssize_t)sizeof(float)) {
+        audiodsp_cast_s16_f32((int16_t *)dst.buf, (const float *)src.buf,
+            (size_t)count, (float)scale);
+    } else {
+        audiodsp_cast_s16_f64((int16_t *)dst.buf, (const double *)src.buf,
+            (size_t)count, scale);
+    }
+    PyBuffer_Release(&dst);
+    PyBuffer_Release(&src);
+    Py_RETURN_NONE;
+}
+
 // audiomath.SubOctave's divider. Unlike multiply_s16() above -- which is a
 // plain function, because the multiply carries no state at all -- the divider
 // is nothing but state: the count has to survive from one block to the next,
@@ -4494,6 +4577,7 @@ static PyMethodDef audiodsp_methods[] = {
     {"midside_s16", audiodsp_midside_s16, METH_VARARGS, NULL},
     {"meter_db_byte", audiodsp_meter_db_byte_py, METH_VARARGS, NULL},
     {"remix_s16", audiodsp_py_remix_s16, METH_VARARGS, PyDoc_STR("Interleaved s16 native-endian channel convert between 1 and 2 channels. Optional writable dest.")},
+    {"cast_into", audiodsp_py_cast_into, METH_VARARGS, PyDoc_STR("cast_into(dst, src, scale): float32 or float64 src * scale into int16 dst, rounded half away from zero and saturated. Allocates nothing.")},
     {NULL, NULL, 0, NULL},
 };
 

@@ -96,6 +96,7 @@ PROBES = (
     ("midside_probe.py", "audioroute", {}, None),
     ("multiply_probe.py", "audiomath", {}, None),
     ("suboctave_probe.py", "audiomath", {}, None),
+    ("cast_probe.py", "audiomath", {}, None),
     ("feedback_delay_probe.py", "audioecho", {}, None),
     ("feedback_delay_options_probe.py", "audioecho", {}, None),
     # The node's own state: the damping floor (#157), then the filters out

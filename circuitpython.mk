@@ -42,6 +42,7 @@ AUDIODSP_CP_SOURCES += $(addprefix $(AUDIODSP_CP_SRC)/shared/, \
 	audiodsp_dynamics.c \
 	audiodsp_splitter.c \
 	audiodsp_midside.c \
+	audiodsp_cast.c \
 	audiodsp_multiply.c \
 	audiodsp_suboctave.c \
 	audiodsp_feedback_delay.c \

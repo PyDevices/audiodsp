@@ -47,6 +47,7 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_splitter.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_midside.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_remix.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_cast.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_multiply.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_suboctave.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_feedback_delay.c

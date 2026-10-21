@@ -54,6 +54,7 @@ setup(
                 "src/shared/audiodsp_splitter.c",
                 "src/shared/audiodsp_midside.c",
                 "src/shared/audiodsp_remix.c",
+                "src/shared/audiodsp_cast.c",
                 "src/shared/audiodsp_multiply.c",
                 "src/shared/audiodsp_suboctave.c",
                 "src/shared/audiodsp_feedback_delay.c",
