@@ -1,3 +1,7 @@
+## v0.6.9.dev2 (2026-10-21)
+
+- audiomath.cast_into: a float block into an int16 buffer, allocating nothing
+
 ## v0.6.9.dev1 (2026-10-21)
 
 - deinit probe: call Ladder.modulate with the cutoff input it takes
