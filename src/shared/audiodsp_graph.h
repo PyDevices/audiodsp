@@ -3,7 +3,9 @@
 // New code -- not a CircuitPython port. A polyphonic patch built from the
 // kernels in this directory runs in real time on an ESP32-P4 once the
 // per-node Python between them is gone: this is the C that runs between
-// them instead. The binding is src/audiograph/ (MicroPython).
+// them instead. The bindings are src/audiograph/ (MicroPython),
+// src/circuitpython_spike/shared-bindings/audiograph/ (CircuitPython) and the
+// Graph type in src/cpython/_audiodsp.c (CPython).
 //
 // The runner owns the block buffers. A graph is a list of nodes in the
 // order they run; each node names the buffers it reads and the buffer it

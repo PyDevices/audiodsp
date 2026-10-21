@@ -36,6 +36,7 @@
 #include "shared/audiodsp_meter.h"
 #include "shared/audiodsp_filter_f32.h"
 #include "shared/audiodsp_vorbis.h"
+#include "shared/audiodsp_graph.h"
 
 // setup.py defines this from the VERSION file; the fallback is only for
 // someone compiling this source by hand.
@@ -130,6 +131,7 @@ typedef struct {
     PyObject *tank_state_type;
     PyObject *modal_state_type;
     PyObject *sampler_state_type;
+    PyObject *graph_type;
 } audiodsp_state_t;
 
 typedef struct {
@@ -3400,6 +3402,530 @@ static PyType_Spec meter_state_spec = {
     .slots = meter_state_slots,
 };
 
+// --- Graph: audiograph's runner (shared/audiodsp_graph.c) ------------------
+//
+// The same calls as the MicroPython binding (src/audiograph/Graph.c), with
+// the same arguments and the same refusals, so a graph built on the desktop
+// is the graph a board runs. audiograph.py re-exports the type as is: there
+// is nothing for Python to add between a caller and the runner.
+
+typedef struct {
+    PyObject_HEAD
+    audiodsp_graph_t graph;
+    uint32_t next_buffer;
+    // Memoryviews of the wow tables the delay nodes borrow, kept alive (and
+    // their arrays kept from resizing) for as long as the graph is.
+    PyObject *keep;
+} audiodsp_graph_object_t;
+
+static int graph_state_init(audiodsp_graph_object_t *self, PyObject *args,
+    PyObject *kwargs) {
+    static char *keywords[] = {"sample_rate", "frames", "channel_count",
+        "buffers", "nodes", NULL};
+    long sample_rate = 48000, frames = 128, channels = 2, buffers = 64,
+        nodes = 64;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$lllll:Graph", keywords,
+            &sample_rate, &frames, &channels, &buffers, &nodes)) {
+        return -1;
+    }
+    if (self->graph.nodes != NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "Graph is already initialised");
+        return -1;
+    }
+    if (frames < 1 || frames > (long)AUDIODSP_GRAPH_MAX_FRAMES) {
+        PyErr_SetString(PyExc_ValueError, "frames must be from 1 to 256");
+        return -1;
+    }
+    if (channels < 1 || channels > 2) {
+        PyErr_SetString(PyExc_ValueError, "channel_count must be 1 or 2");
+        return -1;
+    }
+    if (buffers < 1 || buffers > 4096 || nodes < 1 || nodes > 4096) {
+        PyErr_SetString(PyExc_ValueError,
+            "buffers and nodes must be from 1 to 4096");
+        return -1;
+    }
+    if (sample_rate < 1 || sample_rate > 0x7FFFFFFFL) {
+        PyErr_SetString(PyExc_ValueError, "sample_rate must be at least 1");
+        return -1;
+    }
+    int16_t *bufs = PyMem_Calloc((size_t)buffers * (size_t)frames,
+        sizeof(int16_t));
+    audiodsp_graph_node_t *table = PyMem_Calloc((size_t)nodes,
+        sizeof(audiodsp_graph_node_t));
+    PyObject *keep = PyList_New(0);
+    if (bufs == NULL || table == NULL || keep == NULL) {
+        PyMem_Free(bufs);
+        PyMem_Free(table);
+        Py_XDECREF(keep);
+        if (!PyErr_Occurred()) {
+            PyErr_NoMemory();
+        }
+        return -1;
+    }
+    audiodsp_graph_init(&self->graph, (uint32_t)sample_rate, (uint32_t)frames,
+        (uint32_t)channels, bufs, (uint32_t)buffers, table, (uint32_t)nodes);
+    self->next_buffer = 0;
+    self->keep = keep;
+    return 0;
+}
+
+static void graph_state_dealloc(audiodsp_graph_object_t *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    if (self->graph.nodes != NULL) {
+        for (uint32_t i = 0; i < self->graph.nnodes; ++i) {
+            PyMem_Free(self->graph.nodes[i].data);
+        }
+    }
+    PyMem_Free(self->graph.nodes);
+    PyMem_Free(self->graph.bufs);
+    self->graph.nodes = NULL;
+    self->graph.bufs = NULL;
+    Py_CLEAR(self->keep);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
+static bool graph_live(audiodsp_graph_object_t *self) {
+    if (self->graph.nodes == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "Graph.__init__ was not called");
+        return false;
+    }
+    return true;
+}
+
+// buffer(): a fresh block buffer's id.
+static PyObject *graph_state_buffer(audiodsp_graph_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    if (self->next_buffer >= self->graph.nbufs) {
+        PyErr_SetString(PyExc_ValueError, "no buffers left");
+        return NULL;
+    }
+    return PyLong_FromUnsignedLong(self->next_buffer++);
+}
+
+// A buffer id, or AUDIODSP_GRAPH_NONE for None. False with an exception set.
+static bool graph_buffer_id(PyObject *obj, int16_t *id) {
+    if (obj == Py_None) {
+        *id = AUDIODSP_GRAPH_NONE;
+        return true;
+    }
+    long v = PyLong_AsLong(obj);
+    if (v == -1 && PyErr_Occurred()) {
+        return false;
+    }
+    if (v < 0 || v > 32767) {
+        PyErr_SetString(PyExc_ValueError, "bad buffer id");
+        return false;
+    }
+    *id = (int16_t)v;
+    return true;
+}
+
+// add(kind, group, inputs, output, arg=0.0): the node's index.
+static PyObject *graph_state_add(audiodsp_graph_object_t *self,
+    PyObject *args) {
+    long kind, group;
+    PyObject *inputs_obj, *output_obj;
+    double arg = 0.0;
+    if (!PyArg_ParseTuple(args, "llOO|d:add", &kind, &group, &inputs_obj,
+            &output_obj, &arg)) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    if (kind < 0 || kind >= (long)AUDIODSP_GRAPH_KINDS) {
+        PyErr_SetString(PyExc_ValueError, "unknown node kind");
+        return NULL;
+    }
+    if (group < 0 || (group > 31 && group != (long)AUDIODSP_GRAPH_ALWAYS)) {
+        PyErr_SetString(PyExc_ValueError, "group must be 0..31 or ALWAYS");
+        return NULL;
+    }
+    PyObject *seq = PySequence_Fast(inputs_obj, "inputs must be a sequence");
+    if (seq == NULL) {
+        return NULL;
+    }
+    Py_ssize_t len = PySequence_Fast_GET_SIZE(seq);
+    if (len > (Py_ssize_t)AUDIODSP_GRAPH_MAX_INPUTS) {
+        Py_DECREF(seq);
+        PyErr_SetString(PyExc_ValueError, "too many inputs");
+        return NULL;
+    }
+    int16_t inputs[AUDIODSP_GRAPH_MAX_INPUTS];
+    for (Py_ssize_t i = 0; i < len; ++i) {
+        if (!graph_buffer_id(PySequence_Fast_GET_ITEM(seq, i), &inputs[i])) {
+            Py_DECREF(seq);
+            return NULL;
+        }
+    }
+    Py_DECREF(seq);
+    int16_t output;
+    if (!graph_buffer_id(output_obj, &output)) {
+        return NULL;
+    }
+    size_t size = audiodsp_graph_node_data_size((audiodsp_graph_kind_t)kind,
+        self->graph.sample_rate, (float)arg);
+    void *data = NULL;
+    if (size) {
+        data = PyMem_Calloc(1, size);
+        if (data == NULL) {
+            return PyErr_NoMemory();
+        }
+    }
+    int index = audiodsp_graph_add(&self->graph, (audiodsp_graph_kind_t)kind,
+        (uint32_t)group, inputs, (uint32_t)len, output, data, (float)arg);
+    if (index < 0) {
+        PyMem_Free(data);
+        PyErr_SetString(PyExc_ValueError, "graph is full, a buffer id is out "
+            "of range, or the node has no output");
+        return NULL;
+    }
+    return PyLong_FromLong(index);
+}
+
+static PyObject *graph_state_set(audiodsp_graph_object_t *self,
+    PyObject *args) {
+    long node, index;
+    double value;
+    if (!PyArg_ParseTuple(args, "lld:set", &node, &index, &value)) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    if (!audiodsp_graph_set(&self->graph, (uint32_t)node, (uint32_t)index,
+            (float)value)) {
+        PyErr_SetString(PyExc_ValueError, "bad node or parameter index");
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *graph_state_get(audiodsp_graph_object_t *self,
+    PyObject *args) {
+    long node, index;
+    if (!PyArg_ParseTuple(args, "ll:get", &node, &index)) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    float value = 0.0f;
+    if (!audiodsp_graph_get(&self->graph, (uint32_t)node, (uint32_t)index,
+            &value)) {
+        PyErr_SetString(PyExc_ValueError, "bad node or parameter index");
+        return NULL;
+    }
+    return PyFloat_FromDouble((double)value);
+}
+
+// table(node, int16_array): a feedback delay's wow shape, borrowed.
+static PyObject *graph_state_table(audiodsp_graph_object_t *self,
+    PyObject *args) {
+    long node;
+    PyObject *table;
+    if (!PyArg_ParseTuple(args, "lO:table", &node, &table)) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    // A memoryview holds the export, so the array cannot be resized under
+    // the delay while the graph keeps it.
+    PyObject *view = PyMemoryView_FromObject(table);
+    if (view == NULL) {
+        return NULL;
+    }
+    Py_buffer *info = PyMemoryView_GET_BUFFER(view);
+    const char *format = info->format ? info->format : "B";
+    if (strcmp(format, "h") != 0 || info->itemsize != 2 ||
+        !PyBuffer_IsContiguous(info, 'C')) {
+        Py_DECREF(view);
+        PyErr_SetString(PyExc_TypeError, "table must be an int16 array");
+        return NULL;
+    }
+    if (!audiodsp_graph_set_table(&self->graph, (uint32_t)node,
+            (const int16_t *)info->buf, (uint32_t)(info->len / 2))) {
+        Py_DECREF(view);
+        PyErr_SetString(PyExc_ValueError,
+            "not a delay node, or a bad table length");
+        return NULL;
+    }
+    int failed = PyList_Append(self->keep, view);
+    Py_DECREF(view);
+    if (failed) {
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *graph_state_reset(audiodsp_graph_object_t *self,
+    PyObject *arg) {
+    long node = PyLong_AsLong(arg);
+    if (node == -1 && PyErr_Occurred()) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    if (!audiodsp_graph_reset(&self->graph, (uint32_t)node)) {
+        PyErr_SetString(PyExc_ValueError, "bad node");
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+// run(out=None, block=0, enable=0xFFFFFFFF): renders one block into `out`
+// at block `block` (frames * channel_count samples each), and returns the
+// mask of groups whose envelopes are still sounding.
+static PyObject *graph_state_run(audiodsp_graph_object_t *self,
+    PyObject *args) {
+    PyObject *out_obj = Py_None, *enable_obj = NULL;
+    long block = 0;
+    if (!PyArg_ParseTuple(args, "|OlO:run", &out_obj, &block, &enable_obj)) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    uint32_t enable = 0xFFFFFFFFu;
+    if (enable_obj != NULL) {
+        // Truncated to 32 bits, as the MicroPython binding takes it.
+        unsigned long mask = PyLong_AsUnsignedLongMask(enable_obj);
+        if (mask == (unsigned long)-1 && PyErr_Occurred()) {
+            return NULL;
+        }
+        enable = (uint32_t)mask;
+    }
+    Py_buffer view = {0};
+    int16_t *out = NULL;
+    if (out_obj != Py_None) {
+        if (PyObject_GetBuffer(out_obj, &view, PyBUF_WRITABLE) < 0) {
+            return NULL;
+        }
+        size_t block_bytes = (size_t)self->graph.frames *
+            self->graph.channel_count * 2u;
+        if (block < 0 || (size_t)(block + 1) * block_bytes > (size_t)view.len) {
+            PyBuffer_Release(&view);
+            PyErr_SetString(PyExc_ValueError, "out is too small for that block");
+            return NULL;
+        }
+        out = (int16_t *)(void *)((uint8_t *)view.buf +
+            (size_t)block * block_bytes);
+    }
+    uint32_t sounding = audiodsp_graph_run(&self->graph, out, enable);
+    if (out != NULL) {
+        PyBuffer_Release(&view);
+    }
+    return PyLong_FromUnsignedLong(sounding);
+}
+
+static PyObject *graph_state_peak(audiodsp_graph_object_t *self,
+    PyObject *arg) {
+    long id = PyLong_AsLong(arg);
+    if (id == -1 && PyErr_Occurred()) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    int32_t peak = audiodsp_graph_peak(&self->graph, (uint32_t)id);
+    if (id < 0 || peak < 0) {
+        PyErr_SetString(PyExc_ValueError, "bad buffer id");
+        return NULL;
+    }
+    return PyLong_FromLong(peak);
+}
+
+static int16_t *graph_block_of(audiodsp_graph_object_t *self, long id) {
+    if (id < 0 || (uint32_t)id >= self->graph.nbufs) {
+        PyErr_SetString(PyExc_ValueError, "bad buffer id");
+        return NULL;
+    }
+    return self->graph.bufs + (size_t)id * self->graph.frames;
+}
+
+// read(buffer, dst): copy a block out into an int16 buffer of `frames`.
+static PyObject *graph_state_read(audiodsp_graph_object_t *self,
+    PyObject *args) {
+    long id;
+    Py_buffer dst;
+    if (!PyArg_ParseTuple(args, "lw*:read", &id, &dst)) {
+        return NULL;
+    }
+    const int16_t *src = graph_live(self) ? graph_block_of(self, id) : NULL;
+    if (src == NULL) {
+        PyBuffer_Release(&dst);
+        return NULL;
+    }
+    if ((size_t)dst.len != (size_t)self->graph.frames * 2u) {
+        PyBuffer_Release(&dst);
+        PyErr_SetString(PyExc_ValueError, "dst must hold one block of int16");
+        return NULL;
+    }
+    memcpy(dst.buf, src, (size_t)dst.len);
+    PyBuffer_Release(&dst);
+    Py_RETURN_NONE;
+}
+
+// write(buffer, src): fill a block from an int16 buffer of `frames`.
+static PyObject *graph_state_write(audiodsp_graph_object_t *self,
+    PyObject *args) {
+    long id;
+    Py_buffer src;
+    if (!PyArg_ParseTuple(args, "ly*:write", &id, &src)) {
+        return NULL;
+    }
+    int16_t *dst = graph_live(self) ? graph_block_of(self, id) : NULL;
+    if (dst == NULL) {
+        PyBuffer_Release(&src);
+        return NULL;
+    }
+    if ((size_t)src.len != (size_t)self->graph.frames * 2u) {
+        PyBuffer_Release(&src);
+        PyErr_SetString(PyExc_ValueError, "src must hold one block of int16");
+        return NULL;
+    }
+    memcpy(dst, src.buf, (size_t)src.len);
+    PyBuffer_Release(&src);
+    Py_RETURN_NONE;
+}
+
+AUDIODSP_LOCKED_ARGS(graph_state_buffer, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_add, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_set, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_get, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_table, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_reset, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_run, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_peak, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_read, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_write, audiodsp_graph_object_t)
+static PyMethodDef graph_state_methods[] = {
+    {"buffer", (PyCFunction)graph_state_buffer_locked, METH_NOARGS,
+     PyDoc_STR("buffer(): a fresh block buffer's id.")},
+    {"add", (PyCFunction)graph_state_add_locked, METH_VARARGS,
+     PyDoc_STR("add(kind, group, inputs, output, arg=0.0): append a node; returns its index.")},
+    {"set", (PyCFunction)graph_state_set_locked, METH_VARARGS,
+     PyDoc_STR("set(node, index, value): store a parameter.")},
+    {"get", (PyCFunction)graph_state_get_locked, METH_VARARGS,
+     PyDoc_STR("get(node, index): read a parameter back.")},
+    {"table", (PyCFunction)graph_state_table_locked, METH_VARARGS,
+     PyDoc_STR("table(node, int16_array): a feedback delay's wow shape, borrowed.")},
+    {"reset", (PyCFunction)graph_state_reset_locked, METH_O,
+     PyDoc_STR("reset(node): clear a node's running state.")},
+    {"run", (PyCFunction)graph_state_run_locked, METH_VARARGS,
+     PyDoc_STR("run(out=None, block=0, enable=0xFFFFFFFF): render one block; returns the sounding groups.")},
+    {"peak", (PyCFunction)graph_state_peak_locked, METH_O,
+     PyDoc_STR("peak(buffer): a block's peak.")},
+    {"read", (PyCFunction)graph_state_read_locked, METH_VARARGS,
+     PyDoc_STR("read(buffer, dst): copy a block out.")},
+    {"write", (PyCFunction)graph_state_write_locked, METH_VARARGS,
+     PyDoc_STR("write(buffer, src): fill a block.")},
+    {NULL, NULL, 0, NULL},
+};
+
+AUDIODSP_LOCKED_INIT(graph_state_init, audiodsp_graph_object_t)
+static PyType_Slot graph_state_slots[] = {
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, graph_state_init_locked},
+    {Py_tp_dealloc, graph_state_dealloc},
+    {Py_tp_methods, graph_state_methods},
+    {Py_tp_doc, (void *)PyDoc_STR("Graph(*, sample_rate=48000, frames=128, "
+        "channel_count=2, buffers=64, nodes=64): a whole patch rendered by "
+        "one C call per block. See docs/audiograph.md.")},
+    {0, NULL},
+};
+
+static PyType_Spec graph_state_spec = {
+    // audiograph.py re-exports this type as audiograph.Graph.
+    .name = "audiograph.Graph",
+    .basicsize = sizeof(audiodsp_graph_object_t),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = graph_state_slots,
+};
+
+// The node kinds and parameter numbers audiograph exports, by name, from
+// the same enums the MicroPython module table reads.
+static int graph_add_constants(PyObject *module) {
+    static const struct {
+        const char *name;
+        long value;
+    } constants[] = {
+        {"CONST", AUDIODSP_GRAPH_CONST},
+        {"OSC", AUDIODSP_GRAPH_OSC},
+        {"LADDER", AUDIODSP_GRAPH_LADDER},
+        {"BIQUAD", AUDIODSP_GRAPH_BIQUAD},
+        {"FBDELAY", AUDIODSP_GRAPH_FBDELAY},
+        {"ENV", AUDIODSP_GRAPH_ENV},
+        {"LFO", AUDIODSP_GRAPH_LFO},
+        {"NOISE", AUDIODSP_GRAPH_NOISE},
+        {"MIX", AUDIODSP_GRAPH_MIX},
+        {"VCA", AUDIODSP_GRAPH_VCA},
+        {"OUT", AUDIODSP_GRAPH_OUT},
+        {"ALWAYS", AUDIODSP_GRAPH_ALWAYS},
+        {"UNIT", 16384},
+        {"ENV_ATTACK", AUDIODSP_GRAPH_ENV_ATTACK},
+        {"ENV_DECAY", AUDIODSP_GRAPH_ENV_DECAY},
+        {"ENV_SUSTAIN", AUDIODSP_GRAPH_ENV_SUSTAIN},
+        {"ENV_RELEASE", AUDIODSP_GRAPH_ENV_RELEASE},
+        {"LFO_RATE", AUDIODSP_GRAPH_LFO_RATE},
+        {"LFO_AMPLITUDE", AUDIODSP_GRAPH_LFO_AMPLITUDE},
+        {"MIX_OFFSET", AUDIODSP_GRAPH_MIX_OFFSET},
+        {"VCA_GAIN", AUDIODSP_GRAPH_VCA_GAIN},
+        {"VCA_SELECT", AUDIODSP_GRAPH_VCA_SELECT},
+        {"OSC_FREQUENCY", AUDIODSP_OSCILLATOR_OPT_FREQUENCY},
+        {"OSC_WAVEFORM", AUDIODSP_OSCILLATOR_OPT_WAVEFORM},
+        {"OSC_PULSE_WIDTH", AUDIODSP_OSCILLATOR_OPT_PULSE_WIDTH},
+        {"OSC_LEVEL", AUDIODSP_OSCILLATOR_OPT_LEVEL},
+        {"OSC_PITCH_OCTAVES", AUDIODSP_OSCILLATOR_OPT_PITCH_OCTAVES},
+        {"OSC_FM_DEPTH", AUDIODSP_OSCILLATOR_OPT_FM_DEPTH},
+        {"OSC_PWM_DEPTH", AUDIODSP_OSCILLATOR_OPT_PWM_DEPTH},
+        {"LADDER_CUTOFF_HZ", AUDIODSP_LADDER_OPT_CUTOFF_HZ},
+        {"LADDER_RESONANCE", AUDIODSP_LADDER_OPT_RESONANCE},
+        {"LADDER_DRIVE", AUDIODSP_LADDER_OPT_DRIVE},
+        {"LADDER_POLES", AUDIODSP_LADDER_OPT_POLES},
+        {"LADDER_PASSBAND_COMP", AUDIODSP_LADDER_OPT_PASSBAND_COMP},
+        {"LADDER_OVERSAMPLE", AUDIODSP_LADDER_OPT_OVERSAMPLE},
+        {"LADDER_MIX", AUDIODSP_LADDER_OPT_MIX},
+        {"LADDER_CUTOFF_OCTAVES", AUDIODSP_LADDER_OPT_CUTOFF_OCTAVES},
+        {"BIQUAD_MODE", AUDIODSP_BIQUAD_F32_OPT_MODE},
+        {"BIQUAD_FREQUENCY", AUDIODSP_BIQUAD_F32_OPT_FREQUENCY},
+        {"BIQUAD_Q", AUDIODSP_BIQUAD_F32_OPT_Q},
+        {"BIQUAD_GAIN_DB", AUDIODSP_BIQUAD_F32_OPT_GAIN_DB},
+        {"BIQUAD_MIX", AUDIODSP_BIQUAD_F32_OPT_MIX},
+        {"DELAY_MS", AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_MS},
+        {"DELAY_FEEDBACK", AUDIODSP_FEEDBACK_DELAY_OPT_FEEDBACK},
+        {"DELAY_MIX", AUDIODSP_FEEDBACK_DELAY_OPT_MIX},
+        {"DELAY_DAMPING_HZ", AUDIODSP_FEEDBACK_DELAY_OPT_DAMPING_HZ},
+        {"DELAY_WOW_HZ", AUDIODSP_FEEDBACK_DELAY_OPT_WOW_HZ},
+        {"DELAY_WOW_DEPTH_MS", AUDIODSP_FEEDBACK_DELAY_OPT_WOW_DEPTH_MS},
+    };
+    PyObject *table = PyDict_New();
+    if (table == NULL) {
+        return -1;
+    }
+    for (size_t i = 0; i < sizeof(constants) / sizeof(constants[0]); ++i) {
+        PyObject *value = PyLong_FromLong(constants[i].value);
+        if (value == NULL ||
+            PyDict_SetItemString(table, constants[i].name, value) < 0) {
+            Py_XDECREF(value);
+            Py_DECREF(table);
+            return -1;
+        }
+        Py_DECREF(value);
+    }
+    int result = PyModule_AddObjectRef(module, "GRAPH_CONSTANTS", table);
+    Py_DECREF(table);
+    return result;
+}
+
 // --- VorbisStream: audiovorbis's decoder (shared/audiodsp_vorbis.c) --------
 //
 // The decoder reads the Python file object through three callbacks. A read
@@ -4742,6 +5268,11 @@ static int audiodsp_exec(PyObject *module) {
         AUDIODSP_TANK_LINES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "TANK_MAX_TAPS",
         AUDIODSP_TANK_MAX_TAPS) < 0) return -1;
+    state->graph_type = PyType_FromModuleAndSpec(module,
+        &graph_state_spec, NULL);
+    if (state->graph_type == NULL) return -1;
+    if (PyModule_AddObjectRef(module, "Graph", state->graph_type) < 0) return -1;
+    if (graph_add_constants(module) < 0) return -1;
     if (PyModule_AddStringConstant(module, "__version__",
     AUDIODSP_VERSION) < 0) return -1;
     // The commit this was built from, so the CPython target answers the same
@@ -4776,6 +5307,7 @@ static int audiodsp_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->tank_state_type);
     Py_VISIT(state->modal_state_type);
     Py_VISIT(state->sampler_state_type);
+    Py_VISIT(state->graph_type);
     return 0;
 }
 
@@ -4802,6 +5334,7 @@ static int audiodsp_clear(PyObject *module) {
     Py_CLEAR(state->tank_state_type);
     Py_CLEAR(state->modal_state_type);
     Py_CLEAR(state->sampler_state_type);
+    Py_CLEAR(state->graph_type);
     return 0;
 }
 

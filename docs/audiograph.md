@@ -8,8 +8,10 @@ ones a voice needs (an envelope, an LFO, noise, a mixer, a VCA), then call
 lets a six-voice polysynth built from these kernels play in real time on an
 ESP32-P4, where the same patch run node by node from Python could not.
 
-It is MicroPython only for now; the CPython and CircuitPython bindings are
-on the [roadmap](../ROADMAP.md).
+It is the same module on CPython (in the `pydevices-audiodsp` wheel),
+MicroPython and CircuitPython, and the same C underneath, so a graph renders
+the same samples on all three: you can build and listen to a patch on the
+desktop and get the board's render, sample for sample.
 
 ```python
 import audiograph as ag
@@ -115,3 +117,13 @@ sounds and a masked group goes silent at the mixer), to the mixer's gain
 ramp and to the output node. Each planted fault, a mixer added before the
 node it reads, a filter left out of the chain, a cutoff sent to a node no
 output reads, makes it fail; CI runs the faults first.
+
+`tests/parity/verify_graph.py` renders one patch with every node kind in it
+(two voices with their groups parking, a fed buffer, moved gains and
+cutoffs, a delay reset mid-tail, a mono graph) on CPython and on each
+interpreter you name, and compares every output sample. The tolerance is 0
+counts: the three compile the same C and are handed the same floats, so any
+difference is a defect rather than rounding. Its two planted faults, one
+input sample one count off and one `set()` a block late, each make it fail.
+CI runs it against MicroPython in both float widths; the three-way with the
+CircuitPython unix build is a local run.

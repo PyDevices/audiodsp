@@ -1,7 +1,8 @@
 // audiograph.Graph -- MicroPython binding over shared/audiodsp_graph.c.
 //
-// The runner that renders a whole patch in one call. MicroPython only for
-// now; the CPython and CircuitPython bindings are on the roadmap.
+// The runner that renders a whole patch in one call. The CircuitPython twin
+// is src/circuitpython_spike/shared-bindings/audiograph/, the CPython one the
+// Graph type in src/cpython/_audiodsp.c; the three take the same arguments.
 //
 // SPDX-License-Identifier: MIT
 

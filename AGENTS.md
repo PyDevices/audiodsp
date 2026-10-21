@@ -40,10 +40,11 @@ for source compatibility; only this repo's own name differs.
 - `circuitpython.mk` + `src/circuitpython_spike/` — build `audiodynamics`,
   `audioroute`, `audiomath`, `audioecho`, `audioshaper`, `audioladder`,
   `audioconvolve`, `audiobiquad`, `audioverb`, `audiomodal`, `audiosampler`,
-  `audiooscillator` and `audiovorbis` into CircuitPython 11 as a user C module
-  (`micropython.mk` hands a CircuitPython tree to `circuitpython.mk`). None
-  of the thirteen is a CircuitPython port: the first two come from
-  micropython-vst3's `vstaudio` engine and the last eleven are audiodsp's own,
+  `audiooscillator`, `audiovorbis`, `audiopump` and `audiograph` into
+  CircuitPython 11 as a user C module (`micropython.mk` hands a CircuitPython
+  tree to `circuitpython.mk`). None of the fifteen is a CircuitPython port: the
+  first two come from micropython-vst3's `vstaudio` engine and the last
+  thirteen are audiodsp's own,
   so CircuitPython gains them
   here rather than the other way round.
 - `docs/porting-plan.md` — the full phased porting history, architecture,
