@@ -1,3 +1,10 @@
+## v0.6.9.dev4 (2026-10-21)
+
+- audiograph on CPython and CircuitPython, and a three-way render comparison
+- audiopump.Ring on CircuitPython: size the ring for ESP32's I2SOut, and the board check
+- audiopump.Ring on CircuitPython: the README, a parity check against the pump's Ring, and the mixer test on MicroPython in CI
+- audiopump.Ring on CircuitPython: a stream sample Python fills and the board's outputs pull
+
 ## v0.6.9.dev3 (2026-10-21)
 
 - audiograph: a C graph runner over the existing kernels (MicroPython only)
