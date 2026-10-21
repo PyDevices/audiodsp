@@ -174,7 +174,42 @@ effects modules stay CircuitPython's. `audiometer` (band levels for a spectrum
 meter, below) is ours as well, and is the one CircuitPython doesn't get: its
 sources are a board's pump and usbif's sound card, and CircuitPython has
 neither. `audiovorbis` (below) plays Ogg Vorbis files, which CircuitPython
-has no module for.
+has no module for. And `audiopump.Ring` (below) lets CircuitPython play audio
+your own code computes.
+
+### `audiopump.Ring` on CircuitPython — audio your code computes
+
+CircuitPython's audio outputs play samples, and a sample is filled from C, so
+until now there was no way to play a stream your Python code or a graph of
+nodes renders as it goes. A `Ring` is a sample you write into. The output
+pulls it in C, block by block, while your loop keeps it topped up:
+
+```python
+import audiobusio, board
+from array import array
+from audiopump import Ring
+
+ring = Ring(sample_rate=22050, channel_count=1, frames=256, capacity=8)
+block = array("h", bytes(512))           # 256 mono frames
+ring.write(render(block))                # fill a little before play()
+out = audiobusio.I2SOut(board.I2S_BCLK, board.I2S_WCLK, board.I2S_DOUT)
+out.play(ring)
+while True:
+    if ring.space() >= len(block) * 2:
+        ring.write(render(block))
+```
+
+It plays through `audiobusio.I2SOut`, `audioio.AudioOut`,
+`audiopwmio.PWMAudioOut` and an `audiomixer` voice like any other sample.
+When your code falls behind, the output plays a block of silence rather than
+stopping, and `ring.stats()[3]` counts those underruns; a write that doesn't
+fit is short and returns the bytes it took. `capacity` is how many blocks the
+ring holds, which is also its latency.
+
+It is the same `audiopump.Ring` MicroPython's pump pulls, with the same
+methods (`write`, `space`, `level`, `stats`, `clear`, `deinit`), so one
+producer runs on both. On CircuitPython the module carries only `Ring`: the
+board's output is the pump.
 
 ### `audiovorbis.VorbisDecoder` — Ogg Vorbis files
 
@@ -771,9 +806,10 @@ while playing:                 # from your app's timer, say every 20 ms
 their own tick. What CPython does not have is `pull()` under a heap lock,
 because it has no heap lock, and audiocore's pull-depth cap: a graph that
 leads back into itself is caught at Python's recursion limit instead, and
-reported as the same fault. **CircuitPython does not carry it**: its playback
+reported as the same fault. **CircuitPython carries only `Ring`**: its playback
 layer already pulls natively from its own audio thread, and a second pull loop
-would be a second owner of the same graph. It still takes the lock and the
+would be a second owner of the same graph, so there a board's audio output
+pulls the `Ring` itself ([above](#audiopumpring-on-circuitpython--audio-your-code-computes)). It still takes the lock and the
 hook table, on default hooks, which cost a load and a branch.
 
 The hardware — the channel a board writes into, and a live microphone as a

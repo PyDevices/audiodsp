@@ -156,6 +156,49 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
                         self.assertIn("__exit__", keys)
 
 
+
+class TheCircuitPythonRingIsThePumpsRing(unittest.TestCase):
+    """`audiopump.Ring` is bound twice too: `src/audiopump/audiopump_ring.c`
+    for MicroPython, where the pump pulls it, and
+    `src/circuitpython_spike/shared-bindings/audiopump/Ring.c` for
+    CircuitPython, where the board's audio output does. The point of the
+    CircuitPython one is that a producer written against either runs on both,
+    so the two must expose the same names.
+
+    It is held here by name rather than through `MODULES`, because the rest of
+    MicroPython's `audiopump` (the pump itself, `Events`, `Tap`) has no
+    CircuitPython counterpart on purpose. `from_usb` is MicroPython's only:
+    it needs a USB device stack that streams into a C sink, which
+    CircuitPython's does not."""
+
+    MICROPYTHON_ONLY = {"from_usb"}
+
+    def test_the_two_rings_expose_the_same_names(self):
+        micropython = surfaces([str(ROOT / "src" / "audiopump" / "audiopump_ring.c")], "")
+        circuitpython = circuitpython_surfaces("audiopump")
+        # The control: both tables are found, so agreement means something.
+        self.assertEqual(sorted(micropython), ["audiopump_ring"])
+        self.assertEqual(sorted(circuitpython), ["audiopump_ring"])
+        self.assertIn("write", circuitpython["audiopump_ring"])
+        self.assertEqual(
+            micropython["audiopump_ring"] - self.MICROPYTHON_ONLY,
+            circuitpython["audiopump_ring"])
+
+    def test_the_circuitpython_module_carries_only_the_ring(self):
+        source = (ROOT / "src" / "circuitpython_spike" / "shared-bindings"
+                  / "audiopump" / "__init__.c").read_text()
+        table = re.search(r"globals_table\[\]\s*=\s*\{(.*?)\n\};", source, re.DOTALL)
+        self.assertIsNotNone(table)
+        # The key of each entry, not its value: `__name__`'s value is a qstr too.
+        keys = re.findall(r"\{\s*MP_ROM_QSTR\(MP_QSTR_(\w+)\)", table.group(1))
+        self.assertEqual(sorted(keys), ["Ring", "__name__"])
+
+    def test_the_circuitpython_build_compiles_it(self):
+        glue = (ROOT / "circuitpython.mk").read_text()
+        modules = re.search(r"AUDIODSP_CP_MODULES :=(.*?)\n\n", glue, re.DOTALL)
+        self.assertIsNotNone(modules)
+        self.assertIn("audiopump", modules.group(1).split())
+
 class EveryModuleSaysWhichAudiodspItIs(unittest.TestCase):
     """audiodsp#55: a firmware has to be able to name the audiodsp it was built
     from, and `os.uname().version` answers for MicroPython only.

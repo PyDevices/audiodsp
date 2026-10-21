@@ -278,6 +278,13 @@ jobs:
           done
           run pump_probe.py
           run route_probe.py
+      # CircuitPython's audiopump.Ring is checked on a CircuitPython build
+      # (tests/circuitpython/). The same file runs here against MicroPython's
+      # Ring, so a producer written for one is known to run on the other.
+      - name: The Ring through audiomixer, the same producer as on CircuitPython
+        run: |
+          timeout 300 ./micropython/ports/unix/build-standard/micropython \
+            audiodsp/tests/circuitpython/ring_through_mixer.py
       # Make recompiles nothing for a changed -D, so the revision once stayed
       # that of a build directory's first build (audiodsp#156). Move HEAD,
       # build again in the same directory, and the firmware must follow.
