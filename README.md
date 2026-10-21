@@ -77,8 +77,8 @@ This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiodelays`, `audiofreeverb`, `audiospeed`, `audiodynamics`, `audioroute`,
 `audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audiooscillator`,
 `audioconvolve`, `audiobiquad`, `audioverb`, `audiomodal`, `audiosampler`, `audiometer`,
-`audiopump`, `audiovorbis`, and the `audiorender` package.
-`audiomp3` and `audiograph` remain firmware-only. The distribution declares no *required*
+`audiopump`, `audiovorbis`, `audiograph`, and the `audiorender` package.
+`audiomp3` remains firmware-only. The distribution declares no *required*
 runtime dependencies and does not itself publish an `audiodsp` import; its
 version is the `VERSION` file, which is also what `_audiodsp.__version__`
 reports.
@@ -495,7 +495,9 @@ delay) and a few small ones a voice needs (an ADSR, an LFO, noise, a mixer
 with ramped gains, a VCA), wire them through the graph's own block buffers,
 put each voice in a group, and call `run()` once a block; nothing in Python
 runs between the nodes. That is what lets a six-voice polysynth play in real
-time on an ESP32-P4. MicroPython only for now:
+time on an ESP32-P4. The same graph renders the same samples on CPython,
+MicroPython and CircuitPython, so a patch you build on the desktop sounds
+there as it will on the board:
 [docs/audiograph.md](docs/audiograph.md) has the nodes, the wire and the
 limits.
 

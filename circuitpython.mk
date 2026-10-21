@@ -32,7 +32,7 @@ CFLAGS_USERMOD += -I$(AUDIODSP_CP_SPIKE) -I$(AUDIODSP_CP_SRC)
 
 AUDIODSP_CP_MODULES := audiodynamics audioroute audiomath audioecho audioshaper \
 	audioladder audiooscillator audioconvolve audiobiquad audioverb audiomodal \
-	audiosampler audiovorbis audiopump
+	audiosampler audiovorbis audiopump audiograph
 
 AUDIODSP_CP_SOURCES := \
 	$(foreach m,$(AUDIODSP_CP_MODULES),$(sort $(wildcard $(AUDIODSP_CP_SPIKE)/shared-bindings/$(m)/*.c))) \
@@ -59,6 +59,7 @@ AUDIODSP_CP_SOURCES += $(addprefix $(AUDIODSP_CP_SRC)/shared/, \
 	audiodsp_sampler.c \
 	audiodsp_vorbis.c \
 	audiodsp_port.c \
+	audiodsp_graph.c \
 	)
 
 SRC_USERMOD_C += $(AUDIODSP_CP_SOURCES)

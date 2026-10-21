@@ -219,9 +219,9 @@ jobs:
           "$MP" "$PROBE" audiodelays | tee /tmp/pitchshift_freeze.txt
           grep -q "PITCHSHIFT FREEZE PASS" /tmp/pitchshift_freeze.txt
 
-      # The graph runner: one C call over the kernels above. MicroPython only,
-      # so this is the only place it runs. Each planted fault is a wiring or a
-      # parameter mistake the runner must not hide, and must FAIL first.
+      # The graph runner: one C call over the kernels above. Each planted
+      # fault is a wiring or a parameter mistake the runner must not hide, and
+      # must FAIL first.
       - name: The graph runner, and proof its probe can fail
         run: |
           MP=./micropython/ports/unix/build-standard/micropython
@@ -234,6 +234,26 @@ jobs:
           done
           "$MP" "$PROBE" | tee /tmp/graph.txt
           grep -q "GRAPH PASS" /tmp/graph.txt
+
+      # The same graph on CPython (the wheel installed above) and on this
+      # MicroPython, compared sample for sample with a tolerance of 0 counts.
+      # Each planted fault (one input count off, one set() a block late) goes
+      # into the MicroPython render only, and the comparison must FAIL first.
+      # The three-way with the CircuitPython unix build is a local run, as
+      # for verify_dsp.
+      - name: A graph renders the same samples on CPython and MicroPython
+        run: |
+          MP=$GITHUB_WORKSPACE/micropython/ports/unix/build-standard/micropython
+          PY=$GITHUB_WORKSPACE/audiodsp/.ci-venv/bin/python
+          cd audiodsp
+          for planted in lsb late; do
+            if "$PY" tests/parity/verify_graph.py --micropython "$MP" --fault $planted > /dev/null; then
+              echo "the planted fault passed, so this comparison proves nothing: $planted" >&2
+              exit 1
+            fi
+          done
+          "$PY" tests/parity/verify_graph.py --micropython "$MP" | tee /tmp/graph_parity.txt
+          grep -q "GRAPH RENDERS AGREE" /tmp/graph_parity.txt
 
       # The pump. Everything above proves the DSP nodes; these prove the
       # thing that pulls them, and they can only run here, because they

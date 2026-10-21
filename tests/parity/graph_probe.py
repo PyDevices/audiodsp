@@ -5,8 +5,9 @@
     graph_probe.py --fault dropped   # a node left out of the chain: must FAIL
     graph_probe.py --fault ignored   # a parameter set where no node reads it: must FAIL
 
-MicroPython only: audiograph has no CPython binding yet (ROADMAP.md). The
-probe needs nothing but the module and ``array``.
+It runs unchanged on CPython, MicroPython and CircuitPython, and needs
+nothing but the module and ``array``. verify_graph.py is the comparison
+between them.
 
 What it holds the runner to:
 

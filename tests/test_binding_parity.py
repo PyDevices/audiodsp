@@ -44,12 +44,18 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-#: The thirteen modules that are ours. Upstream CircuitPython has no counterpart to
+#: The fourteen modules that are ours. Upstream CircuitPython has no counterpart to
 #: any of them, which is why we carry two bindings rather than one.
 MODULES = ("audiobiquad", "audioconvolve", "audiodynamics", "audioecho",
            "audioladder", "audiomath", "audiomodal", "audiooscillator",
            "audioroute", "audiosampler", "audioshaper", "audioverb",
-           "audiovorbis")
+           "audiovorbis", "audiograph")
+
+#: Types that are not audio nodes, so the deinit rule below is not theirs.
+#: `audiograph.Graph` is never played and never pulled: it renders into a
+#: buffer its caller owns, holds nothing another object reads, and is freed by
+#: the collector like any other object.
+NOT_NODES = {"audiograph_graph"}
 
 #: Both spellings are in use: audiodsp's MicroPython bindings mostly say
 #: `_locals_table` and the CircuitPython ones `_locals_dict_table`. A regex that
@@ -106,14 +112,14 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
         The surface is the same, which is all this file compares. Seventeen
         with `audiovorbis.VorbisDecoder`, whose two bindings differ the same
         way. Twenty with `audiosampler.SampleBuffer`, twenty-one with
-        `audiooscillator.Oscillator`."""
+        `audiooscillator.Oscillator`, twenty-two with `audiograph.Graph`."""
         micropython = {}
         circuitpython = {}
         for module in MODULES:
             micropython.update(micropython_surfaces(module))
             circuitpython.update(circuitpython_surfaces(module))
-        self.assertEqual(len(micropython), 21, sorted(micropython))
-        self.assertEqual(len(circuitpython), 21, sorted(circuitpython))
+        self.assertEqual(len(micropython), 22, sorted(micropython))
+        self.assertEqual(len(circuitpython), 22, sorted(circuitpython))
 
     def test_every_type_exists_on_both_sides(self):
         for module in MODULES:
@@ -150,6 +156,8 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
                                    ("CircuitPython",
                                     circuitpython_surfaces(module))):
                 for name, keys in sorted(surface.items()):
+                    if name in NOT_NODES:
+                        continue
                     with self.subTest(target=label, type=name):
                         self.assertIn("deinit", keys)
                         self.assertIn("__enter__", keys)

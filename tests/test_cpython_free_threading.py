@@ -51,7 +51,7 @@ MODULES = ("_audiodsp", "audiocore", "synthio", "audiomixer", "audiofilters",
            "audioroute", "audiomath", "audioecho", "audioshaper",
            "audioladder", "audiooscillator", "audioconvolve", "audiobiquad", "audioverb",
            "audiomodal", "audiosampler", "audiometer", "audiopump",
-           "audiovorbis", "audiodsp_util")
+           "audiovorbis", "audiograph", "audiodsp_util")
 INSTRUMENTS = 16
 BLOCKS = 60
 RATES = (48000, 44100)
