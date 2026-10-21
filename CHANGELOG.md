@@ -1,3 +1,8 @@
+## v0.6.9.dev1 (2026-10-21)
+
+- deinit probe: call Ladder.modulate with the cutoff input it takes
+- audioladder: a cutoff input read every sample, for audio-rate filter FM
+
 ## v0.6.8 (2026-10-21)
 
 - audioecho.FeedbackDelay: a splice on a fading repeat does not search on
