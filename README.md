@@ -151,7 +151,8 @@ limiting, expansion, gating, transient shaping) and `audioroute.Splitter`
 (fan one stream out to parallel branches) come from micropython-vst3's audio
 engine, which had them and CircuitPython does not. `audiomath` (multiply one
 stream by another — ring and amplitude modulation; and divide one down in
-frequency — the analog octave divider), `audioecho` (a delay with a filter,
+frequency — the analog octave divider; and `cast_into`, which turns a float
+block into the int16 a `RawSample` plays without allocating), `audioecho` (a delay with a filter,
 a soft-clip and a cross-feed inside its feedback loop), `audioshaper` (a
 waveshaper whose curve is data, applied above the sample rate, and a
 sample-and-hold at an exact rational ratio),
