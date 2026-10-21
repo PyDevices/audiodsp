@@ -1,3 +1,7 @@
+## v0.6.9.dev5 (2026-10-21)
+
+- audiograph: a phaser, a glide, LFO shapes and a clocked sample-and-hold
+
 ## v0.6.9.dev4 (2026-10-21)
 
 - audiograph on CPython and CircuitPython, and a three-way render comparison
