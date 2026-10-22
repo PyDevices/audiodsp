@@ -218,13 +218,64 @@ skipped on that probe, since its own nodes keep upstream's behaviour, and
 `pitchshift_freeze_probe.py` no longer renders after its reset, so it stays
 held to CircuitPython's bytes.
 
+## Resynced with 11.0.0-alpha.2
+
+The oracle moved from 11.0.0-alpha.1 to 11.0.0-alpha.2 (d53b2277c) on
+2026-10-22, with the binary at `bin/circuitpython-oracle-11.0.0-alpha.2`.
+Three upstream commits touched the ported code in between, all in
+`audiomixer` and `synthio_sat16`. What was taken is in
+[upstream-sync.md](upstream-sync.md#the-last-resync-1100-alpha2).
+
+**The mixer scales in integers (11a329885, fc57c0f36; adafruit/circuitpython#11617).**
+Upstream's non-DSP `mult16signed` was the float quotient `mul / 32767.0f`
+times the sample, truncated toward zero. It is `(ai * mul) >> 15` now, which
+upstream says "matches the DSP result bit for bit", and a centred pan is
+`32768 - panning` where it was `32767 - panning`. Both changes are in
+`src/audiomixer/Mixer.c`, in the CPython extension's scaling kernel
+(`src/cpython/_audiodsp.c`) and in its Python twin (`src/cpython/audiomixer.py`),
+as upstream has them. Three things follow:
+
+- Every level below 1.0 moves by up to one LSB. The divisor is 32768 where it
+  was 32767, and the shift floors where the cast truncated, so a small
+  negative sample rounds down: -1 at level 0.5 stays -1, where it used to
+  become 0. Material that never goes through a mixer voice below unity does
+  not move.
+- Level 1.0 is a wire without help. This port's unity branch is deleted, and
+  with it the difference recorded under
+  [A voice at level 1.0 is a wire](#a-voice-at-level-10-is-a-wire-audiodsp95).
+  On the CPython target the block-level shortcut that skips the scaling at
+  unity stays, keyed on Q15 32768 alone: 32767 used to scale by exactly 1.0
+  and no longer does.
+- A stereo voice at pan 0 is the same on both channels. The left channel no
+  longer sits one Q15 step below the right.
+
+`mixer_q15_level_probe.py` (it replaces `mixer_level_precision_probe.py`,
+whose material was the float32-versus-float64 flips that no longer exist)
+renders the rails and the values either side of zero at four levels and five
+pans, mono and stereo, and `verify_dsp.py` holds all three interpreters to
+the same bytes. A build from before the change prints different bytes from
+the oracle's.
+
+**`synthio_sat16` is inline (cbbde1208; adafruit/circuitpython#11621).** Taken
+as upstream has it in `src/synthio/__init__.h`. The rounding is the same
+arithmetic written without a branch, so it cannot change a sample; the
+`__ssat` form is for cores that define `__ARM_FEATURE_SAT`. `audiodsp_sat16`, the same
+function for the shared C and the CPython extension, is unchanged.
+
+**What moved.** Two stored digests: `streaming_component`'s streaming half
+(`f3ffad8e…` to `33b27a2f…`) and `synthtools_acceptance` (`b6e3b06f…` to
+`757d944a…`; `lead`, `bend` and `bass`). Both were re-captured from the new
+oracle's output, and CPython, desktop MicroPython and the oracle agree on
+them. Every other stored digest held: `midi_component`, `effects_component`,
+`biquad_component`, `mixdown_knee`.
+
 ## Resynced with 11.0.0-alpha.1 (audiodsp#220)
 
 Every audio fix CircuitPython made between 10.3.0 and 11.0.0-alpha.1 is in
 this port now, and so is its one audio addition, `PitchShift.freeze`, which
 followed in audiodsp#222. The finalisers upstream gave every audio object
 are left out on purpose. What was taken, module by module, and what was left
-out is in [upstream-sync.md](upstream-sync.md#the-last-resync-1100-alpha1-audiodsp220).
+out is in [upstream-sync.md](upstream-sync.md#the-resync-before-1100-alpha1-audiodsp220).
 
 It retires five differences recorded below, because upstream now does the
 same: the stream I/O in `WaveFile` and `synthio.from_file` (upstream switched
@@ -240,6 +291,9 @@ the data ends. Every other stored digest held, and so did all 53 instruments
 in audiocomponents' parity sequences on CPython and on MicroPython.
 
 ## The oracle is CircuitPython 11.0.0-alpha.1 (audiodsp#201)
+
+> The oracle has moved on to 11.0.0-alpha.2, see
+> [above](#resynced-with-1100-alpha2). This is how it got to alpha.1.
 
 The oracle moved from 10.3.0 to 11.0.0-alpha.1 (520805e12) on 2026-10-08,
 with the binary at `bin/circuitpython-oracle-11.0.0-alpha.1`
@@ -1950,17 +2004,21 @@ peaking-EQ fix below let it drop the Mixer entirely.)
 
 ## A voice at level 1.0 is a wire (audiodsp#95)
 
-Upstream maps a voice level of 1.0 to Q15 **32768**:
+> **Upstream since 11.0.0-alpha.2** (11a329885, fc57c0f36), so no longer a
+> deviation from the oracle. The unity branch described below is gone from
+> this port; what is left is the record of what was wrong.
+
+Upstream mapped a voice level of 1.0 to Q15 **32768**:
 
 ```c
 uint16_t level = (uint16_t)(synthio_block_slot_get_limited(
     &voice->level, 0.0, 1.0) * (1 << 15));
 ```
 
-and then scales by `level / 32767.0f` in `mult16signed`. So "unity" is really
-**1.0000305**, and every sample whose magnitude reaches 32736 comes out one
-LSB larger — away from zero — with 32767 clamping. A voice at level 1.0 is
-not a wire, and never was.
+and then scaled by `level / 32767.0f` in `mult16signed`. So "unity" was really
+**1.0000305**, and every sample whose magnitude reached 32736 came out one
+LSB larger, away from zero, with 32767 clamping. A voice at level 1.0 was
+not a wire.
 
 Measured here on the full int16 range, once per value, through a one-voice
 Mixer with the level gate opened on a leading block of silence:
@@ -1970,38 +2028,15 @@ channels=1: 63 samples differ, |value| >= 32736, deltas [-1, 1], channel index [
 channels=2: 63 samples differ, |value| >= 32736, deltas [-1, 1], channel index [1]
 ```
 
-Stereo differs on the right channel only, because a voice at panning 0 gets
-`32767 - panning` on the left and a flat `32768` on the right: the left
-scale's quotient is 32767/32767, which is exactly one, and only the right
-carries the lifted multiplier. Mono takes the right-hand path on both.
+Stereo differed on the right channel only, because a voice at panning 0 got
+`32767 - panning` on the left and a flat `32768` on the right.
 
-**The deviation.** A multiplier of exactly `1 << 15` means unity and passes
-the sample through, in `mult16signed` (`src/audiomixer/Mixer.c`) and in
-`_mod_mul` (`src/cpython/audiomixer.py`). Every other level is upstream's
-arithmetic bit for bit — the single-precision quotient and product that
-audiodsp#84 pinned, which `tests/test_cpython_audiomixer_level.py` still
-enumerates over Q15 0..32767.
-
-**Why deviate rather than route around it.** Answer (1) on the issue — a
-class claiming a wire at Mix 0 routes through no mixer — is what the shipped
-effect classes took, and five of them were rewired for it. That fixed the
-classes; it did not fix `audiomixer`, and the next class to put a full-scale
-signal through a level-1.0 voice would have found it again. The scale is one
-number in one kernel and the fix is one compare, so the module now means what
-it says.
-
-**What moved.** Nothing any committed gate covers: `verify_acceptance`,
-`verify_effects`, `verify_streaming`, `verify_biquad` and
-`verify_mixdown_knee` all match their recorded hashes unchanged, because none
-of their material carries a full-scale sample through a level-1.0 voice. What
-does move is any render that does — by one LSB, on samples at |value| >= 32736
-only, and toward the sample's own value rather than away from it.
-
-**Not applied to the CircuitPython target,** per the standing rule: the oracle
-keeps upstream's arithmetic, so this is one of the enumerated places where our
-targets and the oracle disagree by design. A parity script that renders
-full-scale material through a level-1.0 voice will see it, and should expect
-it.
+This port answered with a branch: a multiplier of exactly `1 << 15` passed
+the sample through, in `mult16signed` and in `_mod_mul`. Upstream's answer, in
+11.0.0-alpha.2, is to change the arithmetic: a sample is `(x * level) >> 15`,
+and a centred pan is `32768 - panning`, so level 1.0 at pan 0 is 32768 on both
+channels and the product is the sample itself. See
+[Resynced with 11.0.0-alpha.2](#resynced-with-1100-alpha2).
 
 ## Peaking EQ computed `b2` with the wrong sign (effects-extension tier)
 

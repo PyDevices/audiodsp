@@ -850,7 +850,7 @@ it.
 
 **CPython:** the public surface and wheel plumbing are present, and the
 committed synthesis, mixer, MIDI, streaming, and effects fixtures match
-CircuitPython 11.0.0-alpha.1 PCM byte-for-byte — built at the same voice ceiling this
+CircuitPython 11.0.0-alpha.2 PCM byte-for-byte — built at the same voice ceiling this
 port ships, which is the only comparison worth making. Import/API smoke success
 is not used as a substitute for those comparisons.
 
