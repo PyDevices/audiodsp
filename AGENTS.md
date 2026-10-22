@@ -32,8 +32,8 @@ for source compatibility; only this repo's own name differs.
   in Python the same number on a board as on a desktop — see
   [docs/correctness-standard.md](docs/correctness-standard.md)). Both ship
   inside the `pydevices-audiodsp` wheel. The instrument and effect libraries that
-  used to sit beside it — `audioinstruments` (53 `synthio` instruments) and
-  `audioeffects` (46 effect classes, racks included) — live in
+  used to sit beside it — `audioinstruments` (55 `synthio` instruments) and
+  `audioeffects` (45 effect classes, racks included) — live in
   [audiocomponents](https://github.com/PyDevices/audiocomponents) now, as
   their own distributions depending on `pydevices-audiodsp`; nothing in this
   repository builds, tests, publishes or freezes them.

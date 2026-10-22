@@ -134,9 +134,9 @@ and their source is micropython-vst3 rather than CircuitPython:
   module (`circuitpython.mk`) —
   the only direction in this repo where CircuitPython is the recipient. See
   `docs/upstream-diff.md` for what changed in the moves and what was kept.
-- **tier 8** is pure Python under `lib/`. `audioinstruments` — 53 classic
+- **tier 8** is pure Python under `lib/`. `audioinstruments` — 55 classic
   synthesizers, keyboards and drum machines written entirely in `synthio`,
-  no samples — and `audioeffects` — 46 effect classes built on the tiers
+  no samples — and `audioeffects` — 45 effect classes built on the tiers
   above — were moved out of micropython-vst3 here so they are not tied to a
   VST host, and have since moved once more, to the
   [audiocomponents](https://github.com/PyDevices/audiocomponents)
