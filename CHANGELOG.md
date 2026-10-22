@@ -1,3 +1,8 @@
+## v0.6.9 (2026-10-22)
+
+- Roadmap: audiograph as a source the pump pulls
+- audiograph on CircuitPython: go through void * for the output block's int16 pointer
+
 ## v0.6.9.dev5 (2026-10-21)
 
 - audiograph: a phaser, a glide, LFO shapes and a clocked sample-and-hold
