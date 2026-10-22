@@ -63,7 +63,38 @@ to turn up.
 7. Update the record below: what was taken, what was held back, and any
    difference that a fix retired or added.
 
-## The last resync: 11.0.0-alpha.1 (audiodsp#220)
+## The last resync: 11.0.0-alpha.2
+
+The pin moved from 11.0.0-alpha.1 to 11.0.0-alpha.2 (d53b2277c). Between the
+two, upstream touched the ported modules in three commits, all in `audiomixer`
+and `synthio_sat16`; nothing else in the eight modules changed, and `lib/mp3`
+is the same commit (aac02afd9f) as at the pin.
+
+- **audiomixer** (11a329885, fc57c0f36). A voice is scaled in integers:
+  `(ai * mul) >> 15`, where it was `ai * (mul / 32767.0f)` truncated toward
+  zero, and a centred pan is `32768 - panning`. Taken in upstream's words in
+  `src/audiomixer/Mixer.c`, in the CPython extension's scaling kernel and in
+  `src/cpython/audiomixer.py`. Every level below 1.0 moves by up to one LSB,
+  and a small negative sample now rounds down (-1 at level 0.5 stays -1). The
+  ARM `smulwb` path and the `__ARM_FEATURE_DSP` guards are not here, as before:
+  this port's `mult16signed` is the portable C, which upstream says gives the
+  same bytes.
+- **synthio** (cbbde1208). `synthio_sat16` is inline in `src/synthio/__init__.h`
+  as upstream has it, with the `__ssat` form on cores that define
+  `__ARM_FEATURE_SAT`. It cannot change a sample.
+
+`mixer_q15_level_probe.py` covers the mixer in `verify_dsp.py`, where
+CircuitPython, MicroPython and CPython print the same bytes, and a build from
+before the change prints different ones. Two stored digests moved, both
+re-captured from the alpha.2 oracle's output: the streaming half of
+`streaming_component`, and `synthtools_acceptance`. The rest held, and so did
+audiocomponents' instrument parity sequences on CPython and on MicroPython.
+
+**A difference retired:** a voice at level 1.0 is a wire (audiodsp#95).
+Upstream's arithmetic makes it so, and the unity branch in `mult16signed` is
+deleted. It also retires the left-below-right pan asymmetry at pan 0.
+
+## The resync before: 11.0.0-alpha.1 (audiodsp#220)
 
 The pin moved from 10.3.0 to 11.0.0-alpha.1 with audiodsp#201, which took
 6dddbda87 (buffer lengths and silence fills) and nothing else. audiodsp#220
@@ -198,8 +229,6 @@ reason, and a resync should not take them.
 - **audiomixer**: a reset keeps every voice playing where it was instead of
   stopping them
   ([why](upstream-diff.md#resetting-a-mixer-silenced-it-permanently-audioeffects-tier)).
-  A voice at level 1.0 is a wire
-  ([why](upstream-diff.md#a-voice-at-level-10-is-a-wire-audiodsp95)).
   A looping sample under one word is refused
   ([why](upstream-diff.md#audiomixer-a-looping-sample-under-one-word-is-refused-not-spun-on-audiodsp85)).
   Level and panning are always block inputs, and the ARM CMSIS intrinsics are

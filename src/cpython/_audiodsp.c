@@ -4538,17 +4538,9 @@ static PyObject *audiodsp_mix_s16(PyObject *module, PyObject *args) {
     return result;
 }
 
-/* One voice's level, as the single-precision multiplier the native mixer
- * uses: `(float)level / (float)32767`, with Q15 32768 (a level of 1.0) as an
- * exact 1.0. `_mod_mul` in audiomixer.py is the same arithmetic. */
-static float mixer_mod_mul(long level) {
-    if (level == 32768) return 1.0f;
-    return (float)level / (float)32767;
-}
-
 /* Scale a block of interleaved int16 pairs by a voice's per-channel level, the
  * loop `Mixer._get_buffer` runs in Python for any voice that is not at
- * unity: product in float32, truncation toward zero, clamp to int16. A level
+ * unity: `(sample * level) >> 15`, clamp to int16. A level
  * move (`pending`) lands at the first zero crossing, or is forced at each
  * index in `forced` (ascending sample indices, where a source stretch ends),
  * exactly as the Python loop does. */
@@ -4581,8 +4573,8 @@ static PyObject *audiodsp_scale_s16_levels(PyObject *module, PyObject *args) {
     int16_t *out = (int16_t *)PyBytes_AS_STRING(result);
     const Py_ssize_t count = data.len / 2;
     long active[2] = {active_lo, active_hi};
-    float mul_lo = mixer_mod_mul(active[0]);
-    float mul_hi = mixer_mod_mul(active[1]);
+    long mul_lo = active[0];
+    long mul_hi = active[1];
     int32_t last_lo = 0, last_hi = 0;
     Py_ssize_t next_forced = 0;
     for (Py_ssize_t index = 0; index < count; index += 2) {
@@ -4599,8 +4591,8 @@ static PyObject *audiodsp_scale_s16_levels(PyObject *module, PyObject *args) {
                 if (at == index && index) {
                     active[0] = pending_lo;
                     active[1] = pending_hi;
-                    mul_lo = mixer_mod_mul(active[0]);
-                    mul_hi = mixer_mod_mul(active[1]);
+                    mul_lo = active[0];
+                    mul_hi = active[1];
                     last_lo = last_hi = 0;
                 }
                 break;
@@ -4615,18 +4607,18 @@ static PyObject *audiodsp_scale_s16_levels(PyObject *module, PyObject *args) {
                     && ((last_lo < 0) != (lo < 0) || (last_hi < 0) != (hi < 0)))) {
                 active[0] = pending_lo;
                 active[1] = pending_hi;
-                mul_lo = mixer_mod_mul(active[0]);
-                mul_hi = mixer_mod_mul(active[1]);
+                mul_lo = active[0];
+                mul_hi = active[1];
             } else {
                 last_lo = lo;
                 last_hi = hi;
             }
         }
-        int32_t scaled = (int32_t)((float)lo * mul_lo);
+        int32_t scaled = (int32_t)((lo * mul_lo) >> 15);
         out[index] = (int16_t)(scaled > INT16_MAX ? INT16_MAX
                                : scaled < INT16_MIN ? INT16_MIN : scaled);
         if (index + 1 < count) {
-            scaled = (int32_t)((float)hi * mul_hi);
+            scaled = (int32_t)((hi * mul_hi) >> 15);
             out[index + 1] = (int16_t)(scaled > INT16_MAX ? INT16_MAX
                                        : scaled < INT16_MIN ? INT16_MIN : scaled);
         }

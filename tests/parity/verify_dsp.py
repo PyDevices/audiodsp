@@ -161,7 +161,7 @@ PROBES = (
     # truncated a different integer on 56 of the 65536 int16 values at level
     # 100/127 -- invisible to every stored digest in the repository, because
     # none of their material lands on one. audiodsp#84.
-    ("mixer_level_precision_probe.py", "audiomixer", {}, None),
+    ("mixer_q15_level_probe.py", "audiomixer", {}, None),
     # A voice mixes from its source's buffer as that buffer stands at mix
     # time, because what it holds is a pointer into it. The twin copied the
     # block at play() instead, so a class that settles a filter behind a voice

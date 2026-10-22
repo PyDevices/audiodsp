@@ -20,9 +20,9 @@ rendered it: shipped patches 4 and 6 came out `3b0e6b65f9c782d0` against
 boards. audiodsp#89.
 
 A probe of its own rather than a case appended to
-`mixer_level_precision_probe.py`: one comparison covers a probe's whole output,
-so a case added there would move the very numbers that say the 56 flipping
-values still scale the way they did.
+`mixer_q15_level_probe.py`: one comparison covers a probe's whole output,
+so a case added there would move the very numbers that say the Q15 scaling
+still rounds the way it did.
 
 Agreement is the whole gate here for the usual reason and one more: the mixer's
 voice bookkeeping is C on two targets and Python on the third, so there is no

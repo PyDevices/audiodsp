@@ -1,5 +1,5 @@
 {
  "midi_stdout_sha256": "268020bee2b5c9ca0bbd6b322d683695e86157f81dfafb10c284942a372df572",
- "oracle": "CircuitPython 11.0.0-alpha.1 unix coverage (bin/circuitpython-oracle-11.0.0-alpha.1)",
- "streaming_stdout_sha256": "f3ffad8ed578907a6dc9e5c9821223161877de4b831a9c60a8defc87f4bdceab"
+ "oracle": "CircuitPython 11.0.0-alpha.2 unix coverage (bin/circuitpython-oracle-11.0.0-alpha.2)",
+ "streaming_stdout_sha256": "33b27a2fb69726f9f7baa31d7c3eec1be5e0fc20cb644459f89a72f17087c30b"
 }

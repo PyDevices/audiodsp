@@ -1,5 +1,5 @@
 {
-  "oracle": "CircuitPython 11.0.0-alpha.1 unix coverage (bin/circuitpython-oracle-11.0.0-alpha.1)",
+  "oracle": "CircuitPython 11.0.0-alpha.2 unix coverage (bin/circuitpython-oracle-11.0.0-alpha.2)",
   "circuitpython_stdout_sha256": "ff57b9ea0989dbbfe2357cd05f38beb83bf6468839aa7969ad7c37cf52644ebc",
   "circuitpython_modules": [
     "audiofilters",

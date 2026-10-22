@@ -51,11 +51,6 @@ static const int16_t square_wave[] = {-32768, 32767};
 static const uint16_t notes[] = {8372, 8870, 9397, 9956, 10548, 11175, 11840,
                                  12544, 13290, 14080, 14917, 15804}; // 9th octave
 
-// cleaner sat16 by http://www.moseleyinstruments.com/
-int16_t synthio_sat16(int32_t n, int rshift) {
-    return audiodsp_sat16(n, rshift);
-}
-
 static int64_t round_float_to_int64(mp_float_t f) {
     return (int64_t)(f + MICROPY_FLOAT_CONST(0.5));
 }
