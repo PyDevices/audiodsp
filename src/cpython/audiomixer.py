@@ -1,61 +1,13 @@
 """CircuitPython-compatible PCM mixer."""
 
-from struct import pack as _pack, unpack as _unpack
-
 from audiocore import (
     GET_BUFFER_MORE_DATA, _AudioSample, _borrow, reset_buffer,
 )
 import _audiodsp
 
 
-def _f32(value):
-    """`value` rounded to `float`, the way a C `(float)` cast rounds it.
-
-    `struct` is the standard library and this wheel has no dependencies, so
-    this is not numpy: `audiomixer` is a core module that has to import on a
-    bare install. See `_mod_mul` for why it is here at all.
-    """
-    return _unpack("f", _pack("f", value))[0]
-
-
-def _mod_mul(level):
-    """A voice's Q15 level as the single-precision multiplier the native
-    kernel uses.
-
-    `src/audiomixer/Mixer.c`'s `mult16signed` computes
-
-        float mod_mul = (float)level / (float)((1 << 15) - 1);
-        int32_t intermediate = (int32_t)(ai * mod_mul);
-
-    -- the quotient and the product both in `float`, then truncation toward
-    zero. This twin used to form the same product in `float64` and truncate
-    that, which lands on a different integer whenever the true product sits
-    within a float32 rounding of one: 56 of the 65536 `int16` values at level
-    100/127 alone, each off by a whole LSB. Inaudible at -90 dBFS, but the
-    effects program's class gate compares CPython bytes with MicroPython bytes,
-    so it read as nondeterminism. audiodsp#84.
-
-    Both roundings here are single, not double: `level` and 32767 are exact in
-    `float`, and a `float` divide computed in `double` and rounded once is the
-    correctly rounded `float` quotient (53 >= 2*24 + 2). The product of two
-    `float`s is exact in `double` for the same reason, so rounding it once is
-    the `float` product itself.
-
-    The one deviation from upstream is the unity case. Q15 32768 is what a
-    voice level of 1.0 becomes, and `32768 / 32767` is 1.0000305, which lifts
-    every sample at |value| >= 32736 by one LSB. A level of 1.0 is a wire
-    here, on every target. See `docs/upstream-diff.md`, "A voice at level 1.0
-    is a wire"; the native side is the same branch in `mult16signed`.
-    """
-    if level == (1 << 15):
-        return 1.0
-    return _f32(_f32(level) / _f32(32767.0))
-
-
-#: The Q15 levels `_mod_mul` maps to exactly 1.0: 32767 divided by itself, and
-#: 32768, the unity special case. A stereo voice at panning 0 sits at
-#: (32767, 32768), so both count.
-_UNITY_Q15 = (32767, 32768)
+#: Q15 32768 is a voice level of 1.0: `(x * 32768) >> 15` is `x`.
+_UNITY_Q15 = 1 << 15
 
 
 def _scale_s16_levels_py(data, active_lo, active_hi, pending_lo, pending_hi, forced):
@@ -76,15 +28,14 @@ def _scale_s16_levels_py(data, active_lo, active_hi, pending_lo, pending_hi, for
     samples.frombytes(data)
     active = [active_lo, active_hi]
     pending = (pending_lo, pending_hi)
-    mul_lo, mul_hi = _mod_mul(active[0]), _mod_mul(active[1])
+    mul_lo, mul_hi = active[0], active[1]
     last_lo = last_hi = 0
     forced = set(forced)
     scaled = []
     for index in range(0, len(samples), 2):
         if index in forced and index:
             active[0], active[1] = pending
-            mul_lo = _mod_mul(active[0])
-            mul_hi = _mod_mul(active[1])
+            mul_lo, mul_hi = active
             last_lo = last_hi = 0
         lo = samples[index]
         hi = samples[index + 1] if index + 1 < len(samples) else 0
@@ -94,13 +45,12 @@ def _scale_s16_levels_py(data, active_lo, active_hi, pending_lo, pending_hi, for
                         and ((last_lo < 0) != (lo < 0)
                              or (last_hi < 0) != (hi < 0)))):
                 active[0], active[1] = pending
-                mul_lo = _mod_mul(active[0])
-                mul_hi = _mod_mul(active[1])
+                mul_lo, mul_hi = active
             else:
                 last_lo, last_hi = lo, hi
-        scaled.append(max(-32768, min(32767, int(_f32(lo * mul_lo)))))
+        scaled.append(max(-32768, min(32767, (lo * mul_lo) >> 15)))
         if index + 1 < len(samples):
-            scaled.append(max(-32768, min(32767, int(_f32(hi * mul_hi)))))
+            scaled.append(max(-32768, min(32767, (hi * mul_hi) >> 15)))
     return array.array("h", scaled).tobytes()
 
 
@@ -326,20 +276,17 @@ class Mixer(_AudioSample):
                 if self.channel_count == 2:
                     # panning > 0 attenuates the LEFT channel. CircuitPython
                     # 10.3.0 flipped this and matched synthio.Note to it.
-                    left_scale = 32767 - panning if panning >= 0 else 32768
-                    right_scale = 32768 if panning >= 0 else 32767 + panning
+                    left_scale = 32768 - panning if panning >= 0 else 32768
+                    right_scale = 32768 if panning >= 0 else 32768 + panning
                     left = (left_scale * level) >> 15
                     right = (right_scale * level) >> 15
                 pending = (left, right)
-                if (voice._active_level[0] in _UNITY_Q15
-                        and voice._active_level[1] in _UNITY_Q15
-                        and left in _UNITY_Q15 and right in _UNITY_Q15):
-                    # Unity on both channels, now and pending: the multiplier
-                    # is exactly 1.0 for the whole block, whichever word a
-                    # pending move would have landed on, and `int(_f32(x *
-                    # 1.0))` is `x` for every int16. The block is a wire, so
-                    # it is mixed as it came and the scaling below -- two struct
-                    # round trips a sample -- is skipped. audiodsp#273.
+                if (voice._active_level == (_UNITY_Q15, _UNITY_Q15)
+                        and left == _UNITY_Q15 and right == _UNITY_Q15):
+                    # Unity on both channels, now and pending: `(x * 32768)
+                    # >> 15` is `x` for every int16, whichever word a pending
+                    # move would have landed on. The block is mixed as it came
+                    # and the scaling below is skipped. audiodsp#273.
                     voice._active_level = pending
                     chunks.append(data)
                     continue

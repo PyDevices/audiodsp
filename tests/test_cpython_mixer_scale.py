@@ -1,7 +1,7 @@
 """The C scaling kernel renders the same bytes the Python loop does.
 
 `Mixer._get_buffer` scales every voice that is not at unity by its per-channel
-Q15 level -- a float32 product, truncated toward zero, clamped to int16 -- and
+Q15 level -- `(sample * level) >> 15`, clamped to int16 -- and
 lets a pending level move land at a zero crossing or at the end of a source
 stretch. That loop ran in Python, a struct round trip per sample, until
 `_audiodsp.scale_s16_levels` (audiodsp#273). The Python loop stays as the
@@ -10,7 +10,7 @@ fallback for a build without the kernel, so the two have to agree exactly.
 | what it checks | bar |
 |---|---|
 | the kernel is in the build | `_audiodsp.scale_s16_levels` exists, and `audiomixer` picked it up |
-| every int16, every level that matters | all 65536 values at a spread of Q15 levels (unity, near-unity, the 100/127 flips, quiet, zero) match the Python loop byte for byte |
+| every int16, every level that matters | all 65536 values at a spread of Q15 levels (unity, near-unity, 100/127, quiet, zero) match the Python loop byte for byte |
 | level moves | a pending move landing at a zero crossing, forced at a stretch end, never arriving, or arriving at the first pair, over seeded random blocks with rails, zeros and sign changes |
 | through a real Mixer | the same graph -- several voices, mono and stereo, levels and pans changed between blocks, looping sources -- rendered with the kernel and with the Python loop swapped in is byte-identical, block for block |
 """
@@ -88,8 +88,8 @@ class KernelTest(unittest.TestCase):
                 self.assertEqual(out, audiomixer._scale_s16_levels_py(*args))
                 got = array.array("h")
                 got.frombytes(out)
-                self.assertEqual(got[0], 1000 * 16384 // 32767)
-                self.assertEqual(got[-1], 2000 if forced else 2000 * 16384 // 32767)
+                self.assertEqual(got[0], 1000 * 16384 >> 15)
+                self.assertEqual(got[-1], 2000 if forced else 2000 * 16384 >> 15)
 
     def test_bad_arguments_raise(self):
         with self.assertRaises(ValueError):
