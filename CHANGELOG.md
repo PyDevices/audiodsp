@@ -1,3 +1,7 @@
+## v0.6.10 (2026-10-22)
+
+- audiograph: Graph.get converts its float to mp_float_t, so double-float builds compile
+
 ## v0.6.9 (2026-10-22)
 
 - Roadmap: audiograph as a source the pump pulls
