@@ -27,7 +27,10 @@ VALUES = (
     -32768, -32767, -30000, -22983, -10822, -3, -2, -1,
     1, 2, 3, 6227, 10822, 12103, 21760, 25429, 32766, 32767,
 )
-LEVELS = (0.5, 100 / 127, 0.999, 1.0)
+# Each level is printed by its name: a float32 build prints 100 / 127 with
+# fewer digits than CPython, and the label would differ where the samples
+# don't.
+LEVELS = (("0.5", 0.5), ("100/127", 100 / 127), ("0.999", 0.999), ("1.0", 1.0))
 PANS = (0.0, 0.5, -0.5, 1.0, -1.0)
 
 
@@ -59,9 +62,9 @@ def render(channels, level, panning):
     return [sample(block, i) for i in range(len(block) // 2)]
 
 
-for level in LEVELS:
+for name, level in LEVELS:
     for panning in PANS:
         out = render(2, level, panning)
-        print("stereo", level, panning, out[2:2 + len(VALUES) * 4])
+        print("stereo", name, panning, out[2:2 + len(VALUES) * 4])
     out = render(1, level, 0.0)
-    print("mono", level, out[1:1 + len(VALUES) * 2])
+    print("mono", name, out[1:1 + len(VALUES) * 2])
