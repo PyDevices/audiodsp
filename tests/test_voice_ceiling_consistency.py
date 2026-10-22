@@ -44,7 +44,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: The pinned CircuitPython oracle binary, and its hash.
 #:
 #: The oracle is built at the SAME ceiling this port ships (64) and at the same
-#: CircuitPython version the port tracks (11.0.0-alpha.1). It is rebuilt deliberately
+#: CircuitPython version the port tracks (11.0.0-alpha.2). It is rebuilt deliberately
 #: whenever either moves, and re-pinned in that change -- the old rule
 #: ("built at 14 and must never be rebuilt") is retired: an oracle at a
 #: different configuration cannot answer the only question worth asking, which
@@ -151,9 +151,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: `verify_dsp` agrees three ways (87 comparisons, 0 failures, where the
 #: previous binary stops at `tank_return_probe`); and `cp11_files_probe`
 #: passes. Previous: 8b8aacebdaff738a (audiodsp 43a871e).
-ORACLE = ROOT.parent / "bin" / "circuitpython-oracle-11.0.0-alpha.1"
+#:
+#: MOVED 2026-10-22 to CircuitPython 11.0.0-alpha.2 (d53b2277c) for the resync
+#: that took upstream's integer mixer (11a329885, fc57c0f36). Built with the
+#: cp-oracle build_mp.py command at 64 voices, audiodsp at d2c502b and
+#: CircuitPython's own `audiospeed`. Verified: it answers 64 voices;
+#: `effects_component` and `mixdown_knee` reproduce their stored captures;
+#: `midi_component` is unchanged; `streaming_component` and
+#: `synthtools_acceptance` moved, and were re-captured from this binary's
+#: output; and `verify_dsp` agrees three ways. Previous: 34ca4b524bd7d9b1
+#: (11.0.0-alpha.1, audiodsp 12cf627), still on disk as
+#: bin/circuitpython-oracle-11.0.0-alpha.1.
+ORACLE = ROOT.parent / "bin" / "circuitpython-oracle-11.0.0-alpha.2"
 ORACLE_SHA256 = (
-    "34ca4b524bd7d9b1d81759974a8823adb21e4428994fda2d2afcb596d252961d")
+    "ee0cc93c12691859ec1588df89e1839056cef52d4c95ed0515a14d2461757b66")
 
 
 def _search(relative, pattern):
