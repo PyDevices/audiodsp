@@ -133,7 +133,7 @@ static mp_obj_t audiograph_graph_get(mp_obj_t self_in, mp_obj_t node,
             (uint32_t)mp_obj_get_int(index), &value)) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad node or parameter index"));
     }
-    return mp_obj_new_float(value);
+    return mp_obj_new_float((mp_float_t)value);
 }
 static MP_DEFINE_CONST_FUN_OBJ_3(audiograph_graph_get_obj,
     audiograph_graph_get);
