@@ -35,6 +35,18 @@ to turn up.
    ```
 
    Also diff the `lib/mp3` submodule commit against `DEPENDENCIES.lock`.
+
+   Then list the audio modules upstream has that this list doesn't, so a new
+   one is noticed at the resync and not from a newsletter:
+
+   ```sh
+   ls shared-bindings | grep -E '^(audio|synthio|usb_audio|usb_host_audio)'
+   ```
+
+   Anything new is a decision, not a port: record it in the resync's PR as
+   taken, held, or out of scope (hardware I/O belongs in audioif or the USB
+   packages, not here). At alpha.2 the ones not ported were `audiofilewriter`,
+   `audioi2sin`, `usb_audio` and `usb_host_audio`.
 3. For each commit, find the same code here. A file under `src/<module>/`
    holds upstream's `shared-module` and `shared-bindings` files merged, with
    a `// --- from ...` line where each begins. Arithmetic that both bindings
