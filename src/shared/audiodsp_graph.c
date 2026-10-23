@@ -10,6 +10,25 @@
 #include <math.h>
 #include <string.h>
 
+// Round to the nearest integer, ties to even: what lrintf gives in the default
+// rounding mode, without calling it. CircuitPython's RP2350 port links no
+// lrintf, so a call to it leaves the firmware unable to link (the same trap
+// audiodsp_trig.c steps round for fmod). Callers pass a finite value well
+// inside int32_t range: a sample rate in Hz, or a sample already clamped to
+// the int16 range. A NaN gives 0, as lrintf's result does once cut to int16.
+static inline int32_t round_even(float v) {
+    if (!(v == v)) {
+        return 0;
+    }
+    float a = v < 0.0f ? -v : v;
+    int32_t i = (int32_t)a;
+    float frac = a - (float)i;  // exact: a and i are within a binade
+    if (frac > 0.5f || (frac == 0.5f && (i & 1))) {
+        ++i;
+    }
+    return v < 0.0f ? -i : i;
+}
+
 // ---------------------------------------------------------------- nodes --
 
 typedef struct {
@@ -485,7 +504,7 @@ static void derive(audiodsp_graph_t *graph, audiodsp_graph_node_t *n) {
             uint32_t rate = 0;
             if (hz >= 0.5f) {
                 rate = hz >= (float)graph->sample_rate
-                    ? graph->sample_rate : (uint32_t)lrintf(hz);
+                    ? graph->sample_rate : (uint32_t)round_even(hz);
             }
             if (rate != d->rate) {
                 d->rate = rate;
@@ -515,7 +534,7 @@ static inline int16_t sat16(float v) {
     if (v < -32768.0f) {
         return -32768;
     }
-    return (int16_t)lrintf(v);
+    return (int16_t)round_even(v);
 }
 
 static void run_env(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
