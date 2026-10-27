@@ -47,14 +47,14 @@ For a new pump port, [the pump-port guide](pump-ports.md) is authoritative.
 
 | Path | Purpose |
 |---|---|
-| `src/audiocore/`, `src/synthio/`, `src/audiomixer/` | Core CircuitPython-compatible source, synthesis, and mixing modules. |
+| [`src/audiocore/`](../../src/audiocore/), [`src/synthio/`](../../src/synthio/), [`src/audiomixer/`](../../src/audiomixer/) | Core CircuitPython-compatible source, synthesis, and mixing modules. |
 | `src/audio*/` | Effects, DSP, routing, and audio utility modules compiled into native targets. |
-| `src/audiopump/` | Portable pump loop, rings, events, taps, and lifecycle guards. |
-| `src/shared/` | DSP and sample-protocol C shared by the MicroPython and CPython targets. |
-| `src/cp_compat/` | Small CircuitPython compatibility shims needed by the MicroPython port. |
-| `src/cpython/` | `_audiodsp` extension plus top-level Python wrappers for CPython. |
-| `lib/audiodsp_util/` | Cross-runtime `float32()` helpers for settings derived in Python. |
-| `lib/audiorender/` | Desktop-only, NumPy-based offline composition renderer. |
+| [`src/audiopump/`](../../src/audiopump/) | Portable pump loop, rings, events, taps, and lifecycle guards. |
+| [`src/shared/`](../../src/shared/) | DSP and sample-protocol C shared by the MicroPython and CPython targets. |
+| [`src/cp_compat/`](../../src/cp_compat/) | Small CircuitPython compatibility shims needed by the MicroPython port. |
+| [`src/cpython/`](../../src/cpython/) | `_audiodsp` extension plus top-level Python wrappers for CPython. |
+| [`lib/audiodsp_util/`](../../lib/audiodsp_util/) | Cross-runtime `float32()` helpers for settings derived in Python. |
+| [`lib/audiorender/`](../../lib/audiorender/) | Desktop-only, NumPy-based offline composition renderer. |
 | `micropython.mk`, `micropython.cmake` | User-module build glue for Make and CMake MicroPython ports. |
 | `tests/` | CPython fixtures, in-repository parity gates, and parity tools that need sibling checkouts. |
 | `docs/` | Guides, reference, and these architecture pages. |

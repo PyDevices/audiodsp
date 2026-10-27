@@ -70,7 +70,7 @@ matters is that no independent implementation exists to compare against today.
 
 **1. Three-target agreement, with nothing stored.** The CPython extension,
 desktop MicroPython, and the patched CircuitPython build must render a probe
-identically. All three compile the same kernel under `src/shared/`, so this is
+identically. All three compile the same kernel under [`src/shared/`](../../src/shared/), so this is
 a real check on the three compilations and on anything that is
 architecture-dependent, undefined, or width-sensitive — the class of defect that
 found the flanger overflow. It cannot be laundered, because there is no file to
@@ -90,7 +90,7 @@ refactor and do not survive a regression. It is the effects program's own method
 and it is the right one here.
 
 A trait without a planted fault is not a check; it is a hope. See
-`tests/parity/deinit_surface_probe.py` for the shape — its `--fault` mode is run by CI first, and CI fails if the fault
+[`tests/parity/deinit_surface_probe.py`](../../tests/parity/deinit_surface_probe.py) for the shape — its `--fault` mode is run by CI first, and CI fails if the fault
 *passes*.
 
 ## Where deviations are written down
@@ -102,8 +102,8 @@ decision that must be written there, or it is a bug.
 ## What a divergence means now
 
 * **CP-shared node, we differ from CircuitPython.** Either a bug of ours, or a
-  bug of theirs worth an upstream report (`docs/upstream-reports/`), or a
-  deliberate departure that goes in `docs/how-it-works/upstream-diff.md`. Three outcomes, and
+  bug of theirs worth an upstream report ([`docs/upstream-reports/`](../upstream-reports/)), or a
+  deliberate departure that goes in [`docs/how-it-works/upstream-diff.md`](upstream-diff.md). Three outcomes, and
   choosing between them is the work. What it is never is "re-record ours".
 * **Our own node, the three targets disagree.** Ours, always. One of the three
   compilations is wrong, or the kernel relies on something undefined.
@@ -226,10 +226,10 @@ buffer, refilled — one slot for the nodes audiodsp wrote, two for the ported
 CircuitPython effects, for `Mixer` and for the synthesizer, because those
 alternate. `audiocore._borrow` is the in-graph pull that does not copy;
 `audiocore.get_buffer` still copies, on both targets, because it is the
-script-facing one. `tests/parity/mixer_borrowed_block_probe.py` is the gate.
+script-facing one. [`tests/parity/mixer_borrowed_block_probe.py`](../../tests/parity/mixer_borrowed_block_probe.py) is the gate.
 
 **What this does not yet cover:** a node's *leftover* source block — `pending`
-in `src/audiobiquad/Biquad.c` and its siblings, kept when one source buffer
+in [`src/audiobiquad/Biquad.c`](../../src/audiobiquad/Biquad.c) and its siblings, kept when one source buffer
 outlasts one render — is a borrowed pointer in the C and still a copy in the
 twin. Nothing has been measured to depend on it; it is named here so the next
 divergence of this shape is recognised rather than re-derived.

@@ -24,7 +24,7 @@ A voice's position is a 64-bit frame index, 32 bits of integer and 32 of
 fraction, stepped by `pitch * rate / sample_rate` in the same format. Two
 reasons, neither taste. A `float` accumulator has 24 bits of mantissa, so a
 loop a thousand frames long played for a minute accumulates the missing bits
-into audible tuning; and `docs/how-it-works/correctness-standard.md` holds every own node
+into audible tuning; and [`docs/how-it-works/correctness-standard.md`](correctness-standard.md) holds every own node
 to three interpreters rendering it identically, and integer arithmetic is the
 one kind that three architectures cannot disagree about. Only the fraction
 becomes a float, for the interpolator. The step is computed once per `play()`
@@ -38,7 +38,7 @@ partial above half the output rate back into the band about 30 dB down; a
 multiplies a sample. The x-form 3rd-order Hermite passes through its samples
 exactly, which gives the module its identity trait: at pitch 1.0 a loop whose
 length is a whole number of frames stays on integer positions for ever and
-reads the buffer's own values (S3 in `tests/test_cpython_audiosampler.py`).
+reads the buffer's own values (S3 in [`tests/test_cpython_audiosampler.py`](../../tests/test_cpython_audiosampler.py)).
 
 ### Why the envelope runs per sample, and level and pan ramp
 
@@ -86,7 +86,7 @@ can keep up with.
 
 ### How it is verified
 
-`tests/parity/sampler_probe.py` in `verify_dsp`'s set, for the three-target
+[`tests/parity/sampler_probe.py`](../../tests/parity/sampler_probe.py) in `verify_dsp`'s set, for the three-target
 agreement `docs/how-it-works/correctness-standard.md` asks of an own node: an integer
 triangle wave through binary-fraction pitches and whole-sample envelope
 times, with the blocks at which a one-shot ends, a released mode-3 voice
@@ -109,9 +109,9 @@ on the next pull. The CPython twin let go of an empty loop already, and stops
 on a stall now too (`_stop_on_empty_pull`).
 
 Only a render that reaches one of those two cases moves; until now it never
-returned. `tests/parity/pitch_empty_source_probe.py` holds the first on
+returned. [`tests/parity/pitch_empty_source_probe.py`](../../tests/parity/pitch_empty_source_probe.py) holds the first on
 MicroPython and CPython (on a build from before the change it never
-finishes), and `tests/test_cpython_pitch_empty_source.py` the second on the
+finishes), and [`tests/test_cpython_pitch_empty_source.py`](../../tests/test_cpython_pitch_empty_source.py) the second on the
 twin. Nothing stored moved: no golden loops an empty source.
 
 ## `audiodelays.PitchShift`: a splice lands in phase
@@ -145,7 +145,7 @@ dropped, so a semitone LFO through 0 does not click. Every held note from C2 to 
 The 16-bit signed path is the shared kernel, and that is the path every
 effect class takes. The 8-bit, unsigned and single-channel-output path in
 `PitchShift.c` is still upstream's and splices where upstream's does.
-`tests/test_cpython_pitch_splice.py` holds the move (P1, red before it: 52 of
+[`tests/test_cpython_pitch_splice.py`](../../tests/test_cpython_pitch_splice.py) holds the move (P1, red before it: 52 of
 its 100 notes) and the unmoved silence and click (P2). `pitchshift_freeze_probe.py`
 is skipped on CircuitPython (below, and the blocks after it unfreezes).
 `effects_component_probe.py` is unchanged. Held to 3 dB only on single
@@ -209,7 +209,7 @@ where the move took it: the read position ran at another rate for a while,
 and putting it back would click.
 
 Only a render with a reset in the middle of a stream moves. Verified by
-`tests/parity/pitch_reset_probe.py` through `verify_dsp.py`: each node is
+[`tests/parity/pitch_reset_probe.py`](../../tests/parity/pitch_reset_probe.py) through `verify_dsp.py`: each node is
 reset seven blocks in and must render what a new node renders from the frames
 those blocks had not used. On a build from before the change the four
 `PitchShift` cases and the two with `spread` fail it, on CPython and on
@@ -231,8 +231,8 @@ Upstream's non-DSP `mult16signed` was the float quotient `mul / 32767.0f`
 times the sample, truncated toward zero. It is `(ai * mul) >> 15` now, which
 upstream says "matches the DSP result bit for bit", and a centred pan is
 `32768 - panning` where it was `32767 - panning`. Both changes are in
-`src/audiomixer/Mixer.c`, in the CPython extension's scaling kernel
-(`src/cpython/_audiodsp.c`) and in its Python twin (`src/cpython/audiomixer.py`),
+[`src/audiomixer/Mixer.c`](../../src/audiomixer/Mixer.c), in the CPython extension's scaling kernel
+([`src/cpython/_audiodsp.c`](../../src/cpython/_audiodsp.c)) and in its Python twin ([`src/cpython/audiomixer.py`](../../src/cpython/audiomixer.py)),
 as upstream has them. Three things follow:
 
 - Every level below 1.0 moves by up to one LSB. The divisor is 32768 where it
@@ -257,7 +257,7 @@ the same bytes. A build from before the change prints different bytes from
 the oracle's.
 
 **`synthio_sat16` is inline (cbbde1208; adafruit/circuitpython#11621).** Taken
-as upstream has it in `src/synthio/__init__.h`. The rounding is the same
+as upstream has it in [`src/synthio/__init__.h`](../../src/synthio/__init__.h). The rounding is the same
 arithmetic written without a branch, so it cannot change a sample; the
 `__ssat` form is for cores that define `__ARM_FEATURE_SAT`. `audiodsp_sat16`, the same
 function for the shared C and the CPython extension, is unchanged.
@@ -297,7 +297,7 @@ in audiocomponents' parity sequences on CPython and on MicroPython.
 
 The oracle moved from 10.3.0 to 11.0.0-alpha.1 (520805e12) on 2026-10-08,
 with the binary at `bin/circuitpython-oracle-11.0.0-alpha.1`
-(`CIRCUITPYTHON_ORACLE`, `tests/test_voice_ceiling_consistency.py`). It moved
+(`CIRCUITPYTHON_ORACLE`, [`tests/test_voice_ceiling_consistency.py`](../../tests/test_voice_ceiling_consistency.py)). It moved
 to take upstream's 6dddbda87, "audiodelays, audiofilters, audiofreeverb:
 buffer lengths and silence fills", which this port now has in full:
 
@@ -368,7 +368,7 @@ Two departures from the oracle, both bugs upstream still has in
 `multitap_edges_probe.py` holds both on MicroPython and CPython and is
 skipped on CircuitPython, where the lanes swap (1,216 wrong samples in its
 six blocks) and the empty loop never returns.
-`tests/test_cpython_multitap_empty_source.py` covers the empty buffer with
+[`tests/test_cpython_multitap_empty_source.py`](../../tests/test_cpython_multitap_empty_source.py) covers the empty buffer with
 more to come, which no native source here produces. Nothing stored moved:
 no golden reaches either case.
 
@@ -413,7 +413,7 @@ reset node is a fresh node.
 
 `multitap_reset_probe.py` holds it on MicroPython and CPython and is skipped
 on CircuitPython, which builds upstream's own node; so is
-`tests/test_cpython_multitap_reset.py`'s trait on the twin. Nothing stored
+[`tests/test_cpython_multitap_reset.py`](../../tests/test_cpython_multitap_reset.py)'s trait on the twin. Nothing stored
 moved: no golden shortens a line after a reset.
 
 ## `audiodelays.Echo`: a looped source that comes back empty is let go
@@ -467,7 +467,7 @@ They follow `audiodelays.MultiTapDelay` and `Echo` now, on all three bindings:
 and the others still stop with their source.
 
 What moves is any render in which a source ends or a one-shot sample is played
-into one of the three. Verified by `tests/parity/tail_rest_probe.py` through
+into one of the three. Verified by [`tests/parity/tail_rest_probe.py`](../../tests/parity/tail_rest_probe.py) through
 `verify_dsp.py`: a burst that ends part-way through a block, the ring to exact
 zero beside the same node fed explicit silence, a stretch at rest, and a second
 burst against a new node, in stereo and mono. A build from before the change
@@ -497,7 +497,7 @@ which rewinds its source on a reset too. A host that loops it starts it again
 with a reset, so a `SampleHold` that kept its place would loop nothing.
 
 Only a render with a reset in the middle of a stream moves. Verified by
-`tests/parity/host_reset_probe.py` through `verify_dsp.py`: each node is reset
+[`tests/parity/host_reset_probe.py`](../../tests/parity/host_reset_probe.py) through `verify_dsp.py`: each node is reset
 one block in and must render what a fresh node renders from the frames the
 first block had not used. On a build from before the change every one of the
 twelve fails it.
@@ -534,15 +534,15 @@ identity — at 44.1 kHz only, because 48 and 22.05 kHz happen to land on 1.0. A
 full-scale 441 Hz tone through that pair read **max |wet − dry| = 27666 codes**
 where a wire reads 0.
 
-**This port rounds**: `src/audiospeed/SpeedChanger.c` (`rate_to_fp`),
-`src/audiospeed/Resampler.c` (`audiospeed_resampler_set_sample_rate`) and
-`src/cpython/audiospeed.py` (the `rate` setter and `_bind_sample_rate`). So a
+**This port rounds**: [`src/audiospeed/SpeedChanger.c`](../../src/audiospeed/SpeedChanger.c) (`rate_to_fp`),
+[`src/audiospeed/Resampler.c`](../../src/audiospeed/Resampler.c) (`audiospeed_resampler_set_sample_rate`) and
+[`src/cpython/audiospeed.py`](../../src/cpython/audiospeed.py) (the `rate` setter and `_bind_sample_rate`). So a
 rate strictly between two Q16 steps renders different bytes here and on
 CircuitPython 10.3.0, and ours is the arithmetically closer one. A rate already
 *on* a step is untouched by the change, which is why no stored golden moved:
 `resampler_probe.py` only ever asks for 2.0, 1.0 and 0.5.
 
-`tests/parity/speedchanger_hold_probe.py` renders the divergence and
+[`tests/parity/speedchanger_hold_probe.py`](../../tests/parity/speedchanger_hold_probe.py) renders the divergence and
 `verify_dsp` carries a stated skip for it on circuitpython naming both issues,
 so the three-way is not red on a departure that is deliberate. It is also where
 a MicroPython build that predates these two fixes shows up: any such binary
@@ -614,7 +614,7 @@ the unix build, `Echo(max_delay_ms=8, delay_ms=4, sample_rate=1000,
 buffer_size=1024)` segfaults within a few buffers, on 10.3.0 and on this port
 before the fix alike.
 
-**This port clamps last** (`src/audiodelays/Echo.c`), which is what upstream
+**This port clamps last** ([`src/audiodelays/Echo.c`](../../src/audiodelays/Echo.c)), which is what upstream
 did after 10.3.0: 6dddbda87, "audiodelays, audiofilters, audiofreeverb: buffer
 lengths and silence fills", in 11.0.0-alpha.1. The CPython twin always clamped
 last, and the fixed native node renders its bytes exactly.
@@ -638,7 +638,7 @@ INT32_MAX. Signed overflow, reachable on ordinary full-scale material.
 Upstream used the widening cast eighteen lines earlier, at `:347`, for the
 span times the triangle; it is absent here.
 
-**This port widens it**, `src/shared/audiodsp_flanger.c`. So above about
+**This port widens it**, [`src/shared/audiodsp_flanger.c`](../../src/shared/audiodsp_flanger.c). So above about
 ±26000 alternating, our MicroPython build and CircuitPython 10.3.0 render
 different bytes, and ours is the arithmetically correct one. Found by the
 three-way `verify_dsp` run of 2026-09-09: 18 of 54 probe lines differed and
@@ -695,7 +695,7 @@ property object (`<property>`) instead of its value, and assigning to it
 raised `AttributeError`.
 
 Can't carry CP's core patch (no edits to `micropython/`). Fix lives entirely
-in this usermod: `cp_compat_attr` (`src/cp_compat/objproperty.c`)
+in this usermod: `cp_compat_attr` ([`src/cp_compat/objproperty.c`](../../src/cp_compat/objproperty.c))
 reimplements the same lookup-and-invoke logic from usermod code, using
 mainline's own supported extension point for this — a type's `attr` slot
 (the same mechanism mainline's own `examples/usercmodule/cexample`
@@ -726,7 +726,7 @@ in this project, used as the parity oracle everywhere else) raises
 a POSIX-backed file object, not a `vfs_fat_fileio` one. WaveFile is
 effectively FAT/MCU-only upstream, undocumented as such.
 
-This port's `WaveFile` (`src/audiocore/WaveFile.c`) reads through
+This port's `WaveFile` ([`src/audiocore/WaveFile.c`](../../src/audiocore/WaveFile.c)) reads through
 MicroPython's generic stream protocol instead (`mp_stream_read_exactly` +
 an `ioctl(MP_STREAM_SEEK)`), which works over any VFS a port has mounted
 (POSIX files on unix/windows, littlefs or FAT on mcu boards). The WAV chunk
@@ -875,11 +875,11 @@ MicroPython, unrelated to any ported module).
 
 ## Phase 7: `synthtools` end-to-end acceptance test
 
-`tests/vendor/synthtools` is todbot's
+[`tests/vendor/synthtools`](../../tests/vendor/synthtools/) is todbot's
 [`CircuitPython_SynthTools`](https://github.com/todbot/CircuitPython_SynthTools)
-(MIT, commit recorded in `tests/vendor/SYNTHTOOLS_COMMIT.txt`), vendored
+(MIT, commit recorded in [`tests/vendor/SYNTHTOOLS_COMMIT.txt`](../../tests/vendor/SYNTHTOOLS_COMMIT.txt)), vendored
 unmodified -- the `synthtools/` package only, not `examples/`/`tests/`/
-`docs/`, since the acceptance script (`tests/parity/synthtools_acceptance.py`)
+`docs/`, since the acceptance script ([`tests/parity/synthtools_acceptance.py`](../../tests/parity/synthtools_acceptance.py))
 is this port's own, not upstream's. It drives `SubtractiveSynth` (dual
 detuned oscillators, filter envelope, vibrato, pitch envelope, an
 LFO-driven cutoff sweep, live mid-note parameter writes, a JSON patch
@@ -951,7 +951,7 @@ compile-time configuration*.
 kits; 64 fits a ten-finger chord on the melodic library, whose instruments press
 up to 9 `Note`s per key), and the pinned CircuitPython is now built at 64 too.
 `SYNTHIO_MIX_DOWN_SCALE` is therefore 129 on both sides rather than 129 against
-623, and `tests/parity/verify_mixdown_knee.py` is byte-identical to
+623, and [`tests/parity/verify_mixdown_knee.py`](../../tests/parity/verify_mixdown_knee.py) is byte-identical to
 CircuitPython **above** the knee as well as below. Nothing about that gate is
 advisory any more.
 
@@ -1025,7 +1025,7 @@ port, so none was ever reachable upstream:
   no inline asm) -- the same path this port's unix build already takes,
   since `_WIN32` is never defined there. Patch is inline-commented in the
   file itself with a pointer back to this section.
-- **This port's own `src/audiomp3/mp3_alloc.c`** (`mp3_alloc`/`mp3_free`,
+- **This port's own [`src/audiomp3/mp3_alloc.c`](../../src/audiomp3/mp3_alloc.c)** (`mp3_alloc`/`mp3_free`,
   standing in for CP's `shared-module/audiomp3/__init__.c`) dropped
   upstream's `MP_WEAK` (`__attribute__((weak))`). Upstream needs it so a
   board can override the allocator via `CIRCUITPY_AUDIOMP3_USE_PORT_ALLOCATOR`;
@@ -1040,7 +1040,7 @@ port, so none was ever reachable upstream:
   definition without issue). Dropping `MP_WEAK` entirely -- correct here
   since nothing in this port ever needs to override these two one-line
   wrappers -- fixed the windows link with no effect on unix.
-- **`src/audiomp3/MP3Decoder.c`'s `stream_readable()`** (ported from CP's
+- **[`src/audiomp3/MP3Decoder.c`](../../src/audiomp3/MP3Decoder.c)'s `stream_readable()`** (ported from CP's
   own `MP3Decoder.c`) calls `stream_p->ioctl(stream, MP_STREAM_POLL, ...)`
   to check whether the input stream has data ready before attempting a
   read. Found by running the phase 7/9 oracle-diff parity scripts under
@@ -1126,7 +1126,7 @@ none reachable on unix or windows before now:
   already match a named `__GNUC__`/arch branch and must keep using it, not
   silently fall back to the generic path.
 - **`src/synthio/__init__.h`'s `synthio_synth_t`, and
-  `src/synthio/Note.h`'s `synthio_bend_mode_t`** were each declared with
+  [`src/synthio/Note.h`](../../src/synthio/Note.h)'s `synthio_bend_mode_t`** were each declared with
   two `typedef`s of the same name -- a forward declaration plus the real
   definition, exactly mirroring how CircuitPython spells the same thing
   across its separate `shared-bindings`/`shared-module` header pair. Two
@@ -1136,7 +1136,7 @@ none reachable on unix or windows before now:
   -Werror`, which this port's merged-into-one-file convention exposes for
   the first time. Fixed by dropping the second (redundant) `typedef` in
   each case -- the type is already complete by then either way.
-- **`src/synthio/Biquad.c`** used `M_PI`, a glibc/mingw `<math.h>`
+- **[`src/synthio/Biquad.c`](../../src/synthio/Biquad.c)** used `M_PI`, a glibc/mingw `<math.h>`
   extension, not ISO C99 -- present transitively on unix/windows, absent
   under emscripten's stricter libc. Fixed with a local `#ifndef M_PI
   #define M_PI ... #endif` guard.
@@ -1199,7 +1199,7 @@ on the wasm build, because the union-punned read happened to interpret
 real bool) as truthy there, where x86-64's specific pointer-truncation
 behavior for that same default value happened to read as falsy.
 
-Fixed to `args[ARG_soft_clip].u_bool` (see `src/audiofilters/Distortion.c`)
+Fixed to `args[ARG_soft_clip].u_bool` (see [`src/audiofilters/Distortion.c`](../../src/audiofilters/Distortion.c))
 rather than kept verbatim a second time, for two reasons: it is
 unambiguously what upstream's own C function signature (`bool soft_clip`)
 intends, and every *real* CircuitPython board is 32-bit ARM, not x86-64 --
@@ -1219,7 +1219,7 @@ byte and seven stale ones. On this port's own x86-64 oracle build,
 `Distortion(soft_clip=False)` reads back **`True`** -- the one case a user
 would reach for to get the hard curve is the one case that cannot be right
 except by luck. Drafted:
-`docs/upstream-reports/distortion-soft-clip-union.md`.
+[`docs/upstream-reports/distortion-soft-clip-union.md`](../upstream-reports/distortion-soft-clip-union.md).
 
 This is now a deliberate, documented divergence from the x86-64 CP oracle
 for this one field (the oracle still exhibits the original bug); the
@@ -1343,14 +1343,14 @@ happened to be laid out. Confirmed directly on CPython -- rendering one TR-909
 sequence gave different output under `PYTHONMALLOC=default`, `malloc`, and
 `debug`, and changed again if unrelated objects were allocated beforehand.
 
-Drafted for upstream: `docs/upstream-reports/dds-oscillator-off-by-one.md`,
+Drafted for upstream: [`docs/upstream-reports/dds-oscillator-off-by-one.md`](../upstream-reports/dds-oscillator-off-by-one.md),
 with a repro that keeps the errant read *inside* the buffer (a loop end short
 of the buffer end) so it is deterministic. Still present on `main` 2026-08-27,
 at four sites.
 
-Fixed here (`audiodsp_oscillator_fill()` in `src/shared/audiodsp_synth_dsp.c`,
+Fixed here (`audiodsp_oscillator_fill()` in [`src/shared/audiodsp_synth_dsp.c`](../../src/shared/audiodsp_synth_dsp.c),
 shared by the MicroPython usermod and the CPython extension, plus the
-MicroPython ring-modulator loop in `src/synthio/__init__.c`) by wrapping on
+MicroPython ring-modulator loop in [`src/synthio/__init__.c`](../../src/synthio/__init__.c)) by wrapping on
 `>=` and subtracting the loop span, and by reducing an out-of-range incoming
 accumulator into `[offset, limit)` rather than into `[0, limit) + offset`.
 
@@ -1381,10 +1381,10 @@ port differs from *its* original.
 
 The DSP itself is unchanged, `float` working precision included -- doubles
 would be a better filter and a different one. It lives in
-`src/shared/audiodsp_dynamics.c` and `src/shared/audiodsp_splitter.c`, so the
+[`src/shared/audiodsp_dynamics.c`](../../src/shared/audiodsp_dynamics.c) and [`src/shared/audiodsp_splitter.c`](../../src/shared/audiodsp_splitter.c), so the
 MicroPython usermod, the CPython extension and the CircuitPython spike all run
 the same arithmetic; the per-runtime code is only the loop that pulls the
-source. `tests/parity/verify_dsp.py` holds all three to what the original
+source. [`tests/parity/verify_dsp.py`](../../tests/parity/verify_dsp.py) holds all three to what the original
 rendered, byte for byte, by compiling `vstaudio_dsp.c` itself -- unmodified,
 straight out of the sibling checkout -- into a throwaway interpreter
 (`tests/parity/build_vstaudio_oracle.sh`). The usermod that publishes those
@@ -1452,7 +1452,7 @@ could not do either:
 The arithmetic is `shared/audiodsp_multiply.c`, Q15 and stateless: the product
 is `(a * b) >> 15`, blended `(dry * a + wet * product) >> 15`, clamped. The
 two negative rails are the one product that lands outside `int16`, which is
-what the clamp is for; `tests/parity/multiply_probe.py` drives it there
+what the clamp is for; [`tests/parity/multiply_probe.py`](../../tests/parity/multiply_probe.py) drives it there
 deliberately rather than assuming.
 
 **The two inputs fail in opposite directions, on purpose.** A source that runs
@@ -1542,7 +1542,7 @@ Details worth recording:
   line plays the previous take over the new one. The source frames the node
   has already taken are kept, as for every node (audiodsp#181).
 
-Verified by `tests/parity/feedback_delay_probe.py` through `verify_dsp.py`,
+Verified by [`tests/parity/feedback_delay_probe.py`](../../tests/parity/feedback_delay_probe.py) through `verify_dsp.py`,
 with no oracle -- the golden is captured from the port. That is a weaker
 claim than the `audiodynamics` fixtures make, but a stricter cross-interpreter
 one than anything else in the suite: the loop is recursive and runs in
@@ -1628,7 +1628,7 @@ that no arrangement of the existing nodes reaches, and the program's vision
   Switched in, it starts from the line's last write rather than from zero;
   a new upward `loop_semitones` walks the coefficients across one block, so a
   move does not click; switched out, its state is zero, so the node rests.
-  `tests/test_cpython_audioecho.py` E16 holds it: the strongest line under the
+  [`tests/test_cpython_audioecho.py`](../../tests/test_cpython_audioecho.py) E16 holds it: the strongest line under the
   series, with the loop running, stays within 10 dB of what the shifter makes
   on a single pass (unlimited, 12.6 to 32 dB over it), and E10 still holds an
   octave-up tail to exact zero.
@@ -1723,7 +1723,7 @@ that no arrangement of the existing nodes reaches, and the program's vision
   mid-swing and left the echo off pitch (a 20 ms echo at 8 kHz measured at
   frame 148, not 160). A new `wow_hz` starts it again from centre.
 
-**The option enum is appended, never renumbered.** `src/cpython/audioecho.py`
+**The option enum is appended, never renumbered.** [`src/cpython/audioecho.py`](../../src/cpython/audioecho.py)
 maps option names to those integers and `_audiodsp.c` range-checks against the
 last one, so inserting an option would silently change what an already
 installed wheel configures.
@@ -1759,7 +1759,7 @@ so a different digest. Nothing per sample is a library call.
 ## `audiodynamics` gains lookahead and true-peak detection (phase 11)
 
 Additive, and both default off, so a `Dynamics` built the way the original was
-*is* the original -- `tests/parity/dynamics_probe.py`'s hash is unchanged
+*is* the original -- [`tests/parity/dynamics_probe.py`](../../tests/parity/dynamics_probe.py)'s hash is unchanged
 across this phase, which is the check that says so. The new paths get their
 own fixture (`dynamics_extras_probe.py`) rather than joining that one, because
 that one is held against `vstaudio_dsp.c` compiled unmodified and may only use
@@ -1794,7 +1794,7 @@ would play it.
 ## `audiodynamics` gains twenty-one options and an external key (effects program)
 
 Additive, every one of them default-off, and the check that says so is inside
-the probe rather than beside it: `tests/parity/dynamics_options_probe.py`'s
+the probe rather than beside it: [`tests/parity/dynamics_options_probe.py`](../../tests/parity/dynamics_options_probe.py)'s
 first case sets none of them and reproduces `dynamics_probe.py`'s `compress`
 case line for line, on the same source at the same settings. That probe is
 held against `vstaudio_dsp.c` compiled unmodified and its hash is unchanged
@@ -1971,7 +1971,7 @@ Confirmed against `bin/circuitpython` directly — the oracle does the same
 thing.
 
 Fixed here by rewinding instead of stopping: a new
-`common_hal_audiomixer_mixervoice_reset()` (`src/audiomixer/MixerVoice.c`,
+`common_hal_audiomixer_mixervoice_reset()` ([`src/audiomixer/MixerVoice.c`](../../src/audiomixer/MixerVoice.c),
 and `MixerVoice.reset()` in `audiomixer.py`) does exactly what
 `MixerVoice.play()` already does — reset the sample, re-prime the voice's
 buffer — for each voice that is still playing. A stopped voice stays stopped.
@@ -1988,7 +1988,7 @@ reset is now a no-op. Rewinding had two costs the rule names: a voice over a
 again from its top, and a voice over a source that can't rewind, such as a
 `SplitterTap`, lost the frames it was holding when the priming fetch replaced
 them. `MixerVoice.play()` still starts its source from the top, as a new
-source should. `tests/parity/mixer_reset_probe.py` holds a reset Mixer to the
+source should. [`tests/parity/mixer_reset_probe.py`](../../tests/parity/mixer_reset_probe.py) holds a reset Mixer to the
 bytes of one never reset.
 
 **Not applied to the CircuitPython target.** `apply_cp_patches.sh` only adds
@@ -2075,11 +2075,11 @@ now one Biquad per band in a single Filter cascade.
 
 **Deviation**: fixed here, so `PEAKING_EQ` diverges from `bin/circuitpython`.
 Nothing else moves — no existing fixture reached mode 4, which is also why
-`tests/parity/biquad_component_probe.py` now walks all seven modes.
+[`tests/parity/biquad_component_probe.py`](../../tests/parity/biquad_component_probe.py) now walks all seven modes.
 
 Still present in upstream `main` as of 2026-08-27, not just in the pinned
 10.2.1, so this one is worth reporting rather than waiting out. Drafted:
-`docs/upstream-reports/peaking-eq-sign.md`.
+[`docs/upstream-reports/peaking-eq-sign.md`](../upstream-reports/peaking-eq-sign.md).
 
 **Closed as a departure.** Upstream merged the fix (8fabdbbfb1) and released
 it in 11.0.0-alpha.1, the oracle since 2026-10-08, which renders this port's
@@ -2109,7 +2109,7 @@ Two consequences, both measured:
 **This one is a catch-up, and it is CLOSED (2026-09-09).** Upstream fixed it
 after 10.2.1, the CP pin has since moved to 10.3.0, and this port now carries
 upstream's exact shape: `audiofilters_assign_filter_chain(..., channel_count)`
-in `src/audiofilters/__init__.c`, `states[j * channel_count + channel]`, and
+in [`src/audiofilters/__init__.c`](../../src/audiofilters/__init__.c), `states[j * channel_count + channel]`, and
 10.3.0's own `synthio_biquad_filter_sample()` single-sample entry point. So this
 entry describes no difference at all any more — it is kept because the failure
 it records (a stereo `Filter` sharing one biquad state between the channels,
@@ -2122,7 +2122,7 @@ about both.
 `[stage * channels + channel]`, with the buffer deinterleaved per channel and
 chunked in whole frames so the channels stay in lockstep across chunk
 boundaries. `filter_states_len` still counts stages, so callers are unchanged.
-Fixed in both implementations — the usermod (`src/audiofilters/Filter.c`) and
+Fixed in both implementations — the usermod ([`src/audiofilters/Filter.c`](../../src/audiofilters/Filter.c)) and
 the CPython extension (`BiquadState.process_s16` in `src/cpython/_audiodsp.c`,
 which gained a `channels` argument). The two agree byte-for-byte.
 
@@ -2238,7 +2238,7 @@ the flat-EQ passthrough, and the Nyquist refusal.
 > (2026-09-09). It is severe for us, it has a fix on our side, and it is not a
 > fire under anyone else's chair.
 >
-> `docs/upstream-reports/biquad-band-edges.md` carries the report. It is **held**
+> [`docs/upstream-reports/biquad-band-edges.md`](../upstream-reports/biquad-band-edges.md) carries the report. It is **held**
 > along with the other two — nothing goes upstream until we have done a great
 > deal more work across the org (2026-09-09).
 
@@ -2335,7 +2335,7 @@ upstream.**
 
 ### The fix
 
-`src/shared/audiodsp_biquad.c`, three changes:
+[`src/shared/audiodsp_biquad.c`](../../src/shared/audiodsp_biquad.c), three changes:
 
 1. **Per-filter coefficient format instead of a fixed Q15.**
    `choose_shift()` takes the largest of the five normalised coefficients and
@@ -2459,7 +2459,7 @@ sat16(−9 *  30145, 15) = −8    −8 +  (−9) = −17    -> the state, uncha
 so the state reproduces itself exactly, and the output word reproduces the
 input to the feedback. `allpass_words[]` and `feedback_words[]` are plain
 `int16_t` in sample units with **no fractional bits at all**
-(`src/shared/audiodsp_phaser.c`), so there is nothing below the LSB for the
+([`src/shared/audiodsp_phaser.c`](../../src/shared/audiodsp_phaser.c)), so there is nothing below the LSB for the
 value to decay into, no dither and no leak term.
 
 **Not the fixed-point biquad (audiodsp#23).** `audiodsp_phaser.c` never calls
@@ -2486,7 +2486,7 @@ is not. Measured: `drive` 0.0 / 0.2 / 0.5 / 0.9 in OVERDRIVE render byte-
 identical output, while the same four in WAVESHAPE differ.
 
 Still present on `main` 2026-08-27. Drafted for upstream as "wire it up or
-document it": `docs/upstream-reports/distortion-overdrive-drive.md`. It may
+document it": [`docs/upstream-reports/distortion-overdrive-drive.md`](../upstream-reports/distortion-overdrive-drive.md). It may
 well be intentional, which is why the draft asks rather than patches.
 
 **Not fixed in the C here either.** `audioeffects` works around it instead --
@@ -2520,7 +2520,7 @@ by applying it to this port's `audiodsp_biquad_reset()` and re-running that
 measurement: 28072 -> 0.
 
 **Fixed here** -- the fifth approved deviation, taken 2026-08-27 --
-and reported upstream as `docs/upstream-reports/biquad-reset.md`.
+and reported upstream as [`docs/upstream-reports/biquad-reset.md`](../upstream-reports/biquad-reset.md).
 
 **Nothing moved.** Every golden held without re-capture: `verify_biquad`,
 `verify_effects`, `verify_streaming`, `verify_acceptance`, `verify_dsp` on all
@@ -2697,7 +2697,7 @@ cascade's magnitude at 48 log-spaced frequencies and normalizes by the
 largest. Measured, `4x12 Stack`: +0 dB at 100 Hz, -3.9 at 1 kHz, -10.9 at
 5 kHz, -27.0 at 8 kHz, -45.7 at 12 kHz.
 
-Verified by `tests/parity/convolve_probe.py` through `verify_dsp.py`, with no
+Verified by [`tests/parity/convolve_probe.py`](../../tests/parity/convolve_probe.py) through `verify_dsp.py`, with no
 oracle -- the golden is captured from the port. It is the most
 float-dependent fixture in the suite: every output sample is a sum of
 hundreds of float products routed through two transforms. All three
@@ -2713,7 +2713,7 @@ a slot when a *member* was re-pressed at the cap, and it re-initialized
 the envelope from zero on re-press where upstream re-enters ATTACK from
 the current level with the oscillator phase intact. All three now mirror
 the oracle and the re-press render is byte-identical with a built
-CircuitPython (`tests/test_cpython_press_semantics.py` holds the
+CircuitPython ([`tests/test_cpython_press_semantics.py`](../../tests/test_cpython_press_semantics.py) holds the
 behaviors). MicroPython was already correct.
 
 ## Extension: `Note.filter` accepts a serial Biquad cascade (2026-09-01)
@@ -2849,7 +2849,7 @@ Verified on all three runtimes with the same script: a note pressed SHORT then
 re-pressed LONG now decays over 405.3 ms on CPython, MicroPython and the
 CircuitPython oracle alike; LONG then SHORT gives 58.6 ms on all three. Before
 the fix CPython returned exactly the opposite pair. Regression coverage:
-`tests/test_cpython_envelope_reassignment.py`.
+[`tests/test_cpython_envelope_reassignment.py`](../../tests/test_cpython_envelope_reassignment.py).
 
 ## A released note held its channel for its whole tail (2026-09-02)
 
@@ -2888,7 +2888,7 @@ is held. Verified on all three runtimes with one script: all released → press
 taken, all held → press refused and every held note intact, identical on the
 CPython target, and the build tree's built `micropython` and `circuitpython`.
 
-Regression coverage: `tests/test_cpython_released_reclaim.py`.
+Regression coverage: [`tests/test_cpython_released_reclaim.py`](../../tests/test_cpython_released_reclaim.py).
 
 This was most of the difficulty behind audiocomponents#18, where the pianos
 appeared to run out of voices far below the engine's ceiling.
@@ -2952,7 +2952,7 @@ CircuitPython sizes a `Synthesizer` at `CIRCUITPY_SYNTHIO_MAX_CHANNELS`,
 and the oracle this port is measured against is built at **14** (the
 `CIRCUITPY_SYNTHIO_MAX_CHANNELS` entry above). This port ships **64** at
 all five sites that carry the number -- `src/synthio/__init__.h`,
-`micropython.mk`, `micropython.cmake`, `src/cpython/synthio.py` and
+`micropython.mk`, `micropython.cmake`, [`src/cpython/synthio.py`](../../src/cpython/synthio.py) and
 `src/cpython/_audiodsp.c` -- moved together in `8f8b10d` on #31's
 evidence. 14 was the drum kits' number (cr78 holds exactly 14 permanent
 Notes) and never the melodic library's, whose instruments press several
@@ -3038,7 +3038,7 @@ matter of tuning:
   DC burst and then 3000 blocks of silence at 48 kHz, a `LOW_PASS` at 100 Hz
   settles on ±1 LSB and one at 40 Hz on ±4 LSB, which are the numbers
   audiodsp#23 reports. The reproduction is in
-  `tests/test_cpython_audiobiquad.py` rather than cited, and it is careful
+  [`tests/test_cpython_audiobiquad.py`](../../tests/test_cpython_audiobiquad.py) rather than cited, and it is careful
   about what it claims: **not every trajectory lands on a fixed point.** The
   same settings driven through the `audiofilters.Filter` wrapper with a
   different stimulus settled cleanly, which is why the defect went unnoticed
@@ -3126,7 +3126,7 @@ every target. The trig *is* shared — `audiodsp_sincos_reflect()`
 and cosine and a comparison between them measures the arithmetic rather than
 two libm builds.
 
-Verified by `tests/parity/filter_f32_probe.py` through `verify_dsp.py`, with
+Verified by [`tests/parity/filter_f32_probe.py`](../../tests/parity/filter_f32_probe.py) through `verify_dsp.py`, with
 no oracle: the golden is captured from the port, the same weaker claim
 `audiomath`, `audioecho` and `audioconvolve` make. That probe prints two
 invariants as integers beside its PCM — the block at which a tail reaches
@@ -3139,7 +3139,7 @@ to 1140, and the gate fails.
 ## `audioroute` gains `MidSide` (2026-09-07)
 
 Additive, and the default is the identity, so an `audioroute` built the way it
-was *is* what it was -- `tests/parity/route_probe.py`'s and
+was *is* what it was -- [`tests/parity/route_probe.py`](../../tests/parity/route_probe.py)'s and
 `route_dry_probe.py`'s hashes are unchanged across this addition, which is the
 check that says so. `Splitter` still hashes to `vstaudio_dsp.c` compiled
 unmodified. The new class gets its own fixture (`midside_probe.py`) rather
@@ -3181,7 +3181,7 @@ two int16 samples can have -- is 4294901760, past `INT32_MAX`, on the hot
 path, on parts where a 64-bit multiply is not free. Q14 caps the same product
 at `32768 * 65535 = 2147450880`, which fits `int32` with 32767 to spare. That
 bound is checked rather than argued: a standalone driver over
-`src/shared/audiodsp_midside.c` forms the widest product the kernel can reach
+[`src/shared/audiodsp_midside.c`](../../src/shared/audiodsp_midside.c) forms the widest product the kernel can reach
 and prints it beside `INT32_MAX`.
 
 **The halving comes last, and that is what makes the identity exact.** Per
@@ -3302,7 +3302,7 @@ Four things worth recording:
   is a restarted chain beginning on the inverted half of the count. The
   source frames already taken are kept (audiodsp#181).
 
-Verified by `tests/parity/suboctave_probe.py` through `verify_dsp.py`, with
+Verified by [`tests/parity/suboctave_probe.py`](../../tests/parity/suboctave_probe.py) through `verify_dsp.py`, with
 no oracle -- the golden is captured from the port under CPython and what it
 proves is cross-interpreter agreement, not fidelity to something older. The
 fixtures are integer-only for a reason a triangle does not have elsewhere in
@@ -3372,7 +3372,7 @@ whole, through `apply_cp_patches.sh`, or is absent and says so on import.
 
 ### The half-band coefficients are measured, not quoted
 
-`tools/design_halfband.py` is where they come from: a minimax search over
+[`tools/design_halfband.py`](../../tools/design_halfband.py) is where they come from: a minimax search over
 four coefficients for the stopband peak of
 `H(w) = (A0(e^{j2w}) + e^{-jw} A1(e^{j2w})) / 2` from `0.5833*pi`. That
 stopband edge is what the *last* decimation stage of a 48 kHz chain needs --
@@ -3473,7 +3473,7 @@ Phase 0 sketch carried would have been a byte of state nothing reads.
   `audiomixer.Mixer` does sample by sample with a saturating signed add
   (`src/audiomixer/Mixer.c:216-230`). No surviving claimant needs a stream
   here, and keeping the kernel free of `mp_obj` is what lets one golden hash
-  cover every interpreter -- the arithmetic all lives in `src/shared/`, so
+  cover every interpreter -- the arithmetic all lives in [`src/shared/`](../../src/shared/), so
   two interpreters disagreeing would itself be the finding.
 - **There is no `pre_filter_hz`.** Vision section 6 says the input filter is
   the class's to compose, and `audiofilters.Filter` with a `synthio.Biquad`
@@ -3561,14 +3561,14 @@ block and re-latching 187 times a second would be a defect nobody asked for.
 
 ### How it is gated
 
-`tests/parity/waveshaper_probe.py`, oracle `None` -- there is no ancestor to
+[`tests/parity/waveshaper_probe.py`](../../tests/parity/waveshaper_probe.py), oracle `None` -- there is no ancestor to
 hold it to, so what the golden pins is that every interpreter renders the
 same bytes. Its curves are built out of integer arithmetic on purpose: a
 table computed with `math.exp` would be a *different table* under
 CircuitPython, whose floats are single-precision, and the probe would then be
 measuring three libms rather than this node.
 
-`tests/test_cpython_audioshaper.py` carries what the golden cannot: that
+[`tests/test_cpython_audioshaper.py`](../../tests/test_cpython_audioshaper.py) carries what the golden cannot: that
 oversampling actually lowers the alias floor, that the hysteresis knob is
 monotone and clears its control by 6 dB, that a static table and a
 zero-width operator both enclose exactly 0.0, and that a hard-clipping
@@ -3580,7 +3580,7 @@ with a zero-order hold and a decimating drop reddens the alias-floor test,
 and the headroom test reddens at oversample x1, where there is no
 half-band left to ring.
 
-`SampleHold` has `tests/parity/samplehold_probe.py` of its own rather than
+`SampleHold` has [`tests/parity/samplehold_probe.py`](../../tests/parity/samplehold_probe.py) of its own rather than
 cases appended to the waveshaper's, because one comparison covers a probe's
 whole output and an added case would move the very numbers that say the
 Waveshaper's bytes did not change. Its last lines are counts rather than PCM
@@ -3639,7 +3639,7 @@ ceiling: keep `post_gain * max(abs(curve))` at or below it for a curve that
 reaches the rails, and put the rest of the wanted level on a mixer voice
 after this node rather than on this knob. The constant lives on the
 CPython twin only, the same as `GROUP_DELAY_SAMPLES` above it -- neither
-the MicroPython usermod's module globals (`src/audioshaper/module.c`) nor
+the MicroPython usermod's module globals ([`src/audioshaper/module.c`](../../src/audioshaper/module.c)) nor
 the CircuitPython spike's (`shared-bindings/audioshaper/__init__.c`) export
 anything past `__version__`/`__revision__` and the two types, so there is
 no second target yet for this figure to agree with.
@@ -3771,7 +3771,7 @@ Feeding `-x` returns exactly `-y` wherever the signal is off the int16 rails,
 where the asymmetry is two's complement's (`+32767` against `-32768`) and is
 the same in every other node here.
 
-Verified by `tests/parity/ladder_probe.py` through `verify_dsp.py`, with no
+Verified by [`tests/parity/ladder_probe.py`](../../tests/parity/ladder_probe.py) through `verify_dsp.py`, with no
 oracle -- the golden is captured from the port, as `audiomath`, `audioecho`
 and `audioconvolve` are. It is the most sensitive fixture in that file: the
 loop is recursive, runs in `float`, *and* is solved, so a one-ulp
@@ -3923,7 +3923,7 @@ The default table needs 36,280 `int16` (70.9 KB) of line at 48 kHz, plus the
 predelay: 89.6 KB with the 200 ms default, 41.2 KB at 22.05 kHz. A shorter
 `delays` table is how a lean character pays less.
 
-Verified by `tests/parity/tank_probe.py` through `verify_dsp.py`, with no
+Verified by [`tests/parity/tank_probe.py`](../../tests/parity/tank_probe.py) through `verify_dsp.py`, with no
 oracle -- the golden is captured from the port, the same weaker-but-stricter
 claim `audioecho` and `audioconvolve` make. It is the most recursive fixture
 in the suite: ten lines feeding each other in `float`, the two halves crossed,
@@ -4102,11 +4102,11 @@ there with eight drums sounding, which is 31% and 3.2x real time.
 
 ### How it is verified
 
-`tests/parity/modal_probe.py` in `verify_dsp`'s set, for the three-target
+[`tests/parity/modal_probe.py`](../../tests/parity/modal_probe.py) in `verify_dsp`'s set, for the three-target
 agreement `docs/how-it-works/correctness-standard.md` asks of an own node, and it prints
 invariants as well as PCM — the block at which the tail reaches exact zero,
 whether the bank is still sounding after its source has gone, and the peak of
-a mode whose Q a filter would refuse. `tests/test_cpython_audiomodal.py`
+a mode whose Q a filter would refuse. [`tests/test_cpython_audiomodal.py`](../../tests/test_cpython_audiomodal.py)
 carries eleven traits with their bars and the planted faults that break each,
 including the limit cycle above, which is recorded there as what it was: a
 real bug rather than a planted one.
@@ -4138,10 +4138,10 @@ MicroPython renders "hung for over 90 s", where a two-frame silence fixed both.
 must fill at least one 32-bit word")` when the fetch it already performs comes
 back under a word with no more to come, and the mix-down carries a backstop for
 the routes `play()` cannot see. **Upstream still spins**, which is why
-`tests/parity/mixer_short_loop_probe.py` is not in `verify_dsp.py`'s `PROBES`:
+[`tests/parity/mixer_short_loop_probe.py`](../../tests/parity/mixer_short_loop_probe.py) is not in `verify_dsp.py`'s `PROBES`:
 the oracle would hang the three-way rather than report a difference.
 `audiomixer` is a stock CircuitPython module and not part of
-`src/circuitpython_spike/`, so per this repository's rule the fix lands on the
+[`src/circuitpython_spike/`](../../src/circuitpython_spike/), so per this repository's rule the fix lands on the
 MicroPython and CPython targets only and the oracle is left alone.
 
 ### Refused rather than padded
@@ -4172,7 +4172,7 @@ is what makes it hang — while the native side had neither.
 
 `MixerVoice.loop` also gains a property on the CPython twin, which had only the
 `play(loop=)` argument. The MicroPython binding and CircuitPython have carried
-it all along; `tests/test_binding_parity.py` covers audiodsp's own nine modules
+it all along; [`tests/test_binding_parity.py`](../../tests/test_binding_parity.py) covers audiodsp's own nine modules
 and so never compared this one.
 
 ### How it is verified
@@ -4180,7 +4180,7 @@ and so never compared this one.
 `tests/parity/mixer_short_loop_probe.py`, six cases, runs unchanged on all
 three runtimes and **must be run under a timeout** — the defect is a hang, and
 an unbounded run that hangs says nothing where a killed one says everything.
-`tests/test_cpython_mixer_short_loop.py` is the half CI can run: it drives the
+[`tests/test_cpython_mixer_short_loop.py`](../../tests/test_cpython_mixer_short_loop.py) is the half CI can run: it drives the
 probe in a subprocess with a 20-second bound, so a regression is a named failure
 rather than an untimed job hang. Removing the `play()` guard turns case 1 red;
 removing both twin exits makes case 6 hit the timeout with no output at all.
@@ -4228,8 +4228,8 @@ the ring needs the number rather than a comment about it.
 
 ### How it is verified
 
-Trait **R12** in `tests/test_cpython_audioroute.py`, and
-`tests/parity/splitter_overflow_probe.py`, which runs unchanged on all three
+Trait **R12** in [`tests/test_cpython_audioroute.py`](../../tests/test_cpython_audioroute.py), and
+[`tests/parity/splitter_overflow_probe.py`](../../tests/parity/splitter_overflow_probe.py), which runs unchanged on all three
 runtimes. Both use a per-frame ramp, so a lost frame reports as an index rather
 than as a click, and both are bounded by construction.
 
@@ -4305,7 +4305,7 @@ palette already turns a `GET_BUFFER_ERROR` into silence, so a torn graph is a
 quiet block rather than a core dump.
 
 The promise is kept where it was made: **`audiocore.get_buffer()` and
-`audiocore.reset_buffer()` in `src/audiocore/module.c` still raise**. The two
+`audiocore.reset_buffer()` in [`src/audiocore/module.c`](../../src/audiocore/module.c) still raise**. The two
 checks the funnel used to do happen there instead, in `audiocore_check()`,
 because those two are the script-facing calls and a script has a thread to
 raise on. CircuitPython code that catches a released sample still catches it,
@@ -4360,7 +4360,7 @@ that costs only memory until the object goes; here a pump at handover walks a
 graph through each node's `sources`, and a class that keeps a released node
 around kept the whole chain behind it. So each of those `deinit()` bodies also
 clears `sample` and the borrowed `sample_remaining_buffer`, as the nodes
-audiodsp wrote always did. `tests/parity/deinit_surface_probe.py` checks it
+audiodsp wrote always did. [`tests/parity/deinit_surface_probe.py`](../../tests/parity/deinit_surface_probe.py) checks it
 for every node, by the memory the source gives back (audiodsp#177).
 
 Upstream's `MultiTapDelay.taps` setter resizes its three tables in place with
@@ -4407,7 +4407,7 @@ public surface, and is written down here rather than assumed away.
 does not need one: its playback layer already pulls the graph natively, from
 its own audio thread, so a second pull loop would be a second owner of the
 same nodes. The module is therefore **absent from a CircuitPython build** —
-`copy_manifest.txt` names none of `src/audiopump/` — and absent from the
+`copy_manifest.txt` names none of [`src/audiopump/`](../../src/audiopump/) — and absent from the
 **CPython wheel**, which excludes it rather than stubbing it, because it is a
 MicroPython C module through and through (`MP_REGISTER_MODULE`, `mp_obj_t`, a
 VM root pointer array) and a desktop Python program has threads of its own.
@@ -4424,7 +4424,7 @@ pump:
   file from it, and `Synthesizer` stopped re-entering the interpreter. Those
   are behaviours a CircuitPython user cannot reach, because on CircuitPython
   there is no thread to be on.
-- **No platform header, ever.** `tools/check_portable.py` fails the build on
+- **No platform header, ever.** [`tools/check_portable.py`](../../tools/check_portable.py) fails the build on
   `freertos/`, `esp_*`, `driver/`, `pthread.h`, `windows.h`, `unistd.h`,
   `sys/time.h` and the calls those headers bring, with comments and string
   literals stripped first so a file may explain the rule without breaking it.

@@ -133,7 +133,7 @@ and their source is micropython-vst3 rather than CircuitPython:
   any of them, so this repository builds them into CircuitPython as a user C
   module (`circuitpython.mk`) —
   the only direction in this repo where CircuitPython is the recipient. See
-  `docs/how-it-works/upstream-diff.md` for what changed in the moves and what was kept.
+  [`docs/how-it-works/upstream-diff.md`](how-it-works/upstream-diff.md) for what changed in the moves and what was kept.
 - **tier 8** is pure Python under `lib/`. `audioinstruments` — 55 classic
   synthesizers, keyboards and drum machines written entirely in `synthio`,
   no samples — and `audioeffects` — 45 effect classes built on the tiers
@@ -141,7 +141,7 @@ and their source is micropython-vst3 rather than CircuitPython:
   VST host, and have since moved once more, to the
   [audiocomponents](https://github.com/PyDevices/audiocomponents)
   repository, which develops and publishes them as their own distributions.
-  What remains here is `lib/audiorender/`, the tier above those two: a
+  What remains here is [`lib/audiorender/`](../lib/audiorender/), the tier above those two: a
   composition — tracks, a tempo map, notes, automation, sections — rendered
   offline to a mixed master and the level report a render is judged by. It
   is the one part of this repository written for a desktop rather than a
@@ -152,7 +152,7 @@ and their source is micropython-vst3 rather than CircuitPython:
   micropython-vst3 keep driving its own script loader through it.
 
 Tier 7 has its own oracle, and it is the micropython-vst3 checkout rather
-than `bin/circuitpython`: `tests/parity/verify_dsp.py`, which never writes
+than `bin/circuitpython`: [`tests/parity/verify_dsp.py`](../tests/parity/verify_dsp.py), which never writes
 to that tree. The instruments' gate, `run_instruments_parity.py`, went to
 audiocomponents with the instruments.
 
@@ -272,7 +272,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
    clean (`build_interpreters.sh`, LVGL smoke test, all 8 module stubs)
    after every change.
 5. **Tier 3 `audiomixer`** *(done)*. `Mixer` + `MixerVoice` ported
-   (`src/audiomixer/`), oracle-diffed against `bin/circuitpython` 10.2.1
+   ([`src/audiomixer/`](../src/audiomixer/)), oracle-diffed against `bin/circuitpython` 10.2.1
    byte-for-byte across every branch of the mixdown engine: mono→mono,
    mono source upmixed into a stereo mixer with panning, 16-bit signed and
    8-bit unsigned sample formats, single- and multi-voice mixdown
@@ -287,8 +287,8 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
    test, all module imports) after every change.
 
 6. **Tier 4 effects** *(done)*. All nine types across four modules ported
-   (`src/audiospeed/`, `src/audiofreeverb/`, `src/audiofilters/`,
-   `src/audiodelays/`): `SpeedChanger`; `Freeverb`; `Filter`, `Distortion`,
+   ([`src/audiospeed/`](../src/audiospeed/), [`src/audiofreeverb/`](../src/audiofreeverb/), [`src/audiofilters/`](../src/audiofilters/),
+   [`src/audiodelays/`](../src/audiodelays/)): `SpeedChanger`; `Freeverb`; `Filter`, `Distortion`,
    `Phaser`; `Chorus`, `Echo`, `MultiTapDelay`, `PitchShift`. All
    oracle-diffed byte-for-byte across mono/stereo, 8/16-bit signed/
    unsigned, looping, block-input-driven (`synthio.LFO`) parameters,
@@ -302,8 +302,8 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
    every change.
 7. **`synthtools` end-to-end (unix)** *(done)*. **Primary acceptance
    milestone.** Vendored todbot's `CircuitPython_SynthTools` unmodified
-   (`tests/vendor/synthtools`, MIT); a new acceptance script
-   (`tests/parity/synthtools_acceptance.py`) drives its `SubtractiveSynth`
+   ([`tests/vendor/synthtools`](../tests/vendor/synthtools/), MIT); a new acceptance script
+   ([`tests/parity/synthtools_acceptance.py`](../tests/parity/synthtools_acceptance.py)) drives its `SubtractiveSynth`
    and `BasslineSynth` engines through a real `Synthesizer` + `Mixer` +
    `EffectsChain` (tier 4's `Filter`/`Distortion`/`Echo`), oracle-diffed
    byte-for-byte against `bin/circuitpython`. Found and fixed a genuine
@@ -367,7 +367,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
      `NotImplementedError` from on `_WIN32` for a real file object, so
      `MP3Decoder` reading an `open()`ed file was completely broken on
      `micropython.exe`. Fixed with an `#ifdef _WIN32` fallback in
-     `src/audiomp3/MP3Decoder.c` (see docs/how-it-works/upstream-diff.md, "Tier 5
+     [`src/audiomp3/MP3Decoder.c`](../src/audiomp3/MP3Decoder.c) (see docs/how-it-works/upstream-diff.md, "Tier 5
      audiomp3: three Windows-only local fixes"). A mechanical `win_audio`
      `AudioOut` smoke (construct, play a `synthio.Note`, service, close, no
      hardware errors) also passed under `micropython.exe`; true by-ear
@@ -459,7 +459,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
    itself. Cloned `mp3` (upstream `adafruit/Adafruit_MP3`) as a parent
    workspace sibling dependency pinned to the exact commit its
    `circuitpython/lib/mp3` vendors, same treatment as `ulab`.
-   `MP3Decoder` ported to `src/audiomp3/` (merged shared-bindings +
+   `MP3Decoder` ported to [`src/audiomp3/`](../src/audiomp3/) (merged shared-bindings +
    shared-module, matching every other tier); needed a `background_callback`
    compat stub (`cp_compat/background_callback.h`) -- CircuitPython's own
    unix coverage build (this port's oracle) already collapses that whole
@@ -582,7 +582,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
 ## Testing strategy (recap)
 
 - **Oracle diffing is the core:** every DSP tier lands with scripts under
-  `tests/parity/` that run unchanged on `bin/circuitpython` and the MP
+  [`tests/parity/`](../tests/parity/) that run unchanged on `bin/circuitpython` and the MP
   build, rendering PCM to stdout/file; the runner asserts byte-equality
   (or bounded error where float-width differences make byte-exactness
   impossible — record any such case in `upstream-diff.md`).

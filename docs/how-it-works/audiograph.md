@@ -206,7 +206,7 @@ parameters, and a group is 0 to 31. A graph refuses a node with nothing to
 write (every kind but `OUT` writes a buffer), an input or output id past
 its buffers, and a node past its table.
 
-`tests/parity/graph_source_probe.py` renders one script of changes three
+[`tests/parity/graph_source_probe.py`](../../tests/parity/graph_source_probe.py) renders one script of changes three
 ways: through `run()`, pulled as a sample with batches held and committed,
 and pulled with a queue so small that every patch change overflows it. The
 three must agree to the sample, block by block, and `verify_graph.py`
@@ -220,7 +220,7 @@ of its own, 3000 batches are committed while it pulls, and none may tear.
 The graph also goes through the pump's identity and heap-locked allocation
 gates.
 
-`tests/parity/graph_probe.py` holds the runner to its wiring (a value set
+[`tests/parity/graph_probe.py`](../../tests/parity/graph_probe.py) holds the runner to its wiring (a value set
 reaches the output in the same run, through every node between), to its
 nodes doing their jobs (the ladder closes a sawtooth, a `set()` after the
 first run lands), to its groups (sounding is reported while an envelope
@@ -229,7 +229,7 @@ ramp and to the output node. Each planted fault, a mixer added before the
 node it reads, a filter left out of the chain, a cutoff sent to a node no
 output reads, makes it fail; CI runs the faults first.
 
-`tests/parity/verify_graph.py` renders two probes on CPython and on each
+[`tests/parity/verify_graph.py`](../../tests/parity/verify_graph.py) renders two probes on CPython and on each
 interpreter you name, and compares every sample. `graph_parity_probe.py` is one
 patch with the runner's first node kinds in it (two voices with their groups
 parking, a fed buffer, moved gains and cutoffs, a delay reset mid-tail, a mono
@@ -242,7 +242,7 @@ a shape switched a block late, a clock edge a sample late. CI runs it against
 MicroPython in both float widths; the three-way with the CircuitPython unix
 build is a local run.
 
-`tests/test_cpython_audiograph_nodes.py` holds the newer nodes to what they
+[`tests/test_cpython_audiograph_nodes.py`](../../tests/test_cpython_audiograph_nodes.py) holds the newer nodes to what they
 stand in for: `PHASER` to `audiobiquad.AllPass` at 0 counts, the glide, the
 LFO's shapes and the sample-and-hold to the Python cores of the same name in
 vrack, with each bar in the file's table.
