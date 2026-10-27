@@ -8,10 +8,8 @@ audio pump holding up under live use such as a stompbox or a stage rig.
 - An RP2 pump driver: the pump on the second core with an I2S (PIO) sink, so
   RP2 boards get the same off-thread audio as ESP32. See
   [docs/pump-ports.md](docs/pump-ports.md) for how a port plugs in.
-- `audiograph` as a source the audio pump pulls, so a graph renders on the
-  pump's core instead of the interpreter's, with `set()` changes carried to it
-  on the pump's event queue. An app's screen and a graph instrument can then
-  hold real time together on a dual-core board.
+- `audiograph`: `set()` at a frame inside a block, so a note lands on its own
+  sample rather than at the top of the next block.
 - An LC3 codec module beside `audiomp3`, frame by frame: encode PCM to one
   frame, decode a frame (or a lost one) to PCM. Leaves room for LE Audio later.
 - A level ramp on `audiomixer` voices: a level move ramps over a set number of

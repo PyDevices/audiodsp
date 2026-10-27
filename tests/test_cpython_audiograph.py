@@ -7,6 +7,10 @@
 | a wow table handed to a delay cannot be resized under it | BufferError |
 | a graph refuses a second `__init__` | RuntimeError |
 | a graph built and dropped many times frees what it took | no growth |
+| `graph_source_probe.py`: pulled as a source, it renders what `run()` does | GRAPH SOURCE PASS |
+| every method the MicroPython `Graph` has exists here | the same set |
+| `hold()` keeps a batch back until `commit()`, and `get()` reads the last `set()` | exact |
+| a queue too small for a batch splits it and still applies all of it | counted |
 
 The renders themselves are held to MicroPython's and CircuitPython's by
 `tests/parity/verify_graph.py`, sample for sample; this file is what the wheel
@@ -86,6 +90,72 @@ class TheModule(unittest.TestCase):
         # One graph with a 100 ms line is tens of kilobytes; 200 kept would be
         # megabytes.
         self.assertLess(grown, 64 * 1024)
+
+    def test_pulled_as_a_source_it_renders_what_run_does(self):
+        result = subprocess.run(
+            [sys.executable,
+             str(ROOT / "tests" / "parity" / "graph_source_probe.py")],
+            capture_output=True, text=True, timeout=120, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("GRAPH SOURCE PASS", result.stdout)
+
+    def test_every_method_the_board_has(self):
+        table = (ROOT / "src" / "audiograph" / "Graph.c").read_text()
+        names = set(re.findall(r"MP_ROM_QSTR\(MP_QSTR_(\w+)\)", table))
+        missing = sorted(n for n in names if not hasattr(ag.Graph, n))
+        self.assertEqual(missing, [])
+
+    def _pair(self, **kw):
+        g = ag.Graph(frames=4, channel_count=2, buffers=2, nodes=3, **kw)
+        left, right = g.buffer(), g.buffer()
+        a = g.add(ag.CONST, ag.ALWAYS, (), left)
+        b = g.add(ag.CONST, ag.ALWAYS, (), right)
+        g.add(ag.OUT, ag.ALWAYS, (left, right), None)
+        return g, a, b
+
+    @staticmethod
+    def _pull(g):
+        return list(array("h", bytes(g._get_buffer(False, 0)[1])))
+
+    def test_hold_keeps_a_batch_back_until_commit(self):
+        g, a, b = self._pair()
+        g.hold()
+        g.set(a, 0, 100.0)
+        g.set(b, 0, -100.0)
+        self.assertEqual(g.get(a, 0), 100.0)      # the shadow: already set
+        self.assertEqual(self._pull(g), [0] * 8)  # but not yet heard
+        g.commit()
+        self.assertEqual(self._pull(g), [100, -100] * 4)
+        sounding, frame, applied, pushed = g.sounding()
+        self.assertEqual((frame, applied, pushed), (8, 2, 2))
+
+    def test_a_small_queue_splits_a_batch_and_keeps_it_whole(self):
+        g, a, b = self._pair(queue=2)
+        g.hold()
+        for v in range(1, 6):
+            g.set(a, 0, float(v))
+            g.set(b, 0, float(-v))
+        g.commit()
+        self.assertEqual(self._pull(g), [5, -5] * 4)
+        stats = g.stats()
+        self.assertEqual(stats["capacity"], 2)
+        self.assertEqual(stats["pushed"], stats["applied"])
+        self.assertGreater(stats["splits"], 0)
+
+    def test_a_bad_set_is_refused_before_it_is_queued(self):
+        g, a, _b = self._pair()
+        with self.assertRaises((IndexError, ValueError)):
+            g.set(99, 0, 1.0)
+        self.assertEqual(g.stats()["pushed"], 0)
+        with self.assertRaises(ValueError):
+            ag.Graph(queue=-1)
+
+    def test_a_deinited_graph_refuses_everything(self):
+        g, a, _b = self._pair()
+        g.deinit()
+        with self.assertRaises(ValueError):
+            g.set(a, 0, 1.0)
+        g.deinit()                                # twice is fine
 
 
 if __name__ == "__main__":

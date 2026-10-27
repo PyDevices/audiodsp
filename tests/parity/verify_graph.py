@@ -5,13 +5,15 @@
     verify_graph.py --micropython PATH --fault lsb     # must FAIL
     verify_graph.py --micropython PATH --fault late    # must FAIL
     verify_graph.py --micropython PATH --fault phaser  # must FAIL (and lag, lfo, hold)
+    verify_graph.py --micropython PATH --fault drain   # must FAIL (and split)
 
 Runs two probes on this CPython (``audiograph`` from the installed wheel) and
 on each interpreter named, and compares the renders sample for sample.
 ``graph_parity_probe.py`` is the runner: every output sample of every block,
 the buffers' peaks and a mono graph's blocks. ``graph_nodes_probe.py`` is the
 phaser, the glide, the LFO's shapes and the sample-and-hold: every sample each
-of them writes. The block headers (which voices ran, which were still
+of them writes. ``graph_source_probe.py`` is the graph pulled as a source,
+through its queue, which must render what ``run()`` renders. The block headers (which voices ran, which were still
 sounding), the parameters read back and the probes' own checks must match
 exactly.
 
@@ -44,6 +46,7 @@ ROOT = HERE.parents[1]
 PROBES = (
     ("runner", HERE / "graph_parity_probe.py", ("lsb", "late")),
     ("nodes", HERE / "graph_nodes_probe.py", ("phaser", "lag", "lfo", "hold")),
+    ("source", HERE / "graph_source_probe.py", ("drain", "split")),
 )
 FAULTS = tuple(f for _, _, faults in PROBES for f in faults)
 #: Lines whose fields after the tag are samples, compared within the tolerance.
