@@ -62,6 +62,10 @@ AUDIODSP_CP_SOURCES += $(addprefix $(AUDIODSP_CP_SRC)/shared/, \
 	audiodsp_graph.c \
 	)
 
+# The graph's OVERDRIVE node needs double-precision libm the RP2040 build
+# cannot link (audiodsp_graph_overdrive.h), so CircuitPython leaves it out.
+CFLAGS_USERMOD += -DAUDIODSP_GRAPH_HAS_OVERDRIVE=0
+
 SRC_USERMOD_C += $(AUDIODSP_CP_SOURCES)
 
 # CircuitPython's board ports append -Werror=float-equal and

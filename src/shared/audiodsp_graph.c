@@ -7,6 +7,8 @@
 
 #include "shared/audiodsp_graph.h"
 
+#include "shared/audiodsp_graph_overdrive.h"
+
 #include <math.h>
 #include <string.h>
 
@@ -136,6 +138,12 @@ static uint32_t phaser_stages(float arg) {
 }
 
 typedef struct {
+    // The two integrator states of dsp/twopole.py, carried across blocks.
+    float s1;
+    float s2;
+} graph_twopole_t;
+
+typedef struct {
     uint32_t rng;
 } graph_noise_t;
 
@@ -174,6 +182,12 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_lag_t);
         case AUDIODSP_GRAPH_SAMPLE_HOLD:
             return sizeof(graph_sh_t);
+        case AUDIODSP_GRAPH_TWOPOLE:
+            return sizeof(graph_twopole_t);
+#if AUDIODSP_GRAPH_HAS_OVERDRIVE
+        case AUDIODSP_GRAPH_OVERDRIVE:
+            return audiodsp_graph_overdrive_size();
+#endif
         default:
             return 0;
     }
@@ -218,10 +232,19 @@ static float env_coeff(float seconds, float scale, uint32_t sample_rate) {
     return expf(-1.0f / steps);
 }
 
+bool audiodsp_graph_kind_built(audiodsp_graph_kind_t kind) {
+    #if !AUDIODSP_GRAPH_HAS_OVERDRIVE
+    if (kind == AUDIODSP_GRAPH_OVERDRIVE) {
+        return false;
+    }
+    #endif
+    return kind < AUDIODSP_GRAPH_KINDS;
+}
+
 int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
     uint32_t group, const int16_t *inputs, uint32_t ninputs, int16_t output,
     void *data, float arg) {
-    if (graph->nnodes >= graph->max_nodes || kind >= AUDIODSP_GRAPH_KINDS ||
+    if (graph->nnodes >= graph->max_nodes || !audiodsp_graph_kind_built(kind) ||
         ninputs > AUDIODSP_GRAPH_MAX_INPUTS) {
         return -1;
     }
@@ -355,6 +378,19 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             audiodsp_samplehold_state_init(&d->state, &d->config);
             break;
         }
+        case AUDIODSP_GRAPH_TWOPOLE:
+            node->param[AUDIODSP_GRAPH_TWOPOLE_TYPE] = (float)AUDIODSP_GRAPH_TWOPOLE_SK_LOWPASS;
+            node->param[AUDIODSP_GRAPH_TWOPOLE_CUTOFF_HZ] = 1000.0f;
+            node->param[AUDIODSP_GRAPH_TWOPOLE_DEPTH] = 1.0f;
+            node->param[AUDIODSP_GRAPH_TWOPOLE_RESONANCE] = 0.0f;
+            node->param[AUDIODSP_GRAPH_TWOPOLE_DRIVE] = 1.0f;
+            break;
+        case AUDIODSP_GRAPH_OVERDRIVE:
+            // OverdriveCore.render's defaults.
+            node->param[AUDIODSP_GRAPH_OVERDRIVE_DRIVE] = 0.5f;
+            node->param[AUDIODSP_GRAPH_OVERDRIVE_TONE] = 0.5f;
+            node->param[AUDIODSP_GRAPH_OVERDRIVE_LEVEL] = 1.0f;
+            break;
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -467,6 +503,17 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             audiodsp_samplehold_reset(&d->state, &d->config);
             break;
         }
+        case AUDIODSP_GRAPH_TWOPOLE: {
+            graph_twopole_t *d = n->data;
+            d->s1 = 0.0f;
+            d->s2 = 0.0f;
+            break;
+        }
+#if AUDIODSP_GRAPH_HAS_OVERDRIVE
+        case AUDIODSP_GRAPH_OVERDRIVE:
+            audiodsp_graph_overdrive_reset(n->data);
+            break;
+#endif
         default:
             break;
     }
@@ -546,6 +593,11 @@ static void derive(audiodsp_graph_t *graph, audiodsp_graph_node_t *n) {
             }
             break;
         }
+#if AUDIODSP_GRAPH_HAS_OVERDRIVE
+        case AUDIODSP_GRAPH_OVERDRIVE:
+            audiodsp_graph_overdrive_configure(n->data, n->param, graph->sample_rate);
+            break;
+#endif
         case AUDIODSP_GRAPH_ENV: {
             graph_env_t *d = n->data;
             d->a = env_coeff(n->param[AUDIODSP_GRAPH_ENV_ATTACK], 0.35f, graph->sample_rate);
@@ -939,6 +991,15 @@ static void run_vca(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         memset(out, 0, frames * sizeof(int16_t));
         return;
     }
+    if (n->param[AUDIODSP_GRAPH_VCA_CURVE] >= 0.5f) {
+        // 10^(3 * (x - 1)) = e^(3 ln 10 * (x - 1))
+        const float a = 6.907755279f / AUDIODSP_GRAPH_UNIT;
+        const float g = n->param[AUDIODSP_GRAPH_VCA_GAIN];
+        for (uint32_t i = 0; i < frames; ++i) {
+            out[i] = sat16((float)audio[i] * expf(a * (float)cv[i] - 6.907755279f) * g);
+        }
+        return;
+    }
     for (uint32_t i = 0; i < frames; ++i) {
         out[i] = sat16((float)audio[i] * (float)cv[i] * k);
     }
@@ -968,6 +1029,261 @@ static void run_out(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
             out[i] = sat16(((float)left[i] + (float)right[i]) * 0.5f * scale);
         }
     }
+}
+
+
+// ------------------------------------------------------------ TWOPOLE --
+
+// tanh, the same on every target: libm's differs in the last place between
+// glibc, newlib and MicroPython's own. A rational function (an odd degree-13
+// polynomial over an even degree-6 one in x*x, Horner, no fused multiply-add)
+// good to a few float ulps, which is under a hundredth of a count at full
+// scale. Beyond 7.9 it has reached 1 to the last bit.
+static float graph_tanh(float x) {
+    x = x > 7.90531110763549805f ? 7.90531110763549805f : x;
+    x = x < -7.90531110763549805f ? -7.90531110763549805f : x;
+    const float x2 = x * x;
+    float p = -2.76076847742355e-16f;
+    p = p * x2 + 2.00018790482477e-13f;
+    p = p * x2 + -8.60467152213735e-11f;
+    p = p * x2 + 5.12229709037114e-08f;
+    p = p * x2 + 1.48572235717979e-05f;
+    p = p * x2 + 6.37261928875436e-04f;
+    p = p * x2 + 4.89352455891786e-03f;
+    p = x * p;
+    float q = 1.19825839466702e-06f;
+    q = q * x2 + 1.18534705686654e-04f;
+    q = q * x2 + 2.26843463243900e-03f;
+    q = q * x2 + 4.89352518554385e-03f;
+    return p / q;
+}
+
+// 2^y in double without libm, for the cutoff: the integer part into the
+// scale, the fraction (within half) through a Taylor series to x^14 of
+// e^(f ln 2), good to about 1e-19. Once or twice a block, so it stays double.
+static double graph_exp2d(double y) {
+    y = y > 60.0 ? 60.0 : (y < -60.0 ? -60.0 : y);
+    const int32_t whole = y >= 0.0 ? (int32_t)(y + 0.5) : -(int32_t)(0.5 - y);
+    const double x = (y - (double)whole) * 0.693147180559945309417232121458;
+    double r = 1.0 / 87178291200.0;       // 1/14!
+    r = r * x + 1.0 / 6227020800.0;       // 1/13!
+    r = r * x + 1.0 / 479001600.0;        // 1/12!
+    r = r * x + 1.0 / 39916800.0;         // 1/11!
+    r = r * x + 1.0 / 3628800.0;          // 1/10!
+    r = r * x + 1.0 / 362880.0;           // 1/9!
+    r = r * x + 1.0 / 40320.0;            // 1/8!
+    r = r * x + 1.0 / 5040.0;             // 1/7!
+    r = r * x + 1.0 / 720.0;              // 1/6!
+    r = r * x + 1.0 / 120.0;              // 1/5!
+    r = r * x + 1.0 / 24.0;               // 1/4!
+    r = r * x + 1.0 / 6.0;                // 1/3!
+    r = r * x + 0.5;
+    r = r * x + 1.0;
+    r = r * x + 1.0;
+    double scale = 1.0;
+    double step = whole >= 0 ? 2.0 : 0.5;
+    uint32_t k = (uint32_t)(whole >= 0 ? whole : -whole);
+    while (k) {
+        if (k & 1u) {
+            scale *= step;
+        }
+        step *= step;
+        k >>= 1;
+    }
+    return r * scale;
+}
+
+// min(tan(theta), 0.95) in double without libm, for the filter coefficient
+// g = tan(pi fc / sr). tan reaches 0.95 at 0.7595 rad, so a larger angle is
+// the clamp and a smaller one takes the sine and cosine series to x^17 / x^16
+// (about 1e-19 at 0.77).
+static double graph_tan_clamped(double theta) {
+    if (!(theta < 0.77)) {
+        return 0.95;
+    }
+    const double x2 = theta * theta;
+    double s = 1.0 / 355687428096000.0;   // 1/17!
+    s = s * x2 - 1.0 / 1307674368000.0;   // 1/15!
+    s = s * x2 + 1.0 / 6227020800.0;      // 1/13!
+    s = s * x2 - 1.0 / 39916800.0;        // 1/11!
+    s = s * x2 + 1.0 / 362880.0;          // 1/9!
+    s = s * x2 - 1.0 / 5040.0;            // 1/7!
+    s = s * x2 + 1.0 / 120.0;             // 1/5!
+    s = s * x2 - 1.0 / 6.0;               // 1/3!
+    s = s * x2 + 1.0;
+    s *= theta;
+    double c = 1.0 / 20922789888000.0;    // 1/16!
+    c = c * x2 - 1.0 / 87178291200.0;     // 1/14!
+    c = c * x2 + 1.0 / 479001600.0;       // 1/12!
+    c = c * x2 - 1.0 / 3628800.0;         // 1/10!
+    c = c * x2 + 1.0 / 40320.0;           // 1/8!
+    c = c * x2 - 1.0 / 720.0;             // 1/6!
+    c = c * x2 + 1.0 / 24.0;              // 1/4!
+    c = c * x2 - 0.5;
+    c = c * x2 + 1.0;
+    const double t = s / c;
+    return t > 0.95 ? 0.95 : t;
+}
+
+// dsp/twopole.py's _coefficients() at one end of the block: the cutoff CV
+// (counts, UNIT to 1.0) moves cutoff_hz by depth * 10 octaves per unit, held
+// between 20 Hz and 0.45 of the sample rate, and g = min(tan(pi fc / sr), 0.95).
+//
+// vrack reads the CV from a numpy float32 block, so with a CV connected every
+// step of that arithmetic stays in float32 (a float32 scalar beats a Python
+// float): the product with the depth, the times ten, the power of two, the
+// cutoff, and the angle. Done in double instead, g differs in the seventh
+// digit, and these filters clip hard enough in the loop to turn that into
+// several counts. So this does the same float32 steps, with the power of two
+// from the double series above (powf's value to the float) and the tangent
+// from double, as math.tan is. With no CV connected it is all double, as there.
+static double twopole_g(float cutoff_hz, bool has_cv, int32_t cv, float depth,
+    uint32_t sample_rate) {
+    const double rate = (double)sample_rate;
+    const double top = rate * 0.45;
+    double fc_d = (double)cutoff_hz;
+    float fc_f = 0.0f;
+    bool is_float = false;
+    if (has_cv) {
+        float t = (float)cv * (1.0f / 16384.0f);
+        t = t * depth;
+        t = t * 10.0f;
+        fc_f = cutoff_hz * (float)graph_exp2d((double)t);
+        fc_d = (double)fc_f;
+        is_float = true;
+    }
+    if (fc_d > top) {
+        fc_d = top;
+        is_float = false;
+    }
+    if (!(fc_d > 20.0)) {
+        fc_d = 20.0;
+        is_float = false;
+    }
+    if (is_float) {
+        const float a = 3.14159274f * fc_f;
+        const float theta = a * (float)(1.0 / rate);
+        return graph_tan_clamped((double)theta);
+    }
+    return graph_tan_clamped(3.14159265358979323846 * fc_d * (1.0 / rate));
+}
+
+// _diode_clipper(): tanh(1.5 v) / 1.5.
+static inline float twopole_diode(float v) {
+    return graph_tanh(v * 1.5f) / 1.5f;
+}
+
+// _cmos_clip(): v (1.2 - 0.2 v^2), held to +-1.
+static inline float twopole_cmos(float v) {
+    const float w = v * (1.2f - 0.2f * (v * v));
+    return w > 1.0f ? 1.0f : (w < -1.0f ? -1.0f : w);
+}
+
+static void run_twopole(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_twopole_t *d = n->data;
+    const int16_t *in = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs + (size_t)n->inputs[0] * graph->frames;
+    const int16_t *cv = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs + (size_t)n->inputs[1] * graph->frames : NULL;
+    // The nearest type; anything out of range is the Sallen-Key low-pass.
+    const float pick = n->param[AUDIODSP_GRAPH_TWOPOLE_TYPE] + 0.5f;
+    const uint32_t type = pick >= 1.0f && pick < (float)AUDIODSP_GRAPH_TWOPOLE_TYPES
+        ? (uint32_t)pick : (uint32_t)AUDIODSP_GRAPH_TWOPOLE_SK_LOWPASS;
+    const float cutoff = n->param[AUDIODSP_GRAPH_TWOPOLE_CUTOFF_HZ];
+    const float depth = n->param[AUDIODSP_GRAPH_TWOPOLE_DEPTH];
+    const double res = (double)n->param[AUDIODSP_GRAPH_TWOPOLE_RESONANCE];
+    const float drive = n->param[AUDIODSP_GRAPH_TWOPOLE_DRIVE];
+    // The cutoff CV is read at the block's first and last samples; g walks
+    // from the first's value, a step a sample, to the last's.
+    const int32_t c0 = cv != NULL ? cv[0] : 0;
+    const int32_t c1 = cv != NULL ? cv[frames - 1u] : 0;
+    const double g0 = twopole_g(cutoff, cv != NULL, c0, depth, graph->sample_rate);
+    const bool walks = c0 != c1;
+    const float gf0 = (float)g0;
+    // The walk is in double, a step added a sample at a time, as
+    // dsp/twopole.py does it: in float it drifts by an ulp or two, and
+    // these filters turn that into counts.
+    double gd = g0;
+    double gstep = 0.0;
+    if (walks) {
+        gstep = (twopole_g(cutoff, true, c1, depth, graph->sample_rate) - g0) /
+            (double)frames;
+    }
+    float s1 = d->s1;
+    float s2 = d->s2;
+    const float scale = 1.0f / 16384.0f;
+    if (type == AUDIODSP_GRAPH_TWOPOLE_SK_LOWPASS ||
+        type == AUDIODSP_GRAPH_TWOPOLE_SK_HIGHPASS) {
+        const double kd = res * 2.15;
+        const float k = (float)kd;
+        if (type == AUDIODSP_GRAPH_TWOPOLE_SK_LOWPASS) {
+            float h = (float)(g0 / (1.0 + g0));
+            for (uint32_t i = 0; i < frames; ++i) {
+                const float x = (in != NULL ? (float)in[i] * scale : 0.0f) * drive;
+                if (walks) {
+                    gd += gstep;
+                    h = (float)(gd / (1.0 + gd));
+                }
+                const float fb = twopole_diode(s2 * k);
+                const float v1 = (x + fb - s1) * h;
+                const float node1 = v1 + s1;
+                s1 = node1 + v1;
+                const float v2 = (node1 - s2) * h;
+                const float lp = v2 + s2;
+                s2 = lp + v2;
+                out[i] = sat16(graph_tanh(lp) * 16384.0f);
+            }
+        } else {
+            const float k_term = (float)(2.0 - kd * 0.5);
+            float g = gf0;
+            float denom = (float)(1.0 / (1.0 + 2.0 * g0 + g0 * g0));
+            for (uint32_t i = 0; i < frames; ++i) {
+                const float x = (in != NULL ? (float)in[i] * scale : 0.0f) * drive;
+                if (walks) {
+                    gd += gstep;
+                    g = (float)gd;
+                    denom = (float)(1.0 / (1.0 + 2.0 * gd + gd * gd));
+                }
+                const float fb = twopole_diode(s2 * k);
+                const float hp = (x + fb - k_term * s1 - s2) * denom;
+                const float v1 = g * hp;
+                const float node1 = v1 + s1;
+                s1 = node1 + v1;
+                const float v2 = g * node1;
+                const float lp = v2 + s2;
+                s2 = lp + v2;
+                out[i] = sat16(graph_tanh(hp) * 16384.0f);
+            }
+        }
+    } else {
+        double rd = 1.0 - res * 0.96;
+        rd = rd < 0.02 ? 0.02 : rd;
+        float g = gf0;
+        float rg = (float)(rd + g0);
+        float denom = (float)(1.0 / (1.0 + g0 * (g0 + rd)));
+        for (uint32_t i = 0; i < frames; ++i) {
+            const float x = twopole_cmos((in != NULL ? (float)in[i] * scale : 0.0f) * drive);
+            if (walks) {
+                gd += gstep;
+                g = (float)gd;
+                rg = (float)(rd + gd);
+                denom = (float)(1.0 / (1.0 + gd * (gd + rd)));
+            }
+            const float hp = twopole_cmos((x - rg * s1 - s2) * denom);
+            const float v1 = g * hp;
+            const float bp = twopole_cmos(v1 + s1);
+            s1 = bp + v1;
+            const float v2 = g * bp;
+            const float lp = twopole_cmos(v2 + s2);
+            s2 = lp + v2;
+            const float y = type == AUDIODSP_GRAPH_TWOPOLE_CMOS_LOWPASS ? lp
+                : (type == AUDIODSP_GRAPH_TWOPOLE_CMOS_BANDPASS ? bp : hp);
+            out[i] = sat16(y * 16384.0f);
+        }
+    }
+    d->s1 = s1;
+    d->s2 = s2;
 }
 
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
@@ -1086,6 +1402,15 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
             case AUDIODSP_GRAPH_SAMPLE_HOLD:
                 run_sample_hold(graph, n, dst, frames);
                 break;
+            case AUDIODSP_GRAPH_TWOPOLE:
+                run_twopole(graph, n, dst, frames);
+                break;
+#if AUDIODSP_GRAPH_HAS_OVERDRIVE
+            case AUDIODSP_GRAPH_OVERDRIVE:
+                audiodsp_graph_overdrive_run(n->data, n->inputs[0] == AUDIODSP_GRAPH_NONE
+                    ? NULL : graph->bufs + (size_t)n->inputs[0] * graph->frames, dst, frames);
+                break;
+#endif
             default:
                 break;
         }

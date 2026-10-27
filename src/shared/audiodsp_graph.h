@@ -124,6 +124,18 @@ typedef enum {
     // with the clock open and a rate set, audioshaper's sample-and-hold
     // kernel refreshes it that many times a second instead.
     AUDIODSP_GRAPH_SAMPLE_HOLD,
+    // inputs: audio, cutoff CV. params: type, cutoff Hz, depth, resonance,
+    // drive. The three two-pole filters of vrack's dsp/twopole.py, which
+    // clip inside their loops: the Sallen-Key low-pass and high-pass with
+    // diode-clipped peak feedback, and the CMOS state-variable filter in
+    // low-pass, band-pass and high-pass. The cutoff CV is read at the
+    // block's first and last samples and the coefficient walks between them.
+    AUDIODSP_GRAPH_TWOPOLE,
+    // inputs: audio. params: drive, tone, level. vrack's OverdriveCore:
+    // audiofilters.Distortion's soft-clipped overdrive, then a high shelf
+    // (synthio.Biquad, CircuitPython's own Q15 arithmetic) whose gain tone
+    // sets.
+    AUDIODSP_GRAPH_OVERDRIVE,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -188,12 +200,55 @@ enum {
 };
 
 enum {
+    AUDIODSP_GRAPH_TWOPOLE_TYPE = 0,
+    // Hz at a cutoff CV of 0.
+    AUDIODSP_GRAPH_TWOPOLE_CUTOFF_HZ,
+    // vrack's mod_depth: the cutoff is CUTOFF_HZ * 2^(cv / UNIT * depth *
+    // 10), so 1 is an octave per 1638.4 counts of CV and 0 ignores it.
+    AUDIODSP_GRAPH_TWOPOLE_DEPTH,
+    // The Sallen-Key's peak, or the CMOS filter's resonance: 0..1.
+    AUDIODSP_GRAPH_TWOPOLE_RESONANCE,
+    // Gain ahead of the filter, as a multiplier.
+    AUDIODSP_GRAPH_TWOPOLE_DRIVE,
+};
+
+// TWOPOLE types.
+enum {
+    // SallenKeyLPFCore: 12 dB/oct, the output through tanh.
+    AUDIODSP_GRAPH_TWOPOLE_SK_LOWPASS = 0,
+    // SallenKeyHPFCore.
+    AUDIODSP_GRAPH_TWOPOLE_SK_HIGHPASS,
+    // CMOSFilterCore's modes: CMOS inverter clipping in every stage.
+    AUDIODSP_GRAPH_TWOPOLE_CMOS_LOWPASS,
+    AUDIODSP_GRAPH_TWOPOLE_CMOS_BANDPASS,
+    AUDIODSP_GRAPH_TWOPOLE_CMOS_HIGHPASS,
+    AUDIODSP_GRAPH_TWOPOLE_TYPES,
+};
+
+enum {
+    // 0..1; drive 0..1 is a pre-gain of 0..20 dB.
+    AUDIODSP_GRAPH_OVERDRIVE_DRIVE = 0,
+    // 0..1: a high shelf from -12 dB through flat at 0.5 to +12 dB.
+    AUDIODSP_GRAPH_OVERDRIVE_TONE,
+    // A linear gain after the clipper, down to 1e-4.
+    AUDIODSP_GRAPH_OVERDRIVE_LEVEL,
+};
+
+enum {
     AUDIODSP_GRAPH_MIX_OFFSET = 8,
 };
 
 enum {
     AUDIODSP_GRAPH_VCA_GAIN = 0,
     AUDIODSP_GRAPH_VCA_SELECT,
+    AUDIODSP_GRAPH_VCA_CURVE,
+};
+
+// VCA_CURVE: the gain is the CV over UNIT (linear), or 60 dB of it,
+// 10^(3 * (cv / UNIT - 1)), unity at UNIT (exponential).
+enum {
+    AUDIODSP_GRAPH_VCA_LINEAR = 0,
+    AUDIODSP_GRAPH_VCA_EXPONENTIAL = 1,
 };
 
 typedef struct {
@@ -271,6 +326,11 @@ typedef struct {
     // so get() reads back the same value whoever renders. NULL for none.
     float *shadow;
 } audiodsp_graph_t;
+
+// False for a kind this build leaves out (OVERDRIVE where
+// AUDIODSP_GRAPH_HAS_OVERDRIVE is 0; see audiodsp_graph_overdrive.h) and for
+// a number past the last kind. audiodsp_graph_add() refuses either.
+bool audiodsp_graph_kind_built(audiodsp_graph_kind_t kind);
 
 // Bytes a node of `kind` needs for its config and state. `arg` is the
 // kind's build-time argument (the feedback delay's line length in ms).

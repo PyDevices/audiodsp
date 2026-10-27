@@ -230,7 +230,7 @@ static int16_t buffer_id(mp_obj_t obj) {
 static mp_obj_t audiograph_graph_add(size_t n_args, const mp_obj_t *args) {
     audiograph_graph_obj_t *self = graph_self(args[0]);
     mp_int_t kind = mp_obj_get_int(args[1]);
-    if (kind < 0 || kind >= (mp_int_t)AUDIODSP_GRAPH_KINDS) {
+    if (kind < 0 || !audiodsp_graph_kind_built((audiodsp_graph_kind_t)kind)) {
         mp_raise_ValueError(MP_ERROR_TEXT("unknown node kind"));
     }
     mp_int_t group = mp_obj_get_int(args[2]);
