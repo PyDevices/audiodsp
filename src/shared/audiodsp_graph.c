@@ -1014,6 +1014,15 @@ static void run_vca(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         memset(out, 0, frames * sizeof(int16_t));
         return;
     }
+    if (n->param[AUDIODSP_GRAPH_VCA_CURVE] >= 0.5f) {
+        // 10^(3 * (x - 1)) = e^(3 ln 10 * (x - 1))
+        const float a = 6.907755279f / AUDIODSP_GRAPH_UNIT;
+        const float g = n->param[AUDIODSP_GRAPH_VCA_GAIN];
+        for (uint32_t i = 0; i < frames; ++i) {
+            out[i] = sat16((float)audio[i] * expf(a * (float)cv[i] - 6.907755279f) * g);
+        }
+        return;
+    }
     for (uint32_t i = 0; i < frames; ++i) {
         out[i] = sat16((float)audio[i] * (float)cv[i] * k);
     }

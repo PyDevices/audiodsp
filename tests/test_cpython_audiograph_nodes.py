@@ -897,5 +897,42 @@ class Overdrive(unittest.TestCase):
         self.assertEqual(first, again)
 
 
+# ------------------------------------------------------------- VCA curve --
+
+class VcaCurve(unittest.TestCase):
+
+    def run_vca(self, audio, cv, curve, gain=1.0):
+        rig = Rig(len(audio), ag.VCA, 3, open_=(2,))
+        rig.set(ag.VCA_CURVE, curve)
+        rig.set(ag.VCA_GAIN, gain)
+        return rig.run(audio, cv)
+
+    def test_linear_is_the_default(self):
+        audio = [((i * 211) % 4096 - 2048) * 6 for i in range(128)]
+        cv = [(i * 257) % 32768 for i in range(128)]
+        rig = Rig(128, ag.VCA, 3, open_=(2,))
+        got = rig.run(audio, cv)
+        self.assertEqual(got, self.run_vca(audio, cv, ag.VCA_LINEAR))
+        self.assertEqual(got, [sat(a * c / UNIT) for a, c in zip(audio, cv)])
+
+    def test_exponential_is_sixty_db_over_the_unit(self):
+        audio = [((i * 211) % 4096 - 2048) * 6 for i in range(256)]
+        cv = [(i * 131) % 32768 for i in range(256)]
+        for gain in (1.0, 1.5, 0.25):
+            got = self.run_vca(audio, cv, ag.VCA_EXPONENTIAL, gain)
+            # AmplifierCore's exponential response: 10 ** (3 * (cv - 1))
+            want = [sat(a * 10.0 ** (3.0 * (c / UNIT - 1.0)) * gain)
+                    for a, c in zip(audio, cv)]
+            self.assertLessEqual(worst(got, want), 1, gain)
+            self.assertGreater(max(abs(v) for v in got), 1000)
+
+    def test_exponential_ends(self):
+        audio = [12000, -12000, 30000, -30000] * 8
+        # at UNIT, unity exactly; at zero, -60 dB
+        self.assertEqual(self.run_vca(audio, [UNIT] * 32, ag.VCA_EXPONENTIAL), audio)
+        self.assertEqual(self.run_vca(audio, [0] * 32, ag.VCA_EXPONENTIAL),
+                         [sat(a / 1000.0) for a in audio])
+
+
 if __name__ == "__main__":
     unittest.main()

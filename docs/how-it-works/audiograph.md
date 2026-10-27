@@ -83,7 +83,7 @@ rather than its last block.
 | `LFO` | | `LFO_RATE` Hz, `LFO_AMPLITUDE` counts, `LFO_SHAPE` (`LFO_TRIANGLE`, `LFO_SINE`, `LFO_SAW`, `LFO_SQUARE`, `LFO_RANDOM`) | that shape, ±amplitude, [below](#lfo-shapes) |
 | `NOISE` | | 0: amplitude in counts | white noise |
 | `MIX` | up to eight | 0..7: a gain per input, `MIX_OFFSET` in counts | offset + the gains times the inputs; a gain that moved ramps across the block |
-| `VCA` | audio, cv_a, cv_b | `VCA_GAIN`, `VCA_SELECT` (cv_a below 0.5, else cv_b) | audio times the chosen CV over `UNIT`, times the gain |
+| `VCA` | audio, cv_a, cv_b | `VCA_GAIN`, `VCA_SELECT` (cv_a below 0.5, else cv_b), `VCA_CURVE` (`VCA_LINEAR`, `VCA_EXPONENTIAL`) | audio times the chosen CV over `UNIT`, times the gain; exponential is 60 dB over the CV, `10^(3·(cv/UNIT − 1))`, unity at `UNIT` |
 | `OUT` | left, right | 0: scale | writes the run's output buffer: interleaved stereo, or the mean when the graph is mono |
 | `PHASER` | audio | `PHASER_FREQUENCY` Hz, `PHASER_FEEDBACK` −0.99..0.99, `PHASER_MIX` 0..1; built with `arg` = stages (0 is 4) | audiobiquad's `AllPass` on one channel: first-order all-pass stages, one feedback around the chain, a dry/wet mix |
 | `LAG` | note, pitch, legato | `LAG_TIME` s, `LAG_MODE` (`LAG_OFF`, `LAG_ON`, `LAG_AUTO`), `LAG_SHAPE` (`LAG_LINEAR`, `LAG_ONE_POLE`) | the note glided, with the bend (pitch − note) on top, [below](#glide) |

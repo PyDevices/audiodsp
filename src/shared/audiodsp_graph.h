@@ -241,6 +241,14 @@ enum {
 enum {
     AUDIODSP_GRAPH_VCA_GAIN = 0,
     AUDIODSP_GRAPH_VCA_SELECT,
+    AUDIODSP_GRAPH_VCA_CURVE,
+};
+
+// VCA_CURVE: the gain is the CV over UNIT (linear), or 60 dB of it,
+// 10^(3 * (cv / UNIT - 1)), unity at UNIT (exponential).
+enum {
+    AUDIODSP_GRAPH_VCA_LINEAR = 0,
+    AUDIODSP_GRAPH_VCA_EXPONENTIAL = 1,
 };
 
 typedef struct {
