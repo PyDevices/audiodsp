@@ -1,3 +1,11 @@
+## v0.6.11.dev1 (2026-10-27)
+
+- Publish as omnipython-audiodsp (#318)
+- upstream-sync: list upstream's audio modules at each resync, so a new one is noticed there (#315)
+- audiograph: round without lrintf so RP2350 CircuitPython links (#311) (#314)
+- Resync the CircuitPython modules with 11.0.0-alpha.2 (#313)
+- AGENTS.md, porting plan: 55 instruments and 45 effect classes (#312)
+
 ## v0.6.10 (2026-10-22)
 
 - audiograph: Graph.get converts its float to mp_float_t, so double-float builds compile
