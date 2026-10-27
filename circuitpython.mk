@@ -59,6 +59,9 @@ AUDIODSP_CP_SOURCES += $(addprefix $(AUDIODSP_CP_SRC)/shared/, \
 	audiodsp_sampler.c \
 	audiodsp_vorbis.c \
 	audiodsp_port.c \
+	audiodsp_distortion.c \
+	audiodsp_biquad.c \
+	audiodsp_synth_dsp.c \
 	audiodsp_graph.c \
 	)
 

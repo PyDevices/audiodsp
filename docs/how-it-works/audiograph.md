@@ -4,7 +4,8 @@
 the graph once, from nodes that call the kernels audiodsp already has (the
 oscillator, the ladder, the float biquad, the feedback delay, the all-pass
 cascade, the sample-and-hold) and a few small ones a voice needs (an envelope,
-an LFO, noise, a mixer, a VCA, a glide), then call `run()` once a block. Nothing in Python runs between the nodes, which is what
+an LFO, noise, a mixer, a VCA, a glide, a clipping two-pole filter, an
+overdrive), then call `run()` once a block. Nothing in Python runs between the nodes, which is what
 lets a six-voice polysynth built from these kernels play in real time on an
 ESP32-P4, where the same patch run node by node from Python could not.
 
@@ -87,6 +88,8 @@ rather than its last block.
 | `PHASER` | audio | `PHASER_FREQUENCY` Hz, `PHASER_FEEDBACK` −0.99..0.99, `PHASER_MIX` 0..1; built with `arg` = stages (0 is 4) | audiobiquad's `AllPass` on one channel: first-order all-pass stages, one feedback around the chain, a dry/wet mix |
 | `LAG` | note, pitch, legato | `LAG_TIME` s, `LAG_MODE` (`LAG_OFF`, `LAG_ON`, `LAG_AUTO`), `LAG_SHAPE` (`LAG_LINEAR`, `LAG_ONE_POLE`) | the note glided, with the bend (pitch − note) on top, [below](#glide) |
 | `SAMPLE_HOLD` | signal, clock | `SH_LAG` coefficient 0..1, `SH_RATE` Hz | the signal held at each rising edge of the clock, or `SH_RATE` times a second with the clock open, [below](#sample-and-hold) |
+| `TWOPOLE` | audio, cutoff CV | `TWOPOLE_TYPE` (`TWOPOLE_SK_LOWPASS`, `TWOPOLE_SK_HIGHPASS`, `TWOPOLE_CMOS_LOWPASS`, `TWOPOLE_CMOS_BANDPASS`, `TWOPOLE_CMOS_HIGHPASS`), `TWOPOLE_CUTOFF_HZ`, `TWOPOLE_DEPTH`, `TWOPOLE_RESONANCE` 0..1, `TWOPOLE_DRIVE` | a 12 dB/octave filter with its nonlinearity inside the loop, [below](#two-pole-filters) |
+| `OVERDRIVE` | audio | `OVERDRIVE_DRIVE` 0..1, `OVERDRIVE_TONE` 0..1, `OVERDRIVE_LEVEL` (linear, 1 is unity) | `audiofilters.Distortion`'s soft-clipped overdrive, then a high shelf, [below](#overdrive) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -134,6 +137,38 @@ one-pole of that per-sample coefficient (0.999 is very slow). With the clock
 input open and `SH_RATE` set, the node refreshes that many times a second
 instead, through audioshaper's `SampleHold` kernel (whole hertz, exact for
 ever); with neither, it holds.
+
+### Two-pole filters
+
+`TWOPOLE` is three filters that keep their character in a clipper inside the
+feedback loop, so a biquad cannot stand in for them: the Sallen-Key low-pass
+(`TWOPOLE_SK_LOWPASS`) and high-pass (`TWOPOLE_SK_HIGHPASS`), whose peak feedback
+runs through a diode clipper and whose output goes through `tanh`; and the CMOS
+state-variable filter, with a clipping inverter in every stage, as a low-pass,
+band-pass or high-pass (`TWOPOLE_CMOS_*`). They are vrack's `SallenKeyLPFCore`,
+`SallenKeyHPFCore` and `CMOSFilterCore`, one node with a type so a patch can
+change the type of a running filter and the cutoff code is one function.
+
+`TWOPOLE_RESONANCE` is the Sallen-Key's peak or the CMOS filter's resonance,
+both 0..1. `TWOPOLE_DRIVE` multiplies the input before the filter. The cutoff
+is `TWOPOLE_CUTOFF_HZ` times two to the power of the cutoff CV over `UNIT`
+times `TWOPOLE_DEPTH` times ten, so a depth of 1 is an octave per 1638.4 counts
+of CV, 0 ignores the input, and the result is held between 20 Hz and 0.45 of
+the sample rate. The CV is read at the block's first and last samples, and the
+filter's coefficient walks in a straight line between them, as these filters
+have always taken it: what lies between those two samples does not move the
+cutoff. An open CV input leaves the cutoff where it is.
+
+### Overdrive
+
+`OVERDRIVE` is `audiofilters.Distortion` in overdrive mode with soft clipping,
+followed by a high shelf at 1.5 kHz, the way vrack's `OverdriveCore` chains them.
+`OVERDRIVE_DRIVE` 0..1 sets a pre-gain of up to 20 dB, `OVERDRIVE_LEVEL` is the
+linear gain after the clipper, and `OVERDRIVE_TONE` 0..1 is the shelf's gain,
+from −12 dB through flat at 0.5 to +12 dB. The shelf is `synthio.Biquad`'s: the
+node runs CircuitPython's own Q15 arithmetic, as `audiofilters.Filter` does, and
+squeezes a sample past ±28000 toward the rail as that filter's last step does,
+so a loud signal tops out at 28521.
 
 ## Output
 
@@ -233,16 +268,22 @@ output reads, makes it fail; CI runs the faults first.
 interpreter you name, and compares every sample. `graph_parity_probe.py` is one
 patch with the runner's first node kinds in it (two voices with their groups
 parking, a fed buffer, moved gains and cutoffs, a delay reset mid-tail, a mono
-graph); `graph_nodes_probe.py` is the phaser, the glide, every LFO shape and
-the sample-and-hold. The tolerance is 0 counts: the three compile the same C
+graph); `graph_nodes_probe.py` is the phaser, the glide, every LFO shape, the
+sample-and-hold, the five two-pole types and the overdrive. The tolerance is 0 counts: the three compile the same C
 and are handed the same floats, so any difference is a defect rather than
 rounding. Each planted fault makes it fail: one input sample one count off, one
 `set()` a block late, a phaser's frequency a block late, a legato flag flipped,
-a shape switched a block late, a clock edge a sample late. CI runs it against
+a shape switched a block late, a clock edge a sample late, a cutoff CV a block
+late, an overdrive's tone a block late. CI runs it against
 MicroPython in both float widths; the three-way with the CircuitPython unix
 build is a local run.
 
 [`tests/test_cpython_audiograph_nodes.py`](../../tests/test_cpython_audiograph_nodes.py) holds the newer nodes to what they
 stand in for: `PHASER` to `audiobiquad.AllPass` at 0 counts, the glide, the
-LFO's shapes and the sample-and-hold to the Python cores of the same name in
-vrack, with each bar in the file's table.
+LFO's shapes, the sample-and-hold and the two-pole filters to the Python cores of
+the same name in vrack, and `OVERDRIVE` to `OverdriveCore`'s own chain of
+`audiofilters` nodes, with each bar in the file's table. The CMOS filter and
+the overdrive match at 0 counts. The Sallen-Key pair matches within one count,
+on under one sample in a hundred: the node's `tanh` is a rational function in
+float that is the same on every target, where vrack's is the C library's in
+double.

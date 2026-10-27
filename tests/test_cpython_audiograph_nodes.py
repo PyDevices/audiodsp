@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes and SAMPLE_HOLD, held to what they stand in for.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE and OVERDRIVE, held to what they stand in for.
 
 | node | held to | bar |
 |---|---|---|
@@ -12,6 +12,9 @@
 | `SAMPLE_HOLD`, clocked | vrack's `dsp/utility.py` `SampleAndHoldCore`, with no lag and with one | 0 counts; 1 count |
 | `SAMPLE_HOLD`, two edges in a block | latches at each (`SampleAndHoldCore` keeps one a block) | the second edge's sample |
 | `SAMPLE_HOLD`, rate | `audioshaper.SampleHold` at `num` = the sample rate, `den` = the rate | 0 counts |
+| `TWOPOLE`, CMOS low-pass, band-pass, high-pass | vrack's `dsp/twopole.py` `CMOSFilterCore`, with the cutoff CV still, stepping between blocks, running through a block, and not connected | 0 counts |
+| `TWOPOLE`, Sallen-Key low-pass and high-pass | `SallenKeyLPFCore` and `SallenKeyHPFCore`, the same four CV cases | 1 count, on under 1 sample in 100 (the float `tanh`) |
+| `OVERDRIVE` | vrack's `OverdriveCore`: `audiofilters.Distortion` in overdrive mode with soft clipping, then `audiofilters.Filter` with a `synthio.Biquad` high shelf, driven the way vrack's bridge drives them | 0 counts |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -28,8 +31,10 @@ import unittest
 
 import audiobiquad
 import audiocore
+import audiofilters
 import audiograph as ag
 import audioshaper
+import synthio
 
 RATE = 48000
 UNIT = ag.UNIT
@@ -537,6 +542,359 @@ class SampleHold(unittest.TestCase):
         block = array("h", bytes(256))
         g.read(out, block)
         self.assertEqual(list(block), [0] * 128)
+
+
+# ---------------------------------------------------------------- TWOPOLE --
+#
+# dsp/twopole.py reads a numpy float32 block, and numpy 2 keeps a float32
+# scalar float32 beside a Python float: so with a cutoff CV connected the
+# coefficient is worked out in float32 steps (the CV times the depth, times
+# ten, the power of two, the cutoff, the angle), and the loop is float32 apart
+# from the Python-float coefficients it multiplies by, which are rounded to
+# float32 as they meet a float32. Each operation below is rounded that way.
+# `math.tanh` is the double one, rounded when it lands in a float32.
+
+PI32 = f32(math.pi)
+
+
+def m(a, b):
+    return f32(f32(a) * f32(b))
+
+
+def a_(a, b):
+    return f32(f32(a) + f32(b))
+
+
+def s_(a, b):
+    return f32(f32(a) - f32(b))
+
+
+def twopole_coefficients(frames, cutoff, cv, depth):
+    """dsp/twopole.py `_coefficients`: (g, per-sample step), both double."""
+    inv_sr = 1.0 / RATE
+    top = RATE * 0.45
+
+    def g_at(c):
+        if cv is None:
+            fc, narrow = cutoff * 2.0 ** (c * depth * 10.0), False
+        else:
+            t = m(m(c, depth), 10.0)
+            fc, narrow = m(cutoff, f32(2.0 ** t)), True
+        if not fc <= top:
+            fc, narrow = top, False
+        if not fc > 20.0:
+            fc, narrow = 20.0, False
+        if narrow:
+            return min(math.tan(m(m(PI32, fc), f32(inv_sr))), 0.95)
+        return min(math.tan(math.pi * fc * inv_sr), 0.95)
+
+    c0 = cv[0] / UNIT if cv is not None else 0.0
+    c1 = cv[frames - 1] / UNIT if cv is not None else 0.0
+    g = g_at(c0)
+    if c0 != c1:
+        return g, (g_at(c1) - g) / float(frames)
+    return g, 0.0
+
+
+def diode(v):
+    return math.tanh(m(v, 1.5)) / 1.5
+
+
+def cmos_clip(v):
+    v = f32(v)
+    w = m(v, s_(1.2, m(0.2, m(v, v))))
+    return max(-1.0, min(1.0, w))
+
+
+class TwoPoleRef:
+    """`SallenKeyLPFCore`, `SallenKeyHPFCore` and `CMOSFilterCore`, one
+    sample at a time. `kind` is 0 and 1 for the Sallen-Key pair, 2, 3 and 4
+    for the CMOS filter's LP, BP and HP."""
+
+    def __init__(self, kind):
+        self.kind = kind
+        self.s1 = self.s2 = 0.0
+
+    def render(self, src, cv, cutoff, depth, resonance, drive):
+        frames = len(src)
+        g, step = twopole_coefficients(frames, cutoff, cv, depth)
+        out = []
+        s1, s2 = self.s1, self.s2
+        x_in = [0.0 if v is None else v / UNIT for v in src]
+        if self.kind == 0:
+            k = resonance * 2.15
+            h = g / (1.0 + g)
+            for i in range(frames):
+                x = m(x_in[i], drive)
+                if step != 0.0:
+                    g += step
+                    h = g / (1.0 + g)
+                fb = diode(m(s2, k))
+                v1 = m(s_(a_(x, fb), s1), h)
+                node1 = a_(v1, s1)
+                s1 = a_(node1, v1)
+                v2 = m(s_(node1, s2), h)
+                lp = a_(v2, s2)
+                s2 = a_(lp, v2)
+                out.append(f32(math.tanh(lp)))
+        elif self.kind == 1:
+            k = resonance * 2.15
+            k_term = 2.0 - k * 0.5
+            denom = 1.0 / (1.0 + 2.0 * g + g * g)
+            for i in range(frames):
+                x = m(x_in[i], drive)
+                if step != 0.0:
+                    g += step
+                    denom = 1.0 / (1.0 + 2.0 * g + g * g)
+                fb = diode(m(s2, k))
+                hp = m(s_(s_(a_(x, fb), m(k_term, s1)), s2), denom)
+                v1 = m(g, hp)
+                node1 = a_(v1, s1)
+                s1 = a_(node1, v1)
+                v2 = m(g, node1)
+                lp = a_(v2, s2)
+                s2 = a_(lp, v2)
+                out.append(f32(math.tanh(hp)))
+        else:
+            r = max(0.02, 1.0 - resonance * 0.96)
+            denom = 1.0 / (1.0 + g * (g + r))
+            for i in range(frames):
+                x = cmos_clip(m(x_in[i], drive))
+                if step != 0.0:
+                    g += step
+                    denom = 1.0 / (1.0 + g * (g + r))
+                hp = cmos_clip(m(s_(s_(x, m(r + g, s1)), s2), denom))
+                v1 = m(g, hp)
+                bp = cmos_clip(a_(v1, s1))
+                s1 = a_(bp, v1)
+                v2 = m(g, bp)
+                lp = cmos_clip(a_(v2, s2))
+                s2 = a_(lp, v2)
+                out.append(lp if self.kind == 2 else (bp if self.kind == 3 else hp))
+        self.s1, self.s2 = s1, s2
+        return [sat(v * UNIT) for v in out]
+
+
+def twopole_input(frames, blocks, amplitude=9000):
+    return [[((b * frames + i) * 211) % 4096 * amplitude // 2048 - amplitude
+             + (amplitude // 3 if ((b * frames + i) // 37) % 2 else 0)
+             for i in range(frames)] for b in range(blocks)]
+
+
+def cv_still(frames, blocks):
+    return [[(b // 6) * 700 - 1400] * frames for b in range(blocks)]
+
+
+def cv_stepping(frames, blocks):
+    """A new value every block, none inside one."""
+    return [[((b * 977) % 5400) - 2700] * frames for b in range(blocks)]
+
+
+def cv_running(frames, blocks):
+    """Different at the block's two ends, and a wobble between."""
+    return [[int(3000 * math.sin((b * frames + i) * 0.011)) for i in range(frames)]
+            for b in range(blocks)]
+
+
+class TwoPole(unittest.TestCase):
+
+    CASES = (("still", cv_still), ("stepping", cv_stepping),
+             ("running", cv_running), ("open", None))
+
+    def compare(self, kind, cv_case, frames=128, blocks=60, cutoff=1000.0,
+                depth=1.0, resonance=0.625, drive=1.5):
+        rig = Rig(frames, ag.TWOPOLE, 2, open_=(1,) if cv_case is None else ())
+        rig.set(ag.TWOPOLE_TYPE, kind)
+        rig.set(ag.TWOPOLE_CUTOFF_HZ, cutoff)
+        rig.set(ag.TWOPOLE_DEPTH, depth)
+        rig.set(ag.TWOPOLE_RESONANCE, resonance)
+        rig.set(ag.TWOPOLE_DRIVE, drive)
+        ref = TwoPoleRef(kind)
+        signal = twopole_input(frames, blocks)
+        cvs = cv_case(frames, blocks) if cv_case else [None] * blocks
+        got, want = [], []
+        for x, cv in zip(signal, cvs):
+            got += rig.run(x, cv)
+            want += ref.render(x, cv, cutoff, depth, resonance, drive)
+        return got, want
+
+    def test_cmos_filter_matches_at_zero_counts(self):
+        for kind in (2, 3, 4):
+            for name, case in self.CASES:
+                for resonance, drive in ((0.625, 1.5), (0.9375, 3.0)):
+                    got, want = self.compare(kind, case, resonance=resonance,
+                                             drive=drive)
+                    self.assertGreater(max(abs(v) for v in got), 1000, (kind, name))
+                    self.assertEqual(worst(got, want), 0, (kind, name, resonance))
+
+    def test_sallen_key_filters_match_within_a_count(self):
+        for kind in (0, 1):
+            for name, case in self.CASES:
+                for resonance, drive in ((0.5, 1.0), (0.875, 2.0)):
+                    got, want = self.compare(kind, case, resonance=resonance,
+                                             drive=drive,
+                                             cutoff=1000.0 if kind == 0 else 500.0)
+                    self.assertGreater(max(abs(v) for v in got), 1000, (kind, name))
+                    self.assertLessEqual(worst(got, want), 1, (kind, name, resonance))
+                    differ = sum(1 for a, b in zip(got, want) if a != b)
+                    self.assertLess(differ, len(got) // 100, (kind, name, resonance))
+
+    def test_other_depths_and_rates_of_cutoff(self):
+        for cutoff, depth in ((20.0, 1.0), (4000.0, 0.5), (11000.0, 1.0),
+                              (250.0, 1.75)):
+            got, want = self.compare(2, cv_running, cutoff=cutoff, depth=depth)
+            self.assertEqual(worst(got, want), 0, (cutoff, depth))
+
+    def test_only_the_ends_of_the_cv_are_read(self):
+        # the cutoff walks from the first sample's CV to the last's: what
+        # lies between them does not move it
+        frames = 128
+        rig_a = Rig(frames, ag.TWOPOLE, 2)
+        rig_b = Rig(frames, ag.TWOPOLE, 2)
+        for rig in (rig_a, rig_b):
+            rig.set(ag.TWOPOLE_TYPE, ag.TWOPOLE_CMOS_LOWPASS)
+            rig.set(ag.TWOPOLE_RESONANCE, 0.75)
+        signal = twopole_input(frames, 8)
+        for x in signal:
+            ramp = [i * 20 for i in range(frames)]
+            wobble = [ramp[0]] + [ramp[i] + (700 if i % 5 else -700)
+                                  for i in range(1, frames - 1)] + [ramp[-1]]
+            self.assertEqual(rig_a.run(x, ramp), rig_b.run(x, wobble))
+
+    def test_reset_starts_the_filter_again(self):
+        frames = 128
+        signal = twopole_input(frames, 4)
+        cvs = cv_running(frames, 4)
+        for kind in range(5):
+            rig = Rig(frames, ag.TWOPOLE, 2)
+            rig.set(ag.TWOPOLE_TYPE, kind)
+            rig.set(ag.TWOPOLE_RESONANCE, 0.75)
+            first = [rig.run(x, cv) for x, cv in zip(signal, cvs)]
+            rig.g.reset(rig.node)
+            again = [rig.run(x, cv) for x, cv in zip(signal, cvs)]
+            self.assertEqual(first, again, kind)
+
+    def test_an_unknown_type_is_the_sallen_key_low_pass(self):
+        frames = 128
+        signal = twopole_input(frames, 3)
+        want = Rig(frames, ag.TWOPOLE, 2, open_=(1,))
+        got = Rig(frames, ag.TWOPOLE, 2, open_=(1,))
+        got.set(ag.TWOPOLE_TYPE, 9)
+        for x in signal:
+            self.assertEqual(want.run(x, None), got.run(x, None))
+
+    def test_low_pass_and_high_pass_split_a_signal(self):
+        frames = 128
+        signal = twopole_input(frames, 30)
+        lows, highs = [], []
+        for kind, bucket in ((ag.TWOPOLE_CMOS_LOWPASS, lows), (ag.TWOPOLE_CMOS_HIGHPASS, highs)):
+            rig = Rig(frames, ag.TWOPOLE, 2, open_=(1,))
+            rig.set(ag.TWOPOLE_TYPE, kind)
+            rig.set(ag.TWOPOLE_CUTOFF_HZ, 300.0)
+            for x in signal:
+                bucket += rig.run(x, None)
+        # a 220 Hz-ish saw with its harmonics: the high-pass keeps more of the
+        # top, the low-pass more of the bottom
+        def edge(values):
+            return sum(abs(b - a) for a, b in zip(values, values[1:]))
+        self.assertGreater(edge(highs), edge(lows))
+
+
+# --------------------------------------------------------------- OVERDRIVE --
+
+class OverdriveRef:
+    """vrack's `OverdriveCore` on audiodsp's own nodes, built and pulled the
+    way vrack's `NodeBridge` does: a looping `RawSample` over one block, a
+    pass-through `audiofilters.Filter`, `audiofilters.Distortion`, and the
+    shelf's `audiofilters.Filter`, one pull a block."""
+
+    def __init__(self, frames):
+        self.frames = frames
+        self.input = array("h", bytes(2 * frames))
+        source = audiocore.RawSample(self.input, channel_count=1, sample_rate=RATE)
+        kwargs = dict(buffer_size=frames * 2, sample_rate=RATE, bits_per_sample=16,
+                      samples_signed=True, channel_count=1)
+        self.dist = audiofilters.Distortion(
+            drive=0.5, pre_gain=0.0, post_gain=0.0,
+            mode=audiofilters.DistortionMode.OVERDRIVE, soft_clip=True, mix=1.0,
+            **kwargs)
+        self.shelf = synthio.Biquad(synthio.FilterMode.HIGH_SHELF, 1500.0,
+                                    Q=0.7071, A=1.0)
+        tone = audiofilters.Filter(filter=self.shelf, **kwargs)
+        through = audiofilters.Filter(filter=None, **kwargs)
+        through.play(source, loop=True)
+        self.dist.play(through)
+        tone.play(self.dist)
+        self.tail = tone
+        audiocore.get_buffer(self.tail)  # the bridge's throwaway first pull
+
+    def render(self, block, drive, tone, level):
+        self.dist.drive = max(0.0, min(1.0, drive))
+        self.dist.pre_gain = 20.0 * drive
+        db = (max(0.0, min(1.0, tone)) - 0.5) * 24.0
+        self.shelf.A = 10.0 ** (db / 40.0)
+        self.dist.post_gain = 20.0 * math.log10(max(1e-4, level))
+        self.input[:] = array("h", block)
+        return list(array("h", bytes(audiocore.get_buffer(self.tail)[1])))
+
+
+class Overdrive(unittest.TestCase):
+
+    def signal(self, frames, blocks, amplitude):
+        return [[(((b * frames + i) * 211) % 4096 - 2048) * amplitude // 2048
+                 + (amplitude // 4 if ((b * frames + i) // 37) % 2 else 0)
+                 for i in range(frames)] for b in range(blocks)]
+
+    def compare(self, settings, frames=128, amplitude=6000):
+        rig = Rig(frames, ag.OVERDRIVE, 1)
+        ref = OverdriveRef(frames)
+        got, want = [], []
+        for block, (drive, tone, level) in zip(
+                self.signal(frames, len(settings), amplitude), settings):
+            rig.set(ag.OVERDRIVE_DRIVE, drive)
+            rig.set(ag.OVERDRIVE_TONE, tone)
+            rig.set(ag.OVERDRIVE_LEVEL, level)
+            got += rig.run(block)
+            want += ref.render(block, drive, tone, level)
+        return got, want
+
+    def test_matches_overdrivecore(self):
+        for drive, tone, level in ((0.5, 0.5, 1.0), (0.75, 0.25, 0.5),
+                                   (1.0, 1.0, 2.0), (0.0, 0.0, 0.125),
+                                   (0.875, 0.75, 1.5)):
+            got, want = self.compare([(drive, tone, level)] * 40)
+            self.assertGreater(max(abs(v) for v in got), 200)
+            self.assertEqual(worst(got, want), 0, (drive, tone, level))
+
+    def test_matches_while_the_knobs_move(self):
+        # every block a new drive, tone and level, past the ends of their
+        # ranges: the clamps are OverdriveCore's and audiofilters'
+        settings = [((b % 9) / 8.0 - 0.0625, (b % 13) / 12.0 + 0.0625,
+                     0.0625 * (1 + b % 40)) for b in range(80)]
+        got, want = self.compare(settings)
+        self.assertEqual(worst(got, want), 0)
+
+    def test_past_the_knee_the_level_is_squeezed(self):
+        # a loud, hot signal reaches the mix-down's knee at 28000 and goes
+        # no higher than 28521, as the Filter's last step leaves it
+        got, want = self.compare([(1.0, 1.0, 2.0)] * 30, amplitude=16000)
+        self.assertEqual(worst(got, want), 0)
+        self.assertGreater(max(got), 28000)
+        self.assertLessEqual(max(got), 28521)
+
+    def test_other_block_sizes(self):
+        for frames in (32, 64, 256):
+            got, want = self.compare([(0.625, 0.375, 1.0)] * 20, frames=frames)
+            self.assertEqual(worst(got, want), 0, frames)
+
+    def test_reset_clears_the_shelf(self):
+        rig = Rig(128, ag.OVERDRIVE, 1)
+        rig.set(ag.OVERDRIVE_TONE, 1.0)
+        blocks = self.signal(128, 4, 6000)
+        first = [rig.run(b) for b in blocks]
+        rig.g.reset(rig.node)
+        again = [rig.run(b) for b in blocks]
+        self.assertEqual(first, again)
 
 
 if __name__ == "__main__":
