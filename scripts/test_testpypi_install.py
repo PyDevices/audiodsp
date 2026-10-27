@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke a fresh pydevices-audiodsp install from TestPyPI.
+"""Smoke a fresh omnipython-audiodsp install from TestPyPI.
 
     scripts/test_testpypi_install.py [VERSION] [--skip-render]
 
@@ -83,13 +83,13 @@ def main(argv):
 
     version = arguments[0] if arguments else \
         (ROOT / "VERSION").read_text().strip()
-    print("smoking pydevices-audiodsp %s from TestPyPI" % version)
+    print("smoking omnipython-audiodsp %s from TestPyPI" % version)
 
-    smoke("bare", "pydevices-audiodsp==%s" % version, BARE)
+    smoke("bare", "omnipython-audiodsp==%s" % version, BARE)
     if "--skip-render" in argv:
         print("== [render]: skipped")
     else:
-        smoke("[render]", "pydevices-audiodsp[render]==%s" % version, RENDER)
+        smoke("[render]", "omnipython-audiodsp[render]==%s" % version, RENDER)
     print("all TestPyPI install checks passed for %s" % version)
     return 0
 

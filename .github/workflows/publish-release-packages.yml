@@ -70,7 +70,7 @@ jobs:
     uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-v12
     with:
       build-kind: native-and-wasm
-      distribution-name: pydevices-audiodsp
+      distribution-name: omnipython-audiodsp
       # No mip-profile: nothing here is MIP-published any more. The native
       # modules are firmware -- MicroPython and CircuitPython build them from
       # src/ as a usermod, so there is nothing for MIP to carry -- and
@@ -88,7 +88,7 @@ jobs:
       # cp315t on each of the three desktops; Android and wasm stay at
       # cp313/cp314 (pyproject.toml's skip list).
       expected-wheel-count: 24
-      wheel-filename-prefix: pydevices_audiodsp
+      wheel-filename-prefix: omnipython_audiodsp
       # Production PyPI too, for final releases (2026-09-23): the name
       # was parked at 0.6.0 by mirroring TestPyPI's files, and its Trusted
       # Publisher (this workflow, environment "pypi") is configured. The
@@ -132,7 +132,7 @@ jobs:
     # Same placeholder as the publish job above: the same tag, both lines.
     uses: PyDevices/.github/.github/workflows/reusable-report-pypi-result.yml@publishing-v12
     with:
-      distribution-name: pydevices-audiodsp
+      distribution-name: omnipython-audiodsp
       version: ${{ needs.publish.outputs.version }}
       pypi-result: ${{ needs.pypi.result }}
     secrets: inherit
