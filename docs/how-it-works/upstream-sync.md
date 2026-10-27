@@ -50,7 +50,7 @@ to turn up.
 3. For each commit, find the same code here. A file under `src/<module>/`
    holds upstream's `shared-module` and `shared-bindings` files merged, with
    a `// --- from ...` line where each begins. Arithmetic that both bindings
-   run lives in `src/shared/`, and the CPython target's copy of the module
+   run lives in [`src/shared/`](../../src/shared/), and the CPython target's copy of the module
    is `src/cpython/<module>.py` beside `_audiodsp.c`. A fix usually lands in
    two or three of those places.
 4. Take each fix in upstream's own words where the code is still upstream's,
@@ -59,7 +59,7 @@ to turn up.
    all, in both the native module and the CPython target. Leave out only what
    the list of deliberate differences below says this port does otherwise,
    and say which in the pull request.
-5. Add a probe under `tests/parity/` whose output changes with each fix or
+5. Add a probe under [`tests/parity/`](../../tests/parity/) whose output changes with each fix or
    addition, and add it to `verify_dsp.py`. A probe CPython can't run (no `audiomp3`, say)
    can't be compared there, because CI has only CPython and MicroPython; have
    it check itself against the oracle's answers and run it in
@@ -85,13 +85,13 @@ is the same commit (aac02afd9f) as at the pin.
 - **audiomixer** (11a329885, fc57c0f36). A voice is scaled in integers:
   `(ai * mul) >> 15`, where it was `ai * (mul / 32767.0f)` truncated toward
   zero, and a centred pan is `32768 - panning`. Taken in upstream's words in
-  `src/audiomixer/Mixer.c`, in the CPython extension's scaling kernel and in
-  `src/cpython/audiomixer.py`. Every level below 1.0 moves by up to one LSB,
+  [`src/audiomixer/Mixer.c`](../../src/audiomixer/Mixer.c), in the CPython extension's scaling kernel and in
+  [`src/cpython/audiomixer.py`](../../src/cpython/audiomixer.py). Every level below 1.0 moves by up to one LSB,
   and a small negative sample now rounds down (-1 at level 0.5 stays -1). The
   ARM `smulwb` path and the `__ARM_FEATURE_DSP` guards are not here, as before:
   this port's `mult16signed` is the portable C, which upstream says gives the
   same bytes.
-- **synthio** (cbbde1208). `synthio_sat16` is inline in `src/synthio/__init__.h`
+- **synthio** (cbbde1208). `synthio_sat16` is inline in [`src/synthio/__init__.h`](../../src/synthio/__init__.h)
   as upstream has it, with the `__ssat` form on cores that define
   `__ARM_FEATURE_SAT`. It cannot change a sample.
 
@@ -138,7 +138,7 @@ took the rest:
   worked out in `mp_float_t`. The swapped `stream_lseek` arguments were
   already fixed here in audiodsp#219, in upstream's form.
 
-`tests/parity/cp11_fixes_probe.py` covers them in `verify_dsp.py`, where
+[`tests/parity/cp11_fixes_probe.py`](../../tests/parity/cp11_fixes_probe.py) covers them in `verify_dsp.py`, where
 CircuitPython, MicroPython and CPython print the same bytes.
 `cp11_files_probe.py` covers `WaveFile` and `audiomp3`, which CPython lacks, by
 checking itself against the oracle's answers on MicroPython in CI. One stored digest moved:
@@ -174,7 +174,7 @@ a resync should take upstream's version. Each entry links to its reasons.
   `shared-bindings` files for that class merged into one, docstrings (`//|`)
   dropped. The per-sample loops of the effects live in `src/shared/` so the
   CPython target runs the same C.
-- **The CPython target** (`src/cpython/`) is a second implementation, held to
+- **The CPython target** ([`src/cpython/`](../../src/cpython/)) is a second implementation, held to
   the native bytes by `verify_dsp.py` rather than by sharing upstream's code.
 - **`attr, cp_compat_attr`** on every type, because mainline MicroPython
   needs it to call a property
@@ -221,7 +221,7 @@ gives one to every audio object (7f1de43480), so a collected object is
 `deinit()`ed. Here the pump stops itself on a soft reset from a finaliser of
 its own, and it relies on no finaliser tearing down a graph node first: a soft
 reset runs every finaliser, reachable or not, so a node's `deinit()` could
-free it under a pump that is still pulling (`src/audiopump/audiopump.c`,
+free it under a pump that is still pulling ([`src/audiopump/audiopump.c`](../../src/audiopump/audiopump.c),
 "teardown"). This port leaves upstream's finalisers out on purpose for that
 reason, and a resync should not take them.
 

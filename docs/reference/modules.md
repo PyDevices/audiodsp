@@ -32,7 +32,7 @@ It adds modules CircuitPython doesn't have. Each has a page here or a guide:
 
 Two pure-Python modules sit beside the CircuitPython-compatible core:
 
-- **`lib/audiodsp_util/`** — `float32(value)` and `float32_bits(value)`,
+- **[`lib/audiodsp_util/`](../../lib/audiodsp_util/)** — `float32(value)` and `float32_bits(value)`,
   `struct` and nothing else. A Python float is the interpreter's own width:
   a double here, a **single** on every board. So a setting written in Python
   — `node.mix = 0.35` — is two different numbers, and the node renders
@@ -40,7 +40,7 @@ Two pure-Python modules sit beside the CircuitPython-compatible core:
   Put a derived setting through `float32` and both targets hold the number
   the board would have held. See
   [docs/correctness-standard.md](../how-it-works/correctness-standard.md).
-- **`lib/audiorender/`** — renders a whole composition offline: tracks,
+- **[`lib/audiorender/`](../../lib/audiorender/)** — renders a whole composition offline: tracks,
   tempo map, notes and automation in, a mixed stereo master and a level
   report out. This is the one part of the repository written for a desktop
   rather than a board — numpy throughout, a whole song in memory — so it

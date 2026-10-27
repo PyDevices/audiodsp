@@ -195,5 +195,5 @@ which is how the header above can name every one of them.
 Three runs stand behind it: clean across 280 files; **three** hits with a
 `<pthread.h>` and a `clock_gettime()` planted in the lock, so the gate is
 armed rather than merely quiet; and **one** hit on the state of the repository
-before the split — `src/audiomp3/MP3Decoder.c` had carried `#include
+before the split — [`src/audiomp3/MP3Decoder.c`](../../src/audiomp3/MP3Decoder.c) had carried `#include
 <unistd.h>` all along for `SEEK_SET`, which is ISO C and is `<stdio.h>` now.

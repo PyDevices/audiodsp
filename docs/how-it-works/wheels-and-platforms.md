@@ -68,9 +68,9 @@ aarch64 is the example. At first, `verify_effects` differed on `multitap` and
 `pitchshift`, the two effects that interpolate along a delay line: a
 compiler's fused multiply-add changes the rounding, and AArch64 fuses by
 baseline where x86-64 doesn't without `-mfma`. Forbidding contraction in
-every `src/shared/` file that computes in float closed it (issue
+every [`src/shared/`](../../src/shared/) file that computes in float closed it (issue
 [#79](https://github.com/PyDevices/audiodsp/issues/79)), so aarch64's own
-baseline was removed from `tests/parity/golden/effects_component.json`: it is
+baseline was removed from [`tests/parity/golden/effects_component.json`](../../tests/parity/golden/effects_component.json): it is
 held to the oracle hash itself, the same one x86_64 is held to.
 
 ## What isn't built

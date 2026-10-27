@@ -23,5 +23,5 @@ spectrum integrated over the band, so pink noise reads flat to within 3 dB
 of the median band across 35 Hz to 20 kHz (the bound its test holds). The default floor is 35 Hz because below that
 real music barely moves a bar. The window, the filter, the band edges and
 the dB rounding avoid libm, so a desktop and a board read the same bytes for
-the same samples; `tests/parity/meter_probe.py` checks that.
+the same samples; [`tests/parity/meter_probe.py`](../../tests/parity/meter_probe.py) checks that.
 

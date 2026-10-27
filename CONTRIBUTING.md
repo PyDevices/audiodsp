@@ -107,14 +107,14 @@ The attribution that goes with it lives in [NOTICE](NOTICE). Substantial
 portions of this code are ported from CircuitPython under its own MIT
 license. CircuitPython is a trademark of Adafruit Industries, and this
 project is not affiliated with or endorsed by them. The vendored test corpus
-under `tests/vendor/` carries its own licenses. The two are separate files on
+under [`tests/vendor/`](tests/vendor/) carries its own licenses. The two are separate files on
 purpose: GitHub and PyPI only detect the license when LICENSE holds the MIT
 text and nothing else, so please don't fold NOTICE back into it. `NOTICE` is
 in setuptools' default `license-files` glob, so it ships in the wheel and
 sdist alongside `LICENSE`.
 
 The Helix MP3 decoder that `audiomp3` wraps is RPSL/RCSL-licensed, not MIT.
-`scripts/fetch_deps.sh` fetches it, carried unmodified per upstream's own
+[`scripts/fetch_deps.sh`](scripts/fetch_deps.sh) fetches it, carried unmodified per upstream's own
 terms; it isn't part of this repository. See
 [upstream-diff](docs/how-it-works/upstream-diff.md).
 
