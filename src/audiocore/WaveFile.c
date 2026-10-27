@@ -3,7 +3,7 @@
 // https://github.com/adafruit/circuitpython, MIT). Since CircuitPython 11
 // (cf227dc184) upstream reads through MicroPython's generic stream protocol,
 // as this port always did, so the file I/O below is upstream's own. What
-// differs is listed in docs/upstream-sync.md. Docstrings (`//|` lines)
+// differs is listed in docs/how-it-works/upstream-sync.md. Docstrings (`//|` lines)
 // dropped.
 //
 // SPDX-FileCopyrightText: Copyright (c) 2018 Scott Shawcroft

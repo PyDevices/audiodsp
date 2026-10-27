@@ -223,7 +223,7 @@ void audiodsp_pitchshift_process_s16(int16_t *output, const int16_t *input,
             // window there still holds its oldest frame; the frame that
             // follows the newest is the overlap's oldest. Upstream plays the
             // window's, a click on every lap whose read lands exactly on the
-            // write position (docs/upstream-diff.md).
+            // write position (docs/how-it-works/upstream-diff.md).
             word = overlap[positions->overlap_index + overlap_plane];
         } else {
             word = window[read + window_plane];

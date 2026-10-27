@@ -30,7 +30,7 @@
 // (shared/audiodsp_port.h), which put it in PSRAM on a board that has it,
 // and through the C library's malloc everywhere else. Nothing comes from a
 // MicroPython or CPython heap. Header parsing and decoding also take stack: see
-// docs/vorbis.md for what a stream needs of both.
+// docs/reference/vorbis.md for what a stream needs of both.
 
 #pragma once
 

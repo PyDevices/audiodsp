@@ -99,7 +99,7 @@ jobs:
       # The DSP nodes' real gate is cross-interpreter agreement and it needs
       # two interpreters, so it lives in clean-build.yml where a MicroPython
       # binary is built. A one-interpreter run cannot fail and verify_dsp now
-      # refuses one (docs/correctness-standard.md).
+      # refuses one (docs/how-it-works/correctness-standard.md).
       #
       # What this matrix can say is worth having and is not a comparison: every
       # probe RUNS, on four operating systems and five Pythons. That catches an
@@ -132,7 +132,7 @@ jobs:
   # runner. This job is currently the ONLY thing that builds an ARM wheel:
   # the org release matrix (reusable-build-native-and-wasm-wheels.yml, at
   # publishing-v8) runs ubuntu-latest, windows-latest and macos-latest, so
-  # releases still ship no aarch64 wheel. See docs/building-wheels.md for
+  # releases still ship no aarch64 wheel. See docs/how-it-works/wheels-and-platforms.md for
   # what closing that gap costs. Proving the build here first means the org
   # change, when it comes, is a matrix line rather than a discovery.
   linux-arm-wheels:

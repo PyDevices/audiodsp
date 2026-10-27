@@ -218,7 +218,7 @@ class MultiTapDelay(_Effect):
         self._delay_buffer[:] = array("h", [0]) * len(self._delay_buffer)
         # The write head goes back to the top, where a fresh node's is: a
         # Time shortened later keeps the stretch of the line a fresh node
-        # would (a recorded departure, docs/upstream-diff.md).
+        # would (a recorded departure, docs/how-it-works/upstream-diff.md).
         self._position = 0
 
     def _delay_samples(self):
@@ -294,7 +294,7 @@ class MultiTapDelay(_Effect):
 
 class PitchShift(_Effect):
     # A source with nothing to give ends the pull's stretch rather than
-    # spinning the loop (a recorded deviation, docs/upstream-diff.md).
+    # spinning the loop (a recorded deviation, docs/how-it-works/upstream-diff.md).
     _stop_on_empty_pull = True
 
     def __init__(self, *, semitones=0, mix=1, window=1024, overlap=128, buffer_size=512, sample_rate=8000, bits_per_sample=16, samples_signed=True, channel_count=1):
@@ -341,7 +341,7 @@ class PitchShift(_Effect):
         _advance_blocks(self.sample_rate,
                         len(data) // (self.channel_count * 2))
         read_rate = int(2.0 ** (_value(self.semitones) / 12.0) * 256)
-        # The splice moves by up to a 50th of a second (docs/upstream-diff.md).
+        # The splice moves by up to a 50th of a second (docs/how-it-works/upstream-diff.md).
         (result, self._window_index, self._overlap_index, self._read_index,
          *splice) = _audiodsp.pitchshift_s16(
             data, self._window_buffer, self._overlap_buffer,
@@ -357,7 +357,7 @@ class PitchShift(_Effect):
 
 class Flanger(_Effect):
     # A source with nothing to give ends the pull's stretch rather than
-    # spinning the loop (a recorded deviation, docs/upstream-diff.md).
+    # spinning the loop (a recorded deviation, docs/how-it-works/upstream-diff.md).
     _stop_on_empty_pull = True
 
     def __init__(self, *, max_delay_ms=10, min_delay_ms=None, rate=None, depth=None, feedback=None, mix=None, invert=False, buffer_size=512, sample_rate=8000, bits_per_sample=16, samples_signed=True, channel_count=1):

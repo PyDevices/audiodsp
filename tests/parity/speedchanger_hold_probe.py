@@ -20,7 +20,7 @@ printed by three interpreters is a test of their `repr`, and the Q16 value is
 what the node actually holds. All three are far enough from a half-step to
 round the same way under a 32-bit and a 64-bit `mp_float_t`.
 
-Both departures this probe sees are recorded in `docs/upstream-diff.md`
+Both departures this probe sees are recorded in `docs/how-it-works/upstream-diff.md`
 (audiodsp#91, audiodsp#92).
 """
 

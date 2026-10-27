@@ -589,7 +589,7 @@ static PyObject *envelope_state_reattack(audiodsp_envelope_state_object_t *self,
 // a note's envelope on every render block (synthio_synth_get_note_envelope,
 // called from the render loop), so reassigning `note.envelope` takes effect
 // immediately there. This target caches the definition inside the state object
-// at press time, so it needs this to stay faithful. See docs/upstream-diff.md.
+// at press time, so it needs this to stay faithful. See docs/how-it-works/upstream-diff.md.
 static PyObject *envelope_state_set_definition(
     audiodsp_envelope_state_object_t *self, PyObject *args, PyObject *kwargs) {
     unsigned int sample_rate;
@@ -657,7 +657,7 @@ static PyType_Spec envelope_state_spec = {
 
 // One filter state per channel. A stereo stream filtered through a single
 // state makes each channel's filter memory the other channel's history; see
-// docs/upstream-diff.md. CircuitPython caps channel_count at 2.
+// docs/how-it-works/upstream-diff.md. CircuitPython caps channel_count at 2.
 #define AUDIODSP_BIQUAD_MAX_CHANNELS 2
 
 typedef struct {
@@ -4134,7 +4134,7 @@ static PyType_Slot graph_state_slots[] = {
     {Py_tp_getset, graph_state_getset},
     {Py_tp_doc, (void *)PyDoc_STR("Graph(*, sample_rate=48000, frames=128, "
         "channel_count=2, buffers=64, nodes=64): a whole patch rendered by "
-        "one C call per block. See docs/audiograph.md.")},
+        "one C call per block. See docs/how-it-works/audiograph.md.")},
     {0, NULL},
 };
 

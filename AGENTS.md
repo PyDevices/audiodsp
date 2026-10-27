@@ -30,7 +30,7 @@ for source compatibility; only this repo's own name differs.
   offline rendering — numpy, desktop-only, never frozen) and
   `lib/audiodsp_util/` (`float32`, the round trip that makes a setting derived
   in Python the same number on a board as on a desktop — see
-  [docs/correctness-standard.md](docs/correctness-standard.md)). Both ship
+  [docs/how-it-works/correctness-standard.md](docs/how-it-works/correctness-standard.md)). Both ship
   inside the `omnipython-audiodsp` wheel. The instrument and effect libraries that
   used to sit beside it — `audioinstruments` (55 `synthio` instruments) and
   `audioeffects` (45 effect classes, racks included) — live in
@@ -49,10 +49,10 @@ for source compatibility; only this repo's own name differs.
   here rather than the other way round.
 - `docs/porting-plan.md` — the full phased porting history, architecture,
   and target layout
-- `docs/upstream-sync.md` — when and how to resync the CircuitPython-derived
+- `docs/how-it-works/upstream-sync.md` — when and how to resync the CircuitPython-derived
   modules with upstream, what the last resync took, and the list of every
   deliberate difference (the pump, `deinit`, the recorded deviations)
-- `docs/upstream-diff.md` — the reasons and measurements behind each
+- `docs/how-it-works/upstream-diff.md` — the reasons and measurements behind each
   deviation from upstream CircuitPython (verbatim-kept quirks vs. genuine port
   bugs found and fixed)
 - `tests/parity/` — oracle-diff scripts, run unchanged against both this
@@ -63,7 +63,7 @@ for source compatibility; only this repo's own name differs.
   `audiovorbis` wraps, BSD-3-Clause, vendored (see its `ORIGIN.txt`). Never
   listed in a build on its own: `src/shared/audiodsp_vorbis.c` includes it
   into one translation unit with every symbol renamed. See
-  [docs/vorbis.md](docs/vorbis.md).
+  [docs/reference/vorbis.md](docs/reference/vorbis.md).
 
 ## Sibling dependencies (cloned, not vendored)
 
@@ -82,9 +82,9 @@ of this repository in the parent workspace, same pattern as
 - Oracle diffing is the core discipline: every parity script under
   `tests/parity/` runs unchanged against this port and `bin/circuitpython`,
   rendering PCM and diffing byte-for-byte (or documenting the exact,
-  bounded exception in `docs/upstream-diff.md`).
+  bounded exception in `docs/how-it-works/upstream-diff.md`).
 - The nine modules that are **ours** have no oracle, by decision
-  ([docs/correctness-standard.md](docs/correctness-standard.md), 2026-09-09).
+  ([docs/how-it-works/correctness-standard.md](docs/how-it-works/correctness-standard.md), 2026-09-09).
   Upstream CircuitPython has no counterpart to them, so they are held to two
   things: every target renders them identically, and their numeric traits hold.
   `.venv/bin/python tests/parity/verify_dsp.py --micropython ../micropython/ports/unix/build-pydevices/micropython`
@@ -198,10 +198,10 @@ parity golden is measured against. The rule, for any agent working here:
   every CP-shared gate and re-pins the binary's hash with the reason written
   down. **Every pin move is a resync**: take every audio fix and every
   addition (a new property, argument or class) upstream made since the old
-  pin, following `docs/upstream-sync.md`, and update its record of what was
+  pin, following `docs/how-it-works/upstream-sync.md`, and update its record of what was
   taken and what differs on purpose. The oracle is built at the same version and the same ceiling this port
   ships — an oracle at a different configuration cannot answer the only question
-  worth asking. See `docs/correctness-standard.md` and
+  worth asking. See `docs/how-it-works/correctness-standard.md` and
   `tests/test_voice_ceiling_consistency.py`.
 - **Extending CircuitPython is fine and is the designed path**: new modules
   live in this repo under `src/circuitpython_spike/` and build, with
@@ -211,7 +211,7 @@ parity golden is measured against. The rule, for any agent working here:
   because the oracle is built with it, so a behavioral change would leak
   *into* the oracle.
 - Fixes to bugs that also exist upstream go in **this repo's targets only**
-  (MicroPython/CPython/`src/shared/`), recorded in `docs/upstream-diff.md`
+  (MicroPython/CPython/`src/shared/`), recorded in `docs/how-it-works/upstream-diff.md`
   — never into the CP tree. Approved deviations from the oracle are
   enumerated there; **ask before adding one**.
 - Quick self-check after any CP-adjacent work: `circuitpython.mk` compiles

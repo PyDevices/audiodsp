@@ -4,7 +4,7 @@
 
 Every interpreter renders this and the outputs must be identical, so any
 difference in the printed stats is a difference in the DSP - a width, a shift,
-a compiler's choice. See docs/correctness-standard.md.
+a compiler's choice. See docs/how-it-works/correctness-standard.md.
 
 **A legacy worth knowing about.** This file uses only the argument forms
 micropython-vst3's `vstaudio_dsp.c` accepted, because it was written to be run

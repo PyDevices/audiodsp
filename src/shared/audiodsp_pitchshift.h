@@ -11,7 +11,7 @@ typedef struct {
     uint32_t window_index;
     uint32_t overlap_index;
     uint32_t read_index;
-    // The splice (docs/upstream-diff.md): while a crossfade runs, how many
+    // The splice (docs/how-it-works/upstream-diff.md): while a crossfade runs, how many
     // frames the incoming side is moved to land in phase with the outgoing
     // one, and whether a crossfade is running. Both 0 where a new node
     // starts, and after a reset.

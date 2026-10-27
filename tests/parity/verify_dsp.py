@@ -3,7 +3,7 @@
 
     verify_dsp.py --micropython PATH [--circuitpython PATH]
 
-`docs/correctness-standard.md` is what this implements. There is no stored
+`docs/how-it-works/correctness-standard.md` is what this implements. There is no stored
 digest and no oracle: the probes are run on every interpreter given, and the
 gate is that their output is byte-identical. A disagreement is the finding.
 
@@ -153,7 +153,7 @@ PROBES = (
                        "are this port's extension and which CircuitPython "
                        "refuses. Everything else in it matches 11.0.0-alpha.1 "
                        "byte for byte, PEAKING_EQ and the filter reset "
-                       "included. See docs/upstream-diff.md"},
+                       "included. See docs/how-it-works/upstream-diff.md"},
      None),
     # audiomixer is CircuitPython's, so like biquad_component_probe.py it is
     # held to the interpreters agreeing rather than to a capture. The twin
@@ -184,7 +184,7 @@ PROBES = (
     ("mixer_reset_probe.py", "audiomixer",
      {"circuitpython": "CircuitPython's own Mixer stops every voice on a "
                        "reset, which this port deliberately does not - "
-                       "docs/upstream-diff.md, \"Resetting a Mixer silenced "
+                       "docs/how-it-works/upstream-diff.md, \"Resetting a Mixer silenced "
                        "it\""},
      None),
     ("tank_probe.py", "audioverb", {}, None),
@@ -199,14 +199,14 @@ PROBES = (
      {"circuitpython": "upstream's own Flanger overflows int32 in its wet "
                        "interpolation on full-scale material and ours does "
                        "not - audiodsp#76, a deliberate departure recorded in "
-                       "docs/upstream-diff.md"},
+                       "docs/how-it-works/upstream-diff.md"},
      None),
     ("granular_pitch_shift_probe.py", "audiodelays", {}, None),
     ("resampler_probe.py", "audiospeed", {}, None),
     # Two departures from 10.3.0, both of them upstream bugs this port
     # declines to reproduce: the Q16 rate truncates there and rounds here
     # (audiodsp#92), and the phase accumulator is zeroed at every source buffer
-    # there and carried here (audiodsp#91). See docs/upstream-diff.md.
+    # there and carried here (audiodsp#91). See docs/how-it-works/upstream-diff.md.
     #
     # `resampler_probe.py` above cannot see either one -- it asks only for 2.0,
     # 1.0 and 0.5, which are exact in Q16 and divide a buffer exactly -- which
@@ -221,7 +221,7 @@ PROBES = (
                        "restarts its phase at every source buffer, and ours "
                        "does neither - audiodsp#92 and audiodsp#91, both "
                        "deliberate departures recorded in "
-                       "docs/upstream-diff.md"},
+                       "docs/how-it-works/upstream-diff.md"},
      None),
     ("echo_filter_probe.py", "audiodelays", {}, None),
     # A delay line shorter than one audio buffer. CircuitPython 10.3.0 raised
@@ -240,7 +240,7 @@ PROBES = (
                        "write head, where upstream writes one sample past "
                        "the new end and ours starts the line again at its "
                        "top: 2 samples differ, a deliberate departure "
-                       "recorded in docs/upstream-diff.md"},
+                       "recorded in docs/how-it-works/upstream-diff.md"},
      None),
     # A stereo source handing an odd number of samples, and a looped source
     # that comes back empty (audiodsp#177). Upstream swaps the lanes on the
@@ -252,7 +252,7 @@ PROBES = (
                        "a looped source that comes back empty; ours do none "
                        "of these - audiodsp#177 and the Echo entry, "
                        "deliberate departures recorded in "
-                       "docs/upstream-diff.md"},
+                       "docs/how-it-works/upstream-diff.md"},
      None),
     # A reset puts the write head back at the top, so a shorter Time after
     # it plays as on a fresh node (audiocomponents' MultiTapDelay, 7d).
@@ -261,7 +261,7 @@ PROBES = (
                        "across reset_buffer, so a Time shortened after a "
                        "reset keeps another stretch of the line; ours puts "
                        "them at the top, a deliberate departure recorded "
-                       "in docs/upstream-diff.md"},
+                       "in docs/how-it-works/upstream-diff.md"},
      None),
     # wow_hz and loop_semitones taken to 0 park at their next zero crossing
     # instead of freezing mid-swing (audiodsp#177).
@@ -282,7 +282,7 @@ PROBES = (
      {"circuitpython": "upstream's Echo and MultiTapDelay write one sample "
                        "past a line shortened under the write head, and ours "
                        "do not - a deliberate departure recorded in "
-                       "docs/upstream-diff.md"},
+                       "docs/how-it-works/upstream-diff.md"},
      None),
     ("delay_time_probe.py", "audioecho", {}, None),
     ("feedback_delay_frames_probe.py", "audioecho", {}, None),
@@ -311,7 +311,7 @@ PROBES = (
     # frozen loop here plays the overlap's frame where its read lands on the
     # write position, where upstream plays the window's oldest frame (a
     # click a lap), and the blocks after `freeze` goes back to False splice
-    # live audio, which this port moves into phase (docs/upstream-diff.md),
+    # live audio, which this port moves into phase (docs/how-it-works/upstream-diff.md),
     # so CircuitPython sits this one out.
     ("pitchshift_freeze_probe.py", "audiodelays",
      {"circuitpython": "upstream's PitchShift splices wherever the window "
@@ -320,7 +320,7 @@ PROBES = (
                        "the window's oldest frame, a click, wherever the "
                        "read lands on the write position, where ours plays "
                        "the overlap's - deliberate departures recorded in "
-                       "docs/upstream-diff.md"},
+                       "docs/how-it-works/upstream-diff.md"},
      None),
     # A reset puts PitchShift's read and write positions and
     # GranularPitchShift's jitter sequence back where a new node starts, and
@@ -330,7 +330,7 @@ PROBES = (
                        "positions across a reset and its GranularPitchShift "
                        "keeps its jitter sequence, and ours start again - "
                        "deliberate departures recorded in "
-                       "docs/upstream-diff.md"},
+                       "docs/how-it-works/upstream-diff.md"},
      None),
     # A looping source with nothing to give no longer spins the pitch
     # shifters' or Flanger's pull loop: the node lets go of it and the block
@@ -339,7 +339,7 @@ PROBES = (
      {"circuitpython": "upstream's PitchShift, GranularPitchShift and Flanger "
                        "go round their pull loop for ever on a looping source that "
                        "comes back empty, and ours return - a deliberate "
-                       "departure recorded in docs/upstream-diff.md"},
+                       "departure recorded in docs/how-it-works/upstream-diff.md"},
      None),
 )
 
@@ -352,7 +352,7 @@ def run_probe(argv_prefix, probe, module):
     # is only here for anything a probe loads out of the tree -- `lib/` is on
     # it because `audiodsp_util` lives there, and a probe that derives a setting
     # in Python has to round it the way a board would before handing it over
-    # (docs/correctness-standard.md, audiodsp#80).
+    # (docs/how-it-works/correctness-standard.md, audiodsp#80).
     environment["MICROPYPATH"] = "%s:%s" % (ROOT, ROOT / "lib")
     # The same directory for the CPython leg, ahead of whatever is installed.
     # It is pure Python with no DSP in it, and putting it here is what lets

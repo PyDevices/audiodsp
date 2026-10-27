@@ -3,7 +3,7 @@ hands nothing.
 
 `PitchShift`, `GranularPitchShift` and `Flanger` render the rest of the block from
 silence, keep the source and ask it again on the next pull, as
-`MultiTapDelay` does (docs/upstream-diff.md). Upstream CircuitPython's pull
+`MultiTapDelay` does (docs/how-it-works/upstream-diff.md). Upstream CircuitPython's pull
 loop goes round for ever on such a source. No native source in this
 repository hands an empty buffer with more to come, so the case is held on
 the CPython twin, where a source can be written in Python;

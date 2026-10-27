@@ -4,7 +4,7 @@
 three targets. What is left for here is what a render cannot say, and the
 numeric traits with their bars.
 
-`docs/correctness-standard.md` is what this file implements for
+`docs/how-it-works/correctness-standard.md` is what this file implements for
 `audiosampler`: the module is ours - upstream CircuitPython has no
 counterpart - so it is held to three-target agreement plus the traits below,
 never to a previous version of its own output.
@@ -37,7 +37,7 @@ never to a previous version of its own output.
 | S22 | A steal on the last voice of a table of 128 fades the old note out, as S18 | exact |
 | S23 | 128 looping stereo voices render inside the 5333 us block | measured |
 
-S3 is this module's form of the identity trait `docs/correctness-standard.md`
+S3 is this module's form of the identity trait `docs/how-it-works/correctness-standard.md`
 asks of every own node: an exact answer through the interpolator rather than
 around it. The Hermite polynomial passes through its samples, so an integer
 position reads the buffer's own value, and a loop at pitch 1.0 whose length
@@ -50,7 +50,7 @@ an octave up, and the frequency is counted off the output's zero crossings.
 
 ## The planted fault
 
-`docs/correctness-standard.md`: "a trait without a planted fault is not a
+`docs/how-it-works/correctness-standard.md`: "a trait without a planted fault is not a
 check; it is a hope." The fault below is a one-line change to
 `src/shared/audiodsp_sampler.c` that a reader can make by hand, with what it
 did when it was made. It is recorded rather than automated because the file

@@ -4,7 +4,7 @@
 // Docstrings dropped. `MP_OBJ_NEW_TUPLE(...)` (CP's variadic tuple-literal
 // macro, py/objtuple.h) inlined at its one call site instead of ported --
 // avoids relying on a GCC statement-expression extension for a single use.
-// See docs/upstream-diff.md: every type using MP_PROPERTY_GETTER/GETSET
+// See docs/how-it-works/upstream-diff.md: every type using MP_PROPERTY_GETTER/GETSET
 // needs `attr, cp_compat_attr` wired in.
 //
 // SPDX-FileCopyrightText: Copyright (c) 2021 Artyom Skrobov

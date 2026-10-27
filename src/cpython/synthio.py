@@ -442,7 +442,7 @@ class Synthesizer(_AudioSample):
                 # the slot came back 758 render blocks later. Driving rhodes
                 # through the parity sequence, 117 of its 122 refusals happened
                 # with NO key held at all - the engine was clogged by its own
-                # decaying voices, not full. See docs/upstream-diff.md.
+                # decaying voices, not full. See docs/how-it-works/upstream-diff.md.
                 victim = None
                 quietest = None
                 for other in self._notes:

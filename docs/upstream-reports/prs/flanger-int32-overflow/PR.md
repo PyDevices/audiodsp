@@ -2,7 +2,7 @@
 
 Branch: `fix-flanger-int32-overflow` (one commit, the patch beside this
 document). From audiodsp#76 and the `audiodelays.Flanger` section of
-[upstream-diff.md](../../../upstream-diff.md). Verified against the `10.3.0` tag
+[upstream-diff.md](../../../how-it-works/upstream-diff.md). Verified against the `10.3.0` tag
 (`d897c15f`) and the `main` tip (`268a168d`, 2026-09-17) —
 `shared-module/audiodelays/Flanger.c` is byte-identical between the two.
 

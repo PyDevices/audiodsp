@@ -229,7 +229,7 @@ reason, and a resync should not take them.
 
 - **audiocore**: `get_buffer()` returns a byte view, and the oracle is
   patched to match
-  ([why](upstream-diff.md#audiocoreget_buffer-returns-a-byte-view-circuitpython-patch)).
+  ([why](upstream-diff.md), under "`audiocore.get_buffer` returns a byte view").
   A host reset keeps the frames a node has already taken
   ([why](upstream-diff.md#a-host-reset-keeps-the-frames-a-node-has-already-taken-audiodsp181)).
   `WaveFile` opens a path as well as a file.

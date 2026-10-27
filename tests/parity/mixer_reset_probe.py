@@ -14,7 +14,7 @@ such as a SplitterTap, lost the frames it was holding.
 Each case pulls a Mixer for one block, resets it, and pulls three more, beside
 the same Mixer never reset. The blocks must match, and they are printed so the
 interpreters are held to the same bytes. CircuitPython's own Mixer stops every
-voice on a reset (docs/upstream-diff.md, "Resetting a Mixer silenced it"), so
+voice on a reset (docs/how-it-works/upstream-diff.md, "Resetting a Mixer silenced it"), so
 `verify_dsp.py` doesn't run this there.
 """
 

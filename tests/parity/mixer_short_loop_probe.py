@@ -23,7 +23,7 @@ voice, as the CPython twin has done since audiodsp#24.
 
 **CircuitPython hangs on case 1** (10.3.0 and 11.0.0-alpha.1 both) and is not in the comparison for that
 reason; `audiomixer` is a stock CP module, this port fixes its own two targets,
-and the deviation is written up in docs/upstream-diff.md. So this file is not
+and the deviation is written up in docs/how-it-works/upstream-diff.md. So this file is not
 in `verify_dsp.py`'s PROBES -- adding it there would hang the three-way on the
 oracle rather than report anything.
 """

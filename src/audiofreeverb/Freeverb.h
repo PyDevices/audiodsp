@@ -4,7 +4,7 @@
 // why this port doesn't keep the shared-bindings/shared-module split.
 // roomsize/damp/mix are synthio_block_slot_t exactly as upstream (this
 // module was never guarded behind CIRCUITPY_SYNTHIO upstream, unlike
-// audiomixer -- see docs/upstream-diff.md).
+// audiomixer -- see docs/how-it-works/upstream-diff.md).
 //
 // SPDX-FileCopyrightText: Copyright (c) 2025 Mark Komus
 // SPDX-FileCopyrightText: Copyright (c) 2026 PyDevices

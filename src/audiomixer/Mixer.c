@@ -3,7 +3,7 @@
 // https://github.com/adafruit/circuitpython, MIT), merged into one file
 // (this port doesn't keep CP's shared-bindings/shared-module split).
 //
-// Deviations from upstream, both documented in docs/upstream-diff.md:
+// Deviations from upstream, both documented in docs/how-it-works/upstream-diff.md:
 //   - mix_down_one_voice's `#if CIRCUITPY_SYNTHIO` branch is unconditional
 //     here (this port always has synthio, tier 2); the plain-uint16 level/
 //     panning fallback is dropped.
@@ -228,7 +228,7 @@ static MP_DEFINE_CONST_DICT(audiomixer_mixer_locals_dict, audiomixer_mixer_local
 // --- mixdown engine (shared-module) -------------------------------------
 
 // Deviation from upstream, which stops every voice here -- see
-// docs/upstream-diff.md, "Resetting a Mixer silenced it". Anything that pulls
+// docs/how-it-works/upstream-diff.md, "Resetting a Mixer silenced it". Anything that pulls
 // from a Mixer resets it first (every effect's play() does), so upstream's
 // version makes a Mixer feeding an effect render silence forever.
 //

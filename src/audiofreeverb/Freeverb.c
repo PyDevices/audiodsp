@@ -6,7 +6,7 @@
 // prints "freeverb" even though the class is `audiofreeverb.Freeverb" --
 // a genuine upstream quirk, kept for parity, not a transcription error).
 // Type registration adds `attr, cp_compat_attr` for the roomsize/damp/mix/
-// playing properties (see docs/upstream-diff.md, "Property invocation
+// playing properties (see docs/how-it-works/upstream-diff.md, "Property invocation
 // needs an explicit attr slot").
 //
 // Based on FreeVerb - https://github.com/sinshu/freeverb/tree/main

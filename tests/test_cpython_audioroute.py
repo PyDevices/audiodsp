@@ -5,7 +5,7 @@ what this module renders across the three targets. What is left for here is
 what a render cannot say: the argument forms, the errors, the source behaviours
 only a Python-defined audiosample can produce, and the numeric traits.
 
-`docs/correctness-standard.md` is what this file implements for `audioroute`:
+`docs/how-it-works/correctness-standard.md` is what this file implements for `audioroute`:
 the module is ours - upstream CircuitPython has no counterpart - so it is held
 to three-target agreement plus the traits below, never to a previous version of
 its own output.
@@ -32,7 +32,7 @@ its own output.
 | R16 | `Splitter.clear()` drops what nobody read, and reads nothing | exact, frame for frame |
 
 R7 is this module's form of the identity trait
-(`docs/correctness-standard.md`): an exact answer through the DSP rather than a
+(`docs/how-it-works/correctness-standard.md`): an exact answer through the DSP rather than a
 bypass, which is where an arithmetic overflow shows and a range check does not.
 
 R12 is audiodsp#87, and it is a trait rather than a render case because no

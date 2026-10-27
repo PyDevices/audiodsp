@@ -50,7 +50,7 @@ of it reaches -- and `post_gain` is what decides whether that overshoot
 then clips. Keep `post_gain * max(abs(curve))` at or below `CLIP_HEADROOM`
 (about 0.74 of full scale) for a curve that reaches the rails, and put the
 rest of the wanted level on a mixer voice after this node rather than on
-this knob. Measured table: `docs/upstream-diff.md`, "`audioshaper`"
+this knob. Measured table: `docs/how-it-works/upstream-diff.md`, "`audioshaper`"
 (audiodsp#99).
 
 `hysteresis` is off by default and is the one thing a table cannot do: give
@@ -113,7 +113,7 @@ GROUP_DELAY_SAMPLES = {1: 0.0, 2: 2.2, 4: 3.3, 8: 3.9}
 #: Above roughly this fraction of full scale, `post_gain` on a curve that
 #: reaches the rails re-clips the decimator's own overshoot at the base
 #: rate rather than anything the oversampling can still fix -- see the
-#: docstring above and docs/upstream-diff.md's `audioshaper` section for
+#: docstring above and docs/how-it-works/upstream-diff.md's `audioshaper` section for
 #: the measured table (audiodsp#99). Documentation only, the same as
 #: `GROUP_DELAY_SAMPLES` above it: neither the MicroPython usermod's module
 #: globals (`src/audioshaper/module.c`) nor the CircuitPython spike's

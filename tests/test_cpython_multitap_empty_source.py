@@ -3,7 +3,7 @@
 Upstream CircuitPython's pull loop goes round for ever on such a source: it
 asks again, gets 0 bytes, advances by 0 and asks again. This port renders the
 rest of the block from silence, keeps the source, and asks it again on the
-next pull (audiodsp#177, a recorded deviation in docs/upstream-diff.md). No
+next pull (audiodsp#177, a recorded deviation in docs/how-it-works/upstream-diff.md). No
 native source in this repository hands an empty buffer with more to come, so
 the case is held on the CPython twin, where a source can be written in Python;
 the native node's loop is the same shape and `multitap_edges_probe.py` holds

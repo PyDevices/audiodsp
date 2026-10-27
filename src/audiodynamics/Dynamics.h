@@ -4,7 +4,7 @@
 // Not a CircuitPython port: this module comes from micropython-vst3's
 // `vstaudio` usermod, which is where the effects library's compressors,
 // limiters, gates and transient shapers have always lived. See
-// docs/upstream-diff.md.
+// docs/how-it-works/upstream-diff.md.
 //
 // SPDX-License-Identifier: MIT
 

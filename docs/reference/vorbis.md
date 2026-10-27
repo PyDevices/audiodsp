@@ -51,20 +51,20 @@ link that doesn't.
 ## The decoder, and decoding from C
 
 The decoding is Xiph's Tremor, the lowmem branch: integer-only, BSD-3-Clause,
-carried in [third_party/tremor](../third_party/tremor) with a few small changes
-with its [ORIGIN.txt](../third_party/tremor/ORIGIN.txt). It is compiled as one
-translation unit, [src/shared/audiodsp_vorbis.c](../src/shared/audiodsp_vorbis.c),
+carried in [third_party/tremor](../../third_party/tremor) with a few small changes
+with its [ORIGIN.txt](../../third_party/tremor/ORIGIN.txt). It is compiled as one
+translation unit, [src/shared/audiodsp_vorbis.c](../../src/shared/audiodsp_vorbis.c),
 which:
 
 - renames every symbol Tremor defines to `audiodsp_tremor_*`
-  ([audiodsp_tremor_names.h](../src/shared/audiodsp_tremor_names.h)), so a
+  ([audiodsp_tremor_names.h](../../src/shared/audiodsp_tremor_names.h)), so a
   firmware can link another copy of Tremor beside it;
 - keeps Tremor's warnings to Tremor's code, so a port that builds with
   `-Werror` still checks ours;
 - routes Tremor's allocations through the bound driver (below).
 
 Any C module in the same firmware can decode through it with
-[src/shared/audiodsp_vorbis.h](../src/shared/audiodsp_vorbis.h): give it a
+[src/shared/audiodsp_vorbis.h](../../src/shared/audiodsp_vorbis.h): give it a
 read callback (and seek and tell, for a stream that can), then pull
 interleaved int16 frames. It never touches an interpreter, so it can run on
 a thread of its own; one decoder belongs to one thread at a time.
@@ -85,7 +85,7 @@ audiodsp_vorbis_close(v);
 
 Nothing comes from the MicroPython or CPython heap. Tremor allocates through
 the bound driver's memory hooks (`mem_alloc`, `mem_realloc` and `mem_free` in
-[audiodsp_port.h](../src/shared/audiodsp_port.h)), and through the C
+[audiodsp_port.h](../../src/shared/audiodsp_port.h)), and through the C
 library's `malloc` when there are none. A driver for a board with PSRAM puts
 the decoder there: it is tens of kilobytes in many small blocks that no DMA
 touches, and internal RAM is what Wi-Fi and DMA can't do without. Because it
@@ -132,13 +132,13 @@ C library that doesn't, so leave it the room above.
 
 ## Tests
 
-- [tests/parity/vorbis_probe.py](../tests/parity/vorbis_probe.py) runs on
+- [tests/parity/vorbis_probe.py](../../tests/parity/vorbis_probe.py) runs on
   MicroPython, CircuitPython and CPython from two small fixtures: the
   attributes, a rewound lap against the first, a `Mixer` voice playing the
   file unchanged and looping it, a file cut off in its headers and in its
   audio, things that aren't Vorbis, `deinit()` twice, and the pump's refusal.
   `--fault` skips the rewind and must fail.
-- [tests/parity/verify_vorbis.py](../tests/parity/verify_vorbis.py) makes
+- [tests/parity/verify_vorbis.py](../../tests/parity/verify_vorbis.py) makes
   files with ffmpeg (mono and stereo, 44.1 and 48 kHz, 4 s and 3 minutes, from
   the lowest libvorbis quality to the highest), decodes them with ffmpeg, and
   compares every sample. Tremor and ffmpeg land on 16 bits differently:
@@ -146,6 +146,6 @@ C library that doesn't, so leave it the room above.
   are one step apart (RMS 0.71); none has been more than 2 apart, and the
   gate is 3. Every interpreter must decode the same bytes. `--fault swap`
   (left and right exchanged) and `--fault drop` (a block lost) must fail.
-- [tests/parity/vorbis_symbols_check.py](../tests/parity/vorbis_symbols_check.py)
+- [tests/parity/vorbis_symbols_check.py](../../tests/parity/vorbis_symbols_check.py)
   compiles the decoder alone and fails on any global symbol outside
   `audiodsp_`; `--fault` plants one.

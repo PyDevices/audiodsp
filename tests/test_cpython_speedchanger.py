@@ -1,7 +1,7 @@
 """`audiospeed.SpeedChanger`: the Q16 rate, and the phase across a boundary.
 
 Two deliberate departures from CircuitPython 10.3.0, both of them upstream
-bugs this port declines to reproduce. `docs/upstream-diff.md` carries the
+bugs this port declines to reproduce. `docs/how-it-works/upstream-diff.md` carries the
 measurements and `docs/upstream-reports/` the reports.
 
 The parity gate cannot see either one. `resampler_probe.py` only ever asks
@@ -102,7 +102,7 @@ class TheRateRoundsToTheNearestStep(unittest.TestCase):
     """audiodsp#92. Upstream's `rate_to_fp` is `(uint32_t)(rate * (1 << 16))`,
     a truncation, so a float landing a hair under its Q16 neighbour loses a
     whole LSB rather than arriving at it. Every number below was measured on
-    this twin before the fix and is in `docs/upstream-diff.md`."""
+    this twin before the fix and is in `docs/how-it-works/upstream-diff.md`."""
 
     def test_a_rate_a_hair_under_unity_arrives_at_unity(self):
         """Truncating gave 65535/65536 = 0.9999847412109375."""
@@ -160,7 +160,7 @@ class ThePhaseCrossesASourceBuffer(unittest.TestCase):
     """audiodsp#91. Upstream zeroes the accumulator every time it takes a new
     buffer from the source, so a hold restarts its staircase 187 times a
     second at 48 kHz and drifts. Every "before" number here was measured on
-    this twin and is in `docs/upstream-diff.md`."""
+    this twin and is in `docs/how-it-works/upstream-diff.md`."""
 
     def rendered_hold(self, values, down, frames, block=BLOCK):
         node = audiospeed.SpeedChanger(

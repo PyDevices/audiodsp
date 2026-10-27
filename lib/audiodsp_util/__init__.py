@@ -20,7 +20,7 @@ from it renders different bytes on the two. That is not a bug in the node,
 and no amount of care inside the kernel can fix it: the number was already
 two different numbers before it arrived.
 
-`docs/correctness-standard.md` holds our nodes to every target rendering
+`docs/how-it-works/correctness-standard.md` holds our nodes to every target rendering
 them identically, so a setting derived in Python arithmetic passes through
 :func:`float32` before it reaches a node. On a single-precision target that
 call is the identity. On a double one it rounds to the value the board would

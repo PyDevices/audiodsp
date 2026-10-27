@@ -121,7 +121,7 @@ try:
         decoder = audiomp3.MP3Decoder(handle)
         # Only how each lap ends is compared, not its bytes: this port clears
         # the decoder's state on a rewind and 11.0.0-alpha.1 does not yet
-        # (docs/upstream-sync.md), so the second laps differ by design.
+        # (docs/how-it-works/upstream-sync.md), so the second laps differ by design.
         for lap in (1, 2):
             buffers = 0
             while True:

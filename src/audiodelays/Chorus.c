@@ -1,7 +1,7 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiodelays/
 // Chorus.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, see docs/upstream-diff.md). `attr, cp_compat_attr` added for
+// equivalent, see docs/how-it-works/upstream-diff.md). `attr, cp_compat_attr` added for
 // delay_ms/voices/mix/playing. The custom `__exit__` (calling
 // common_hal_audiodelays_chorus_deinit directly instead of the generic
 // default___exit___obj method-dispatch helper) is kept verbatim -- it's

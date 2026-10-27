@@ -19,7 +19,7 @@ builds compile, so a graph built here renders the samples a board renders.
     g.set(k, 0, ag.UNIT)                 # key down
     sounding = g.run(pcm, 0)             # one block into pcm
 
-``docs/audiograph.md`` has the nodes, the wire, the groups and the limits.
+``docs/how-it-works/audiograph.md`` has the nodes, the wire, the groups and the limits.
 """
 
 import _audiodsp

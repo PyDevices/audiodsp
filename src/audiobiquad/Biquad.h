@@ -4,7 +4,7 @@
 // Not a CircuitPython port and not from vstaudio: audiodsp adds this one.
 // `audiofilters.Filter` over `synthio.Biquad` already filters, and its
 // recursion is integer with fixed points it can park on -- see
-// shared/audiodsp_filter_f32.h for the measurement, and docs/upstream-diff.md
+// shared/audiodsp_filter_f32.h for the measurement, and docs/how-it-works/upstream-diff.md
 // for where this module sits among the rest. A new module rather than an
 // argument on `audiofilters`, because an argument added to this port's copy
 // of a CircuitPython module would not exist on a stock board.

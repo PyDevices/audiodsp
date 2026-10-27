@@ -48,7 +48,7 @@ typedef struct {
     uint32_t read_rate; // words << PITCH_READ_SHIFT
 
     // The splice's move and whether a crossfade is running (the shared
-    // kernel's positions; docs/upstream-diff.md).
+    // kernel's positions; docs/how-it-works/upstream-diff.md).
     uint32_t splice_align;
     bool splice_fading;
     bool splice_rising;

@@ -55,7 +55,7 @@ packages = ["audiorender", "audiodsp_util"]
 # beside the wrappers because it is the one pure-Python thing in this
 # repository that has to run on a *board*: a class deriving a setting in
 # Python rounds it differently there, and audiodsp_util.float32 is how it
-# stops (docs/correctness-standard.md, audiodsp#80, audiocomponents#75).
+# stops (docs/how-it-works/correctness-standard.md, audiodsp#80, audiocomponents#75).
 
 # The CPython target is one directory: src/cpython holds the extension source,
 # the extension built in place, and the thirteen modules that wrap it. They are

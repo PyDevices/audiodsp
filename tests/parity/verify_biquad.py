@@ -3,7 +3,7 @@
 
 Unlike the other verifies here, the golden is captured from *this* port and
 not from CircuitPython: three deliberate deviations live in this path. See
-docs/upstream-diff.md. Pass --capture to re-record after an intended change.
+docs/how-it-works/upstream-diff.md. Pass --capture to re-record after an intended change.
 """
 
 import hashlib

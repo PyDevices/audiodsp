@@ -24,7 +24,7 @@ A voice's position is a 64-bit frame index, 32 bits of integer and 32 of
 fraction, stepped by `pitch * rate / sample_rate` in the same format. Two
 reasons, neither taste. A `float` accumulator has 24 bits of mantissa, so a
 loop a thousand frames long played for a minute accumulates the missing bits
-into audible tuning; and `docs/correctness-standard.md` holds every own node
+into audible tuning; and `docs/how-it-works/correctness-standard.md` holds every own node
 to three interpreters rendering it identically, and integer arithmetic is the
 one kind that three architectures cannot disagree about. Only the fraction
 becomes a float, for the interpolator. The step is computed once per `play()`
@@ -87,7 +87,7 @@ can keep up with.
 ### How it is verified
 
 `tests/parity/sampler_probe.py` in `verify_dsp`'s set, for the three-target
-agreement `docs/correctness-standard.md` asks of an own node: an integer
+agreement `docs/how-it-works/correctness-standard.md` asks of an own node: an integer
 triangle wave through binary-fraction pitches and whole-sample envelope
 times, with the blocks at which a one-shot ends, a released mode-3 voice
 reaches its end and a release fades to silence printed as integers beside the
@@ -549,9 +549,9 @@ a MicroPython build that predates these two fixes shows up: any such binary
 renders CircuitPython's bytes here to the byte, because the port was faithful.
 
 Found by the effects program's `Bitcrusher` (audiocomponents#71) and reported
-in [upstream-reports/speedchanger-rate-rounding.md](upstream-reports/speedchanger-rate-rounding.md).
+in [upstream-reports/speedchanger-rate-rounding.md](../upstream-reports/speedchanger-rate-rounding.md).
 The PR is prepared and unfiled:
-[upstream-reports/prs/speedchanger-rate-rounding/](upstream-reports/prs/speedchanger-rate-rounding/PR.md).
+[upstream-reports/prs/speedchanger-rate-rounding/](../upstream-reports/prs/speedchanger-rate-rounding/PR.md).
 
 ## `audiospeed`: the phase accumulator crosses a source buffer, upstream's restarts (audiodsp#91)
 
@@ -598,9 +598,9 @@ frames cannot be indexed at all. That limit is upstream's and this change
 neither widens nor narrows it.
 
 Found by the effects program's `Bitcrusher` (audiocomponents#71) and reported
-in [upstream-reports/speedchanger-phase-carry.md](upstream-reports/speedchanger-phase-carry.md).
+in [upstream-reports/speedchanger-phase-carry.md](../upstream-reports/speedchanger-phase-carry.md).
 The PR is prepared and unfiled:
-[upstream-reports/prs/speedchanger-phase-carry/](upstream-reports/prs/speedchanger-phase-carry/PR.md).
+[upstream-reports/prs/speedchanger-phase-carry/](../upstream-reports/prs/speedchanger-phase-carry/PR.md).
 
 ## `audiodelays.Echo`: a delay line shorter than one buffer stays inside its allocation
 
@@ -648,7 +648,7 @@ the signature of an overflow that only bites at the extremes.
 `verify_dsp` carries a stated skip for `flanger_probe.py` on circuitpython
 naming that issue, so the three-way is not red on a defect that is not ours.
 The PR is prepared and unfiled:
-[upstream-reports/prs/flanger-int32-overflow/](upstream-reports/prs/flanger-int32-overflow/PR.md),
+[upstream-reports/prs/flanger-int32-overflow/](../upstream-reports/prs/flanger-int32-overflow/PR.md),
 where the overflow is re-measured on a stock build of the 10.3.0 tag — 1717 of
 2048 samples of a rails render move when the multiply is widened, and none of
 an ordinary one.
@@ -659,12 +659,12 @@ a language without fixed-width arithmetic cannot surface this class of defect,
 so it is not evidence about it either way.
 
 Running log of every place this port's behavior deliberately differs from
-CircuitPython's, or needed a workspace-side fix that isn't a plain port.
+CircuitPython's, or needed a local fix that isn't a plain port.
 Goal: keep this list short. Python-level API and behavior match CP unless
 noted here.
 
 Six of the entries below are upstream bugs rather than divergences, written up
-in [upstream-reports/](upstream-reports/). **Five have been filed with
+in [upstream-reports/](../upstream-reports/). **Five have been filed with
 CircuitPython and four are merged** (see that directory's README for the
 issue and PR numbers): peaking-eq-sign, dds-oscillator-off-by-one,
 distortion-soft-clip-union and biquad-reset are fixed upstream;
@@ -720,7 +720,7 @@ CircuitPython's `audiocore.WaveFile` reads its file via raw FatFS calls
 and its constructor hard-requires `mp_obj_is_type(arg, &mp_type_vfs_fat_fileio)`.
 This only works when the mounted filesystem is FatFS — confirmed by testing
 directly: even CircuitPython's own unix `coverage` build (`bin/circuitpython`
-in this workspace, used as the parity oracle everywhere else) raises
+in this project, used as the parity oracle everywhere else) raises
 `TypeError: file must be a file opened in byte mode` for `WaveFile(path)`
 *and* `WaveFile(open(path, "rb"))`, because the unix port's `open()` returns
 a POSIX-backed file object, not a `vfs_fat_fileio` one. WaveFile is
@@ -815,7 +815,7 @@ notes:
 
 - **`audiospeed.SpeedChanger`** has no oracle in the canonical
   `bin/circuitpython`: `CIRCUITPY_AUDIOSPEED` is gated per-port (only
-  `ports/raspberrypi/mpconfigport.mk` sets it), and this workspace's unix
+  `ports/raspberrypi/mpconfigport.mk` sets it), and this project's unix
   coverage variant (`circuitpython/ports/unix/variants/coverage/mpconfigvariant.mk`)
   hand-lists its `SRC_C` files rather than using the `CIRCUITPY_AUDIOSPEED`
   Make-variable cascade, so simply passing the flag on the command line
@@ -825,7 +825,7 @@ notes:
   and rebuilding into a scratch `ports/unix/build-coverage-audiospeed/`
   directory (never touching the canonical `build-coverage/`), diffed
   byte-for-byte, then reverted the variant-file edit and deleted the
-  scratch build -- the parent workspace's circuitpython checkout is back to
+  scratch build -- the build tree's circuitpython checkout is back to
   its pre-existing local patch state, unmodified beyond that one-off test. Also needed the same
   `0.001`/`1000.0` -> `0`/`1000` literal-truncation fix as this port's
   `rate_to_fp` for `mp_arg_validate_obj_float_range`'s int-typed min/max
@@ -896,8 +896,8 @@ runner diffs stdout.
 concurrent `Note`s across one `Synthesizer`, not per-key) defaulting to 2 --
 correctly mirroring CP's own conservative default
 (`py/circuitpy_mpconfig.mk`). But this port's unix/windows build never
-overrode it, while this workspace's CircuitPython oracle
-(the parent workspace's circuitpython checkout, unix `coverage` variant,
+overrode it, while this project's CircuitPython oracle
+(the build tree's circuitpython checkout, unix `coverage` variant,
 `bin/circuitpython`) is itself built with `-DCIRCUITPY_SYNTHIO_MAX_CHANNELS=14`
 (`ports/unix/variants/coverage/mpconfigvariant.mk`). At 2, anything past
 the first two concurrently-alive `Note`s (e.g. two held notes on a
@@ -943,7 +943,7 @@ state) is identical after the `CIRCUITPY_SYNTHIO_MAX_CHANNELS` fix.
 ### The ceiling deviation is RETIRED (audiodsp#31, closed 2026-09-09)
 
 There is no longer a ceiling deviation. The comparison build takes the ceiling
-this port ships, which is what `docs/correctness-standard.md` requires of any
+this port ships, which is what `docs/how-it-works/correctness-standard.md` requires of any
 node CircuitPython also has: compare with CircuitPython *at the same
 compile-time configuration*.
 
@@ -977,7 +977,7 @@ provenance of each re-pin.
 ## Tier 5 audiomp3: license
 
 CircuitPython's `lib/mp3` (upstream `adafruit/Adafruit_MP3`, cloned as a
-parent workspace sibling pinned to the same commit,
+build tree sibling pinned to the same commit,
 `aac02afd9f24d2ee930f650156654ab9211a306a`)
 is the Helix fixed-point MP3 decoder, originally developed by RealNetworks in
 2003. Every core decoder source file (`bitstream.c` through `statname.h`,
@@ -999,7 +999,7 @@ CircuitPython itself (MIT overall) carries this dependency: unmodified,
 under its own original headers, no relicensing attempted, no separate
 top-level LICENSE entry for it either (confirmed -- CircuitPython's own repo
 has no `lib/mp3`-specific license documentation beyond the per-file
-headers). This port does the same: the parent workspace's `mp3` sibling is
+headers). This port does the same: the build tree's `mp3` sibling is
 vendored verbatim (one local patch, see below, kept as narrow as possible
 and documented inline), its RPSL/RCSL headers untouched, and this section
 is the disclosure.
@@ -1010,11 +1010,11 @@ test time from the cloned sibling, not vendored content.
 
 ## Tier 5 audiomp3: three Windows-only local fixes, no unix impact
 
-All three were found only when building/running this workspace's Windows
+All three were found only when building/running this project's Windows
 MicroPython target (`mp-windows`/mingw-w64) -- CircuitPython has no Windows
 port, so none was ever reachable upstream:
 
-- **the parent workspace's `mp3/src/assembly.h`** picks an MSVC-only inline-`__asm{}` code
+- **the build tree's `mp3/src/assembly.h`** picks an MSVC-only inline-`__asm{}` code
   path (plus an MSVC-only `#pragma warning`) whenever `_WIN32` is defined
   and `_WIN32_WCE` isn't. mingw-w64 GCC also defines `_WIN32` (confirmed:
   `echo | x86_64-w64-mingw32-gcc -dM -E - | grep _WIN32` -> `#define _WIN32
@@ -1072,7 +1072,7 @@ port, so none was ever reachable upstream:
 
 Upstream's Make glue picks between two different `MPDEC_ALLOCATOR(x)`/
 `MPDEC_FREE(x)` wirings for `lib/mp3/src/buffers.c` depending on build
-variant: the unix `coverage` variant (this workspace's oracle,
+variant: the unix `coverage` variant (this project's oracle,
 `bin/circuitpython`) wires straight to `malloc(x)`/`free(x)`; every other
 CP port wires through `mp3_alloc(x)`/`mp3_free(x)`
 (`shared-module/audiomp3/__init__.c`, `MP_WEAK`, defaulting to
@@ -1085,13 +1085,13 @@ build-configuration choice invisible to output, not a parity-relevant
 deviation. `mp3_free` itself also isn't a literal port of CP's version --
 see the previous section and the `mp3_alloc.c` header comment for why it
 uses `gc_free` rather than a direct `m_free(ptr)` call (mainline's `m_free`
-needs an explicit size on this workspace's unix port, which `mp3_free`'s
+needs an explicit size on this project's unix port, which `mp3_free`'s
 callers never have in scope).
 
 ## Tier 5 audiomp3 verified against the oracle
 
 `MP3Decoder` oracle-diffed byte-for-byte against `bin/circuitpython` using
-the parent workspace's `mp3/examples/test.mp3` (Adafruit's own bundled fixture, ID3v2.3,
+the build tree's `mp3/examples/test.mp3` (Adafruit's own bundled fixture, ID3v2.3,
 MPEG1 Layer III, 40 kbps CBR, 44.1 kHz stereo, ~12s): full-track decode via
 `reset_buffer`/`get_buffer` (checksum + byte count identical), `rms_level`
 and `samples_decoded` at multiple points, construction from a filename
@@ -1115,13 +1115,13 @@ up `audiodsp` automatically once built; it just hadn't been
 rebuilt since the usermod landed) surfaced a batch of portability bugs,
 none reachable on unix or windows before now:
 
-- **the parent workspace's `mp3/src/mp3dec.h`** picks its fixed-point/asm path from a closed
+- **the build tree's `mp3/src/mp3dec.h`** picks its fixed-point/asm path from a closed
   list of `(__GNUC__, arch)` combinations, `#error`ing on anything else --
   with an explicit `MP3DEC_GENERIC` escape hatch for exactly this case.
   wasm32 matches none of the listed architectures. Fixed in
   `micropython.mk`: `-DMP3DEC_GENERIC` added, but only when building for
   the `webassembly` port specifically (detected the same way
-  the parent workspace's `wasmbridge/micropython.mk` detects it: `$(findstring
+  the build tree's `wasmbridge/micropython.mk` detects it: `$(findstring
   /ports/webassembly,$(abspath $(CURDIR)))`) -- unix and windows both
   already match a named `__GNUC__`/arch branch and must keep using it, not
   silently fall back to the generic path.
@@ -1155,7 +1155,7 @@ none reachable on unix or windows before now:
   libc does not. Also needed an explicit `(mp_float_t)` cast on
   `common_hal_audiomp3_mp3file_get_rms_level(self)`'s `float` return value
   before `mp_obj_new_float()` (which takes `mp_float_t`, `double` on every
-  build in this workspace) -- the implicit widening is fine under GCC's
+  build in this project) -- the implicit widening is fine under GCC's
   default warning set but trips `-Wdouble-promotion -Werror` under clang.
 
 Full DSP parity suite (all of tiers 0-5, plus `synthtools_acceptance.py`)
@@ -1232,7 +1232,7 @@ everywhere), so it remains kept verbatim.
 
 Wiring tier 5 into `micropython.cmake` (deferred at phase 8e, closed at
 phase 10 -- see docs/porting-plan.md) surfaced two separate issues, one
-upstream (Adafruit_MP3/Helix, vendored as the parent workspace's `mp3`) and one in mainline
+upstream (Adafruit_MP3/Helix, vendored as the build tree's `mp3`) and one in mainline
 MicroPython's own CMake glue (`py/mkrules.cmake`, `py/py.cmake`).
 
 **`mp3dec.h`'s closed `(__GNUC__, arch)` platform list has no Xtensa
@@ -1245,7 +1245,7 @@ microcontrollers -- Xtensa (esp32/esp32s2/esp32s3, not just the RISC-V
 esp32 variants) was never covered either, matching wasm32 for the same
 reason: it's just not `-D`efined into the pinned Helix decoder's platform
 list. So `-DMP3DEC_GENERIC` is needed for every esp32 target this
-workspace builds, Xtensa and RISC-V alike; only rp2 (RP2040/RP2350, ARM
+project builds, Xtensa and RISC-V alike; only rp2 (RP2040/RP2350, ARM
 Cortex-M, `__GNUC__ && __ARMEL__`) matches natively. Gated in
 `audiodsp/micropython.cmake` on ESP-IDF's own
 `CONFIG_IDF_TARGET_ARCH_RISCV`/`CONFIG_IDF_TARGET_ARCH_XTENSA` sdkconfig
@@ -1375,7 +1375,7 @@ Every other module here is CircuitPython's, moved. These two are not: they come
 from micropython-vst3's `vstaudio` usermod (`usermods/vstaudio/vstaudio_dsp.c`),
 where its effects library's compressors, limiters, gates, de-essers and
 parallel branches were built. CircuitPython has no equivalent and never had
-one, so there is no oracle in the parent workspace's circuitpython checkout to diff against and nothing
+one, so there is no oracle in the build tree's circuitpython checkout to diff against and nothing
 in this section is an upstream deviation. What it records instead is where the
 port differs from *its* original.
 
@@ -2176,7 +2176,7 @@ the flat-EQ passthrough, and the Nyquist refusal.
 > applies to **`audiobiquad`, which is ours, and to nothing CircuitPython has.**
 > `synthio.Biquad` — and so `audiofilters.Filter` and a `Note.filter` chain —
 > runs `audiodsp_biquad_cp_*`, CircuitPython's own Q15 arithmetic, on all three
-> targets, because `docs/correctness-standard.md` holds a node CircuitPython
+> targets, because `docs/how-it-works/correctness-standard.md` holds a node CircuitPython
 > also has to CircuitPython's bytes.
 >
 > Why the scope had to be decided at all: it had been applied on **one target
@@ -2253,8 +2253,6 @@ the cases above, where `synthio.Biquad` settles on a constant it cannot be
 talked out of. The same applies to `audiobiquad.AllPass` against
 `audiofilters.Phaser`, whose feedback is clamped to `0.1..0.9` so a true null is
 not reachable.
-
-The README's `audiobiquad` section links here rather than repeating any of it.
 
 > Two smaller entries are **not** in this deviation's scope and stay applied
 > everywhere, because upstream has already merged them: PEAKING_EQ's `b2` sign
@@ -2423,8 +2421,8 @@ workaround moved them up out of the worst of it by accident.
   any of their probes.
 - Stock CircuitPython does not get this. `apply_cp_patches.sh` only *adds*
   modules to a CP tree; `synthio` and `audiofilters` there are upstream's, so
-  a CP board still cannot filter below a few hundred hertz. See the effects
-  README, "A note on filters off a stock CircuitPython board".
+  a CP board still cannot filter below a few hundred hertz. See the audioeffects
+  documentation in audiocomponents.
 
 ## `audiofilters.Phaser` holds a DC constant forever (audiodsp#36, kept verbatim)
 
@@ -2837,7 +2835,7 @@ claves+cowbell circuit:
 | claves | 53 ms | 207 ms — inherited the cowbell's tail | 53 ms |
 | cowbell | 203 ms | 55 ms — cut to the claves' tail | 203 ms |
 
-The same code under the parent workspace's built `micropython` was already correct (57.3 / 204.3),
+The same code under the build tree's built `micropython` was already correct (57.3 / 204.3),
 which is what identified the target rather than the instrument as the fault.
 
 **Fix.** `_audiodsp.EnvelopeState` gains `set_definition(...)`, which replaces the
@@ -2888,7 +2886,7 @@ sequence never holds more than a four-note chord.
 note's slot, exactly as the oracle does, and still refuses when every channel
 is held. Verified on all three runtimes with one script: all released → press
 taken, all held → press refused and every held note intact, identical on the
-CPython target, and the parent workspace's built `micropython` and `circuitpython`.
+CPython target, and the build tree's built `micropython` and `circuitpython`.
 
 Regression coverage: `tests/test_cpython_released_reclaim.py`.
 
@@ -2932,7 +2930,7 @@ the result; it now divides in float. Measured on two unix binaries built
 either side of the edit: of 12801 fractional MIDI values, 5082 (39.7%)
 differ, by at most 7 ulps of `float` — **0.0009 cents**, about a millionth
 of a semitone. 54 of the 128 integer MIDI notes are among them (A440 is
-not). Nothing in this workspace has ever captured a single-precision
+not). Nothing in this project has ever captured a single-precision
 render as a golden, so nothing goes red; the change is recorded here
 because it is a real, if inaudible, difference in board output.
 
@@ -4038,7 +4036,7 @@ What found it is worth recording too. The trait that reads the **output**
 reaching zero passed the entire time, because the output had rounded to zero
 long before. Only the trait that reads the **state** could see it, and an own
 node has no oracle that would have said anything at all. That is
-`docs/correctness-standard.md`'s argument for traits, arriving on its own.
+`docs/how-it-works/correctness-standard.md`'s argument for traits, arriving on its own.
 
 ### Muting a mode is not stopping it
 
@@ -4105,7 +4103,7 @@ there with eight drums sounding, which is 31% and 3.2x real time.
 ### How it is verified
 
 `tests/parity/modal_probe.py` in `verify_dsp`'s set, for the three-target
-agreement `docs/correctness-standard.md` asks of an own node, and it prints
+agreement `docs/how-it-works/correctness-standard.md` asks of an own node, and it prints
 invariants as well as PCM — the block at which the tail reaches exact zero,
 whether the bank is still sounding after its source has gone, and the peak of
 a mode whose Q a filter would refuse. `tests/test_cpython_audiomodal.py`

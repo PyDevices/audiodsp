@@ -45,7 +45,7 @@ void audiodsp_biquad_process(const audiodsp_biquad_coefficients_t *coefficients,
 // root for the shelves, Q15 coefficients rounded with `round(ldexp(v, 15))`,
 // and an int32_t accumulator saturated to int16 each step. Its known costs are
 // upstream's and are not corrected here -- that is the point of it. They are
-// measured in docs/upstream-diff.md, "The biquads were Q15, so they could not
+// measured in docs/how-it-works/upstream-diff.md, "The biquads were Q15, so they could not
 // go low".
 #define AUDIODSP_BIQUAD_CP_SHIFT 15
 

@@ -4,7 +4,7 @@
 targets. What is left for here is what a render cannot say, and the numeric
 traits with their bars.
 
-`docs/correctness-standard.md` is what this file implements for
+`docs/how-it-works/correctness-standard.md` is what this file implements for
 `audioconvolve`: the module is ours - upstream CircuitPython has no counterpart
 - so it is held to three-target agreement plus the traits below, never to a
 previous version of its own output.
@@ -28,7 +28,7 @@ previous version of its own output.
 | C10 | Each side of a synthesized stereo room is the unit-energy room of its own noise: the left is the mono room of the same seed, the right the mono room of the right side's seed; the two sides balance, together they are the level of a mono room, and they stay two different noises | exact; 0.01 dB; correlation under 0.5 |
 
 **C1 and C2 are this module's form of the identity trait** that
-`docs/correctness-standard.md` asks of every own node: an exact answer *through*
+`docs/how-it-works/correctness-standard.md` asks of every own node: an exact answer *through*
 the DSP rather than around it, evaluated at full scale, because that is where an
 arithmetic overflow shows and a range check does not.
 

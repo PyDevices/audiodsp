@@ -4,7 +4,7 @@
 targets. What is left for here is what a render cannot say, and the numeric
 traits with their bars.
 
-`docs/correctness-standard.md` is what this file implements for `audiomodal`:
+`docs/how-it-works/correctness-standard.md` is what this file implements for `audiomodal`:
 the module is ours - upstream CircuitPython has no counterpart - so it is held
 to three-target agreement plus the traits below, never to a previous version of
 its own output.
@@ -28,7 +28,7 @@ its own output.
 | M13 | Narrowing the loop to the live modes changes no sample | exact, 0 LSB |
 
 **M2 and M6 are this module's form of the identity trait** that
-`docs/correctness-standard.md` asks of every own node: an exact answer
+`docs/how-it-works/correctness-standard.md` asks of every own node: an exact answer
 *through* the DSP rather than around it, evaluated at full scale, because that
 is where an arithmetic overflow shows and a range check does not.
 
@@ -66,7 +66,7 @@ seconds never reaches the coefficient corner the cap was protecting against.
 
 ## The planted faults
 
-`docs/correctness-standard.md`: "a trait without a planted fault is not a
+`docs/how-it-works/correctness-standard.md`: "a trait without a planted fault is not a
 check; it is a hope." Each fault below is a one-line change to
 `src/shared/audiodsp_modal.c` that a reader can make by hand, with what it did
 to the traits when it was made. They are recorded rather than automated

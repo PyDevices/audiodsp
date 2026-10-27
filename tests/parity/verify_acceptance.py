@@ -6,7 +6,7 @@ This one used to be a straight byte-for-byte match against CircuitPython
 three deliberate deviations (the peaking-EQ sign, per-channel filter state,
 and the widened coefficients this file's `circuitpython_stdout` predates), and
 this script drives a resonant low-pass sweeping down from 300 Hz at 22050 Hz -
-the exact case those deviations exist to fix. See docs/upstream-diff.md.
+the exact case those deviations exist to fix. See docs/how-it-works/upstream-diff.md.
 
 So the fixture now carries both: `stdout` is what this port produces and is
 what gets enforced, and `circuitpython_stdout` is the oracle's own answer, kept

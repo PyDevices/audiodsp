@@ -4,7 +4,7 @@
 pin what this module renders across the three targets. What is left for here is
 what a render cannot say, and the numeric traits with their bars.
 
-`docs/correctness-standard.md` is what this file implements for `audioecho`:
+`docs/how-it-works/correctness-standard.md` is what this file implements for `audioecho`:
 the module is ours - upstream CircuitPython has no counterpart - so it is held
 to three-target agreement plus the traits below, never to a previous version of
 its own output.
@@ -43,7 +43,7 @@ fed-back term now truncates toward zero instead, which makes each lap's largest
 value at least one LSB smaller than the last.
 
 **E1 is this module's form of the identity trait** that
-`docs/correctness-standard.md` asks of every own node - an exact answer through
+`docs/how-it-works/correctness-standard.md` asks of every own node - an exact answer through
 the DSP, at full scale, because that is where an arithmetic width error shows
 and a range check does not.
 
