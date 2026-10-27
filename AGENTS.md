@@ -31,11 +31,11 @@ for source compatibility; only this repo's own name differs.
   `lib/audiodsp_util/` (`float32`, the round trip that makes a setting derived
   in Python the same number on a board as on a desktop — see
   [docs/correctness-standard.md](docs/correctness-standard.md)). Both ship
-  inside the `pydevices-audiodsp` wheel. The instrument and effect libraries that
+  inside the `omnipython-audiodsp` wheel. The instrument and effect libraries that
   used to sit beside it — `audioinstruments` (55 `synthio` instruments) and
   `audioeffects` (45 effect classes, racks included) — live in
   [audiocomponents](https://github.com/PyDevices/audiocomponents) now, as
-  their own distributions depending on `pydevices-audiodsp`; nothing in this
+  their own distributions depending on `omnipython-audiodsp`; nothing in this
   repository builds, tests, publishes or freezes them.
 - `circuitpython.mk` + `src/circuitpython_spike/` — build `audiodynamics`,
   `audioroute`, `audiomath`, `audioecho`, `audioshaper`, `audioladder`,
