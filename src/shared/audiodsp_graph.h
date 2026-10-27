@@ -327,6 +327,11 @@ typedef struct {
     float *shadow;
 } audiodsp_graph_t;
 
+// False for a kind this build leaves out (OVERDRIVE where
+// AUDIODSP_GRAPH_HAS_OVERDRIVE is 0; see audiodsp_graph_overdrive.h) and for
+// a number past the last kind. audiodsp_graph_add() refuses either.
+bool audiodsp_graph_kind_built(audiodsp_graph_kind_t kind);
+
 // Bytes a node of `kind` needs for its config and state. `arg` is the
 // kind's build-time argument (the feedback delay's line length in ms).
 size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,

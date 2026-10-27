@@ -129,6 +129,7 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/audiosampler/SamplerVoice.c
     ${MPAUDIO_SRC_DIR}/audiosampler/module.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_graph.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_graph_overdrive.c
     ${MPAUDIO_SRC_DIR}/audiograph/Graph.c
     ${MPAUDIO_SRC_DIR}/audiograph/module.c
 )

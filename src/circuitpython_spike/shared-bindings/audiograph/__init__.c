@@ -9,6 +9,7 @@
 
 #include "shared-bindings/audiograph/__init__.h"
 #include "shared-bindings/audiograph/Graph.h"
+#include "shared/audiodsp_graph_overdrive.h"
 
 //| """The graph runner: a whole patch rendered by one C call per block
 //|
@@ -40,7 +41,9 @@ static const mp_rom_map_elem_t audiograph_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_LAG), MP_ROM_INT(AUDIODSP_GRAPH_LAG) },
     { MP_ROM_QSTR(MP_QSTR_SAMPLE_HOLD), MP_ROM_INT(AUDIODSP_GRAPH_SAMPLE_HOLD) },
     { MP_ROM_QSTR(MP_QSTR_TWOPOLE), MP_ROM_INT(AUDIODSP_GRAPH_TWOPOLE) },
+    #if AUDIODSP_GRAPH_HAS_OVERDRIVE
     { MP_ROM_QSTR(MP_QSTR_OVERDRIVE), MP_ROM_INT(AUDIODSP_GRAPH_OVERDRIVE) },
+    #endif
     { MP_ROM_QSTR(MP_QSTR_ALWAYS), MP_ROM_INT(AUDIODSP_GRAPH_ALWAYS) },
     { MP_ROM_QSTR(MP_QSTR_UNIT), MP_ROM_INT(16384) },
     // parameter indices of the new nodes; the kernels' nodes take their
@@ -83,9 +86,11 @@ static const mp_rom_map_elem_t audiograph_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_TWOPOLE_CMOS_LOWPASS), MP_ROM_INT(AUDIODSP_GRAPH_TWOPOLE_CMOS_LOWPASS) },
     { MP_ROM_QSTR(MP_QSTR_TWOPOLE_CMOS_BANDPASS), MP_ROM_INT(AUDIODSP_GRAPH_TWOPOLE_CMOS_BANDPASS) },
     { MP_ROM_QSTR(MP_QSTR_TWOPOLE_CMOS_HIGHPASS), MP_ROM_INT(AUDIODSP_GRAPH_TWOPOLE_CMOS_HIGHPASS) },
+    #if AUDIODSP_GRAPH_HAS_OVERDRIVE
     { MP_ROM_QSTR(MP_QSTR_OVERDRIVE_DRIVE), MP_ROM_INT(AUDIODSP_GRAPH_OVERDRIVE_DRIVE) },
     { MP_ROM_QSTR(MP_QSTR_OVERDRIVE_TONE), MP_ROM_INT(AUDIODSP_GRAPH_OVERDRIVE_TONE) },
     { MP_ROM_QSTR(MP_QSTR_OVERDRIVE_LEVEL), MP_ROM_INT(AUDIODSP_GRAPH_OVERDRIVE_LEVEL) },
+    #endif
     // the kernels' option numbers, so a caller needs no other module
     { MP_ROM_QSTR(MP_QSTR_OSC_FREQUENCY), MP_ROM_INT(AUDIODSP_OSCILLATOR_OPT_FREQUENCY) },
     { MP_ROM_QSTR(MP_QSTR_OSC_WAVEFORM), MP_ROM_INT(AUDIODSP_OSCILLATOR_OPT_WAVEFORM) },

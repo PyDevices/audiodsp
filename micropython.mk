@@ -288,6 +288,7 @@ SRC_USERMOD_C += \
 # from the kernels above. MicroPython only (docs/how-it-works/audiograph.md).
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/shared/audiodsp_graph.c \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_graph_overdrive.c \
     $(MPAUDIO_SRC_DIR)/audiograph/Graph.c \
     $(MPAUDIO_SRC_DIR)/audiograph/module.c
 

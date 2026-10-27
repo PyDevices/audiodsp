@@ -170,6 +170,12 @@ node runs CircuitPython's own Q15 arithmetic, as `audiofilters.Filter` does, and
 squeezes a sample past ±28000 toward the rail as that filter's last step does,
 so a loud signal tops out at 28521.
 
+CircuitPython's `audiograph` has no `OVERDRIVE`. The node computes its gains
+in double precision, and the RP2040 build has no double-precision `pow` or
+`log10` to link against. Check with `hasattr(audiograph, "OVERDRIVE")`. On
+CircuitPython, `audiofilters.Distortion` and `synthio.Biquad` are already built
+in, and you can chain them yourself.
+
 ## Output
 
 `run(out, block, enable)` writes the `OUT` node's block into `out` at block
