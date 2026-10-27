@@ -125,7 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build macOS wheels (no publish)
-        uses: pypa/cibuildwheel@v4.3.1
+        uses: pypa/cibuildwheel@v4.3.4
       - run: ls -l wheelhouse/
 
   # The same non-publishing proof for Linux aarch64, on a native ARM
@@ -143,7 +143,7 @@ jobs:
       # aarch64 on this runner, which is the property that makes the org
       # matrix change a one-line addition.
       - name: Build Linux aarch64 wheels (no publish)
-        uses: pypa/cibuildwheel@v4.3.1
+        uses: pypa/cibuildwheel@v4.3.4
       - run: ls -l wheelhouse/
 
   # The `[render]` extra, which no other job installs (audiodsp#35). The test

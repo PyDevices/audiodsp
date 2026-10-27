@@ -25,7 +25,7 @@ jobs:
           java-version: "17"
       - uses: android-actions/setup-android@v4
       - name: Build Android wheels (no publish)
-        uses: pypa/cibuildwheel@v4.3.1
+        uses: pypa/cibuildwheel@v4.3.4
         env:
           CIBW_PLATFORM: android
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
