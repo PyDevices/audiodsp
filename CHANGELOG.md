@@ -1,3 +1,14 @@
+## v0.6.11.dev2 (2026-10-27)
+
+- audiograph: OVERDRIVE in its own file, left out of CircuitPython
+- docs: the graph's oscillator plays a triangle and a sine too
+- audiograph: an exponential curve for the VCA
+- audiograph: a clipping two-pole filter and an overdrive
+- ci: bump pypa/cibuildwheel from 4.3.1 to 4.3.4 in the actions group (#316)
+- Docs: link the repo paths the prose names (#321)
+- Docs: README to the short form, the rest into a docs tree
+- audiograph: a graph is an audio sample the pump pulls, changed through its own queue
+
 ## v0.6.11.dev1 (2026-10-27)
 
 - Publish as omnipython-audiodsp (#318)
