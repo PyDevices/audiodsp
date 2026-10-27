@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pydevices-audiodsp"
+name = "omnipython-audiodsp"
 dynamic = ["version"]
 description = "CircuitPython-compatible audio synthesis and effects for PyDevices"
 readme = "README.md"
@@ -29,7 +29,7 @@ dependencies = []
 # standard library: numpy, a whole song in memory, a desktop's job. The core
 # modules run on boards and in wasm, where numpy has no place -- so numpy is
 # an extra, not a dependency, and the bare wheel stays dependency-free:
-#   pip install "pydevices-audiodsp[render]"
+#   pip install "omnipython-audiodsp[render]"
 # TestPyPI carries no usable numpy (only a 2.4.0.dev0 pre-release and a 2015
 # 1.9.3 sdist), so the documented TestPyPI install line also passes
 # --extra-index-url https://pypi.org/simple/.
@@ -49,7 +49,7 @@ packages = ["audiorender", "audiodsp_util"]
 # carries. The instrument and effect libraries (audioinstruments,
 # audioeffects) are not in this repository any more: they are developed and
 # published from https://github.com/PyDevices/audiocomponents as their own
-# distributions, each depending on pydevices-audiodsp.
+# distributions, each depending on omnipython-audiodsp.
 #
 # audiodsp_util is `struct` and two functions, and it is here rather than
 # beside the wrappers because it is the one pure-Python thing in this
