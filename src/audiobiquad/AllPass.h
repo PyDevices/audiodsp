@@ -5,7 +5,7 @@
 // the same topology in int16 with a feedback clamped to 0.1..0.9
 // (audiofilters/Phaser.c:211), so neither the exact-zero tail nor the
 // feedback-free null a script phaser makes is reachable on it. See
-// shared/audiodsp_filter_f32.h and docs/upstream-diff.md.
+// shared/audiodsp_filter_f32.h and docs/how-it-works/upstream-diff.md.
 //
 // SPDX-License-Identifier: MIT
 

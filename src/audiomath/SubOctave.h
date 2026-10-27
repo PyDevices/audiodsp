@@ -3,7 +3,7 @@
 //
 // Not a CircuitPython port and not from vstaudio: audiodsp adds this one. See
 // shared/audiodsp_suboctave.h for why nothing already in the palette can do it,
-// and docs/upstream-diff.md for where it sits among the rest.
+// and docs/how-it-works/upstream-diff.md for where it sits among the rest.
 //
 // SPDX-License-Identifier: MIT
 

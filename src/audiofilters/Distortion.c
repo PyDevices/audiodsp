@@ -1,12 +1,12 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiofilters/
 // Distortion.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviations: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, see docs/upstream-diff.md); `attr, cp_compat_attr` added to
+// equivalent, see docs/how-it-works/upstream-diff.md); `attr, cp_compat_attr` added to
 // the type registration for its BlockInput/mode/soft_clip/playing
 // properties.
 //
 // Reversed from an earlier "kept verbatim" decision (see
-// docs/upstream-diff.md, "Distortion soft_clip: verbatim-kept union
+// docs/how-it-works/upstream-diff.md, "Distortion soft_clip: verbatim-kept union
 // type-pun turned out to be architecture-dependent"): the make_new call
 // site used to pass `args[ARG_soft_clip].u_obj` (an mp_arg_val_t union
 // member) into a `bool soft_clip` parameter instead of `.u_bool` -- an

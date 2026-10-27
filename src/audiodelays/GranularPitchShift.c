@@ -1,7 +1,7 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiodelays/
 // GranularPitchShift.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, see docs/upstream-diff.md). `attr, cp_compat_attr` added for
+// equivalent, see docs/how-it-works/upstream-diff.md). `attr, cp_compat_attr` added for
 // semitones/mix/spread/playing. The custom `__exit__` is kept verbatim, same
 // as Chorus (see that file's comment). The signed-16 kernel follows the
 // CPython twin's arithmetic where the two differ (audiodsp#74).
@@ -165,7 +165,7 @@ void audiodelays_granular_pitch_shift_reset_buffer(
     audiodsp_granular_pitch_shift_reset_state(&self->granular);
     // The jitter's sequence starts again too, as a new node's does. Upstream
     // carries it on, so a reset node drew grain offsets no new node draws
-    // (docs/upstream-diff.md).
+    // (docs/how-it-works/upstream-diff.md).
     self->granular.rng_state = AUDIODSP_GRANULAR_RNG_SEED;
     self->granular.read_rate = read_rate;
 }
@@ -223,7 +223,7 @@ audioio_get_buffer_result_t audiodelays_granular_pitch_shift_get_buffer(
     // looping source that comes back empty straight after its reset has
     // nothing at all, so the node lets go of it, as the CPython twin does.
     // Upstream CircuitPython goes round again with n == 0 in both cases and
-    // never leaves the loop (docs/upstream-diff.md).
+    // never leaves the loop (docs/how-it-works/upstream-diff.md).
     bool starved = false;
 
     while (length != 0) {

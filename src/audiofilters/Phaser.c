@@ -1,7 +1,7 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiofilters/
 // Phaser.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, see docs/upstream-diff.md). `attr, cp_compat_attr` added for
+// equivalent, see docs/how-it-works/upstream-diff.md). `attr, cp_compat_attr` added for
 // frequency/feedback/mix/stages/playing.
 //
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cooper Dalrymple

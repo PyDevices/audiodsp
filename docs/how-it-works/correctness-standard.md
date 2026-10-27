@@ -1,9 +1,7 @@
 # What audiodsp is held to
 
-Decided on 2026-09-09, replacing every earlier arrangement. One page,
-because the previous answer was spread across a golden file, an oracle binary,
-a build script, three deviation sections and a rule about a binary nobody was
-allowed to rebuild — and nobody could state it in a sentence.
+This is the one page that says what each part of audiodsp is held to: a rule
+you can state in a sentence, and the gates that enforce it.
 
 ## The rule
 
@@ -35,9 +33,9 @@ all of them observed in this repository rather than imagined:
   tried. Every stored fixture in `flanger_probe.py` matched to the byte
   throughout. Only comparing the two targets against each other found it.
 * **A reference can outlive the thing it referenced.** The vstaudio oracle
-  pinned `audiodynamics` and `audioroute` to micropython-vst3's
+  pinned `audiodynamics` and `audioroute` to mpvst's
   `vstaudio_dsp.c` at revision `ac87f13`. That file was deleted from
-  micropython-vst3 in `6ea60d3` — "Drop the effects library and the DSP that
+  mpvst in `6ea60d3` — "Drop the effects library and the DSP that
   moved to audiodsp" — and the plug-in links audiodsp now. The relationship
   reversed: vstaudio is a consumer of this package, not a grader of it.
 
@@ -64,7 +62,7 @@ Nine of the seventeen are ours, and they are most of the effects palette — whi
 is why "match CircuitPython" cannot be the only rule, and why the second half of
 this page is not an afterthought.
 
-Two of ours came from micropython-vst3's engine (`audiodynamics`, `audioroute`)
+Two of ours came from mpvst's engine (`audiodynamics`, `audioroute`)
 and the rest have no ancestor anywhere. Neither fact changes anything: what
 matters is that no independent implementation exists to compare against today.
 
@@ -95,74 +93,17 @@ A trait without a planted fault is not a check; it is a hope. See
 `tests/parity/deinit_surface_probe.py` for the shape — its `--fault` mode is run by CI first, and CI fails if the fault
 *passes*.
 
-## What this retires
+## Where deviations are written down
 
-Agreed 2026-09-09; the removals follow this page rather than precede it, so
-until each line below is struck the old machinery is still present. This list
-is the checklist, not a report.
-
-
-* ~~**The vstaudio oracle**~~ — **done.** `tests/parity/vstaudio_oracle/`,
-  `tests/parity/build_vstaudio_oracle.sh` and the pinned `VSTAUDIO_REV` are
-  deleted, along with `golden/dsp_nodes.json`. `verify_dsp.py` is now the
-  comparison itself: it runs every probe on every interpreter given and requires
-  the outputs to be byte-identical, with **no stored digest**, and it **refuses
-  a run with fewer than two interpreters** rather than passing one that cannot
-  fail. A probe that cannot be covered yet is `PENDING` against a named issue -
-  visible and counted, neither silently skipped nor standing red. Proved able to
-  fail: reverting the flanger's 64-bit widening and rebuilding gives
-  `FAIL flanger_probe.py cpython and micropython differ at output byte 1160`.
-
-  The gate moved workflow with its meaning. It needs two interpreters, so it
-  runs in `clean-build.yml`, which builds one. `test-cpython.yml` and the
-  release job keep what a single interpreter *can* say - that every probe runs -
-  across four operating systems and five Pythons, which catches an import
-  error or an arithmetic assumption that only holds on x86_64.
-* ~~**`cmods/bin/circuitpython` as an untouchable artefact**~~ — **done**
-  2026-09-09. The oracle is now built at the version and the ceiling this port
-  ships (CircuitPython 10.3.0, `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64`) and is
-  rebuilt deliberately whenever either moves, re-pinned in the same change with
-  the reason written down. `cmods/build_cp.sh` passes `CP_CFLAGS_EXTRA` through
-  for the ceiling override, which must be `-U` then `-D` because `-Werror` makes
-  a conflicting redefinition an error. `tests/test_voice_ceiling_consistency.py`
-  still compares the binary's bytes against a pin — that check is about noticing
-  an *undeclared* rebuild and is not retired. The oracle moved to
-  `cmods/bin/circuitpython-oracle-10.3.0` on 2026-09-17 (audiodsp#89): the old
-  path is what `build_interpreters.sh`'s `cp-unix` target installs, so a
-  routine interpreter refresh replaced the oracle with a 14-voice build twice.
-  The opt-in `cp-oracle` target builds and installs the oracle now, and
-  nothing else writes that path.
-
-  The rebuild earned itself immediately: it found two behaviour changes
-  CircuitPython 10.3.0 made to `synthio` and `audiomixer` that this port had not
-  taken — the panning polarity flip and the zero-crossing loudness gate. Both
-  were quiet arithmetic edits rather than new nodes, so the port already carried
-  10.3.0's new *files* and looked current. Nothing that grades us against our own
-  past could have seen them.
-* ~~**The 14 → 64 voice-ceiling deviation**~~ — **done** 2026-09-09, and gone
-  rather than documented. Both sides are built at 64,
-  `SYNTHIO_MIX_DOWN_SCALE` is 129 on both, and `verify_mixdown_knee` is
-  byte-identical to CircuitPython above the knee as well as below.
-* ~~**Stored digests as a reference of record**~~ — **done** for the DSP nodes:
-  `golden/dsp_nodes.json` is deleted and `verify_dsp` compares interpreters
-  against each other. The CP-shared gates (`verify_acceptance`,
-  `verify_effects`, `verify_streaming`, `verify_biquad`, `verify_mixdown_knee`)
-  still carry stored files, and those are a different case: they hold this port
-  to *CircuitPython's* answer, which is the rule, not to our own past. Probes
-  stay — they are how a
-  render is made reproducible and comparable. What goes is treating the stored
-  value as the thing that must be matched, rather than as a convenience for
-  running the comparison.
-
-`docs/upstream-diff.md` does **not** retire. Deliberate departures from
-CircuitPython in nodes CircuitPython has are exactly what it is for, and under
-this rule each one is a decision that must be written there or it is a bug.
+[upstream-diff](upstream-diff.md) records every deliberate departure from
+CircuitPython in a node CircuitPython has. Under this rule each one is a
+decision that must be written there, or it is a bug.
 
 ## What a divergence means now
 
 * **CP-shared node, we differ from CircuitPython.** Either a bug of ours, or a
   bug of theirs worth an upstream report (`docs/upstream-reports/`), or a
-  deliberate departure that goes in `docs/upstream-diff.md`. Three outcomes, and
+  deliberate departure that goes in `docs/how-it-works/upstream-diff.md`. Three outcomes, and
   choosing between them is the work. What it is never is "re-record ours".
 * **Our own node, the three targets disagree.** Ours, always. One of the three
   compilations is wrong, or the kernel relies on something undefined.
@@ -193,7 +134,7 @@ baseline, and CI's ARM lane had carried an accepted baseline of its own since
 2026-09-02 for six `multitap` and `pitchshift` blocks one byte from x86_64.
 Adding the pragma closed exactly those six, which is where the mechanism stops
 being inferred and starts being measured
-([docs/building-wheels.md](building-wheels.md)). Proving the board half still
+([docs/wheels-and-platforms.md](wheels-and-platforms.md)). Proving the board half still
 needs board digests. See audiodsp#79 and audiodsp#55.
 
 ## The other way: a number derived in Python

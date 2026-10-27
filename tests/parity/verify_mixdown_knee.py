@@ -35,7 +35,7 @@ scales every sample past the knee. So no material can be both above the
 knee and oracle-identical. The above-knee half of this gate is therefore
 NOT oracle-enforced, and nothing here should be described as if it were.
 That divergence is the ceiling and nothing else, and it is written
-down: docs/upstream-diff.md, "The ceiling later moved 14 -> 64, which
+down: docs/how-it-works/upstream-diff.md, "The ceiling later moved 14 -> 64, which
 gives up that alignment above the knee".
 
 Check (b), the anti-launder tripwire, and the only check here that

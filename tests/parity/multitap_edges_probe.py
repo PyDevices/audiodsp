@@ -13,7 +13,7 @@ the same bytes and the bytes are held to the claim:
   of the source instead and rings out what its line holds, as its CPython twin
   always did.
 
-All are recorded deviations from the oracle (docs/upstream-diff.md), so the
+All are recorded deviations from the oracle (docs/how-it-works/upstream-diff.md), so the
 probe runs on MicroPython and CPython and is skipped on CircuitPython, whose
 MultiTapDelay and Echo are upstream's.
 """

@@ -3,7 +3,7 @@
 // `__init__.c` to `mp3_alloc.c` for this port's flat layout. This is the
 // default (non-coverage) allocator CP itself uses for the Helix decoder's
 // internal buffers: GC-heap `m_malloc_maybe`, same as every other buffer
-// this port allocates (see docs/upstream-diff.md's
+// this port allocates (see docs/how-it-works/upstream-diff.md's
 // `m_malloc_without_collect` -> `m_malloc` fix note for the established
 // convention) rather than the unix coverage variant's raw
 // malloc()/free() shortcut -- that shortcut has no effect on rendered PCM

@@ -6,7 +6,7 @@ targets. What is left for here is what a render cannot say: the argument forms,
 the errors, the source behaviours only a Python-defined audiosample can
 produce, and the numeric traits with their bars.
 
-`docs/correctness-standard.md` is what this file implements for
+`docs/how-it-works/correctness-standard.md` is what this file implements for
 `audiodynamics`: the module is ours - upstream CircuitPython has no
 counterpart - so it is held to three-target agreement plus the traits below,
 never to a previous version of its own output.

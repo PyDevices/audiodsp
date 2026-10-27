@@ -4,7 +4,7 @@
 // Not a CircuitPython port: this module comes from micropython-vst3's
 // `vstaudio` usermod, where the effects library's parallel branches (exciters,
 // Haas wideners, multiband splits) have always been built. See
-// docs/upstream-diff.md.
+// docs/how-it-works/upstream-diff.md.
 //
 // SPDX-License-Identifier: MIT
 

@@ -241,7 +241,7 @@ endif()
 # translation unit by src/shared/audiodsp_vorbis.c, which renames its symbols
 # and silences its warnings for its own code only, so IDF's -Werror=all sees
 # nothing. Its memory comes through the driver's hooks (PSRAM on a board with
-# it); see docs/vorbis.md.
+# it); see docs/reference/vorbis.md.
 target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_vorbis.c
     ${MPAUDIO_SRC_DIR}/audiovorbis/VorbisDecoder.c

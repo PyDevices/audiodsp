@@ -24,7 +24,7 @@
 // about 30 dB down; a 4-point Hermite puts it about 60 dB down for four taps
 // and two more multiplies a sample. Measured on the desktop, 24 looping
 // voices at 48 kHz stereo cost 26 us of a 5333 us block with the cubic
-// (docs/upstream-diff.md), so there was no budget case for the cheaper one
+// (docs/how-it-works/upstream-diff.md), so there was no budget case for the cheaper one
 // and the better one is the only one. The polynomial is the x-form 3rd-order
 // Hermite, the one every sampler since the 1990s has used, chosen because
 // it passes through the samples exactly: an integer position reads the

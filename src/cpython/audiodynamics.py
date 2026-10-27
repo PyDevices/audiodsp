@@ -27,7 +27,7 @@ exactly as it was.
 
 Twenty-one further options came with the effects program, every one of them
 default-off and every one of them a fixed trait of a named circuit that
-tuning the shipped knobs cannot reach. See docs/upstream-diff.md for the
+tuning the shipped knobs cannot reach. See docs/how-it-works/upstream-diff.md for the
 measurements; briefly:
 
 * ``detector="rms"`` with ``rms_ms`` averages a mean square instead of

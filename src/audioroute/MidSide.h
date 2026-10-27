@@ -4,7 +4,7 @@
 // In `audioroute` rather than a module of its own because it is routing, not
 // arithmetic on streams: it changes which signal reaches which channel, the
 // same job `Splitter` does across branches. See shared/audiodsp_midside.h for
-// why the palette could not already do it, and docs/upstream-diff.md for
+// why the palette could not already do it, and docs/how-it-works/upstream-diff.md for
 // where it sits among the rest.
 //
 // SPDX-License-Identifier: MIT

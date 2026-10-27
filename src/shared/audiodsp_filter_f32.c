@@ -205,7 +205,7 @@ void audiodsp_biquad_f32_config_finish(audiodsp_biquad_f32_config_t *config) {
         }
     } else if (config->mode == AUDIODSP_BIQUAD_F32_PEAKING_EQ) {
         // `1 - alpha * A`, the sign audiodsp_biquad.c:87 corrected upstream to
-        // (docs/upstream-diff.md, "synthio.Biquad's PEAKING_EQ"): with the
+        // (docs/how-it-works/upstream-diff.md, "synthio.Biquad's PEAKING_EQ"): with the
         // plus, numerator and denominator stop summing alike at DC and a
         // +6 dB bell at 1 kHz comes out about +21 dB down there.
         b0 = 1 + alpha * A;

@@ -107,7 +107,7 @@ jobs:
       # The DSP nodes' real gate: every interpreter must render them
       # identically, which needs two interpreters, which is why it lives here
       # and not in test-cpython.yml. There is no stored digest to match - the
-      # comparison IS the gate (docs/correctness-standard.md) - and verify_dsp
+      # comparison IS the gate (docs/how-it-works/correctness-standard.md) - and verify_dsp
       # refuses a run with fewer than two interpreters rather than passing one
       # that cannot fail.
       #

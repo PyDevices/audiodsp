@@ -1,7 +1,7 @@
 // Ported from CircuitPython's shared-bindings/synthio/MidiTrack.c and
 // shared-module/synthio/MidiTrack.c (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT), merged into one file.
-// Docstrings dropped. See docs/upstream-diff.md: every type using
+// Docstrings dropped. See docs/how-it-works/upstream-diff.md: every type using
 // MP_PROPERTY_GETTER/GETSET needs `attr, cp_compat_attr` wired in. This
 // file's own byte-buffer-based construction (`MidiTrack(buffer, tempo)`)
 // reads no file -- `synthio.from_file()` (synthio/__init__.c) does.

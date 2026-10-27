@@ -1,7 +1,7 @@
 // Ported from CircuitPython's shared-bindings/synthio/Note.c and
 // shared-module/synthio/Note.c (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT), merged into one file.
-// Docstrings dropped. See docs/upstream-diff.md: every type using
+// Docstrings dropped. See docs/how-it-works/upstream-diff.md: every type using
 // MP_PROPERTY_GETTER/GETSET needs `attr, cp_compat_attr` wired in.
 //
 // SPDX-FileCopyrightText: Copyright (c) 2023 Jeff Epler for Adafruit Industries

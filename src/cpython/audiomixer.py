@@ -194,7 +194,7 @@ class Mixer(_AudioSample):
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         # Deviation from upstream, which stops every voice here -- see
-        # docs/upstream-diff.md, "Resetting a Mixer silenced it". A host reset
+        # docs/how-it-works/upstream-diff.md, "Resetting a Mixer silenced it". A host reset
         # keeps every voice as it is, its source and the frames it has taken,
         # the rule every node follows on a reset (audiodsp#181, #178).
         self._check()

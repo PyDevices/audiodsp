@@ -4,7 +4,7 @@ A setting written in Python is held at the interpreter's `mp_float_t` width --
 double here and on a desktop MicroPython, single on every board audiodsp ships
 on and on a MicroPython built with `MICROPY_FLOAT_IMPL_FLOAT`. `float32` is the
 round trip that makes the two agree, and `float32_bits` is the exact way to
-print one. `docs/correctness-standard.md` carries the rule; audiodsp#80 is where
+print one. `docs/how-it-works/correctness-standard.md` carries the rule; audiodsp#80 is where
 six parity probes were found disagreeing with CPython over nothing else.
 
 | ID | Trait | Bar |

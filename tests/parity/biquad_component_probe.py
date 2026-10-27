@@ -4,12 +4,12 @@ The rest of the parity suite only ever builds LOW_PASS filters, which is how
 the peaking-EQ sign error in `audiodsp_biquad.c` survived: no fixture reached
 mode 4. This probe walks all seven modes in mono and stereo, and then all seven
 again across the band, so the three deliberate deviations recorded in
-docs/upstream-diff.md ("Peaking EQ computed b2 with the wrong sign", "A stereo
+docs/how-it-works/upstream-diff.md ("Peaking EQ computed b2 with the wrong sign", "A stereo
 Filter shared one biquad state" and "The biquads are Q15, so they cannot go
 low") are each pinned by something that fails when they regress.
 
 Running this against `bin/circuitpython` is expected to differ. That is the
-point of it; see docs/upstream-diff.md for the direction of each difference.
+point of it; see docs/how-it-works/upstream-diff.md for the direction of each difference.
 
 **The material is integer arithmetic, deliberately.** The square wave used to
 be `(2*pi*hz*frame/RATE) % 2*pi < pi`, and a Python float is the interpreter's
@@ -127,7 +127,7 @@ for name, mode in MODES:
 #: coefficients used to collapse - a low-pass there returned silence - and
 #: 3600 Hz is past pi/2 in W0, where the old sine/cosine fit was extrapolating
 #: and a high-pass passed its own stopband. Neither end was pinned by anything
-#: before the biquads were widened; see docs/upstream-diff.md.
+#: before the biquads were widened; see docs/how-it-works/upstream-diff.md.
 EDGE_CENTERS = (60, 200, 1200, 3600)
 
 for name, mode in MODES:

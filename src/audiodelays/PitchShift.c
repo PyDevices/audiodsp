@@ -1,7 +1,7 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiodelays/
 // PitchShift.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, see docs/upstream-diff.md). `attr, cp_compat_attr` added for
+// equivalent, see docs/how-it-works/upstream-diff.md). `attr, cp_compat_attr` added for
 // semitones/mix/freeze/playing. The custom `__exit__` is kept verbatim, same as
 // Chorus (see that file's comment). The unsigned-16-bit silence fill and the
 // window's lower bound follow upstream's 6dddbda87 (11.0.0-alpha.1), which
@@ -158,7 +158,7 @@ void audiodelays_pitch_shift_reset_buffer(audiodelays_pitch_shift_obj_t *self,
     // so the read position's distance from the write position -- the splice
     // phase, which moves every frame the shift is not 0 -- carried across the
     // reset and the node never rendered what a new one does again
-    // (docs/upstream-diff.md).
+    // (docs/how-it-works/upstream-diff.md).
     self->window_index = 0;
     self->overlap_index = 0;
     self->read_index = 0;
@@ -228,7 +228,7 @@ audioio_get_buffer_result_t audiodelays_pitch_shift_get_buffer(audiodelays_pitch
     // looping source that comes back empty straight after its reset has
     // nothing at all, so the node lets go of it, as the CPython twin does.
     // Upstream CircuitPython goes round again with n == 0 in both cases and
-    // never leaves the loop (docs/upstream-diff.md).
+    // never leaves the loop (docs/how-it-works/upstream-diff.md).
     bool starved = false;
 
     while (length != 0) {
@@ -299,7 +299,7 @@ audioio_get_buffer_result_t audiodelays_pitch_shift_get_buffer(audiodelays_pitch
                     self->splice_align, self->splice_fading,
                     self->splice_rising};
                 // The splice may move by up to a 50th of a second: a whole
-                // period down to G1 (docs/upstream-diff.md).
+                // period down to G1 (docs/how-it-works/upstream-diff.md).
                 audiodsp_pitchshift_process_s16(word_buffer, sample_src, n,
                     window_buffer, window_size, overlap_buffer, overlap_size,
                     self->base.channel_count, self->read_rate, mix,

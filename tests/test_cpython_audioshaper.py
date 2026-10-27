@@ -352,7 +352,7 @@ class HeadroomTest(unittest.TestCase):
     101 cycles of 1010 Hz, so the fundamental and every harmonic fall on
     their own bin with no window and no rounding.
 
-    Measured (`docs/upstream-diff.md`'s `audioshaper` section carries the
+    Measured (`docs/how-it-works/upstream-diff.md`'s `audioshaper` section carries the
     full table): flat at -54.34 dB through `post_gain` 0.80, -41.24 at
     0.90, -36.44 at 1.00 -- a 13.1 dB fall by 0.90 that the bars below ask
     10 of, for margin. The control is oversample x1: no half-band, no

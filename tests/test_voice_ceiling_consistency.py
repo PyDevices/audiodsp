@@ -49,7 +49,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: ("built at 14 and must never be rebuilt") is retired: an oracle at a
 #: different configuration cannot answer the only question worth asking, which
 #: is whether we render CircuitPython's bytes in the same situation. See
-#: docs/correctness-standard.md. The hole this closes is unchanged: a
+#: docs/how-it-works/correctness-standard.md. The hole this closes is unchanged: a
 #: CFLAGS_EXTRA rebuild of the oracle needs no edit to any tracked file,
 #: leaves `git -C circuitpython status` clean, and overwrites the
 #: gitignored binary in place. Every existing check would pass on a silently

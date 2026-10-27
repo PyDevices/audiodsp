@@ -3,8 +3,8 @@
 # 2026-10-22, from 10.3.0 on 2026-10-08 with audiodsp#201, from 10.2.1 to
 # 10.3.0 on 2026-09-09).
 # Moving it is a re-port, not a bump: every move is a resync with upstream
-# (docs/upstream-sync.md; the one before this was audiodsp#220). See also
-# AGENTS.md "The CircuitPython oracle" and docs/upstream-diff.md. The 64-voice oracle binary built from
+# (docs/how-it-works/upstream-sync.md; the one before this was audiodsp#220). See also
+# AGENTS.md "The CircuitPython oracle" and docs/how-it-works/upstream-diff.md. The 64-voice oracle binary built from
 # it lives at bin/circuitpython-oracle-11.0.0-alpha.2 (build_interpreters.sh
 # cp-oracle); tests/test_voice_ceiling_consistency.py pins its sha256.
 11.0.0-alpha.2 d53b2277cfad71589028e5da77c984c045db990d

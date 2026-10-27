@@ -1,7 +1,7 @@
 // Compat shim for audiodsp, standing in for CircuitPython's
 // supervisor/background_callback.h (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT) -- see
-// docs/upstream-diff.md, "audiomp3: background_callback is synchronous
+// docs/how-it-works/upstream-diff.md, "audiomp3: background_callback is synchronous
 // here" for why this is a stub rather than a port.
 //
 // CircuitPython's own unix `coverage` build variant -- our parity oracle --

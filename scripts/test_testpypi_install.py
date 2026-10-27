@@ -3,7 +3,7 @@
 
     scripts/test_testpypi_install.py [VERSION] [--skip-render]
 
-`docs/building-wheels.md` names this as a post-release step to run on fresh
+`docs/how-it-works/wheels-and-platforms.md` names this as a post-release step to run on fresh
 Linux and Windows hosts. Two things used to stop it being one (audiodsp#72):
 the version was frozen into the source as `0.0.1`, so it smoked a 2026-08-25
 build whichever release it was run for, and its embedded snippet used

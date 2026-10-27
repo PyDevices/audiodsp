@@ -6,7 +6,7 @@ platform, what a mutex is, where the clock comes from and where the audio
 goes. You supply those four, and nothing else.
 
 Write one C file. Define `audiodsp_port_driver()` from
-[`../src/shared/audiodsp_port.h`](../src/shared/audiodsp_port.h), return an
+[`../../src/shared/audiodsp_port.h`](../../src/shared/audiodsp_port.h), return an
 `audiodsp_port_ops_t` filled in with whatever your platform has, and put the
 table in the **same translation unit** as your MicroPython module
 registration — that last part is not style, and [How it binds](#how-it-binds-and-the-trap-it-dodges)
@@ -46,7 +46,7 @@ the interpreter on a board, so an interpreter holding a swap has to be lifted
 to finish it.
 
 The contract these two serve is in
-[`../src/shared/audiodsp_pump_lock.h`](../src/shared/audiodsp_pump_lock.h) and it
+[`../../src/shared/audiodsp_pump_lock.h`](../../src/shared/audiodsp_pump_lock.h) and it
 is small: the pump holds the lock for one block pull, the control path holds
 it around its final swap only, and nothing is ever held across an allocation
 or across anything that can raise. Recursive because a node's pull
@@ -185,7 +185,7 @@ enforced rather than promised:
 python3 tools/check_portable.py
 ```
 
-[`../tools/check_portable.py`](../tools/check_portable.py) fails on
+[`../../tools/check_portable.py`](../../tools/check_portable.py) fails on
 `freertos/`, `esp_*`, `driver/`, `sdkconfig`, `pthread.h`, `windows.h`,
 `unistd.h`, `sys/time.h`, and on the two dozen call names those headers bring
 — `clock_gettime`, `nanosleep` and the rest. Comments and string literals are

@@ -10,7 +10,7 @@
 // same block ended part-way through a frame. Upstream CircuitPython starts
 // every run on the left lane, so a stereo source that hands an odd number of
 // samples swaps the lanes from there on; this port carries the lane instead
-// (a recorded deviation, docs/upstream-diff.md).
+// (a recorded deviation, docs/how-it-works/upstream-diff.md).
 uint32_t audiodsp_multitap_process_s16(int16_t *output,
     const int16_t *input, size_t sample_count, int16_t *delay_buffer,
     uint32_t position, uint32_t delay_samples_per_channel,

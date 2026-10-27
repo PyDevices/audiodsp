@@ -53,7 +53,7 @@ extern const mp_obj_type_t synthio_note_type;
 // synthio_bend_mode_e synthio_bend_mode_t;` here -- upstream's own
 // shared-module/synthio/Note.h repeats a typedef synthio/__init__.h
 // already fully defines (same "two files never in one translation unit
-// upstream" story as synthio_synth_t; see docs/upstream-diff.md). This
+// upstream" story as synthio_synth_t; see docs/how-it-works/upstream-diff.md). This
 // file already includes `synthio/__init__.h` above, so the type is
 // already complete here; the second typedef added nothing and failed
 // under emscripten's strict `-std=c99 -Werror` (phase 8d).

@@ -20,7 +20,7 @@ So the comparisons live here:
 
 ## The traits, with their bars
 
-`docs/correctness-standard.md` is what this file implements for `audiobiquad`:
+`docs/how-it-works/correctness-standard.md` is what this file implements for `audiobiquad`:
 the module is ours, upstream CircuitPython has no counterpart, so it is held to
 three-target agreement (`tests/parity/filter_f32_probe.py`, run by `verify_dsp`)
 plus the numeric traits below. Each has an ID so an issue or an evidence pack
@@ -591,7 +591,7 @@ def settled_words(node, blocks=16, skip=10):
 class UniversalTraitTest(unittest.TestCase):
     """The traits every node of ours carries, on this one.
 
-    B8, B9 and B10 are the shape `docs/correctness-standard.md` asks of every
+    B8, B9 and B10 are the shape `docs/how-it-works/correctness-standard.md` asks of every
     audiodsp-own module. They are here first because `audiobiquad` is what ten
     of the Phase 2 `audioeffects` classes are built on, so a defect here is a
     defect in all of them.

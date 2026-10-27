@@ -1,9 +1,9 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiospeed/
 // SpeedChanger.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, same fix as every other tier -- see docs/upstream-diff.md).
+// equivalent, same fix as every other tier -- see docs/how-it-works/upstream-diff.md).
 // Type registration adds `attr, cp_compat_attr` for the rate property (see
-// docs/upstream-diff.md, "Property invocation needs an explicit attr slot").
+// docs/how-it-works/upstream-diff.md, "Property invocation needs an explicit attr slot").
 //
 // SPDX-FileCopyrightText: Copyright (c) 2026 Tod Kurt
 // SPDX-FileCopyrightText: Copyright (c) 2026 PyDevices
@@ -32,7 +32,7 @@ static uint32_t rate_to_fp(mp_obj_t rate_obj) {
     // Round to the nearest Q16 step. Upstream truncates, so a float landing a
     // hair under its neighbour loses a whole LSB instead of arriving at it:
     // 1/1.0000000000000004 becomes 65535/65536 rather than unity. A deliberate
-    // departure -- see docs/upstream-diff.md (audiodsp#92).
+    // departure -- see docs/how-it-works/upstream-diff.md (audiodsp#92).
     return (uint32_t)(rate * (1 << SPEED_SHIFT) + (mp_float_t)0.5);
 }
 
@@ -112,7 +112,7 @@ static bool fetch_source_buffer(audiospeed_speedchanger_obj_t *self) {
     // this buffer consumed is the frame count of the buffer *before* it, not
     // everything the phase was holding -- upstream throws away the remainder,
     // so a hold restarts its staircase at every source buffer. audiodsp#91,
-    // docs/upstream-diff.md.
+    // docs/how-it-works/upstream-diff.md.
     uint32_t consumed = self->src_sample_count << SPEED_SHIFT;
     self->phase = self->phase >= consumed ? self->phase - consumed : 0;
     self->src_buffer = buf;

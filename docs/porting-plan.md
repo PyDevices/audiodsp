@@ -133,7 +133,7 @@ and their source is micropython-vst3 rather than CircuitPython:
   any of them, so this repository builds them into CircuitPython as a user C
   module (`circuitpython.mk`) —
   the only direction in this repo where CircuitPython is the recipient. See
-  `docs/upstream-diff.md` for what changed in the moves and what was kept.
+  `docs/how-it-works/upstream-diff.md` for what changed in the moves and what was kept.
 - **tier 8** is pure Python under `lib/`. `audioinstruments` — 55 classic
   synthesizers, keyboards and drum machines written entirely in `synthio`,
   no samples — and `audioeffects` — 45 effect classes built on the tiers
@@ -249,11 +249,11 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
    tests against `bin/circuitpython` (`RawSample`: full property/deinit/
    context-manager/PCM diff, byte-for-byte match; `WaveFile`: PCM verified
    against Python's own `wave` module instead, since CP's own unix build
-   can't open a WaveFile at all — see docs/upstream-diff.md). Found and
+   can't open a WaveFile at all — see docs/how-it-works/upstream-diff.md). Found and
    fixed a real gap along the way: mainline has no code path that invokes a
    declarative property on a *native* type (CP patches this into its own
    core `py/runtime.c`); every ported type needs an explicit
-   `attr, cp_compat_attr` slot instead — see docs/upstream-diff.md,
+   `attr, cp_compat_attr` slot instead — see docs/how-it-works/upstream-diff.md,
    "Property invocation needs an explicit attr slot." This applies to every
    remaining tier, not just audiocore.
 4. **Tier 2 `synthio`** *(done)*. Full engine ported in dependency order
@@ -264,7 +264,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
    `Synthesizer` note press → attack → decay → sustain → release → PCM
    render cycle, plus a `MidiTrack` melody, both bit-exact against upstream.
    `synthio.from_file()` got the same portable-stream adaptation as
-   `WaveFile` (see docs/upstream-diff.md); everything else is a mechanical,
+   `WaveFile` (see docs/how-it-works/upstream-diff.md); everything else is a mechanical,
    oracle-verified port. One new compat piece needed: `cp_compat/namedtuple`
    (CP's `py/objnamedtuple.h` extension for building a const namedtuple
    type at compile time, used for `Envelope`) — same "verify against
@@ -278,7 +278,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
    8-bit unsigned sample formats, single- and multi-voice mixdown
    (verbatim-copy vs. add-mixed paths), looping, and `level`/`panning`
    driven by a `synthio.LFO`/`synthio.Math` block input. Two deviations,
-   both mechanical (see docs/upstream-diff.md): the `#if CIRCUITPY_SYNTHIO`
+   both mechanical (see docs/how-it-works/upstream-diff.md): the `#if CIRCUITPY_SYNTHIO`
    guard around block-input level/panning is unconditional here (this port
    always has synthio); ARM CMSIS DSP intrinsics dropped for the portable C
    fallback unconditionally (numerically identical, avoids a CMSIS
@@ -297,7 +297,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
    in the canonical unix coverage build); every deviation and verbatim-kept
    upstream quirk (a union type-pun, a `memset` fill-value truncation, an
    inconsistent `single_channel_output` check, two custom `__exit__`
-   overrides) is catalogued in docs/upstream-diff.md. Full regression clean
+   overrides) is catalogued in docs/how-it-works/upstream-diff.md. Full regression clean
    (`build_interpreters.sh`, LVGL smoke test, all module imports) after
    every change.
 7. **`synthtools` end-to-end (unix)** *(done)*. **Primary acceptance
@@ -318,7 +318,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
    detail, including the isolation methodology and the deterministic-PRNG
    test-harness technique needed for a byte-exact diff (`synthtools`
    reseeds oscillator phase via `random.randint()` by design), is in
-   docs/upstream-diff.md. Full regression clean (tier 0-4 parity suite,
+   docs/how-it-works/upstream-diff.md. Full regression clean (tier 0-4 parity suite,
    LVGL smoke test) after the fix.
 8. **Tier 6 outputs** *(8a-8e done; superseded design)*. The original plan
    here (a native SDL2-callback `AudioOut`) was replaced after actually
@@ -367,7 +367,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
      `NotImplementedError` from on `_WIN32` for a real file object, so
      `MP3Decoder` reading an `open()`ed file was completely broken on
      `micropython.exe`. Fixed with an `#ifdef _WIN32` fallback in
-     `src/audiomp3/MP3Decoder.c` (see docs/upstream-diff.md, "Tier 5
+     `src/audiomp3/MP3Decoder.c` (see docs/how-it-works/upstream-diff.md, "Tier 5
      audiomp3: three Windows-only local fixes"). A mechanical `win_audio`
      `AudioOut` smoke (construct, play a `synthio.Note`, service, close, no
      hardware errors) also passed under `micropython.exe`; true by-ear
@@ -378,7 +378,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
      platform-detection gap, two merged-header duplicate-typedef errors, a
      missing `M_PI`, dead-code/`-Wunused-function`, a missing
      `<errno.h>`/an implicit float promotion in `MP3Decoder.c` -- see
-     docs/upstream-diff.md, "Phase 8d: WASM build fixes"). Ran the full DSP
+     docs/how-it-works/upstream-diff.md, "Phase 8d: WASM build fixes"). Ran the full DSP
      parity suite (tiers 0-5 + `synthtools_acceptance.py`) against the
      rebuilt interpreter via a headless Node driver
      (`loadMicroPython()`/`runPythonAsync`, no wasm-equivalent CLI exists)
@@ -394,7 +394,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
      could never have caught. Fixed properly (`.u_bool`, not `.u_obj`); now
      produces byte-identical output across all three of this port's own
      targets (unix/windows/wasm) and a deliberate, documented divergence
-     from the x86-64 CP oracle for that one field -- see docs/upstream-diff.md,
+     from the x86-64 CP oracle for that one field -- see docs/how-it-works/upstream-diff.md,
      "Distortion soft_clip: verbatim-kept union type-pun turned out to be
      architecture-dependent." Full regression clean on unix/windows/wasm
      after the fix (parity suite, LVGL smoke test on unix).
@@ -453,7 +453,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
 9. **Tier 5 `audiomp3`** *(done)* — ported out of order (before phase 8,
    which is blocked on mpftp/hardware coordination), since nothing else
    depends on it and it needs no hardware. License checked first (see
-   docs/upstream-diff.md, "Tier 5 audiomp3: license"): the Helix decoder
+   docs/how-it-works/upstream-diff.md, "Tier 5 audiomp3: license"): the Helix decoder
    core is RPSL 1.0/RCSL 1.0, not MIT, and this port carries it unmodified
    under those terms rather than relicensing it -- same as CircuitPython
    itself. Cloned `mp3` (upstream `adafruit/Adafruit_MP3`) as a parent

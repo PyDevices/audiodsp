@@ -9,10 +9,10 @@
 // -> `cp_compat/background_callback.h` (a stub, not a port -- see that
 // header). `lib/mp3/src/{mp3common,coder}.h` -> the vendored `mp3/src`
 // clone in the parent workspace (see docs/porting-plan.md "Tier 5 audiomp3" and
-// docs/upstream-diff.md for the license and the one local patch it needed).
+// docs/how-it-works/upstream-diff.md for the license and the one local patch it needed).
 // `MP_TYPE_FLAG_HAS_SPECIAL_ACCESSORS` keeps upstream's flag; this port adds
 // `attr, cp_compat_attr` for property invocation on a native type, same as
-// every other tier -- see docs/upstream-diff.md, "Property invocation needs
+// every other tier -- see docs/how-it-works/upstream-diff.md, "Property invocation needs
 // an explicit attr slot."
 //
 // Deviation from upstream: `mp_obj_malloc_with_finaliser` here is mainline's
@@ -70,7 +70,7 @@
 #define DO_DEBUG (0)
 
 // Deviation from upstream, this port's own windows target only (see
-// docs/upstream-diff.md, "Tier 5 audiomp3: MP_STREAM_POLL is unavailable on
+// docs/how-it-works/upstream-diff.md, "Tier 5 audiomp3: MP_STREAM_POLL is unavailable on
 // win32 for real files"): mainline's own extmod/vfs_posix_file.c raises
 // NotImplementedError from MP_STREAM_POLL on _WIN32 for regular POSIX-style
 // file objects (not sockets) rather than returning a value -- so this
@@ -363,7 +363,7 @@ void common_hal_audiomp3_mp3file_construct(audiomp3_mp3file_obj_t *self,
     } else {
         self->inbuf.size = DEFAULT_INPUT_BUFFER_SIZE;
         // Deviation from upstream: m_malloc_without_collect -> m_malloc, same
-        // established fix as every other tier (see docs/upstream-diff.md) --
+        // established fix as every other tier (see docs/how-it-works/upstream-diff.md) --
         // mainline has no non-collecting allocator.
         self->inbuf.buf = m_malloc(DEFAULT_INPUT_BUFFER_SIZE);
         if (self->inbuf.buf == NULL) {

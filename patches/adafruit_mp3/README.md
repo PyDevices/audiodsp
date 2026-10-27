@@ -10,4 +10,4 @@ declared in `DEPENDENCIES.lock`.
   (the Windows MicroPython target) also defines; the patch additionally
   excludes `__GNUC__` so mingw falls through to the portable C path.
   CircuitPython never hits this (no Windows port). Full rationale:
-  `docs/upstream-diff.md`, "Tier 5 audiomp3".
+  `docs/how-it-works/upstream-diff.md`, "Tier 5 audiomp3".

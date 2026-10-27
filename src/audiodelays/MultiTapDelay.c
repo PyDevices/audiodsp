@@ -313,7 +313,7 @@ void audiodelays_multi_tap_delay_reset_buffer(audiodelays_multi_tap_delay_obj_t 
     // Both write heads back at the top, where construction puts them.
     // Upstream leaves them where the pulls took them, so a Time shortened
     // after a reset kept a different stretch of the line than on a fresh
-    // node (a recorded departure, docs/upstream-diff.md).
+    // node (a recorded departure, docs/how-it-works/upstream-diff.md).
     self->delay_buffer_pos = 0;
     self->delay_buffer_right_pos = 0;
 }
@@ -385,7 +385,7 @@ audioio_get_buffer_result_t audiodelays_multi_tap_delay_get_buffer(audiodelays_m
     // straight after its reset. Upstream CircuitPython goes round again with
     // n == 0 and never leaves the loop; here the rest of the block is
     // rendered from silence and the source is asked again next pull (a
-    // recorded deviation, docs/upstream-diff.md).
+    // recorded deviation, docs/how-it-works/upstream-diff.md).
     bool starved = false;
 
     while (length != 0) {
@@ -412,7 +412,7 @@ audioio_get_buffer_result_t audiodelays_multi_tap_delay_get_buffer(audiodelays_m
         const bool silent = self->sample == NULL || self->sample_buffer_length == 0;
         // Which lane the stretch starts on. Every stretch used to start on
         // the left; one after an odd-length source buffer starts on the right
-        // (a recorded deviation, docs/upstream-diff.md).
+        // (a recorded deviation, docs/how-it-works/upstream-diff.md).
         const uint8_t lane = (uint8_t)((block_samples - length) % self->base.channel_count);
 
         uint32_t n;

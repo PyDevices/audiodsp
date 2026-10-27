@@ -16,7 +16,7 @@
 //
 // That was the whole of the P4-vs-S3 split on `audiodynamics`' transient attack
 // path (audiodsp#66, 29 against 30 sites there), which this file generalises to
-// the rest of the kernel (audiodsp#79). `docs/correctness-standard.md` holds our
+// the rest of the kernel (audiodsp#79). `docs/how-it-works/correctness-standard.md` holds our
 // nodes to every target rendering them identically; contraction is one of the
 // few ways the same C can fail that without anybody writing a bug.
 //

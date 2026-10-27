@@ -1,9 +1,9 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiofilters/
 // Filter.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, same fix as every other tier -- see docs/upstream-diff.md).
+// equivalent, same fix as every other tier -- see docs/how-it-works/upstream-diff.md).
 // Type registration adds `attr, cp_compat_attr` for filter/mix/playing
-// (see docs/upstream-diff.md, "Property invocation needs an explicit attr
+// (see docs/how-it-works/upstream-diff.md, "Property invocation needs an explicit attr
 // slot").
 //
 // SPDX-FileCopyrightText: Copyright (c) 2024 Cooper Dalrymple

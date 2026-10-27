@@ -1,7 +1,7 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiodelays/
 // Flanger.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, see docs/upstream-diff.md). `attr, cp_compat_attr` added for
+// equivalent, see docs/how-it-works/upstream-diff.md). `attr, cp_compat_attr` added for
 // min_delay_ms/rate/depth/feedback/mix/invert/lfo_value/playing. The custom
 // `__exit__` (calling common_hal_audiodelays_flanger_deinit directly
 // instead of the generic default___exit___obj method-dispatch helper) is
@@ -231,7 +231,7 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
     // looping source that comes back empty straight after its reset has
     // nothing at all, so the node lets go of it, as the CPython twin does.
     // Upstream CircuitPython goes round again with n == 0 in both cases and
-    // never leaves the loop (docs/upstream-diff.md).
+    // never leaves the loop (docs/how-it-works/upstream-diff.md).
     bool starved = false;
 
     while (length != 0) {

@@ -1,4 +1,4 @@
-# Newcomer's guide to audiodsp
+# How audiodsp works
 
 `audiodsp` brings CircuitPython's audio-programming surface to MicroPython and
 CPython. It supplies familiar top-level modules—`audiocore`, `synthio`,
@@ -13,34 +13,13 @@ high-level effects belong in the separate
 
 ## Start by choosing a runtime
 
-For CPython 3.11 or newer, install the published wheel from TestPyPI:
-
-```bash
-python -m pip install --index-url https://test.pypi.org/simple/ \
-    pydevices-audiodsp
-```
-
-The installed modules are top-level imports, just as they are on a board:
-
-```python
-import audiocore
-import synthio
-
-synth = synthio.Synthesizer(sample_rate=8_000)
-synth.press(69)
-status, block = audiocore.get_buffer(synth)
-```
-
-That example renders a block from a source; it does not select a speaker. A
-host can pull the graph for offline rendering, give it to a mixer or pump, or
-attach it to a platform-specific audio output. `audiomp3` is firmware-only.
-
-For MicroPython, audiodsp is compiled into firmware through
-[`manifest.py`](../manifest.py), with the pinned `mp3` dependency retrieved by
-`scripts/fetch_deps.sh`. audiodsp brings no `ulab`; a build that wants it
-names it. The root [README](../README.md#installation)
-has the supported CMake and Make build paths. It explains when a custom
-manifest must include the port's own frozen modules as well.
+On CPython the wheel gives you the modules as top-level imports, just as
+they are on a board. On MicroPython, audiodsp is compiled into firmware
+through [`manifest.py`](../../manifest.py). [Install](../get-started/install.md)
+has the commands for each, and [Your first program](../get-started/first-program.md)
+renders a block of audio. A host can pull the graph for offline rendering,
+give it to a mixer or pump, or attach it to a platform-specific audio output.
+`audiomp3` is firmware-only.
 
 ## The mental model
 
@@ -77,8 +56,8 @@ For a new pump port, [the pump-port guide](pump-ports.md) is authoritative.
 | `lib/audiodsp_util/` | Cross-runtime `float32()` helpers for settings derived in Python. |
 | `lib/audiorender/` | Desktop-only, NumPy-based offline composition renderer. |
 | `micropython.mk`, `micropython.cmake` | User-module build glue for Make and CMake MicroPython ports. |
-| `tests/` | CPython fixtures, in-repository parity gates, and workspace-level parity tools. |
-| `docs/` | Detailed architecture, correctness, porting, wheel, and pump-port documentation. |
+| `tests/` | CPython fixtures, in-repository parity gates, and parity tools that need sibling checkouts. |
+| `docs/` | Guides, reference, and these architecture pages. |
 
 ## One graph, three target shapes
 
@@ -95,13 +74,8 @@ edit. audiodsp-owned modules build into CircuitPython as a user C module
 CircuitPython-adjacent work.
 
 `audiorender` deliberately stays outside firmware: it holds a full composition
-in memory and requires NumPy. Install its optional extra on CPython when you
-need it:
-
-```bash
-python -m pip install --index-url https://test.pypi.org/simple/ \
-    --extra-index-url https://pypi.org/simple/ "pydevices-audiodsp[render]"
-```
+in memory and requires NumPy. [Install](../get-started/install.md#cpython-311-or-later)
+shows its optional extra.
 
 ## Important boundaries
 
@@ -120,20 +94,47 @@ python -m pip install --index-url https://test.pypi.org/simple/ \
 ## Testing and contributing
 
 Most deep parity checks need the sibling repositories checked out beside
-this one, built interpreters, and the fixed CircuitPython oracle. They are intentionally not a
-standalone contributor prerequisite. The repository's CI covers CPython
+this one, built interpreters, and the fixed CircuitPython oracle. They are
+not a standalone contributor prerequisite. The repository's CI covers CPython
 fixture tests and committed in-repository parity gates; `python -m flake8` is
-the local lint gate.
+the local lint gate. [CONTRIBUTING.md](../../CONTRIBUTING.md) has the rules:
+don't modify the CircuitPython oracle, don't casually update parity goldens,
+and don't move the dependency pins.
 
-Before changing source, read [AGENTS.md](../AGENTS.md). In particular, do not
-modify the CircuitPython oracle, casually update parity goldens, or move the
-dependency pins. Start with a documentation correction, a focused CPython
-fixture, or a well-bounded module change; then consult
-[the porting plan](porting-plan.md) and
-[the upstream-sync record](upstream-sync.md) for the module's intended
-behavior and known deliberate differences.
+Start with a documentation correction, a focused CPython fixture, or a
+well-bounded module change; then read [the upstream-sync record](upstream-sync.md)
+for the module's intended behavior and known deliberate differences.
 
 For a first tour of the implementation, follow one simple source through
 `audiocore`'s sample interface, a `synthio.Synthesizer`, and `audiomixer` or
 `audiopump`. That path explains the common contract behind the larger effect
 catalogue better than reading the module directories alphabetically.
+
+## Names
+
+audiodsp was named `audioif` earlier; that name now belongs to the audio
+hardware layer. The modules you import did not change. The helper package is
+`audiodsp_util`, and the distribution on PyPI is `pydevices-audiodsp`.
+
+## How it is checked
+
+The committed synthesis, mixer, MIDI, streaming and effects fixtures match
+CircuitPython 11.0.0-alpha.2 PCM byte-for-byte, built at the same voice
+ceiling this port ships (the pin is in `CIRCUITPYTHON_ORACLE`). Import and API
+smoke success is not used as a substitute for those comparisons. The
+playback-facing pull protocol (`audiocore.get_buffer` and `reset_buffer`) is
+consumed by `pydevices`' `lib/audiodev` package (`AudioOut` in
+`sample_out.py`), which pumps any audiosample into any of `audiodev`'s
+push-PCM transports.
+
+## Pages in this section
+
+- [Additions beyond CircuitPython](additions.md): why each added module exists.
+- [Sound stability](sound-stability.md): what is stable across releases, and what isn't.
+- [The correctness standard](correctness-standard.md): how each module is held to a reference.
+- [Keeping in step with upstream](upstream-sync.md): the resync procedure, and every deliberate difference.
+- [Differences from upstream, with measurements](upstream-diff.md): the reasons behind each one.
+- [Upstream reports](../upstream-reports/README.md): the fixes sent to CircuitPython.
+- [The graph runner](audiograph.md): how `audiograph.Graph` renders a patch.
+- [Writing a pump port](pump-ports.md): how a platform plugs in a clock, a thread and a sink.
+- [Wheels and platforms](wheels-and-platforms.md): what the release builds, and what it skips.

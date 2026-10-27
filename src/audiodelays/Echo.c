@@ -1,7 +1,7 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiodelays/
 // Echo.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, see docs/upstream-diff.md). `attr, cp_compat_attr` added for
+// equivalent, see docs/how-it-works/upstream-diff.md). `attr, cp_compat_attr` added for
 // delay_ms/decay/mix/freq_shift/playing. Kept verbatim: set_freq_shift
 // truncates delay_ms to a uint32_t before passing it to
 // recalculate_delay(mp_float_t) -- an upstream precision-losing round trip,
@@ -142,7 +142,7 @@ void recalculate_delay(audiodelays_echo_obj_t *self, mp_float_t f_delay_ms) {
         }
         // Clamped last: raised to the audio buffer, a short line was longer
         // than its allocation, and the memset below and the line itself ran
-        // past it (upstream's order; see docs/upstream-diff.md).
+        // past it (upstream's order; see docs/how-it-works/upstream-diff.md).
         if (new_echo_buffer_len > max_echo_buffer_len) {
             new_echo_buffer_len = max_echo_buffer_len;
         }
@@ -275,7 +275,7 @@ audioio_get_buffer_result_t audiodelays_echo_get_buffer(audiodelays_echo_obj_t *
                 // A source that ends with nothing in hand is let go, looped
                 // or not, and the line rings out on silence below, as the
                 // CPython twin does. Upstream loops it again, gets nothing
-                // again, and never leaves this loop (see docs/upstream-diff.md).
+                // again, and never leaves this loop (see docs/how-it-works/upstream-diff.md).
                 if (self->sample_buffer_length == 0 && !self->more_data) {
                     self->sample = NULL;
                 }
@@ -306,7 +306,7 @@ audioio_get_buffer_result_t audiodelays_echo_get_buffer(audiodelays_echo_obj_t *
         // A line shortened under the write head starts again at its top.
         // Upstream writes one more sample past the new end first, where
         // nothing reads it until the delay grows back and it plays out of
-        // the silence then (see docs/upstream-diff.md).
+        // the silence then (see docs/how-it-works/upstream-diff.md).
         if (!self->freq_shift) {
             if (self->echo_buffer_left_pos >= echo_buf_len) {
                 self->echo_buffer_left_pos = 0;

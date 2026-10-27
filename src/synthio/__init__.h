@@ -66,7 +66,7 @@
 // question worth asking. This comment said the oracle stays at 14 and that
 // material crossing the ceiling is non-parity by construction; both stopped
 // being true when the oracle moved, and the deviation that went with them is
-// retired in docs/upstream-diff.md ("The ceiling deviation is RETIRED",
+// retired in docs/how-it-works/upstream-diff.md ("The ceiling deviation is RETIRED",
 // audiodsp#31).
 //
 // tests/parity/verify_mixdown_knee.py is still the only committed gate whose
@@ -112,7 +112,7 @@ typedef enum synthio_bend_mode_e {
 extern const mp_obj_type_t synthio_note_state_type;
 extern const cp_enum_obj_t bend_mode_VIBRATO_obj;
 extern const mp_obj_type_t synthio_bend_mode_type;
-// Deviation from upstream (see docs/upstream-diff.md, "synthio_synth_t:
+// Deviation from upstream (see docs/how-it-works/upstream-diff.md, "synthio_synth_t:
 // one typedef, not two"): CP's shared-bindings/__init__.h and
 // shared-module/__init__.h each separately declare `typedef ...
 // synthio_synth_t` once, but since separate translation units never see

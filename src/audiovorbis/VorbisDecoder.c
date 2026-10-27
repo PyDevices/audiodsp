@@ -49,7 +49,7 @@
 
 // The C stack a call into Tremor may take below the caller, with room to
 // spare: about 1 KB of fixed frames on RISC-V, up to 2 KB of scratch a packet
-// sizes on the stack, and the stream's own read underneath (docs/vorbis.md).
+// sizes on the stack, and the stream's own read underneath (docs/reference/vorbis.md).
 // Tremor doesn't check its depth, so this checks first: a Python program deep
 // enough to run the stack out gets an error instead of a crashed board.
 #define AUDIOVORBIS_STACK_NEEDED (6 * 1024)

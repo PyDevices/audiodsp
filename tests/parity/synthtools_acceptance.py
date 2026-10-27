@@ -26,7 +26,7 @@ sys.path.insert(0, _here + "/../vendor")
 # AttributeError), so a whole substitute module is pre-seeded into
 # sys.modules before synthtools imports it: a fixed-sequence LCG, identical
 # on both interpreters. This is a property of THIS test harness only, not a
-# port deviation -- see docs/upstream-diff.md.
+# port deviation -- see docs/how-it-works/upstream-diff.md.
 class _DeterministicRandom:
     def __init__(self, seed):
         self._state = seed

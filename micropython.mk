@@ -151,7 +151,7 @@ SRC_USERMOD_C += \
 # so this file matched that until 2026-09-03, when the ceiling moved to 64
 # (#31). The oracle stays at 14 and is not rebuilt, so material that crosses
 # 14 channels is non-parity by construction and declared as such in
-# docs/upstream-diff.md. Everything under 14 channels still byte-matches: the
+# docs/how-it-works/upstream-diff.md. Everything under 14 channels still byte-matches: the
 # mix-down limiter only reshapes samples past +/-28000, and all four parity
 # gates are byte-identical at 14, 36 and 56 (measured).
 #
@@ -235,7 +235,7 @@ SRC_USERMOD_C += \
 # and audiosampler plays a recorded buffer at a pitch through an
 # interpolator under an envelope, which a Mixer voice cannot (it pulls a
 # source at the source's own rate) and synthio cannot (a waveform there is
-# one cycle). See docs/upstream-diff.md.
+# one cycle). See docs/how-it-works/upstream-diff.md.
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiodynamics/Dynamics.c \
     $(MPAUDIO_SRC_DIR)/audiodynamics/module.c
@@ -285,7 +285,7 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiosampler/SamplerVoice.c \
     $(MPAUDIO_SRC_DIR)/audiosampler/module.c
 # audiograph: the graph runner. One C call renders a whole patch per block
-# from the kernels above. MicroPython only (docs/audiograph.md).
+# from the kernels above. MicroPython only (docs/how-it-works/audiograph.md).
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/shared/audiodsp_graph.c \
     $(MPAUDIO_SRC_DIR)/audiograph/Graph.c \
@@ -300,13 +300,13 @@ SRC_USERMOD_C += \
 # fixed-point MP3 decoder (RealNetworks, 2003), under RPSL 1.0/RCSL 1.0
 # per-file headers, NOT MIT; CircuitPython itself carries it unmodified
 # under those terms rather than relicensing it, and so does this port --
-# see docs/upstream-diff.md, "Tier 5 audiomp3: license" for the full check.
+# see docs/how-it-works/upstream-diff.md, "Tier 5 audiomp3: license" for the full check.
 # One local patch was needed on top of the pinned commit
 # (mp3/src/assembly.h in that sibling clone): its MSVC-only inline-asm branch
 # guards on `defined _WIN32`, which mingw-w64 GCC (this workspace's Windows
 # MicroPython target) also defines, so it now also excludes __GNUC__ and
 # falls through to the portable C path instead -- CircuitPython itself never
-# hits this, since it has no Windows port. See docs/upstream-diff.md for the
+# hits this, since it has no Windows port. See docs/how-it-works/upstream-diff.md for the
 # full patch rationale.
 # mp3dec.h picks its platform-specific fixed-point/asm path by matching a
 # closed list of (__GNUC__ + arch) combinations, with an explicit
@@ -381,7 +381,7 @@ endif
 # one translation unit by src/shared/audiodsp_vorbis.c, which renames its
 # symbols and silences its warnings for its own code only. No qstrs in that
 # file, so it skips the qstr scan. Unlike audiomp3 there is nothing to fetch:
-# the decoder is in this repository. docs/vorbis.md has what it needs.
+# the decoder is in this repository. docs/reference/vorbis.md has what it needs.
 SRC_USERMOD_LIB_C += $(MPAUDIO_SRC_DIR)/shared/audiodsp_vorbis.c
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiovorbis/VorbisDecoder.c \

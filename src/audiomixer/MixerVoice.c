@@ -145,7 +145,7 @@ void common_hal_audiomixer_mixervoice_stop(audiomixer_mixervoice_obj_t *self) {
 
 // Rewind to the start of whatever is playing, keeping it playing. New here:
 // upstream has no equivalent, because its Mixer.reset_buffer stops the voices
-// instead. See docs/upstream-diff.md.
+// instead. See docs/how-it-works/upstream-diff.md.
 void common_hal_audiomixer_mixervoice_reset(audiomixer_mixervoice_obj_t *self) {
     if (self->sample == NULL) {
         return;
