@@ -3,11 +3,12 @@
     <interpreter> tests/pump/pump_probe.py [case ...] [--fault WHICH]
 
 Cases: ``identity``, ``alloc``, ``storm``, ``driver``, ``unpumpable``,
-``swap``, ``writes``, ``tear``, ``fade`` (all by default).
+``swap``, ``writes``, ``tear``, ``fade``, ``graph`` (all by default).
 Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
 ``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap, writes),
-``split`` (tear), ``cut`` (fade). Each one must make this exit non-zero; a probe whose
-failing mode is never run is not a gate.
+``split`` (tear, graph), ``cut`` (fade), ``late`` and ``unqueued`` (graph).
+Each one must make this exit non-zero; a probe whose failing mode is never
+run is not a gate.
 
 Runs on a MicroPython build carrying this repository as a usermod -- the one
 ``clean-build.yml`` makes -- and on CPython with this repository's wheel
@@ -98,6 +99,21 @@ What each case is for
     run dry, the audio must ramp down, stay silent and ramp back up, and a
     park that ends before the deadline must be inaudible -- the same audio
     as no park at all. ``--fault cut`` asks for neither fade, and must fail.
+
+``graph``   An ``audiograph.Graph`` is a source the pump pulls, and
+    ``set()`` from this thread reaches it through the graph's own queue, which
+    the renderer drains at the top of a block. Left and right are two
+    constants, always set together to +v and -v inside ``hold()`` and
+    ``commit()``. Every block must hold one value per channel, from one batch;
+    a block pulled while the batch is held must still play the old pair; and
+    the new pair must sound no later than the block after the one in flight at
+    ``commit()``. Where the pump has a thread, 3000 batches are then committed
+    as fast as this thread can while it pulls, and no block may be torn. The
+    graph is also among the graphs ``identity`` and ``alloc`` pull, so a
+    graph pulled by the pump is the same bytes and allocates nothing. Faults:
+    ``split`` commits half a batch and lets the pump pull before the rest,
+    ``late`` commits two blocks after the bound, and ``unqueued`` writes past
+    the queue with ``_set_now()``. Each must fail.
 """
 
 import gc
@@ -112,6 +128,7 @@ except ImportError:  # CPython: no heap lock, so no allocation gate
 
 import audioconvolve
 import audiocore
+import audiograph
 import audiodelays
 import audioecho
 import audiofilters
@@ -234,9 +251,29 @@ def graph_mixer(keep):
     return mixer
 
 
+def graph_compiled(keep):
+    """An audiograph.Graph pulled as a source: a saw through a ladder and a
+    feedback delay, so the second pull of one graph differs from the first."""
+    g = audiograph.Graph(sample_rate=RATE, frames=BLOCK_FRAMES,
+                         channel_count=CHANNELS, buffers=8, nodes=8)
+    saw, vcf, echo = g.buffer(), g.buffer(), g.buffer()
+    osc = g.add(audiograph.OSC, audiograph.ALWAYS, (None, None, None, None),
+                saw)
+    g.set(osc, audiograph.OSC_WAVEFORM, 1)
+    g.set(osc, audiograph.OSC_FREQUENCY, 110.0)
+    g.set(osc, audiograph.OSC_LEVEL, 0.5)
+    g.add(audiograph.LADDER, audiograph.ALWAYS, (saw, None), vcf)
+    delay = g.add(audiograph.FBDELAY, audiograph.ALWAYS, (vcf,), echo, 64.0)
+    g.set(delay, audiograph.DELAY_MS, 30.0)
+    g.set(delay, audiograph.DELAY_MIX, 0.5)
+    g.add(audiograph.OUT, audiograph.ALWAYS, (echo, vcf), None)
+    keep.append(g)
+    return g
+
+
 GRAPHS = (("synth", graph_synth), ("echo", graph_echo),
           ("filter", graph_filter), ("reverb", graph_reverb),
-          ("mixer", graph_mixer))
+          ("mixer", graph_mixer), ("graph", graph_compiled))
 
 
 def say(name, ok, detail):
@@ -1024,9 +1061,209 @@ def fade(fault):
     return ok
 
 
+# --- graph -----------------------------------------------------------------
+
+
+class _Pair:
+    """A graph whose left channel is one CONST and right channel another, with
+    the pump pulling it into a ring this thread drains. Every block it puts out
+    should hold one value per channel; the probe sets left to +v and right to
+    -v together, so a block where right is not -left heard half a change."""
+
+    def __init__(self, queue=0):
+        kw = {"sample_rate": RATE, "frames": BLOCK_FRAMES,
+              "channel_count": CHANNELS, "buffers": 4, "nodes": 4}
+        if queue:
+            kw["queue"] = queue
+        g = audiograph.Graph(**kw)
+        left, right = g.buffer(), g.buffer()
+        self.left = g.add(audiograph.CONST, audiograph.ALWAYS, (), left)
+        self.right = g.add(audiograph.CONST, audiograph.ALWAYS, (), right)
+        g.add(audiograph.OUT, audiograph.ALWAYS, (left, right), None)
+        g.set(self.left, 0, 1.0)
+        g.set(self.right, 0, -1.0)
+        self.g = g
+        self.block = status()
+        self.ring = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 16)
+        self.out = bytearray(len(self.ring))
+        self.got = bytearray()
+        audiopump.spawn(g, 1 << 30, self.block, ring=self.ring)
+        self.threaded = bool(audiopump.threaded())
+
+    def pulled(self):
+        return read(self.block)[BLOCKS_AT]
+
+    def take(self, blocks=1):
+        """Let the pump pull about `blocks` more and keep what it put out."""
+        if not self.threaded:
+            audiopump.service(blocks)
+        n = audiopump.drain(self.out)
+        self.got.extend(self.out[:n])
+
+    def wait(self, blocks):
+        want = self.pulled() + blocks
+        spins = 0
+        while self.pulled() < want and spins < 200000:
+            self.take(1)
+            spins += 1
+
+    def stop(self):
+        audiopump.stop()
+        audiopump.join()
+        audiopump.shutdown()
+        n = audiopump.drain(self.out)
+        self.got.extend(self.out[:n])
+        stats = self.g.stats()
+        self.g.deinit()
+        return stats
+
+    def blocks(self):
+        """[(left values, right values)] per block, each a set."""
+        samples = array("h", bytes(self.got))
+        per = BLOCK_FRAMES * CHANNELS
+        out = []
+        for at in range(0, len(samples) - per + 1, per):
+            out.append((set(samples[i] for i in range(at, at + per, 2)),
+                        set(samples[i] for i in range(at + 1, at + per, 2))))
+        return out
+
+
+def _graph_set(pair, fault, v):
+    g = pair.g
+    if fault == "unqueued":
+        g._set_now(pair.left, 0, v)
+        g._set_now(pair.right, 0, -v)
+        return
+    g.hold()
+    g.set(pair.left, 0, v)
+    if fault == "split":
+        # A commit that publishes half a batch, with the pump landing in
+        # between: the shape a renderer that drained mid-batch would have.
+        g.commit()
+        pair.wait(1)
+        g.hold()
+    g.set(pair.right, 0, -v)
+    g.commit()
+
+
+def _graph_steps(fault):
+    """Each step: sets under hold(), a block pulled while they are held (it
+    must still play the old pair), then commit() and the block after it.
+    Returns [(block pulled at commit, value)] and the pair."""
+    pair = _Pair()
+    pair.wait(2)
+    marks = []
+    for step in range(48):
+        v = 2.0 + step
+        g = pair.g
+        if fault == "unqueued":
+            g._set_now(pair.left, 0, v)
+            g._set_now(pair.right, 0, -v)
+        else:
+            g.hold()
+            g.set(pair.left, 0, v)
+            if fault == "split":
+                g.commit()
+                pair.wait(1)
+                g.hold()
+            g.set(pair.right, 0, -v)
+        # Held: the pump keeps playing the old pair through this block.
+        held_at = pair.pulled()
+        pair.wait(1)
+        at = pair.pulled()
+        if fault == "late":
+            # A renderer that drains two blocks after the commit it was
+            # published by: shown by committing that late, against the
+            # bound of a commit made now.
+            after = pair.pulled()
+            pair.wait(2)
+            g.commit()
+        else:
+            if fault != "unqueued":
+                g.commit()
+            # The pump may finish a block between reading the count and the
+            # commit, so the bound is taken after it: a block counted then
+            # was in flight, and the one after it must carry the change.
+            after = pair.pulled()
+        marks.append((held_at, at, after, v))
+        pair.wait(2)
+    pair.wait(4)                # the last batch drained before the stop
+    return marks, pair
+
+
+def _graph_race(fault, rounds=3000):
+    """Where the pump has a thread: batches committed as fast as this thread
+    can, while the pump pulls. Every block still holds one pair."""
+    pair = _Pair()
+    for round_ in range(rounds):
+        _graph_set(pair, fault, 2.0 + (round_ % 500))
+        if round_ % 8 == 7:
+            pair.take()
+    stats = pair.stop()
+    return pair.blocks(), stats
+
+
+def graph(fault):
+    """An audiograph.Graph pulled by the pump, changed from this thread.
+
+    set() lands on the next block the pump pulls, never inside one: one value
+    per channel per block, both channels of a batch changing in the same
+    block, nothing sounding while hold() is in force, and nothing later than
+    the block after the one in flight at commit()."""
+    ok = True
+    marks, pair = _graph_steps(fault)
+    stats = pair.stop()
+    blocks = pair.blocks()
+    torn = sum(1 for left, right in blocks
+               if len(left) != 1 or len(right) != 1
+               or next(iter(right)) != -next(iter(left)))
+    # Where each value first sounds, as a block index into the stream.
+    first = {}
+    for index, (left, _right) in enumerate(blocks):
+        if len(left) == 1:
+            value = next(iter(left))
+            if value not in first:
+                first[value] = index
+    early = late = missing = 0
+    for _held_at, at, after, v in marks:
+        where = first.get(int(v))
+        if where is None:
+            missing += 1
+        elif where < at:
+            early += 1                    # sounded while held
+        elif where > after + 1:
+            late += 1                     # later than the next block
+    ok = say("pair", torn == 0 and len(blocks) > 0,
+             "%d of %d blocks with more than one value on a channel, or "
+             "left and right from different batches" % (torn, len(blocks))) \
+        and ok
+    ok = say("hold", early == 0 and missing == 0,
+             "%d of %d batches sounded before commit(), %d never sounded"
+             % (early, len(marks), missing)) and ok
+    ok = say("when", late == 0,
+             "%d of %d batches landed later than the block after commit()"
+             % (late, len(marks))) and ok
+    ok = say("queue", stats["pushed"] == stats["applied"]
+             and stats["overflows"] == 0,
+             "%d records queued, %d applied, %d overflows"
+             % (stats["pushed"], stats["applied"], stats["overflows"])) and ok
+    if audiopump.threaded():
+        blocks, stats = _graph_race(fault)
+        torn = sum(1 for left, right in blocks
+                   if len(left) != 1 or len(right) != 1
+                   or next(iter(right)) != -next(iter(left)))
+        ok = say("race", torn == 0 and len(blocks) > 0,
+                 "%d of %d blocks torn, 3000 batches committed while the "
+                 "pump pulled; %d records, %d high water"
+                 % (torn, len(blocks), stats["pushed"],
+                    stats["high_water"])) and ok
+    return ok
+
+
 CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
          ("driver", driver), ("unpumpable", unpumpable), ("swap", swap),
-         ("writes", writes), ("tear", tear), ("fade", fade))
+         ("writes", writes), ("tear", tear), ("fade", fade),
+         ("graph", graph))
 
 
 def main():

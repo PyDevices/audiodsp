@@ -25,14 +25,27 @@
 // outputs are zeroed once so the mixers read silence from it. The run
 // returns the mask of groups with an envelope still sounding.
 //
-// No pump lock in here. The runner's buffers and node state are touched only
-// by whoever calls run(), set() and reset(), and nothing in this file is
-// reachable from the pump's pull funnel: the output goes into a buffer the
-// caller owns (an audiopump.Ring takes it from there, under its own
-// synchronisation). The kernels themselves never lock either -- the locks
-// in the bindings guard the bindings' own {source, pending} words, which the
-// pull funnel reads from the pump thread, and this runner has no such words.
+// Two ways to drive a graph. A caller can render it where it likes with
+// run(), into a buffer it owns. Or the bindings hand it to an audio output as
+// an audiosample, and the output's pump renders it on its own thread, one
+// block per pull. Either way every block goes through audiodsp_graph_render,
+// so the two paths are the same code.
 //
+// The control side never writes a node's parameters directly. set(), reset()
+// and enable() push fixed records onto a single-producer, single-consumer
+// queue, and the renderer drains the queue at the top of each block. So each
+// change lands on a block boundary, a batch held and committed together lands
+// in one block, and the producer never waits for a render to finish. The
+// renderer publishes, after each block, the groups still sounding, a frame
+// counter and how many records it has applied (32-bit words, release
+// stores), which the control side reads without a lock.
+//
+// No pump lock in here: this file builds into CircuitPython, which has none.
+// When the queue is full the producer drains it itself, and the binding says
+// how to exclude the renderer while it does (audiodsp_graph_enqueue's `lock`
+// and `unlock`; the pump lock on MicroPython and CPython, nothing on
+// CircuitPython, where the output pulls on the interpreter's own thread).
+
 // SPDX-License-Identifier: MIT
 
 #pragma once
@@ -200,6 +213,23 @@ typedef struct {
     void *data;
 } audiodsp_graph_node_t;
 
+// The queue's records. 8 bytes each.
+enum {
+    AUDIODSP_GRAPH_OP_SET = 0,
+    AUDIODSP_GRAPH_OP_RESET,
+    AUDIODSP_GRAPH_OP_ENABLE,
+};
+
+typedef struct {
+    uint8_t op;
+    uint8_t index;
+    uint16_t node;
+    union {
+        float value;
+        uint32_t mask;
+    } arg;
+} audiodsp_graph_record_t;
+
 typedef struct {
     uint32_t sample_rate;
     uint32_t frames;
@@ -212,6 +242,34 @@ typedef struct {
     audiodsp_graph_node_t *nodes;
     // Written by run(): groups with an envelope still sounding.
     uint32_t sounding;
+    // The groups audiodsp_graph_render runs. Only the renderer writes it,
+    // from an ENABLE record; 0xFFFFFFFF until one arrives.
+    uint32_t enable;
+    // Published after each render, release-stored in this order: sounding,
+    // then frame, then applied. A reader that loads applied first and
+    // sounding last gets a mask at least as new as the count.
+    uint32_t pub_sounding;
+    uint32_t pub_frame;
+    uint32_t pub_applied;
+    // Records applied so far; the renderer's own copy of pub_applied.
+    uint32_t applied;
+    // The queue, attached by audiodsp_graph_queue_init. Free-running
+    // indices; a record lives at index % capacity.
+    audiodsp_graph_record_t *records;
+    uint32_t capacity;
+    uint32_t head;       // producer only: written, published or not
+    uint32_t published;  // producer release-stores, renderer acquire-loads
+    uint32_t tail;       // renderer release-stores, producer acquire-loads
+    bool held;           // producer only: hold() is in force
+    // Producer-side counts: records pushed, drains forced by a full queue,
+    // held batches split by one, and the most records ever waiting.
+    uint32_t pushed;
+    uint32_t overflows;
+    uint32_t splits;
+    uint32_t high_water;
+    // max_nodes * AUDIODSP_GRAPH_MAX_PARAMS floats: what set() last stored,
+    // so get() reads back the same value whoever renders. NULL for none.
+    float *shadow;
 } audiodsp_graph_t;
 
 // Bytes a node of `kind` needs for its config and state. `arg` is the
@@ -257,3 +315,53 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
 
 // A buffer's peak, for the caller's silence detection and for tests.
 int32_t audiodsp_graph_peak(const audiodsp_graph_t *graph, uint32_t buffer);
+
+// --- the control queue ------------------------------------------------------
+
+//: The queue's size when the caller names none: max(256, 4 * nodes).
+#define AUDIODSP_GRAPH_QUEUE_MIN 256u
+
+// Attaches the queue's `capacity` records and the shadow table (max_nodes *
+// AUDIODSP_GRAPH_MAX_PARAMS floats, or NULL), both the caller's. Call once,
+// after audiodsp_graph_init; the shadow takes each node's defaults as it is
+// added.
+void audiodsp_graph_queue_init(audiodsp_graph_t *graph,
+    audiodsp_graph_record_t *records, uint32_t capacity, float *shadow);
+
+// True when (node, index) names a parameter set() may store, and
+// (node) a node reset() may clear when `index` is 0.
+bool audiodsp_graph_valid(const audiodsp_graph_t *graph, uint32_t node,
+    uint32_t index);
+
+// Pushes one record from the control side. The caller has validated it.
+// When the queue is full, publishes what is waiting, takes `lock` (NULL for
+// none), drains the queue itself, and drops it: stores only, so it holds
+// the pump lock's contract. Unless hold() is in force, the record is
+// published at once. A SET also writes the shadow.
+void audiodsp_graph_enqueue(audiodsp_graph_t *graph, uint8_t op,
+    uint32_t node, uint32_t index, float value, uint32_t mask,
+    void (*lock)(void), void (*unlock)(void));
+
+// hold() and commit(): records pushed between the two are published
+// together, so they land in one block. commit() without hold() is harmless.
+void audiodsp_graph_hold(audiodsp_graph_t *graph);
+void audiodsp_graph_commit(audiodsp_graph_t *graph);
+
+// The renderer's side: applies every published record. Returns how many.
+uint32_t audiodsp_graph_drain(audiodsp_graph_t *graph);
+
+// Drains, renders one block with the graph's own enable mask, and publishes
+// sounding, the frame counter and the applied count. Returns sounding.
+uint32_t audiodsp_graph_render(audiodsp_graph_t *graph, int16_t *out);
+
+// The same, with the caller's mask for this block (run()'s `enable`).
+uint32_t audiodsp_graph_render_mask(audiodsp_graph_t *graph, int16_t *out,
+    uint32_t enable);
+
+// The published words, loaded applied first and sounding last.
+void audiodsp_graph_published(const audiodsp_graph_t *graph,
+    uint32_t *sounding, uint32_t *frame, uint32_t *applied);
+
+// get() for the bindings: the shadow's value when there is a shadow.
+bool audiodsp_graph_get_shadow(const audiodsp_graph_t *graph, uint32_t node,
+    uint32_t index, float *value);

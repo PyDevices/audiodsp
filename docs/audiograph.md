@@ -143,15 +143,82 @@ can collect several blocks before it goes to a ring. `out` may be `None`
 to run the graph for its state alone. It raises `ValueError` when `out`
 cannot hold that block.
 
+## Playing a graph from the pump
+
+A graph is also an audio sample. Hand it to the pump, to an output's
+`play()`, or to a mixer voice, and it renders a block each time one is pulled,
+on whichever thread or core pulls it. On a board whose pump has a core of its
+own, the whole patch then renders there, and your code only changes it:
+
+```python
+import audiopump
+
+g = ag.Graph(sample_rate=48000, frames=128, channel_count=2)
+# ... build it as above ...
+status = bytearray(audiopump.STATUS_BYTES)
+audiopump.spawn(g, 1 << 30, status, ring=ring)    # the pump pulls it now
+
+g.hold()                                          # a patch change, as one
+g.set(f, ag.LADDER_CUTOFF_HZ, 900.0)
+g.set(f, ag.LADDER_RESONANCE, 0.6)
+g.enable(0b11)                                    # groups 0 and 1 play
+g.commit()                                        # all of it on one block
+```
+
+`set()`, `reset()` and `enable()` don't touch the running graph. Each one
+goes into the graph's queue, and the renderer applies everything waiting at
+the top of the next block it renders, so a change never lands halfway through
+a block. Between `hold()` and `commit()` nothing is released, so a batch (a
+patch change, a chord) lands on one block together. A change made without
+`hold()` is released at once and lands on the next block.
+
+`get()` reads back the last value `set()` stored, whether or not a block has
+heard it yet. `sounding()` returns `(sounding, frame, applied, pushed)`: the
+groups still sounding after the last block, the frames rendered so far, and
+how many changes have been applied and queued. A change counted in `pushed`
+but not yet in `applied` hasn't been heard. Read `sounding` and `frame`
+together and you know which block the mask belongs to, so code that times
+notes against the audio can count blocks from `frame`.
+
+The queue holds `queue` changes (`Graph(queue=...)`; by default the larger of
+256 and four per node). When it fills, the control side waits for the pump to
+finish the block it is rendering and applies what is waiting itself, so
+nothing is dropped; a held batch that overflowed lands across two blocks
+instead of one. `stats()` counts both, as `overflows` and `splits`, with the
+queue's `high_water`. Size the queue for your biggest batch and they stay 0.
+
+While the pump is pulling a graph, the calls that change its shape (`buffer()`,
+`add()`, `table()`, `write()`) and a `run()` of your own raise
+`RuntimeError`. Build the graph before you hand it over. `read()` and `peak()`
+still work, but they can catch a buffer while the pump is rendering into it,
+which is fine for a meter and not for anything that needs the whole block.
+`deinit()` takes the pump's lock, so a graph released while the pump is
+pulling it stops cleanly.
+
+With nobody else pulling, `run(out, block, enable)` still works as it always
+has, and drains the queue first, so a graph you drive yourself sees changes
+the same way.
+
 ## Limits, and what is checked
 
 A block is at most 256 frames, a node has at most eight inputs and sixteen
 parameters, and a group is 0 to 31. A graph refuses a node with nothing to
 write (every kind but `OUT` writes a buffer), an input or output id past
-its buffers, and a node past its table. The runner takes no lock: its
-buffers and state are touched only by the thread that calls `run()`, and
-its output goes into a buffer you own, so an `audiopump.Ring` downstream
-keeps its own synchronisation.
+its buffers, and a node past its table.
+
+`tests/parity/graph_source_probe.py` renders one script of changes three
+ways: through `run()`, pulled as a sample with batches held and committed,
+and pulled with a queue so small that every patch change overflows it. The
+three must agree to the sample, block by block, and `verify_graph.py`
+compares the pulled render across interpreters as well. Its planted faults
+drain the queue after the render instead of before and publish a held batch
+in two halves. `tests/pump/pump_probe.py graph` hands a graph to the pump and
+changes it from another thread: every block holds one value per channel from
+one batch, a held batch is silent until `commit()`, and a committed one sounds
+no later than the block after the one in flight. Where the pump has a thread
+of its own, 3000 batches are committed while it pulls, and none may tear.
+The graph also goes through the pump's identity and heap-locked allocation
+gates.
 
 `tests/parity/graph_probe.py` holds the runner to its wiring (a value set
 reaches the output in the same run, through every node between), to its

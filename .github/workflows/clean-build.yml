@@ -239,8 +239,9 @@ jobs:
       # MicroPython, compared sample for sample with a tolerance of 0 counts.
       # Each planted fault (one input count off, one set() a block late, and
       # one for each of the phaser, the glide, the LFO shapes and the
-      # sample-and-hold) goes into the MicroPython render only, and the
-      # comparison must FAIL first.
+      # sample-and-hold, and two for a graph pulled as a source: its queue
+      # drained after the render, and a batch published in halves) goes into
+      # the MicroPython render only, and the comparison must FAIL first.
       # The three-way with the CircuitPython unix build is a local run, as
       # for verify_dsp.
       - name: A graph renders the same samples on CPython and MicroPython
@@ -248,7 +249,7 @@ jobs:
           MP=$GITHUB_WORKSPACE/micropython/ports/unix/build-standard/micropython
           PY=$GITHUB_WORKSPACE/audiodsp/.ci-venv/bin/python
           cd audiodsp
-          for planted in lsb late phaser lag lfo hold; do
+          for planted in lsb late phaser lag lfo hold drain split; do
             if "$PY" tests/parity/verify_graph.py --micropython "$MP" --fault $planted > /dev/null; then
               echo "the planted fault passed, so this comparison proves nothing: $planted" >&2
               exit 1
@@ -285,6 +286,9 @@ jobs:
                          "pump_probe.py writes --fault unlocked" \
                          "pump_probe.py tear --fault split" \
                          "pump_probe.py fade --fault cut" \
+                         "pump_probe.py graph --fault split" \
+                         "pump_probe.py graph --fault late" \
+                         "pump_probe.py graph --fault unqueued" \
                          "route_probe.py ring --fault flip" \
                          "route_probe.py events --fault drop" \
                          "route_probe.py tap --fault short" \

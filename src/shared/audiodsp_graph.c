@@ -10,6 +10,17 @@
 #include <math.h>
 #include <string.h>
 
+// The queue's and the published words' ordering: the acquire/release pair
+// audiopump.c uses, and a volatile fallback for compilers without
+// __atomic_* (MSVC, the Windows wheel), where x86's ordering does the rest.
+#if defined(__GNUC__) || defined(__clang__)
+#define GRAPH_LOAD_ACQ(p)     __atomic_load_n((p), __ATOMIC_ACQUIRE)
+#define GRAPH_STORE_REL(p, v) __atomic_store_n((p), (v), __ATOMIC_RELEASE)
+#else
+#define GRAPH_LOAD_ACQ(p)     (*(volatile const uint32_t *)(p))
+#define GRAPH_STORE_REL(p, v) (*(volatile uint32_t *)(p) = (v))
+#endif
+
 // Round to the nearest integer, ties to even: what lrintf gives in the default
 // rounding mode, without calling it. CircuitPython's RP2350 port links no
 // lrintf, so a call to it leaves the firmware unable to link (the same trap
@@ -180,6 +191,22 @@ void audiodsp_graph_init(audiodsp_graph_t *graph, uint32_t sample_rate,
     graph->max_nodes = max_nodes;
     graph->nnodes = 0;
     graph->sounding = 0;
+    graph->enable = 0xFFFFFFFFu;
+    graph->pub_sounding = 0;
+    graph->pub_frame = 0;
+    graph->pub_applied = 0;
+    graph->applied = 0;
+    graph->records = NULL;
+    graph->capacity = 0;
+    graph->head = 0;
+    graph->published = 0;
+    graph->tail = 0;
+    graph->held = false;
+    graph->pushed = 0;
+    graph->overflows = 0;
+    graph->splits = 0;
+    graph->high_water = 0;
+    graph->shadow = NULL;
     memset(bufs, 0, (size_t)nbufs * frames * sizeof(int16_t));
 }
 
@@ -347,6 +374,10 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             break;
         default:
             break;
+    }
+    if (graph->shadow != NULL) {
+        memcpy(graph->shadow + (size_t)graph->nnodes * AUDIODSP_GRAPH_MAX_PARAMS,
+            node->param, sizeof(node->param));
     }
     return (int)graph->nnodes++;
 }
@@ -1076,4 +1107,151 @@ int32_t audiodsp_graph_peak(const audiodsp_graph_t *graph, uint32_t buffer) {
         }
     }
     return peak;
+}
+
+// --- the control queue ------------------------------------------------------
+
+void audiodsp_graph_queue_init(audiodsp_graph_t *graph,
+    audiodsp_graph_record_t *records, uint32_t capacity, float *shadow) {
+    graph->records = records;
+    graph->capacity = capacity;
+    graph->shadow = shadow;
+    if (shadow != NULL) {
+        for (uint32_t i = 0; i < graph->nnodes; ++i) {
+            memcpy(shadow + (size_t)i * AUDIODSP_GRAPH_MAX_PARAMS,
+                graph->nodes[i].param, sizeof(graph->nodes[i].param));
+        }
+    }
+}
+
+bool audiodsp_graph_valid(const audiodsp_graph_t *graph, uint32_t node,
+    uint32_t index) {
+    return node < graph->nnodes && index < AUDIODSP_GRAPH_MAX_PARAMS;
+}
+
+static void apply(audiodsp_graph_t *graph, const audiodsp_graph_record_t *r) {
+    switch (r->op) {
+        case AUDIODSP_GRAPH_OP_SET:
+            audiodsp_graph_set(graph, r->node, r->index, r->arg.value);
+            break;
+        case AUDIODSP_GRAPH_OP_RESET:
+            audiodsp_graph_reset(graph, r->node);
+            break;
+        case AUDIODSP_GRAPH_OP_ENABLE:
+            graph->enable = r->arg.mask;
+            break;
+        default:
+            break;
+    }
+}
+
+uint32_t audiodsp_graph_drain(audiodsp_graph_t *graph) {
+    const uint32_t end = GRAPH_LOAD_ACQ(&graph->published);
+    uint32_t at = graph->tail;
+    const uint32_t n = end - at;
+    for (; at != end; ++at) {
+        apply(graph, &graph->records[at % graph->capacity]);
+    }
+    if (n) {
+        graph->applied += n;
+        GRAPH_STORE_REL(&graph->tail, end);
+    }
+    return n;
+}
+
+static void publish(audiodsp_graph_t *graph) {
+    GRAPH_STORE_REL(&graph->published, graph->head);
+}
+
+void audiodsp_graph_enqueue(audiodsp_graph_t *graph, uint8_t op,
+    uint32_t node, uint32_t index, float value, uint32_t mask,
+    void (*lock)(void), void (*unlock)(void)) {
+    uint32_t waiting = graph->head - GRAPH_LOAD_ACQ(&graph->tail);
+    if (waiting >= graph->capacity) {
+        // Full. Publish what is waiting (a held batch splits here) and drain
+        // it from this side, with the renderer kept out.
+        graph->overflows++;
+        if (graph->held) {
+            graph->splits++;
+        }
+        publish(graph);
+        if (lock != NULL) {
+            lock();
+        }
+        audiodsp_graph_drain(graph);
+        if (unlock != NULL) {
+            unlock();
+        }
+        waiting = graph->head - GRAPH_LOAD_ACQ(&graph->tail);
+    }
+    audiodsp_graph_record_t *r = &graph->records[graph->head % graph->capacity];
+    r->op = op;
+    r->index = (uint8_t)index;
+    r->node = (uint16_t)node;
+    if (op == AUDIODSP_GRAPH_OP_ENABLE) {
+        r->arg.mask = mask;
+    } else {
+        r->arg.value = value;
+    }
+    graph->head++;
+    graph->pushed++;
+    if (waiting + 1u > graph->high_water) {
+        graph->high_water = waiting + 1u;
+    }
+    if (op == AUDIODSP_GRAPH_OP_SET && graph->shadow != NULL) {
+        graph->shadow[(size_t)node * AUDIODSP_GRAPH_MAX_PARAMS + index] = value;
+    }
+    if (!graph->held) {
+        publish(graph);
+    }
+}
+
+void audiodsp_graph_hold(audiodsp_graph_t *graph) {
+    graph->held = true;
+}
+
+void audiodsp_graph_commit(audiodsp_graph_t *graph) {
+    graph->held = false;
+    publish(graph);
+}
+
+static uint32_t render(audiodsp_graph_t *graph, int16_t *out, bool own,
+    uint32_t enable) {
+    if (graph->records != NULL) {
+        audiodsp_graph_drain(graph);
+    }
+    const uint32_t sounding = audiodsp_graph_run(graph, out,
+        own ? graph->enable : enable);
+    GRAPH_STORE_REL(&graph->pub_sounding, sounding);
+    GRAPH_STORE_REL(&graph->pub_frame, graph->pub_frame + graph->frames);
+    GRAPH_STORE_REL(&graph->pub_applied, graph->applied);
+    return sounding;
+}
+
+uint32_t audiodsp_graph_render(audiodsp_graph_t *graph, int16_t *out) {
+    return render(graph, out, true, 0);
+}
+
+uint32_t audiodsp_graph_render_mask(audiodsp_graph_t *graph, int16_t *out,
+    uint32_t enable) {
+    return render(graph, out, false, enable);
+}
+
+void audiodsp_graph_published(const audiodsp_graph_t *graph,
+    uint32_t *sounding, uint32_t *frame, uint32_t *applied) {
+    *applied = GRAPH_LOAD_ACQ(&graph->pub_applied);
+    *frame = GRAPH_LOAD_ACQ(&graph->pub_frame);
+    *sounding = GRAPH_LOAD_ACQ(&graph->pub_sounding);
+}
+
+bool audiodsp_graph_get_shadow(const audiodsp_graph_t *graph, uint32_t node,
+    uint32_t index, float *value) {
+    if (!audiodsp_graph_valid(graph, node, index)) {
+        return false;
+    }
+    if (graph->shadow == NULL) {
+        return audiodsp_graph_get(graph, node, index, value);
+    }
+    *value = graph->shadow[(size_t)node * AUDIODSP_GRAPH_MAX_PARAMS + index];
+    return true;
 }

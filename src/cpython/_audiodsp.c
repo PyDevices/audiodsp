@@ -3416,16 +3416,23 @@ typedef struct {
     // Memoryviews of the wow tables the delay nodes borrow, kept alive (and
     // their arrays kept from resizing) for as long as the graph is.
     PyObject *keep;
+    // The queue's records and get()'s shadow (shared/audiodsp_graph.h).
+    audiodsp_graph_record_t *records;
+    float *shadow;
+    // Two output blocks for _get_buffer, used in turn.
+    int16_t *out;
+    uint8_t which;
+    bool deinited;
 } audiodsp_graph_object_t;
 
 static int graph_state_init(audiodsp_graph_object_t *self, PyObject *args,
     PyObject *kwargs) {
     static char *keywords[] = {"sample_rate", "frames", "channel_count",
-        "buffers", "nodes", NULL};
+        "buffers", "nodes", "queue", NULL};
     long sample_rate = 48000, frames = 128, channels = 2, buffers = 64,
-        nodes = 64;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$lllll:Graph", keywords,
-            &sample_rate, &frames, &channels, &buffers, &nodes)) {
+        nodes = 64, queue = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$llllll:Graph", keywords,
+            &sample_rate, &frames, &channels, &buffers, &nodes, &queue)) {
         return -1;
     }
     if (self->graph.nodes != NULL) {
@@ -3449,14 +3456,32 @@ static int graph_state_init(audiodsp_graph_object_t *self, PyObject *args,
         PyErr_SetString(PyExc_ValueError, "sample_rate must be at least 1");
         return -1;
     }
+    if (queue == 0) {
+        queue = 4 * nodes > (long)AUDIODSP_GRAPH_QUEUE_MIN
+            ? 4 * nodes : (long)AUDIODSP_GRAPH_QUEUE_MIN;
+    }
+    if (queue < 1 || queue > 65536) {
+        PyErr_SetString(PyExc_ValueError, "queue must be from 1 to 65536");
+        return -1;
+    }
     int16_t *bufs = PyMem_Calloc((size_t)buffers * (size_t)frames,
         sizeof(int16_t));
     audiodsp_graph_node_t *table = PyMem_Calloc((size_t)nodes,
         sizeof(audiodsp_graph_node_t));
+    audiodsp_graph_record_t *records = PyMem_Calloc((size_t)queue,
+        sizeof(audiodsp_graph_record_t));
+    float *shadow = PyMem_Calloc((size_t)nodes * AUDIODSP_GRAPH_MAX_PARAMS,
+        sizeof(float));
+    int16_t *out = PyMem_Calloc(2u * (size_t)frames * (size_t)channels,
+        sizeof(int16_t));
     PyObject *keep = PyList_New(0);
-    if (bufs == NULL || table == NULL || keep == NULL) {
+    if (bufs == NULL || table == NULL || records == NULL || shadow == NULL ||
+        out == NULL || keep == NULL) {
         PyMem_Free(bufs);
         PyMem_Free(table);
+        PyMem_Free(records);
+        PyMem_Free(shadow);
+        PyMem_Free(out);
         Py_XDECREF(keep);
         if (!PyErr_Occurred()) {
             PyErr_NoMemory();
@@ -3465,6 +3490,12 @@ static int graph_state_init(audiodsp_graph_object_t *self, PyObject *args,
     }
     audiodsp_graph_init(&self->graph, (uint32_t)sample_rate, (uint32_t)frames,
         (uint32_t)channels, bufs, (uint32_t)buffers, table, (uint32_t)nodes);
+    audiodsp_graph_queue_init(&self->graph, records, (uint32_t)queue, shadow);
+    self->records = records;
+    self->shadow = shadow;
+    self->out = out;
+    self->which = 0;
+    self->deinited = false;
     self->next_buffer = 0;
     self->keep = keep;
     return 0;
@@ -3479,8 +3510,14 @@ static void graph_state_dealloc(audiodsp_graph_object_t *self) {
     }
     PyMem_Free(self->graph.nodes);
     PyMem_Free(self->graph.bufs);
+    PyMem_Free(self->records);
+    PyMem_Free(self->shadow);
+    PyMem_Free(self->out);
     self->graph.nodes = NULL;
     self->graph.bufs = NULL;
+    self->records = NULL;
+    self->shadow = NULL;
+    self->out = NULL;
     Py_CLEAR(self->keep);
     type->tp_free((PyObject *)self);
     Py_DECREF(type);
@@ -3489,6 +3526,29 @@ static void graph_state_dealloc(audiodsp_graph_object_t *self) {
 static bool graph_live(audiodsp_graph_object_t *self) {
     if (self->graph.nodes == NULL) {
         PyErr_SetString(PyExc_RuntimeError, "Graph.__init__ was not called");
+        return false;
+    }
+    if (self->deinited) {
+        PyErr_SetString(PyExc_ValueError,
+            "Object has been deinitialized and can no longer be used. Create a new object.");
+        return false;
+    }
+    return true;
+}
+
+// The queue, from the control side. No lock to pass: CPython's pump pulls on
+// this thread, inside the same critical section as every call here.
+static void graph_push(audiodsp_graph_object_t *self, uint8_t op, long node,
+    long index, float value, uint32_t mask) {
+    audiodsp_graph_enqueue(&self->graph, op, (uint32_t)node, (uint32_t)index,
+        value, mask, NULL, NULL);
+}
+
+static bool graph_check(audiodsp_graph_object_t *self, long node, long index,
+    const char *message) {
+    if (node < 0 || index < 0 || !audiodsp_graph_valid(&self->graph,
+            (uint32_t)node, (uint32_t)index)) {
+        PyErr_SetString(PyExc_ValueError, message);
         return false;
     }
     return true;
@@ -3599,11 +3659,10 @@ static PyObject *graph_state_set(audiodsp_graph_object_t *self,
     if (!graph_live(self)) {
         return NULL;
     }
-    if (!audiodsp_graph_set(&self->graph, (uint32_t)node, (uint32_t)index,
-            (float)value)) {
-        PyErr_SetString(PyExc_ValueError, "bad node or parameter index");
+    if (!graph_check(self, node, index, "bad node or parameter index")) {
         return NULL;
     }
+    graph_push(self, AUDIODSP_GRAPH_OP_SET, node, index, (float)value, 0);
     Py_RETURN_NONE;
 }
 
@@ -3617,8 +3676,8 @@ static PyObject *graph_state_get(audiodsp_graph_object_t *self,
         return NULL;
     }
     float value = 0.0f;
-    if (!audiodsp_graph_get(&self->graph, (uint32_t)node, (uint32_t)index,
-            &value)) {
+    if (node < 0 || index < 0 || !audiodsp_graph_get_shadow(&self->graph,
+            (uint32_t)node, (uint32_t)index, &value)) {
         PyErr_SetString(PyExc_ValueError, "bad node or parameter index");
         return NULL;
     }
@@ -3674,12 +3733,202 @@ static PyObject *graph_state_reset(audiodsp_graph_object_t *self,
     if (!graph_live(self)) {
         return NULL;
     }
-    if (!audiodsp_graph_reset(&self->graph, (uint32_t)node)) {
-        PyErr_SetString(PyExc_ValueError, "bad node");
+    if (!graph_check(self, node, 0, "bad node")) {
+        return NULL;
+    }
+    graph_push(self, AUDIODSP_GRAPH_OP_RESET, node, 0, 0.0f, 0);
+    Py_RETURN_NONE;
+}
+
+// enable(mask): the groups a pull renders, queued like set().
+static PyObject *graph_state_enable(audiodsp_graph_object_t *self,
+    PyObject *arg) {
+    unsigned long mask = PyLong_AsUnsignedLongMask(arg);
+    if (mask == (unsigned long)-1 && PyErr_Occurred()) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    graph_push(self, AUDIODSP_GRAPH_OP_ENABLE, 0, 0, 0.0f, (uint32_t)mask);
+    Py_RETURN_NONE;
+}
+
+static PyObject *graph_state_hold(audiodsp_graph_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    audiodsp_graph_hold(&self->graph);
+    Py_RETURN_NONE;
+}
+
+static PyObject *graph_state_commit(audiodsp_graph_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    audiodsp_graph_commit(&self->graph);
+    Py_RETURN_NONE;
+}
+
+static PyObject *graph_state_sounding(audiodsp_graph_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    uint32_t sounding, frame, applied;
+    audiodsp_graph_published(&self->graph, &sounding, &frame, &applied);
+    return Py_BuildValue("(kkkk)", (unsigned long)sounding,
+        (unsigned long)frame, (unsigned long)applied,
+        (unsigned long)self->graph.pushed);
+}
+
+static PyObject *graph_state_stats(audiodsp_graph_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    const audiodsp_graph_t *g = &self->graph;
+    uint32_t sounding, frame, applied;
+    audiodsp_graph_published(g, &sounding, &frame, &applied);
+    return Py_BuildValue("{s:k,s:k,s:k,s:k,s:k,s:k,s:k}",
+        "capacity", (unsigned long)g->capacity,
+        "pushed", (unsigned long)g->pushed,
+        "applied", (unsigned long)applied,
+        "overflows", (unsigned long)g->overflows,
+        "splits", (unsigned long)g->splits,
+        "high_water", (unsigned long)g->high_water,
+        "frame", (unsigned long)frame);
+}
+
+static PyObject *graph_state_deinit(audiodsp_graph_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    self->deinited = true;
+    Py_RETURN_NONE;
+}
+
+static PyObject *graph_state_enter(audiodsp_graph_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    return Py_NewRef((PyObject *)self);
+}
+
+static PyObject *graph_state_exit(audiodsp_graph_object_t *self,
+    PyObject *args) {
+    (void)args;
+    self->deinited = true;
+    Py_RETURN_NONE;
+}
+
+// _set_now(node, index, value): writes the parameter straight into the node,
+// past the queue. Not for use: the MicroPython twin exists so the pump probe
+// can show its check catches a write that skips the queue, and this one keeps
+// the two method sets the same.
+static PyObject *graph_state_set_now(audiodsp_graph_object_t *self,
+    PyObject *args) {
+    long node, index;
+    double value;
+    if (!PyArg_ParseTuple(args, "lld:_set_now", &node, &index, &value)) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    if (node < 0 || index < 0 || !audiodsp_graph_set(&self->graph,
+            (uint32_t)node, (uint32_t)index, (float)value)) {
+        PyErr_SetString(PyExc_ValueError, "bad node or parameter index");
         return NULL;
     }
     Py_RETURN_NONE;
 }
+
+static PyObject *graph_state_reset_buffer(audiodsp_graph_object_t *self,
+    PyObject *args, PyObject *kwargs) {
+    int single_channel_output = 0;
+    unsigned int audio_channel = 0;
+    static char *keywords[] = {
+        "single_channel_output", "audio_channel", NULL
+    };
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pI:_reset_buffer",
+            keywords, &single_channel_output, &audio_channel)) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+// One block per pull, rendered from the queue, and never DONE.
+static PyObject *graph_state_get_buffer(audiodsp_graph_object_t *self,
+    PyObject *args, PyObject *kwargs) {
+    int single_channel_output = 0;
+    unsigned int audio_channel = 0;
+    static char *keywords[] = {
+        "single_channel_output", "audio_channel", NULL
+    };
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pI:_get_buffer",
+            keywords, &single_channel_output, &audio_channel)) {
+        return NULL;
+    }
+    if (!graph_live(self)) {
+        return NULL;
+    }
+    const uint32_t channels = self->graph.channel_count;
+    const uint32_t frames = self->graph.frames;
+    const uint32_t samples = frames * channels;
+    if (!single_channel_output || audio_channel == 0) {
+        self->which ^= 1u;
+        audiodsp_graph_render(&self->graph, self->out + self->which * samples);
+    }
+    const int16_t *block = self->out + self->which * samples;
+    PyObject *data;
+    if (single_channel_output && channels > 1) {
+        const uint32_t channel = audio_channel < channels ? audio_channel : 0;
+        data = PyBytes_FromStringAndSize(NULL, (Py_ssize_t)frames * 2);
+        if (data != NULL) {
+            int16_t *dst = (int16_t *)(void *)PyBytes_AS_STRING(data);
+            for (uint32_t i = 0; i < frames; ++i) {
+                dst[i] = block[i * channels + channel];
+            }
+        }
+    } else {
+        data = PyBytes_FromStringAndSize((const char *)block,
+            (Py_ssize_t)samples * 2);
+    }
+    if (data == NULL) {
+        return NULL;
+    }
+    return Py_BuildValue("(iN)", 1 /* GET_BUFFER_MORE_DATA */, data);
+}
+
+#define GRAPH_FORMAT_GETTER(name, expr) \
+    static PyObject *graph_get_##name(audiodsp_graph_object_t *self, \
+        void *closure) { \
+        (void)closure; \
+        if (!graph_live(self)) { \
+            return NULL; \
+        } \
+        return expr; \
+    }
+GRAPH_FORMAT_GETTER(sample_rate,
+    PyLong_FromUnsignedLong(self->graph.sample_rate))
+GRAPH_FORMAT_GETTER(channel_count,
+    PyLong_FromUnsignedLong(self->graph.channel_count))
+GRAPH_FORMAT_GETTER(bits_per_sample, PyLong_FromLong(16))
+GRAPH_FORMAT_GETTER(samples_signed, Py_NewRef(Py_True))
+GRAPH_FORMAT_GETTER(single_buffer, Py_NewRef(Py_False))
+GRAPH_FORMAT_GETTER(max_buffer_length, PyLong_FromUnsignedLong(
+    self->graph.frames * self->graph.channel_count * 2u))
 
 // run(out=None, block=0, enable=0xFFFFFFFF): renders one block into `out`
 // at block `block` (frames * channel_count samples each), and returns the
@@ -3694,7 +3943,7 @@ static PyObject *graph_state_run(audiodsp_graph_object_t *self,
     if (!graph_live(self)) {
         return NULL;
     }
-    uint32_t enable = 0xFFFFFFFFu;
+    uint32_t enable = 0;
     if (enable_obj != NULL) {
         // Truncated to 32 bits, as the MicroPython binding takes it.
         unsigned long mask = PyLong_AsUnsignedLongMask(enable_obj);
@@ -3719,7 +3968,9 @@ static PyObject *graph_state_run(audiodsp_graph_object_t *self,
         out = (int16_t *)(void *)((uint8_t *)view.buf +
             (size_t)block * block_bytes);
     }
-    uint32_t sounding = audiodsp_graph_run(&self->graph, out, enable);
+    uint32_t sounding = enable_obj != NULL
+        ? audiodsp_graph_render_mask(&self->graph, out, enable)
+        : audiodsp_graph_render(&self->graph, out);
     if (out != NULL) {
         PyBuffer_Release(&view);
     }
@@ -3800,6 +4051,9 @@ static PyObject *graph_state_write(audiodsp_graph_object_t *self,
 AUDIODSP_LOCKED_ARGS(graph_state_buffer, audiodsp_graph_object_t)
 AUDIODSP_LOCKED_ARGS(graph_state_add, audiodsp_graph_object_t)
 AUDIODSP_LOCKED_ARGS(graph_state_set, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_set_now, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_enter, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_exit, audiodsp_graph_object_t)
 AUDIODSP_LOCKED_ARGS(graph_state_get, audiodsp_graph_object_t)
 AUDIODSP_LOCKED_ARGS(graph_state_table, audiodsp_graph_object_t)
 AUDIODSP_LOCKED_ARGS(graph_state_reset, audiodsp_graph_object_t)
@@ -3807,19 +4061,59 @@ AUDIODSP_LOCKED_ARGS(graph_state_run, audiodsp_graph_object_t)
 AUDIODSP_LOCKED_ARGS(graph_state_peak, audiodsp_graph_object_t)
 AUDIODSP_LOCKED_ARGS(graph_state_read, audiodsp_graph_object_t)
 AUDIODSP_LOCKED_ARGS(graph_state_write, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_enable, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_hold, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_commit, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_sounding, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_stats, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_ARGS(graph_state_deinit, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_KW(graph_state_reset_buffer, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_KW(graph_state_get_buffer, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_GET(graph_get_sample_rate, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_GET(graph_get_channel_count, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_GET(graph_get_bits_per_sample, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_GET(graph_get_samples_signed, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_GET(graph_get_single_buffer, audiodsp_graph_object_t)
+AUDIODSP_LOCKED_GET(graph_get_max_buffer_length, audiodsp_graph_object_t)
+static PyGetSetDef graph_state_getset[] = {
+    {"sample_rate", (getter)graph_get_sample_rate_locked, NULL, NULL, NULL},
+    {"channel_count", (getter)graph_get_channel_count_locked, NULL, NULL, NULL},
+    {"bits_per_sample", (getter)graph_get_bits_per_sample_locked, NULL, NULL, NULL},
+    {"samples_signed", (getter)graph_get_samples_signed_locked, NULL, NULL, NULL},
+    {"single_buffer", (getter)graph_get_single_buffer_locked, NULL, NULL, NULL},
+    {"max_buffer_length", (getter)graph_get_max_buffer_length_locked, NULL, NULL, NULL},
+    {NULL, NULL, NULL, NULL, NULL},
+};
 static PyMethodDef graph_state_methods[] = {
+    {"enable", (PyCFunction)graph_state_enable_locked, METH_O,
+     PyDoc_STR("enable(mask): the groups a pull renders, queued like set().")},
+    {"hold", (PyCFunction)graph_state_hold_locked, METH_NOARGS,
+     PyDoc_STR("hold(): keep what is queued until commit(), so it lands in one block.")},
+    {"commit", (PyCFunction)graph_state_commit_locked, METH_NOARGS,
+     PyDoc_STR("commit(): publish what was queued since hold().")},
+    {"sounding", (PyCFunction)graph_state_sounding_locked, METH_NOARGS,
+     PyDoc_STR("sounding(): (groups sounding, frames rendered, records applied, records queued).")},
+    {"stats", (PyCFunction)graph_state_stats_locked, METH_NOARGS,
+     PyDoc_STR("stats(): the queue's counts.")},
+    {"deinit", (PyCFunction)graph_state_deinit_locked, METH_NOARGS,
+     PyDoc_STR("deinit(): release the graph.")},
+    {"__enter__", (PyCFunction)graph_state_enter_locked, METH_NOARGS, NULL},
+    {"__exit__", (PyCFunction)graph_state_exit_locked, METH_VARARGS, NULL},
+    {"_set_now", (PyCFunction)graph_state_set_now_locked, METH_VARARGS, NULL},
+    {"_reset_buffer", (PyCFunction)graph_state_reset_buffer_locked, METH_VARARGS | METH_KEYWORDS, NULL},
+    {"_get_buffer", (PyCFunction)graph_state_get_buffer_locked, METH_VARARGS | METH_KEYWORDS, NULL},
     {"buffer", (PyCFunction)graph_state_buffer_locked, METH_NOARGS,
      PyDoc_STR("buffer(): a fresh block buffer's id.")},
     {"add", (PyCFunction)graph_state_add_locked, METH_VARARGS,
      PyDoc_STR("add(kind, group, inputs, output, arg=0.0): append a node; returns its index.")},
     {"set", (PyCFunction)graph_state_set_locked, METH_VARARGS,
-     PyDoc_STR("set(node, index, value): store a parameter.")},
+     PyDoc_STR("set(node, index, value): queue a parameter for the next block.")},
     {"get", (PyCFunction)graph_state_get_locked, METH_VARARGS,
      PyDoc_STR("get(node, index): read a parameter back.")},
     {"table", (PyCFunction)graph_state_table_locked, METH_VARARGS,
      PyDoc_STR("table(node, int16_array): a feedback delay's wow shape, borrowed.")},
     {"reset", (PyCFunction)graph_state_reset_locked, METH_O,
-     PyDoc_STR("reset(node): clear a node's running state.")},
+     PyDoc_STR("reset(node): clear a node's running state at the next block.")},
     {"run", (PyCFunction)graph_state_run_locked, METH_VARARGS,
      PyDoc_STR("run(out=None, block=0, enable=0xFFFFFFFF): render one block; returns the sounding groups.")},
     {"peak", (PyCFunction)graph_state_peak_locked, METH_O,
@@ -3837,6 +4131,7 @@ static PyType_Slot graph_state_slots[] = {
     {Py_tp_init, graph_state_init_locked},
     {Py_tp_dealloc, graph_state_dealloc},
     {Py_tp_methods, graph_state_methods},
+    {Py_tp_getset, graph_state_getset},
     {Py_tp_doc, (void *)PyDoc_STR("Graph(*, sample_rate=48000, frames=128, "
         "channel_count=2, buffers=64, nodes=64): a whole patch rendered by "
         "one C call per block. See docs/audiograph.md.")},

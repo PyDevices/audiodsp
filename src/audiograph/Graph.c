@@ -5,23 +5,47 @@
 
 #include <string.h>
 
+#include "audiopump/audiopump.h"
+#include "cp_compat/context_manager_helpers.h"
 #include "py/binary.h"
 #include "py/runtime.h"
+#include "shared/audiodsp_pump_lock.h"
 
+// A live graph, or a raise.
 static audiograph_graph_obj_t *graph_self(mp_obj_t self_in) {
-    return MP_OBJ_TO_PTR(self_in);
+    audiograph_graph_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
+    return self;
+}
+
+// The same, for a call that renders or rewires the graph: two renderers, or
+// a node added while the pump walks the table, would race.
+static audiograph_graph_obj_t *graph_idle(mp_obj_t self_in) {
+    audiograph_graph_obj_t *self = graph_self(self_in);
+    if (self->pumped && audiopump_is_running()) {
+        mp_raise_msg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("the pump is rendering this graph"));
+    }
+    return self;
+}
+
+static void graph_push(audiograph_graph_obj_t *self, uint8_t op,
+    uint32_t node, uint32_t index, float value, uint32_t mask) {
+    audiodsp_graph_enqueue(&self->graph, op, node, index, value, mask,
+        audiodsp_pump_lock_acquire, audiodsp_pump_lock_release);
 }
 
 static mp_obj_t audiograph_graph_make_new(const mp_obj_type_t *type,
     size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum { ARG_sample_rate, ARG_frames, ARG_channel_count, ARG_buffers,
-           ARG_nodes };
+           ARG_nodes, ARG_queue };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_sample_rate, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 48000} },
         { MP_QSTR_frames, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 128} },
         { MP_QSTR_channel_count, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 2} },
         { MP_QSTR_buffers, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 64} },
         { MP_QSTR_nodes, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 64} },
+        { MP_QSTR_queue, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 0} },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args,
@@ -42,12 +66,32 @@ static mp_obj_t audiograph_graph_make_new(const mp_obj_type_t *type,
     if (args[ARG_sample_rate].u_int < 1) {
         mp_raise_ValueError(MP_ERROR_TEXT("sample_rate must be at least 1"));
     }
+    mp_int_t queue = args[ARG_queue].u_int;
+    if (queue == 0) {
+        queue = 4 * nodes > (mp_int_t)AUDIODSP_GRAPH_QUEUE_MIN
+            ? 4 * nodes : (mp_int_t)AUDIODSP_GRAPH_QUEUE_MIN;
+    }
+    if (queue < 1 || queue > 65536) {
+        mp_raise_ValueError(MP_ERROR_TEXT("queue must be from 1 to 65536"));
+    }
     audiograph_graph_obj_t *self = mp_obj_malloc(audiograph_graph_obj_t, type);
     int16_t *bufs = m_new0(int16_t, (size_t)buffers * (size_t)frames);
     audiodsp_graph_node_t *table = m_new0(audiodsp_graph_node_t, (size_t)nodes);
     audiodsp_graph_init(&self->graph, (uint32_t)args[ARG_sample_rate].u_int,
         (uint32_t)frames, (uint32_t)channels, bufs, (uint32_t)buffers, table,
         (uint32_t)nodes);
+    audiodsp_graph_queue_init(&self->graph,
+        m_new0(audiodsp_graph_record_t, (size_t)queue), (uint32_t)queue,
+        m_new0(float, (size_t)nodes * AUDIODSP_GRAPH_MAX_PARAMS));
+    self->out = m_new0(int16_t, 2u * (size_t)frames * (size_t)channels);
+    self->which = 0;
+    self->pumped = false;
+    self->base.sample_rate = (uint32_t)args[ARG_sample_rate].u_int;
+    self->base.max_buffer_length = (uint32_t)frames * (uint32_t)channels * 2u;
+    self->base.bits_per_sample = 16;
+    self->base.channel_count = (uint8_t)channels;
+    self->base.samples_signed = 1;
+    self->base.single_buffer = false;
     self->next_buffer = 0;
     self->keep = mp_obj_new_list(0, NULL);
     return MP_OBJ_FROM_PTR(self);
@@ -55,7 +99,7 @@ static mp_obj_t audiograph_graph_make_new(const mp_obj_type_t *type,
 
 // buffer(): a fresh block buffer's id.
 static mp_obj_t audiograph_graph_buffer(mp_obj_t self_in) {
-    audiograph_graph_obj_t *self = graph_self(self_in);
+    audiograph_graph_obj_t *self = graph_idle(self_in);
     if (self->next_buffer >= self->graph.nbufs) {
         mp_raise_ValueError(MP_ERROR_TEXT("no buffers left"));
     }
@@ -79,7 +123,7 @@ static int16_t buffer_id(mp_obj_t obj) {
 // a sequence of buffer ids (None for an open input), `output` a buffer id
 // or None.
 static mp_obj_t audiograph_graph_add(size_t n_args, const mp_obj_t *args) {
-    audiograph_graph_obj_t *self = graph_self(args[0]);
+    audiograph_graph_obj_t *self = graph_idle(args[0]);
     mp_int_t kind = mp_obj_get_int(args[1]);
     if (kind < 0 || kind >= (mp_int_t)AUDIODSP_GRAPH_KINDS) {
         mp_raise_ValueError(MP_ERROR_TEXT("unknown node kind"));
@@ -113,7 +157,29 @@ static mp_obj_t audiograph_graph_add(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiograph_graph_add_obj, 5, 6,
     audiograph_graph_add);
 
+// set(node, index, value): queued; the renderer applies it at the top of its
+// next block, or with the rest of a held batch.
 static mp_obj_t audiograph_graph_set(size_t n_args, const mp_obj_t *args) {
+    audiograph_graph_obj_t *self = graph_self(args[0]);
+    (void)n_args;
+    mp_int_t node = mp_obj_get_int(args[1]);
+    mp_int_t index = mp_obj_get_int(args[2]);
+    float value = (float)mp_obj_get_float(args[3]);
+    if (node < 0 || index < 0 ||
+        !audiodsp_graph_valid(&self->graph, (uint32_t)node, (uint32_t)index)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad node or parameter index"));
+    }
+    graph_push(self, AUDIODSP_GRAPH_OP_SET, (uint32_t)node, (uint32_t)index,
+        value, 0);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiograph_graph_set_obj, 4, 4,
+    audiograph_graph_set);
+
+// _set_now(node, index, value): writes the parameter straight into the node,
+// past the queue, racing whatever renders. Not for use: it exists so the
+// pump probe can show its check catches a write that skips the queue.
+static mp_obj_t audiograph_graph_set_now(size_t n_args, const mp_obj_t *args) {
     audiograph_graph_obj_t *self = graph_self(args[0]);
     (void)n_args;
     if (!audiodsp_graph_set(&self->graph, (uint32_t)mp_obj_get_int(args[1]),
@@ -122,15 +188,18 @@ static mp_obj_t audiograph_graph_set(size_t n_args, const mp_obj_t *args) {
     }
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiograph_graph_set_obj, 4, 4,
-    audiograph_graph_set);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiograph_graph_set_now_obj, 4, 4,
+    audiograph_graph_set_now);
 
+// get(node, index): the value set() last stored, whoever renders.
 static mp_obj_t audiograph_graph_get(mp_obj_t self_in, mp_obj_t node,
     mp_obj_t index) {
     audiograph_graph_obj_t *self = graph_self(self_in);
     float value = 0.0f;
-    if (!audiodsp_graph_get(&self->graph, (uint32_t)mp_obj_get_int(node),
-            (uint32_t)mp_obj_get_int(index), &value)) {
+    mp_int_t n = mp_obj_get_int(node);
+    mp_int_t i = mp_obj_get_int(index);
+    if (n < 0 || i < 0 ||
+        !audiodsp_graph_get_shadow(&self->graph, (uint32_t)n, (uint32_t)i, &value)) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad node or parameter index"));
     }
     return mp_obj_new_float((mp_float_t)value);
@@ -141,7 +210,7 @@ static MP_DEFINE_CONST_FUN_OBJ_3(audiograph_graph_get_obj,
 // table(node, int16_array): a feedback delay's wow shape, borrowed.
 static mp_obj_t audiograph_graph_table(mp_obj_t self_in, mp_obj_t node,
     mp_obj_t table) {
-    audiograph_graph_obj_t *self = graph_self(self_in);
+    audiograph_graph_obj_t *self = graph_idle(self_in);
     mp_buffer_info_t info;
     mp_get_buffer_raise(table, &info, MP_BUFFER_READ);
     if (info.typecode != 'h' || info.len % 2) {
@@ -157,21 +226,86 @@ static mp_obj_t audiograph_graph_table(mp_obj_t self_in, mp_obj_t node,
 static MP_DEFINE_CONST_FUN_OBJ_3(audiograph_graph_table_obj,
     audiograph_graph_table);
 
+// reset(node): queued, like set().
 static mp_obj_t audiograph_graph_reset(mp_obj_t self_in, mp_obj_t node) {
     audiograph_graph_obj_t *self = graph_self(self_in);
-    if (!audiodsp_graph_reset(&self->graph, (uint32_t)mp_obj_get_int(node))) {
+    mp_int_t n = mp_obj_get_int(node);
+    if (n < 0 || !audiodsp_graph_valid(&self->graph, (uint32_t)n, 0)) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad node"));
     }
+    graph_push(self, AUDIODSP_GRAPH_OP_RESET, (uint32_t)n, 0, 0.0f, 0);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audiograph_graph_reset_obj,
     audiograph_graph_reset);
 
+// enable(mask): the groups a pull renders, queued like set(), so a note's
+// gate and its group's enable land in the same block.
+static mp_obj_t audiograph_graph_enable(mp_obj_t self_in, mp_obj_t mask) {
+    audiograph_graph_obj_t *self = graph_self(self_in);
+    graph_push(self, AUDIODSP_GRAPH_OP_ENABLE, 0, 0, 0.0f,
+        (uint32_t)mp_obj_get_int_truncated(mask));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(audiograph_graph_enable_obj,
+    audiograph_graph_enable);
+
+// hold() and commit(): what is queued between them lands in one block.
+static mp_obj_t audiograph_graph_hold(mp_obj_t self_in) {
+    audiodsp_graph_hold(&graph_self(self_in)->graph);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiograph_graph_hold_obj,
+    audiograph_graph_hold);
+
+static mp_obj_t audiograph_graph_commit(mp_obj_t self_in) {
+    audiodsp_graph_commit(&graph_self(self_in)->graph);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiograph_graph_commit_obj,
+    audiograph_graph_commit);
+
+// sounding(): (groups sounding, frames rendered, records applied, records
+// queued), as the renderer last published them; the last is this side's.
+static mp_obj_t audiograph_graph_sounding(mp_obj_t self_in) {
+    audiograph_graph_obj_t *self = graph_self(self_in);
+    uint32_t sounding, frame, applied;
+    audiodsp_graph_published(&self->graph, &sounding, &frame, &applied);
+    mp_obj_t items[4] = {
+        mp_obj_new_int_from_uint(sounding),
+        mp_obj_new_int_from_uint(frame),
+        mp_obj_new_int_from_uint(applied),
+        mp_obj_new_int_from_uint(self->graph.pushed),
+    };
+    return mp_obj_new_tuple(4, items);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiograph_graph_sounding_obj,
+    audiograph_graph_sounding);
+
+// stats(): the queue's counts, as a dict.
+static mp_obj_t audiograph_graph_stats(mp_obj_t self_in) {
+    audiograph_graph_obj_t *self = graph_self(self_in);
+    const audiodsp_graph_t *g = &self->graph;
+    uint32_t sounding, frame, applied;
+    audiodsp_graph_published(g, &sounding, &frame, &applied);
+    mp_obj_t d = mp_obj_new_dict(7);
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_capacity), mp_obj_new_int_from_uint(g->capacity));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_pushed), mp_obj_new_int_from_uint(g->pushed));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_applied), mp_obj_new_int_from_uint(applied));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_overflows), mp_obj_new_int_from_uint(g->overflows));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_splits), mp_obj_new_int_from_uint(g->splits));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_high_water), mp_obj_new_int_from_uint(g->high_water));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_frame), mp_obj_new_int_from_uint(frame));
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiograph_graph_stats_obj,
+    audiograph_graph_stats);
+
 // run(out=None, block=0, enable=0xFFFFFFFF): renders one block into `out`
 // at block `block` (frames * channel_count samples each), and returns the
 // mask of groups whose envelopes are still sounding.
 static mp_obj_t audiograph_graph_run(size_t n_args, const mp_obj_t *args) {
-    audiograph_graph_obj_t *self = graph_self(args[0]);
+    audiograph_graph_obj_t *self = graph_idle(args[0]);
     int16_t *out = NULL;
     if (n_args > 1 && args[1] != mp_const_none) {
         mp_buffer_info_t info;
@@ -183,11 +317,13 @@ static mp_obj_t audiograph_graph_run(size_t n_args, const mp_obj_t *args) {
         }
         out = (int16_t *)((uint8_t *)info.buf + (size_t)block * block_bytes);
     }
-    uint32_t enable = 0xFFFFFFFFu;
+    uint32_t sounding;
     if (n_args > 3) {
-        enable = (uint32_t)mp_obj_get_int_truncated(args[3]);
+        sounding = audiodsp_graph_render_mask(&self->graph, out,
+            (uint32_t)mp_obj_get_int_truncated(args[3]));
+    } else {
+        sounding = audiodsp_graph_render(&self->graph, out);
     }
-    uint32_t sounding = audiodsp_graph_run(&self->graph, out, enable);
     return mp_obj_new_int_from_uint(sounding);
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiograph_graph_run_obj, 1, 4,
@@ -231,7 +367,7 @@ static MP_DEFINE_CONST_FUN_OBJ_3(audiograph_graph_read_obj,
 // write(buffer, src): fill a block from an int16 buffer of `frames`.
 static mp_obj_t audiograph_graph_write(mp_obj_t self_in, mp_obj_t buffer,
     mp_obj_t src) {
-    audiograph_graph_obj_t *self = graph_self(self_in);
+    audiograph_graph_obj_t *self = graph_idle(self_in);
     int16_t *dst = block_of(self, buffer);
     mp_buffer_info_t info;
     mp_get_buffer_raise(src, &info, MP_BUFFER_READ);
@@ -244,7 +380,73 @@ static mp_obj_t audiograph_graph_write(mp_obj_t self_in, mp_obj_t buffer,
 static MP_DEFINE_CONST_FUN_OBJ_3(audiograph_graph_write_obj,
     audiograph_graph_write);
 
+// deinit(): marks the graph released, under the pump lock, so a pump pulling
+// it stops on it with fault=deinited rather than rendering a freed graph.
+static mp_obj_t audiograph_graph_deinit(mp_obj_t self_in) {
+    audiograph_graph_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    AUDIODSP_PUMP_SWAP(audiosample_mark_deinit(&self->base));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiograph_graph_deinit_obj,
+    audiograph_graph_deinit);
+
+// --- the audiosample protocol -------------------------------------------
+
+static void audiograph_graph_reset_buffer(mp_obj_t self_in,
+    bool single_channel_output, uint8_t channel) {
+    (void)self_in;
+    (void)single_channel_output;
+    (void)channel;
+}
+
+// One block per pull, never DONE: a graph does not end. Called inside the
+// pull funnel, so under the pump lock, and never raises.
+static audioio_get_buffer_result_t audiograph_graph_get_buffer(
+    mp_obj_t self_in, bool single_channel_output, uint8_t channel,
+    uint8_t **buffer, uint32_t *buffer_length) {
+    audiograph_graph_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    const uint32_t samples = self->graph.frames * self->graph.channel_count;
+    if (audiodsp_pump_on_pump_thread()) {
+        self->pumped = true;
+    }
+    if (!single_channel_output || channel == 0) {
+        self->which ^= 1u;
+        audiodsp_graph_render(&self->graph, self->out + self->which * samples);
+    }
+    int16_t *block = self->out + self->which * samples;
+    if (single_channel_output && channel < self->graph.channel_count) {
+        block += channel;
+    }
+    *buffer = (uint8_t *)block;
+    *buffer_length = samples * 2u;
+    return GET_BUFFER_MORE_DATA;
+}
+
+// Nothing behind a graph: the walk ends here.
+static mp_obj_t audiograph_graph_sources(mp_obj_t self_in, uint8_t index) {
+    (void)self_in;
+    (void)index;
+    return MP_OBJ_NULL;
+}
+
+static const audiosample_p_t audiograph_graph_proto = {
+    MP_PROTO_IMPLEMENT(MP_QSTR_protocol_audiosample)
+    .reset_buffer = audiograph_graph_reset_buffer,
+    .get_buffer = audiograph_graph_get_buffer,
+    .sources = audiograph_graph_sources,
+};
+
 static const mp_rom_map_elem_t audiograph_graph_locals_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&audiograph_graph_deinit_obj) },
+    { MP_ROM_QSTR(MP_QSTR___enter__), MP_ROM_PTR(&default___enter___obj) },
+    { MP_ROM_QSTR(MP_QSTR___exit__), MP_ROM_PTR(&default___exit___obj) },
+    { MP_ROM_QSTR(MP_QSTR_enable), MP_ROM_PTR(&audiograph_graph_enable_obj) },
+    { MP_ROM_QSTR(MP_QSTR_hold), MP_ROM_PTR(&audiograph_graph_hold_obj) },
+    { MP_ROM_QSTR(MP_QSTR_commit), MP_ROM_PTR(&audiograph_graph_commit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sounding), MP_ROM_PTR(&audiograph_graph_sounding_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stats), MP_ROM_PTR(&audiograph_graph_stats_obj) },
+    { MP_ROM_QSTR(MP_QSTR__set_now), MP_ROM_PTR(&audiograph_graph_set_now_obj) },
+    AUDIOSAMPLE_FIELDS,
     { MP_ROM_QSTR(MP_QSTR_buffer), MP_ROM_PTR(&audiograph_graph_buffer_obj) },
     { MP_ROM_QSTR(MP_QSTR_add), MP_ROM_PTR(&audiograph_graph_add_obj) },
     { MP_ROM_QSTR(MP_QSTR_set), MP_ROM_PTR(&audiograph_graph_set_obj) },
@@ -262,7 +464,9 @@ static MP_DEFINE_CONST_DICT(audiograph_graph_locals,
 MP_DEFINE_CONST_OBJ_TYPE(
     audiograph_graph_type,
     MP_QSTR_Graph,
-    MP_TYPE_FLAG_NONE,
+    MP_TYPE_FLAG_HAS_SPECIAL_ACCESSORS,
     make_new, audiograph_graph_make_new,
-    locals_dict, &audiograph_graph_locals
+    attr, cp_compat_attr,
+    locals_dict, &audiograph_graph_locals,
+    protocol, &audiograph_graph_proto
     );
