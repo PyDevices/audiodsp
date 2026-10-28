@@ -11,6 +11,9 @@
 #include "py/runtime.h"
 #include "shared/audiodsp_pump_lock.h"
 
+// A table page's size: small enough to fit a fragmented heap.
+#define AUDIOGRAPH_PAGE_BYTES 4096u
+
 // A live graph, or a raise.
 static audiograph_graph_obj_t *graph_self(mp_obj_t self_in) {
     audiograph_graph_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -75,14 +78,35 @@ static mp_obj_t audiograph_graph_make_new(const mp_obj_type_t *type,
         mp_raise_ValueError(MP_ERROR_TEXT("queue must be from 1 to 65536"));
     }
     audiograph_graph_obj_t *self = mp_obj_malloc(audiograph_graph_obj_t, type);
-    int16_t *bufs = m_new0(int16_t, (size_t)buffers * (size_t)frames);
-    audiodsp_graph_node_t *table = m_new0(audiodsp_graph_node_t, (size_t)nodes);
+    // Every table goes in pages of a few KB, so a large patch still fits a
+    // fragmented heap. The GC keeps a block alive only through a pointer to
+    // its start, so the first pointer into each page is that start.
+    size_t per = AUDIOGRAPH_PAGE_BYTES / ((size_t)frames * sizeof(int16_t));
+    per = per ? per : 1;
+    int16_t **bufs = m_new(int16_t *, (size_t)buffers);
+    for (mp_int_t i = 0; i < buffers; i += (mp_int_t)per) {
+        size_t n = (size_t)(buffers - i) < per ? (size_t)(buffers - i) : per;
+        int16_t *page = m_new0(int16_t, n * (size_t)frames);
+        for (size_t k = 0; k < n; ++k) {
+            bufs[i + (mp_int_t)k] = page + k * (size_t)frames;
+        }
+    }
+    uint32_t node_pages = audiodsp_graph_pages((uint32_t)nodes, AUDIODSP_GRAPH_NODE_PAGE);
+    audiodsp_graph_node_t **table = m_new(audiodsp_graph_node_t *, node_pages);
+    float **shadow = m_new(float *, node_pages);
+    for (uint32_t i = 0; i < node_pages; ++i) {
+        table[i] = m_new0(audiodsp_graph_node_t, AUDIODSP_GRAPH_NODE_PAGE);
+        shadow[i] = m_new0(float, AUDIODSP_GRAPH_SHADOW_PAGE);
+    }
+    uint32_t record_pages = audiodsp_graph_pages((uint32_t)queue, AUDIODSP_GRAPH_RECORD_PAGE);
+    audiodsp_graph_record_t **records = m_new(audiodsp_graph_record_t *, record_pages);
+    for (uint32_t i = 0; i < record_pages; ++i) {
+        records[i] = m_new0(audiodsp_graph_record_t, AUDIODSP_GRAPH_RECORD_PAGE);
+    }
     audiodsp_graph_init(&self->graph, (uint32_t)args[ARG_sample_rate].u_int,
         (uint32_t)frames, (uint32_t)channels, bufs, (uint32_t)buffers, table,
         (uint32_t)nodes);
-    audiodsp_graph_queue_init(&self->graph,
-        m_new0(audiodsp_graph_record_t, (size_t)queue), (uint32_t)queue,
-        m_new0(float, (size_t)nodes * AUDIODSP_GRAPH_MAX_PARAMS));
+    audiodsp_graph_queue_init(&self->graph, records, (uint32_t)queue, shadow);
     self->out = m_new0(int16_t, 2u * (size_t)frames * (size_t)channels);
     self->which = 0;
     self->pumped = false;
@@ -345,7 +369,7 @@ static int16_t *block_of(audiograph_graph_obj_t *self, mp_obj_t buffer) {
     if (id < 0 || (uint32_t)id >= self->graph.nbufs) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad buffer id"));
     }
-    return self->graph.bufs + (size_t)id * self->graph.frames;
+    return self->graph.bufs[id];
 }
 
 // read(buffer, dst): copy a block out into an int16 buffer of `frames`.

@@ -7,16 +7,40 @@
 
 #include "py/runtime.h"
 
+// A table page's size: small enough to fit a fragmented heap.
+#define AUDIOGRAPH_PAGE_BYTES 4096u
+
 void common_hal_audiograph_graph_construct(audiograph_graph_obj_t *self,
     uint32_t sample_rate, uint32_t frames, uint32_t channel_count,
     uint32_t buffers, uint32_t nodes, uint32_t queue) {
-    int16_t *bufs = m_new0(int16_t, (size_t)buffers * (size_t)frames);
-    audiodsp_graph_node_t *table = m_new0(audiodsp_graph_node_t, (size_t)nodes);
+    // Every table goes in pages of a few KB, so a large patch still fits a
+    // fragmented heap. The GC keeps a block alive only through a pointer to
+    // its start, so the first pointer into each page is that start.
+    size_t per = AUDIOGRAPH_PAGE_BYTES / ((size_t)frames * sizeof(int16_t));
+    per = per ? per : 1;
+    int16_t **bufs = m_new(int16_t *, (size_t)buffers);
+    for (uint32_t i = 0; i < buffers; i += (uint32_t)per) {
+        size_t n = (size_t)(buffers - i) < per ? (size_t)(buffers - i) : per;
+        int16_t *page = m_new0(int16_t, n * (size_t)frames);
+        for (size_t k = 0; k < n; ++k) {
+            bufs[i + k] = page + k * (size_t)frames;
+        }
+    }
+    uint32_t node_pages = audiodsp_graph_pages(nodes, AUDIODSP_GRAPH_NODE_PAGE);
+    audiodsp_graph_node_t **table = m_new(audiodsp_graph_node_t *, node_pages);
+    float **shadow = m_new(float *, node_pages);
+    for (uint32_t i = 0; i < node_pages; ++i) {
+        table[i] = m_new0(audiodsp_graph_node_t, AUDIODSP_GRAPH_NODE_PAGE);
+        shadow[i] = m_new0(float, AUDIODSP_GRAPH_SHADOW_PAGE);
+    }
+    uint32_t record_pages = audiodsp_graph_pages(queue, AUDIODSP_GRAPH_RECORD_PAGE);
+    audiodsp_graph_record_t **records = m_new(audiodsp_graph_record_t *, record_pages);
+    for (uint32_t i = 0; i < record_pages; ++i) {
+        records[i] = m_new0(audiodsp_graph_record_t, AUDIODSP_GRAPH_RECORD_PAGE);
+    }
     audiodsp_graph_init(&self->graph, sample_rate, frames, channel_count,
         bufs, buffers, table, nodes);
-    audiodsp_graph_queue_init(&self->graph,
-        m_new0(audiodsp_graph_record_t, (size_t)queue), queue,
-        m_new0(float, (size_t)nodes * AUDIODSP_GRAPH_MAX_PARAMS));
+    audiodsp_graph_queue_init(&self->graph, records, queue, shadow);
     self->out = m_new0(int16_t, 2u * (size_t)frames * channel_count);
     self->which = 0;
     self->base.sample_rate = sample_rate;
