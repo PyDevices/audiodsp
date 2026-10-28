@@ -37,6 +37,7 @@ have. Start with install, then your first program.
 - [Additions beyond CircuitPython](how-it-works/additions.md)
 - [Sound stability](how-it-works/sound-stability.md)
 - [The correctness standard](how-it-works/correctness-standard.md)
+- [Running the parity gates](how-it-works/parity-gates.md)
 - [Keeping in step with upstream](how-it-works/upstream-sync.md)
 - [Differences from upstream, with measurements](how-it-works/upstream-diff.md)
 - [Upstream reports](upstream-reports/README.md): the fixes sent to CircuitPython.

@@ -132,6 +132,7 @@ push-PCM transports.
 - [Additions beyond CircuitPython](additions.md): why each added module exists.
 - [Sound stability](sound-stability.md): what is stable across releases, and what isn't.
 - [The correctness standard](correctness-standard.md): how each module is held to a reference.
+- [Running the parity gates](parity-gates.md): the oracle binary, the deeper gates and the golden rules.
 - [Keeping in step with upstream](upstream-sync.md): the resync procedure, and every deliberate difference.
 - [Differences from upstream, with measurements](upstream-diff.md): the reasons behind each one.
 - [Upstream reports](../upstream-reports/README.md): the fixes sent to CircuitPython.
