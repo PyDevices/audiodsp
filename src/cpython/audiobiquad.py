@@ -29,6 +29,13 @@ would not exist on a stock board. This module is the extension:
                                 mix=0.5, sample_rate=48000)
     phase.play(eq)
 
+`buffer_size` is the size in bytes of each block handed out, as on the
+CircuitPython effects: a host running 64-frame blocks passes
+`buffer_size=64 * 2 * channel_count` and the filter keeps pace with it, with
+no latency and coefficients that can move every 64 frames. It defaults to 256
+frames, which is also the most it can be. The filter is per sample, so the
+audio is the same at any size.
+
 `frequency`, `Q`, `gain_db`, `feedback` and `mix` all accept a synthio
 `BlockInput` -- an `LFO`, a `Math`, or a plain number -- read once per
 processed chunk, exactly as `audiofilters.Filter` reads its own.
@@ -103,6 +110,20 @@ def _value(value):
     return float(value.value if hasattr(value, "value") else value)
 
 
+def _frames_for(buffer_size, channel_count):
+    """Frames per block for a `buffer_size` in bytes, as the CircuitPython
+    effects take it; None is the default block."""
+    if buffer_size is None:
+        return FRAMES
+    width = 2 * channel_count
+    buffer_size = int(buffer_size)
+    if buffer_size < width or buffer_size % width or \
+            buffer_size > FRAMES * width:
+        raise ValueError(
+            "buffer_size must be whole frames, from one to %d" % FRAMES)
+    return buffer_size // width
+
+
 class _Node(_AudioSample):
     """The pull loop both classes share.
 
@@ -114,18 +135,19 @@ class _Node(_AudioSample):
 
     _options = ()
 
-    def _init_format(self, sample_rate, channel_count):
+    def _init_format(self, sample_rate, channel_count, buffer_size=None):
         channel_count = int(channel_count)
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
         if int(sample_rate) < 1:
             raise ValueError("sample_rate must be at least 1")
+        self._frames = _frames_for(buffer_size, channel_count)
         self.sample_rate = int(sample_rate)
         self.bits_per_sample = 16
         self.channel_count = channel_count
         self.samples_signed = True
         self.single_buffer = False
-        self.max_buffer_length = FRAMES * 2 * channel_count
+        self.max_buffer_length = self._frames * 2 * channel_count
         self._deinited = False
         self._source = None
         self._pending = b""
@@ -186,7 +208,8 @@ class _Node(_AudioSample):
         width = 2 * self.channel_count
         output = bytearray()
         produced = 0
-        while produced < FRAMES:
+        frames = self._frames
+        while produced < frames:
             if not self._pending:
                 if self._source is None:
                     break
@@ -195,13 +218,13 @@ class _Node(_AudioSample):
                 if result == GET_BUFFER_ERROR or len(data) < width:
                     break
                 self._pending = data[:len(data) // width * width]
-            run = min(FRAMES - produced, len(self._pending) // width)
+            run = min(frames - produced, len(self._pending) // width)
             self._apply_blocks(run)
             output += self._state.process(self._pending[:run * width])
             self._pending = self._pending[run * width:]
             produced += run
         if produced == 0:
-            return GET_BUFFER_MORE_DATA, self._publish(bytes(FRAMES * width))
+            return GET_BUFFER_MORE_DATA, self._publish(bytes(frames * width))
         return GET_BUFFER_MORE_DATA, self._publish(output)
 
 
@@ -211,8 +234,9 @@ class Biquad(_Node):
     _options = _BIQUAD_OPTIONS
 
     def __init__(self, mode=LOW_PASS, frequency=1000.0, Q=0.7071067811865475,
-                 gain_db=0.0, mix=1.0, sample_rate=48000, channel_count=2):
-        self._init_format(sample_rate, channel_count)
+                 gain_db=0.0, mix=1.0, sample_rate=48000, channel_count=2,
+                 buffer_size=None):
+        self._init_format(sample_rate, channel_count, buffer_size)
         self.mode = mode
         self.frequency = frequency
         self.Q = Q
@@ -258,11 +282,11 @@ class AllPass(_Node):
     _options = _ALLPASS_OPTIONS
 
     def __init__(self, stages=4, frequency=1000.0, feedback=0.0, mix=1.0,
-                 sample_rate=48000, channel_count=2):
+                 sample_rate=48000, channel_count=2, buffer_size=None):
         stages = int(stages)
         if stages < 1 or stages > MAX_STAGES:
             raise ValueError("stages must be between 1 and %d" % MAX_STAGES)
-        self._init_format(sample_rate, channel_count)
+        self._init_format(sample_rate, channel_count, buffer_size)
         self._stages = stages
         self.frequency = frequency
         self.feedback = feedback

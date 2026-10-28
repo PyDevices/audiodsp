@@ -857,5 +857,98 @@ class BandPassPeakTest(unittest.TestCase):
         self.assertAlmostEqual(readings[-1], self.WANTED_DB, delta=0.1)
 
 
+class BlockSizeTest(unittest.TestCase):
+    """`buffer_size` sets how many frames a pull hands out, the way the
+    CircuitPython effects take it, and nothing about the filter: a source block
+    is taken once and filtered once, so the state advances once per block."""
+
+    @staticmethod
+    def make(kind, channels, **options):
+        if kind == "biquad":
+            return audiobiquad.Biquad(
+                mode=audiobiquad.PEAKING_EQ, frequency=900.0, Q=2.5,
+                gain_db=6.0, sample_rate=SAMPLE_RATE,
+                channel_count=channels, **options)
+        return audiobiquad.AllPass(
+            stages=4, frequency=900.0, feedback=0.4, mix=0.5,
+            sample_rate=SAMPLE_RATE, channel_count=channels, **options)
+
+    def render(self, kind, channels, block, pulls):
+        """`pulls` blocks from a node that hands out `block` frames, fed by a
+        looping `block`-frame RawSample refilled before each pull; the node
+        built at the default size, with block=None, takes 256 at once."""
+        size = 256 if block is None else block
+        options = {} if block is None else {
+            "buffer_size": block * 2 * channels}
+        material = array("h", [(i * 37 % 4001) - 2000
+                               for i in range(size * pulls * channels)])
+        node = self.make(kind, channels, **options)
+        window = array("h", [0] * (size * channels))
+        node.play(audiocore.RawSample(window, sample_rate=SAMPLE_RATE,
+                                      channel_count=channels))
+        out = bytearray()
+        lengths = set()
+        for pull in range(pulls):
+            window[:] = material[pull * size * channels:
+                                 (pull + 1) * size * channels]
+            data = bytes(audiocore.get_buffer(node)[1])
+            lengths.add(len(data))
+            out += data
+        return bytes(out), lengths
+
+    def test_a_128_frame_node_hands_out_128_frames_a_pull(self):
+        for kind in ("biquad", "allpass"):
+            for channels in (1, 2):
+                node = self.make(kind, channels,
+                                 buffer_size=128 * 2 * channels)
+                self.assertEqual(node.max_buffer_length, 128 * 2 * channels)
+                _, lengths = self.render(kind, channels, 128, 4)
+                self.assertEqual(lengths, {128 * 2 * channels},
+                                 (kind, channels))
+
+    def test_each_source_block_is_filtered_exactly_once(self):
+        # Two 128-frame pulls fed blocks A and B are the same samples as one
+        # 256-frame pull fed A then B end to end. The material is a function
+        # of the sample index, so both see the same 256 frames; a block taken
+        # twice, or dropped, moves the state and the bytes.
+        for kind in ("biquad", "allpass"):
+            for channels in (1, 2):
+                small, _ = self.render(kind, channels, 128, 2)
+                whole, _ = self.render(kind, channels, None, 1)
+                self.assertEqual(small, whole, (kind, channels))
+
+    def test_every_block_size_renders_the_same_filter(self):
+        for kind in ("biquad", "allpass"):
+            reference, _ = self.render(kind, 2, None, 4)
+            for block in (64, 32, 1):
+                pulls = 1024 // block
+                self.assertEqual(self.render(kind, 2, block, pulls)[0],
+                                 reference, (kind, block))
+
+    def test_the_default_block_is_unchanged(self):
+        for kind in ("biquad", "allpass"):
+            for channels in (1, 2):
+                node = self.make(kind, channels)
+                self.assertEqual(node.max_buffer_length, 256 * 2 * channels)
+                _, lengths = self.render(kind, channels, None, 3)
+                self.assertEqual(lengths, {256 * 2 * channels})
+                explicit = self.make(kind, channels,
+                                     buffer_size=256 * 2 * channels)
+                self.assertEqual(explicit.max_buffer_length,
+                                 256 * 2 * channels)
+
+    def test_it_refuses_a_block_it_cannot_hand_out(self):
+        for kind in ("biquad", "allpass"):
+            for size in (3, 2, 257 * 4, 0, -4):
+                with self.assertRaises(ValueError, msg=(kind, size)):
+                    self.make(kind, 2, buffer_size=size)
+            with self.assertRaises(ValueError):
+                self.make(kind, 1, buffer_size=257 * 2)
+            self.assertEqual(self.make(kind, 1, buffer_size=128)
+                             .max_buffer_length, 128)
+            self.assertEqual(self.make(kind, 2, buffer_size=4)
+                             .max_buffer_length, 4)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -31,6 +31,9 @@ typedef struct {
     // blocks.
     const int16_t *pending;
     uint32_t pending_frames;
+    // Frames per output block: buffer_size's, at most
+    // AUDIODSP_FILTER_F32_FRAMES.
+    uint32_t frames;
 } audiobiquad_biquad_obj_t;
 
 // Reads every block input and hands the values to the kernel, which clamps

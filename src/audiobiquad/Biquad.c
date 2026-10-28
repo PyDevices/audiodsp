@@ -23,7 +23,7 @@ static void biquad_set_mode(audiobiquad_biquad_obj_t *self, mp_int_t mode) {
 static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
     size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum { ARG_mode, ARG_frequency, ARG_Q, ARG_gain_db, ARG_mix,
-           ARG_sample_rate, ARG_channel_count };
+           ARG_sample_rate, ARG_channel_count, ARG_buffer_size };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_mode, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 0} },
         { MP_QSTR_frequency, MP_ARG_OBJ | MP_ARG_KW_ONLY,
@@ -33,6 +33,8 @@ static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
         { MP_QSTR_mix, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_obj = MP_ROM_INT(1)} },
         { MP_QSTR_sample_rate, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 48000} },
         { MP_QSTR_channel_count, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 2} },
+        { MP_QSTR_buffer_size, MP_ARG_OBJ | MP_ARG_KW_ONLY,
+          {.u_obj = MP_ROM_NONE} },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args,
@@ -46,10 +48,26 @@ static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
         mp_raise_ValueError(MP_ERROR_TEXT("sample_rate must be at least 1"));
     }
 
+    // `buffer_size` is bytes per block, as on the CircuitPython effects, so a
+    // host running small blocks gets them without the latency of gathering
+    // 256 frames. The filter is per sample, so it is the same at any size.
+    uint32_t frames = AUDIODSP_FILTER_F32_FRAMES;
+    if (args[ARG_buffer_size].u_obj != mp_const_none) {
+        const mp_int_t bytes = mp_obj_get_int(args[ARG_buffer_size].u_obj);
+        const mp_int_t width = 2 * channel_count;
+        if (bytes < width || bytes % width != 0 ||
+            bytes > (mp_int_t)AUDIODSP_FILTER_F32_FRAMES * width) {
+            mp_raise_ValueError(MP_ERROR_TEXT(
+                "buffer_size must be whole frames, from one to 256"));
+        }
+        frames = (uint32_t)(bytes / width);
+    }
+
     audiobiquad_biquad_obj_t *self =
         mp_obj_malloc(audiobiquad_biquad_obj_t, type);
     self->base.sample_rate = (uint32_t)args[ARG_sample_rate].u_int;
-    self->base.max_buffer_length = sizeof(self->buffer);
+    self->base.max_buffer_length = frames * 2u * (uint32_t)channel_count;
+    self->frames = frames;
     self->base.bits_per_sample = 16;
     self->base.channel_count = (uint8_t)channel_count;
     self->base.samples_signed = 1;
@@ -230,7 +248,7 @@ static audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
     (void)channel;
     audiobiquad_biquad_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint32_t produced = 0;
-    while (produced < AUDIODSP_FILTER_F32_FRAMES) {
+    while (produced < self->frames) {
         if (self->pending_frames == 0) {
             if (self->source == MP_OBJ_NULL) {
                 break;
@@ -247,7 +265,7 @@ static audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
             self->pending = (const int16_t *)raw;
             self->pending_frames = raw_bytes / width;
         }
-        uint32_t run = AUDIODSP_FILTER_F32_FRAMES - produced;
+        uint32_t run = self->frames - produced;
         if (run > self->pending_frames) {
             run = self->pending_frames;
         }
@@ -265,7 +283,7 @@ static audioio_get_buffer_result_t audiobiquad_biquad_get_buffer(
     // with the source.
     if (produced == 0) {
         memset(self->buffer, 0, sizeof(self->buffer));
-        produced = AUDIODSP_FILTER_F32_FRAMES;
+        produced = self->frames;
     }
     *buffer = (uint8_t *)self->buffer;
     *buffer_length = produced * 2u * self->base.channel_count;
