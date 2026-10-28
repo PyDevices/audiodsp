@@ -22,7 +22,7 @@
 //|     written as exact zero.
 //|
 //|     Processes signed 16-bit mono or stereo and hands out 256 frames at a
-//|     time. It sits in an audiosample chain like any other effect and never
+//|     time, or ``buffer_size`` bytes of them. It sits in an audiosample chain like any other effect and never
 //|     reports itself finished - a starved chain gets silence."""
 //|
 //|     def __init__(
@@ -35,13 +35,16 @@
 //|         mix: synthio.BlockInput = 1.0,
 //|         sample_rate: int = 48000,
 //|         channel_count: int = 2,
+//|         buffer_size: Optional[int] = None,
 //|     ) -> None:
 //|         """Create a biquad. ``mode`` is one of the module's ``LOW_PASS``
 //|         .. ``HIGH_SHELF`` constants, numbered exactly as
 //|         `synthio.FilterMode` numbers them. ``gain_db`` applies to the
 //|         peaking and shelf modes only. ``mix`` crossfades between the
 //|         untouched signal and the filtered one, the way
-//|         `audiofilters.Filter`'s does."""
+//|         `audiofilters.Filter`'s does. ``buffer_size`` is the size in bytes
+//|         of each block handed out, as on the CircuitPython effects, from
+//|         one frame to the default of 256."""
 //|         ...
 
 static void biquad_set_mode(audiobiquad_biquad_obj_t *self, mp_int_t mode) {
@@ -57,7 +60,7 @@ static void biquad_set_mode(audiobiquad_biquad_obj_t *self, mp_int_t mode) {
 static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
     size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum { ARG_mode, ARG_frequency, ARG_Q, ARG_gain_db, ARG_mix,
-           ARG_sample_rate, ARG_channel_count };
+           ARG_sample_rate, ARG_channel_count, ARG_buffer_size };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_mode, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 0} },
         { MP_QSTR_frequency, MP_ARG_OBJ | MP_ARG_KW_ONLY,
@@ -68,6 +71,8 @@ static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
         { MP_QSTR_mix, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_obj = MP_ROM_INT(1)} },
         { MP_QSTR_sample_rate, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 48000} },
         { MP_QSTR_channel_count, MP_ARG_INT | MP_ARG_KW_ONLY, {.u_int = 2} },
+        { MP_QSTR_buffer_size, MP_ARG_OBJ | MP_ARG_KW_ONLY,
+          {.u_obj = MP_ROM_NONE} },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args,
@@ -78,10 +83,26 @@ static mp_obj_t audiobiquad_biquad_make_new(const mp_obj_type_t *type,
     mp_arg_validate_int_min(args[ARG_sample_rate].u_int, 1,
         MP_QSTR_sample_rate);
 
+    // `buffer_size` is bytes per block, as on the CircuitPython effects, so a
+    // host running small blocks gets them without the latency of gathering
+    // 256 frames. The filter is per sample, so it is the same at any size.
+    uint32_t frames = AUDIODSP_FILTER_F32_FRAMES;
+    if (args[ARG_buffer_size].u_obj != mp_const_none) {
+        const mp_int_t bytes = mp_obj_get_int(args[ARG_buffer_size].u_obj);
+        const mp_int_t width = 2 * channel_count;
+        if (bytes < width || bytes % width != 0 ||
+            bytes > (mp_int_t)AUDIODSP_FILTER_F32_FRAMES * width) {
+            mp_raise_ValueError(MP_ERROR_TEXT(
+                "buffer_size must be whole frames, from one to 256"));
+        }
+        frames = (uint32_t)(bytes / width);
+    }
+
     audiobiquad_biquad_obj_t *self =
         mp_obj_malloc(audiobiquad_biquad_obj_t, &audiobiquad_biquad_type);
     self->base.sample_rate = (uint32_t)args[ARG_sample_rate].u_int;
-    self->base.max_buffer_length = sizeof(self->buffer);
+    self->base.max_buffer_length = frames * 2u * (uint32_t)channel_count;
+    self->frames = frames;
     self->base.bits_per_sample = 16;
     self->base.channel_count = (uint8_t)channel_count;
     self->base.samples_signed = 1;

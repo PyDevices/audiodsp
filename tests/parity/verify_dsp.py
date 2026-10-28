@@ -134,6 +134,10 @@ PROBES = (
     # (audiocomponents#162). Its own file, so the probe above keeps
     # rendering what it rendered.
     ("filter_f32_move_probe.py", "audiobiquad", {}, None),
+    # Biquad and AllPass at the caller's block size: a 64-frame and a
+    # one-frame render are the default's, cut smaller. Its own file, so the
+    # probes above keep rendering what they rendered.
+    ("filter_f32_frames_probe.py", "audiobiquad", {}, None),
     ("modal_probe.py", "audiomodal", {}, None),
     ("sampler_probe.py", "audiosampler", {}, None),
     # audiometer reads levels rather than rendering PCM; the bytes it prints

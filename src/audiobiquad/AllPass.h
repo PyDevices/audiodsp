@@ -30,6 +30,9 @@ typedef struct {
     int16_t buffer[AUDIODSP_FILTER_F32_FRAMES * 2];
     const int16_t *pending;
     uint32_t pending_frames;
+    // Frames per output block: buffer_size's, at most
+    // AUDIODSP_FILTER_F32_FRAMES.
+    uint32_t frames;
 } audiobiquad_allpass_obj_t;
 
 extern const mp_obj_type_t audiobiquad_allpass_type;
