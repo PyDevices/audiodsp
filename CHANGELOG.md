@@ -1,3 +1,9 @@
+## v0.6.11.dev4 (2026-10-28)
+
+- audiograph: tables in pages, so a large patch fits a fragmented heap (#328)
+- Shorten AGENTS.md to tips; the parity-gate and oracle rules move to a docs page (#327)
+- Add a simpletest: a synthio chord through a low-pass, saved as a WAV (#325)
+
 ## v0.6.11.dev3 (2026-10-28)
 
 - audiobiquad: buffer_size, so a host's 64-frame blocks need no chunking
