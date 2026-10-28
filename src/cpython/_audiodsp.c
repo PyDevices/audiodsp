@@ -3416,7 +3416,10 @@ typedef struct {
     // Memoryviews of the wow tables the delay nodes borrow, kept alive (and
     // their arrays kept from resizing) for as long as the graph is.
     PyObject *keep;
-    // The queue's records and get()'s shadow (shared/audiodsp_graph.h).
+    // The tables as single blocks; the graph sees them through page
+    // pointers into these (shared/audiodsp_graph.h).
+    int16_t *bufs;
+    audiodsp_graph_node_t *table;
     audiodsp_graph_record_t *records;
     float *shadow;
     // Two output blocks for _get_buffer, used in turn.
@@ -3474,23 +3477,47 @@ static int graph_state_init(audiodsp_graph_object_t *self, PyObject *args,
         sizeof(float));
     int16_t *out = PyMem_Calloc(2u * (size_t)frames * (size_t)channels,
         sizeof(int16_t));
+    uint32_t node_pages = audiodsp_graph_pages((uint32_t)nodes, AUDIODSP_GRAPH_NODE_PAGE);
+    uint32_t record_pages = audiodsp_graph_pages((uint32_t)queue, AUDIODSP_GRAPH_RECORD_PAGE);
+    int16_t **buf_at = PyMem_Calloc((size_t)buffers, sizeof(int16_t *));
+    audiodsp_graph_node_t **node_at = PyMem_Calloc(node_pages, sizeof(audiodsp_graph_node_t *));
+    audiodsp_graph_record_t **record_at = PyMem_Calloc(record_pages,
+        sizeof(audiodsp_graph_record_t *));
+    float **shadow_at = PyMem_Calloc(node_pages, sizeof(float *));
     PyObject *keep = PyList_New(0);
     if (bufs == NULL || table == NULL || records == NULL || shadow == NULL ||
-        out == NULL || keep == NULL) {
+        out == NULL || buf_at == NULL || node_at == NULL || record_at == NULL ||
+        shadow_at == NULL || keep == NULL) {
         PyMem_Free(bufs);
         PyMem_Free(table);
         PyMem_Free(records);
         PyMem_Free(shadow);
         PyMem_Free(out);
+        PyMem_Free(buf_at);
+        PyMem_Free(node_at);
+        PyMem_Free(record_at);
+        PyMem_Free(shadow_at);
         Py_XDECREF(keep);
         if (!PyErr_Occurred()) {
             PyErr_NoMemory();
         }
         return -1;
     }
+    for (long i = 0; i < buffers; ++i) {
+        buf_at[i] = bufs + (size_t)i * (size_t)frames;
+    }
+    for (uint32_t i = 0; i < node_pages; ++i) {
+        node_at[i] = table + (size_t)i * AUDIODSP_GRAPH_NODE_PAGE;
+        shadow_at[i] = shadow + (size_t)i * AUDIODSP_GRAPH_SHADOW_PAGE;
+    }
+    for (uint32_t i = 0; i < record_pages; ++i) {
+        record_at[i] = records + (size_t)i * AUDIODSP_GRAPH_RECORD_PAGE;
+    }
     audiodsp_graph_init(&self->graph, (uint32_t)sample_rate, (uint32_t)frames,
-        (uint32_t)channels, bufs, (uint32_t)buffers, table, (uint32_t)nodes);
-    audiodsp_graph_queue_init(&self->graph, records, (uint32_t)queue, shadow);
+        (uint32_t)channels, buf_at, (uint32_t)buffers, node_at, (uint32_t)nodes);
+    audiodsp_graph_queue_init(&self->graph, record_at, (uint32_t)queue, shadow_at);
+    self->bufs = bufs;
+    self->table = table;
     self->records = records;
     self->shadow = shadow;
     self->out = out;
@@ -3505,16 +3532,24 @@ static void graph_state_dealloc(audiodsp_graph_object_t *self) {
     PyTypeObject *type = Py_TYPE(self);
     if (self->graph.nodes != NULL) {
         for (uint32_t i = 0; i < self->graph.nnodes; ++i) {
-            PyMem_Free(self->graph.nodes[i].data);
+            PyMem_Free(audiodsp_graph_node(&self->graph, i)->data);
         }
     }
     PyMem_Free(self->graph.nodes);
     PyMem_Free(self->graph.bufs);
+    PyMem_Free(self->graph.records);
+    PyMem_Free(self->graph.shadow);
+    PyMem_Free(self->table);
+    PyMem_Free(self->bufs);
     PyMem_Free(self->records);
     PyMem_Free(self->shadow);
     PyMem_Free(self->out);
     self->graph.nodes = NULL;
     self->graph.bufs = NULL;
+    self->graph.records = NULL;
+    self->graph.shadow = NULL;
+    self->table = NULL;
+    self->bufs = NULL;
     self->records = NULL;
     self->shadow = NULL;
     self->out = NULL;
@@ -3999,7 +4034,7 @@ static int16_t *graph_block_of(audiodsp_graph_object_t *self, long id) {
         PyErr_SetString(PyExc_ValueError, "bad buffer id");
         return NULL;
     }
-    return self->graph.bufs + (size_t)id * self->graph.frames;
+    return self->graph.bufs[id];
 }
 
 // read(buffer, dst): copy a block out into an int16 buffer of `frames`.

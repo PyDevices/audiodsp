@@ -142,6 +142,21 @@ class TheModule(unittest.TestCase):
         self.assertEqual(stats["pushed"], stats["applied"])
         self.assertGreater(stats["splits"], 0)
 
+    def test_tables_that_span_many_pages(self):
+        # 101 nodes span four node pages, and 1,400 records run past a
+        # 600-record queue's end and across its two record pages twice over.
+        g = ag.Graph(frames=4, channel_count=2, buffers=100, nodes=101, queue=600)
+        ids = [g.buffer() for _ in range(100)]
+        nodes = [g.add(ag.CONST, ag.ALWAYS, (), b) for b in ids]
+        g.add(ag.OUT, ag.ALWAYS, (ids[-2], ids[-1]), None)
+        for round in range(1, 15):
+            for i, n in enumerate(nodes):
+                g.set(n, 0, float(round * 100 + i))
+            self._pull(g)
+        self.assertEqual([g.get(n, 0) for n in nodes], [1400.0 + i for i in range(100)])
+        self.assertEqual(self._pull(g), [1498, 1499] * 4)
+        self.assertEqual(g.stats()["overflows"], 0)
+
     def test_a_bad_set_is_refused_before_it_is_queued(self):
         g, a, _b = self._pair()
         with self.assertRaises((IndexError, ValueError)):

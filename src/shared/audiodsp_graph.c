@@ -194,8 +194,8 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
 }
 
 void audiodsp_graph_init(audiodsp_graph_t *graph, uint32_t sample_rate,
-    uint32_t frames, uint32_t channel_count, int16_t *bufs, uint32_t nbufs,
-    audiodsp_graph_node_t *nodes, uint32_t max_nodes) {
+    uint32_t frames, uint32_t channel_count, int16_t **bufs, uint32_t nbufs,
+    audiodsp_graph_node_t **nodes, uint32_t max_nodes) {
     graph->sample_rate = sample_rate;
     graph->frames = frames;
     graph->channel_count = channel_count;
@@ -221,7 +221,9 @@ void audiodsp_graph_init(audiodsp_graph_t *graph, uint32_t sample_rate,
     graph->splits = 0;
     graph->high_water = 0;
     graph->shadow = NULL;
-    memset(bufs, 0, (size_t)nbufs * frames * sizeof(int16_t));
+    for (uint32_t i = 0; i < nbufs; ++i) {
+        memset(bufs[i], 0, (size_t)frames * sizeof(int16_t));
+    }
 }
 
 static float env_coeff(float seconds, float scale, uint32_t sample_rate) {
@@ -260,7 +262,7 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             return -1;
         }
     }
-    audiodsp_graph_node_t *node = &graph->nodes[graph->nnodes];
+    audiodsp_graph_node_t *node = audiodsp_graph_node(graph, graph->nnodes);
     memset(node, 0, sizeof(*node));
     node->kind = (uint8_t)kind;
     node->group = (uint8_t)group;
@@ -412,7 +414,7 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             break;
     }
     if (graph->shadow != NULL) {
-        memcpy(graph->shadow + (size_t)graph->nnodes * AUDIODSP_GRAPH_MAX_PARAMS,
+        memcpy(audiodsp_graph_shadow(graph, graph->nnodes),
             node->param, sizeof(node->param));
     }
     return (int)graph->nnodes++;
@@ -423,7 +425,7 @@ bool audiodsp_graph_set(audiodsp_graph_t *graph, uint32_t node,
     if (node >= graph->nnodes || index >= AUDIODSP_GRAPH_MAX_PARAMS) {
         return false;
     }
-    audiodsp_graph_node_t *n = &graph->nodes[node];
+    audiodsp_graph_node_t *n = audiodsp_graph_node(graph, node);
     n->param[index] = value;
     n->dirty = true;
     return true;
@@ -434,16 +436,16 @@ bool audiodsp_graph_get(const audiodsp_graph_t *graph, uint32_t node,
     if (node >= graph->nnodes || index >= AUDIODSP_GRAPH_MAX_PARAMS) {
         return false;
     }
-    *value = graph->nodes[node].param[index];
+    *value = audiodsp_graph_node(graph, node)->param[index];
     return true;
 }
 
 bool audiodsp_graph_set_table(audiodsp_graph_t *graph, uint32_t node,
     const int16_t *table, uint32_t length) {
-    if (node >= graph->nnodes || graph->nodes[node].kind != AUDIODSP_GRAPH_FBDELAY) {
+    if (node >= graph->nnodes || audiodsp_graph_node(graph, node)->kind != AUDIODSP_GRAPH_FBDELAY) {
         return false;
     }
-    graph_fbdelay_t *d = graph->nodes[node].data;
+    graph_fbdelay_t *d = audiodsp_graph_node(graph, node)->data;
     return audiodsp_feedback_delay_set_wow_shape(&d->config, table, length);
 }
 
@@ -451,7 +453,7 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
     if (node >= graph->nnodes) {
         return false;
     }
-    audiodsp_graph_node_t *n = &graph->nodes[node];
+    audiodsp_graph_node_t *n = audiodsp_graph_node(graph, node);
     switch (n->kind) {
         case AUDIODSP_GRAPH_OSC:
             audiodsp_oscillator_reset(&((graph_osc_t *)n->data)->state);
@@ -779,11 +781,11 @@ static void run_lag(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     graph_lag_t *d = n->data;
     const int16_t *note = n->inputs[0] == AUDIODSP_GRAPH_NONE
-        ? NULL : graph->bufs + (size_t)n->inputs[0] * graph->frames;
+        ? NULL : graph->bufs[n->inputs[0]];
     const int16_t *pitch = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
-        ? graph->bufs + (size_t)n->inputs[1] * graph->frames : NULL;
+        ? graph->bufs[n->inputs[1]] : NULL;
     const int16_t *legato = n->ninputs > 2 && n->inputs[2] != AUDIODSP_GRAPH_NONE
-        ? graph->bufs + (size_t)n->inputs[2] * graph->frames : NULL;
+        ? graph->bufs[n->inputs[2]] : NULL;
     const float time = n->param[AUDIODSP_GRAPH_LAG_TIME];
     const float target = note != NULL ? (float)note[0] : 0.0f;
     float acc[AUDIODSP_GRAPH_MAX_FRAMES];
@@ -871,9 +873,9 @@ static void run_sample_hold(const audiodsp_graph_t *graph,
     audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
     graph_sh_t *d = n->data;
     const int16_t *signal = n->inputs[0] == AUDIODSP_GRAPH_NONE
-        ? NULL : graph->bufs + (size_t)n->inputs[0] * graph->frames;
+        ? NULL : graph->bufs[n->inputs[0]];
     const int16_t *clock = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
-        ? graph->bufs + (size_t)n->inputs[1] * graph->frames : NULL;
+        ? graph->bufs[n->inputs[1]] : NULL;
     float lag = n->param[AUDIODSP_GRAPH_SH_LAG];
     if (!(lag > 0.0f)) {
         lag = 0.0f;
@@ -954,7 +956,7 @@ static void run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         if (n->inputs[k] == AUDIODSP_GRAPH_NONE) {
             continue;
         }
-        const int16_t *in = graph->bufs + (size_t)n->inputs[k] * graph->frames;
+        const int16_t *in = graph->bufs[n->inputs[k]];
         const float g1 = n->param[k];
         const float g0 = d->gain_now[k];
         d->gain_now[k] = g1;
@@ -982,10 +984,10 @@ static void run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
 static void run_vca(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     const int16_t *audio = n->inputs[0] == AUDIODSP_GRAPH_NONE
-        ? NULL : graph->bufs + (size_t)n->inputs[0] * graph->frames;
+        ? NULL : graph->bufs[n->inputs[0]];
     const uint32_t which = n->param[AUDIODSP_GRAPH_VCA_SELECT] < 0.5f ? 1u : 2u;
     const int16_t *cv = n->inputs[which] == AUDIODSP_GRAPH_NONE
-        ? NULL : graph->bufs + (size_t)n->inputs[which] * graph->frames;
+        ? NULL : graph->bufs[n->inputs[which]];
     const float k = n->param[AUDIODSP_GRAPH_VCA_GAIN] / AUDIODSP_GRAPH_UNIT;
     if (audio == NULL || cv == NULL) {
         memset(out, 0, frames * sizeof(int16_t));
@@ -1011,9 +1013,9 @@ static void run_out(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         return;
     }
     const int16_t *left = n->inputs[0] == AUDIODSP_GRAPH_NONE
-        ? NULL : graph->bufs + (size_t)n->inputs[0] * graph->frames;
+        ? NULL : graph->bufs[n->inputs[0]];
     const int16_t *right = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
-        ? graph->bufs + (size_t)n->inputs[1] * graph->frames : left;
+        ? graph->bufs[n->inputs[1]] : left;
     const float scale = n->param[0];
     if (left == NULL) {
         memset(out, 0, (size_t)frames * graph->channel_count * sizeof(int16_t));
@@ -1183,9 +1185,9 @@ static void run_twopole(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     graph_twopole_t *d = n->data;
     const int16_t *in = n->inputs[0] == AUDIODSP_GRAPH_NONE
-        ? NULL : graph->bufs + (size_t)n->inputs[0] * graph->frames;
+        ? NULL : graph->bufs[n->inputs[0]];
     const int16_t *cv = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
-        ? graph->bufs + (size_t)n->inputs[1] * graph->frames : NULL;
+        ? graph->bufs[n->inputs[1]] : NULL;
     // The nearest type; anything out of range is the Sallen-Key low-pass.
     const float pick = n->param[AUDIODSP_GRAPH_TWOPOLE_TYPE] + 0.5f;
     const uint32_t type = pick >= 1.0f && pick < (float)AUDIODSP_GRAPH_TWOPOLE_TYPES
@@ -1292,9 +1294,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     float acc[AUDIODSP_GRAPH_MAX_FRAMES];
     uint32_t sounding = 0;
     for (uint32_t index = 0; index < graph->nnodes; ++index) {
-        audiodsp_graph_node_t *n = &graph->nodes[index];
+        audiodsp_graph_node_t *n = audiodsp_graph_node(graph, index);
         int16_t *dst = n->output == AUDIODSP_GRAPH_NONE
-            ? NULL : graph->bufs + (size_t)n->output * frames;
+            ? NULL : graph->bufs[n->output];
         if (n->group != AUDIODSP_GRAPH_ALWAYS && !((enable >> n->group) & 1u)) {
             if (n->ran) {
                 n->ran = false;
@@ -1309,7 +1311,7 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
             derive(graph, n);
         }
         const int16_t *in0 = n->inputs[0] == AUDIODSP_GRAPH_NONE
-            ? NULL : graph->bufs + (size_t)n->inputs[0] * frames;
+            ? NULL : graph->bufs[n->inputs[0]];
         switch (n->kind) {
             case AUDIODSP_GRAPH_CONST: {
                 const int16_t v = sat16(n->param[0]);
@@ -1324,7 +1326,7 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 uint32_t strides[AUDIODSP_OSCILLATOR_INPUTS];
                 for (uint32_t k = 0; k < AUDIODSP_OSCILLATOR_INPUTS; ++k) {
                     live[k] = (k < n->ninputs && n->inputs[k] != AUDIODSP_GRAPH_NONE)
-                        ? graph->bufs + (size_t)n->inputs[k] * frames : NULL;
+                        ? graph->bufs[n->inputs[k]] : NULL;
                     strides[k] = 1;
                 }
                 audiodsp_oscillator_process_s16(&d->config, &d->state, dst,
@@ -1334,7 +1336,7 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
             case AUDIODSP_GRAPH_LADDER: {
                 graph_ladder_t *d = n->data;
                 const int16_t *cutoff = (n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE)
-                    ? graph->bufs + (size_t)n->inputs[1] * frames : NULL;
+                    ? graph->bufs[n->inputs[1]] : NULL;
                 if (in0 == NULL) {
                     memset(dst, 0, frames * sizeof(int16_t));
                     in0 = dst;
@@ -1408,7 +1410,7 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:
                 audiodsp_graph_overdrive_run(n->data, n->inputs[0] == AUDIODSP_GRAPH_NONE
-                    ? NULL : graph->bufs + (size_t)n->inputs[0] * graph->frames, dst, frames);
+                    ? NULL : graph->bufs[n->inputs[0]], dst, frames);
                 break;
 #endif
             default:
@@ -1423,7 +1425,7 @@ int32_t audiodsp_graph_peak(const audiodsp_graph_t *graph, uint32_t buffer) {
     if (buffer >= graph->nbufs) {
         return -1;
     }
-    const int16_t *b = graph->bufs + (size_t)buffer * graph->frames;
+    const int16_t *b = graph->bufs[buffer];
     int32_t peak = 0;
     for (uint32_t i = 0; i < graph->frames; ++i) {
         int32_t v = b[i] < 0 ? -(int32_t)b[i] : b[i];
@@ -1437,14 +1439,14 @@ int32_t audiodsp_graph_peak(const audiodsp_graph_t *graph, uint32_t buffer) {
 // --- the control queue ------------------------------------------------------
 
 void audiodsp_graph_queue_init(audiodsp_graph_t *graph,
-    audiodsp_graph_record_t *records, uint32_t capacity, float *shadow) {
+    audiodsp_graph_record_t **records, uint32_t capacity, float **shadow) {
     graph->records = records;
     graph->capacity = capacity;
     graph->shadow = shadow;
     if (shadow != NULL) {
         for (uint32_t i = 0; i < graph->nnodes; ++i) {
-            memcpy(shadow + (size_t)i * AUDIODSP_GRAPH_MAX_PARAMS,
-                graph->nodes[i].param, sizeof(graph->nodes[i].param));
+            const audiodsp_graph_node_t *n = audiodsp_graph_node(graph, i);
+            memcpy(audiodsp_graph_shadow(graph, i), n->param, sizeof(n->param));
         }
     }
 }
@@ -1475,7 +1477,7 @@ uint32_t audiodsp_graph_drain(audiodsp_graph_t *graph) {
     uint32_t at = graph->tail;
     const uint32_t n = end - at;
     for (; at != end; ++at) {
-        apply(graph, &graph->records[at % graph->capacity]);
+        apply(graph, audiodsp_graph_record(graph, at));
     }
     if (n) {
         graph->applied += n;
@@ -1509,7 +1511,7 @@ void audiodsp_graph_enqueue(audiodsp_graph_t *graph, uint8_t op,
         }
         waiting = graph->head - GRAPH_LOAD_ACQ(&graph->tail);
     }
-    audiodsp_graph_record_t *r = &graph->records[graph->head % graph->capacity];
+    audiodsp_graph_record_t *r = audiodsp_graph_record(graph, graph->head);
     r->op = op;
     r->index = (uint8_t)index;
     r->node = (uint16_t)node;
@@ -1524,7 +1526,7 @@ void audiodsp_graph_enqueue(audiodsp_graph_t *graph, uint8_t op,
         graph->high_water = waiting + 1u;
     }
     if (op == AUDIODSP_GRAPH_OP_SET && graph->shadow != NULL) {
-        graph->shadow[(size_t)node * AUDIODSP_GRAPH_MAX_PARAMS + index] = value;
+        audiodsp_graph_shadow(graph, node)[index] = value;
     }
     if (!graph->held) {
         publish(graph);
@@ -1577,6 +1579,6 @@ bool audiodsp_graph_get_shadow(const audiodsp_graph_t *graph, uint32_t node,
     if (graph->shadow == NULL) {
         return audiodsp_graph_get(graph, node, index, value);
     }
-    *value = graph->shadow[(size_t)node * AUDIODSP_GRAPH_MAX_PARAMS + index];
+    *value = audiodsp_graph_shadow(graph, node)[index];
     return true;
 }

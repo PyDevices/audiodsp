@@ -448,7 +448,7 @@ static int16_t *block_of(audiograph_graph_obj_t *self, mp_obj_t buffer) {
     if (id < 0 || (uint32_t)id >= self->graph.nbufs) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad buffer id"));
     }
-    return self->graph.bufs + (size_t)id * self->graph.frames;
+    return self->graph.bufs[id];
 }
 
 // read(buffer, dst): copy a block out into an int16 buffer of `frames`.
