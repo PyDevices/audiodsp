@@ -42,6 +42,6 @@ for f in (100, 1000, 4000, 8000):
  8000 Hz   -38.4 dB
 ```
 
-[Docs](https://github.com/PyDevices/audiodsp/blob/main/docs/index.md) · [Examples](https://pydevices.github.io/pydevices-examples/gallery/) · [Roadmap](ROADMAP.md)
+[Docs](https://github.com/PyDevices/audiodsp/blob/main/docs/index.md) · [Examples](https://pydevices.github.io/gallery/gallery/) · [Roadmap](ROADMAP.md)
 
 OmniPython is made by [PyDevices](https://pydevices.com).
