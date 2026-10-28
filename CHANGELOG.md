@@ -1,3 +1,7 @@
+## v0.6.11.dev3 (2026-10-28)
+
+- audiobiquad: buffer_size, so a host's 64-frame blocks need no chunking
+
 ## v0.6.11.dev2 (2026-10-27)
 
 - audiograph: OVERDRIVE in its own file, left out of CircuitPython
