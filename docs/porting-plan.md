@@ -182,7 +182,7 @@ per-port DMA drivers — none port directly. Parity means reproducing their
 - **Adapter (optional):** audiosample → `audiodev.PCMOutput.write()` for
   wasm/web and any host audiodev already supports.
 
-Teardown follows workspace rules (`displayif/AGENTS.md`): any output owning
+Teardown follows displayif's soft-reset rules: any output owning
 host resources (SDL device, I2S instance) registers soft-reset teardown and
 supports idempotent `deinit`.
 
