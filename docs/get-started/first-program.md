@@ -72,6 +72,11 @@ That renders a block from a source; it doesn't select a speaker. A host can
 pull the graph for offline rendering, give it to a mixer or a pump, or
 attach it to a platform-specific audio output.
 
+[`examples/audiodsp_simpletest.py`](../../examples/audiodsp_simpletest.py)
+takes it to something you can hear: a chord through a low-pass, pulled
+block by block into a WAV file. It runs unchanged on MicroPython,
+CircuitPython and CPython.
+
 ## Next
 
 - [Play computed audio](../guides/play-computed-audio.md) with `audiopump.Ring`.
