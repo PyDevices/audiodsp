@@ -11,11 +11,17 @@ so a desktop and a board make the same bytes from the same samples.
     fe.feed(pcm, 48000, 2)                 # interleaved s16, any rate from 16 kHz
     buf = bytearray(40 * 10)
     n = fe.readinto(buf)                   # n whole slices of 40 int8
+    voice = bytearray(10)
+    n = fe.readinto(buf, voice)            # and voice[i] is 1 where slice i holds speech
 
 Audio that isn't 16 kHz is resampled to 16 kHz first, through a low-pass that
 is flat to 7.5 kHz; 16 kHz audio goes to the frontend untouched. Each 10 ms
 makes a slice, which waits in a queue of ``slices`` until it is read. When
 the queue is full the oldest slice is dropped, and ``stats()`` counts it.
+
+Every slice also carries a voice activity flag, from the frontend's own
+filterbank: ``readinto(buf, voice)`` puts one byte a slice into ``voice``,
+and ``speaking()`` says whether the newest slice holds speech.
 
 On a board the frontend can also listen without Python touching a sample:
 ``attach(tap, sample_rate)`` reads an ``audiopump.Tap`` in C. There is no pump
@@ -66,13 +72,21 @@ class Frontend:
     def detach(self):
         self._live()
 
-    def readinto(self, buf):
-        """Whole slices of 40 int8 into ``buf``, oldest first. Returns how many."""
-        return self._live().read(buf, False)
+    def readinto(self, buf, voice=None):
+        """Whole slices of 40 int8 into ``buf``, oldest first. Returns how many.
 
-    def readinto_raw(self, buf):
+        Given ``voice``, a writable buffer, each slice's voice flag goes into
+        it too, a byte each: 1 when the slice holds speech, 0 when not.
+        """
+        return self._live().read(buf, False, voice)
+
+    def readinto_raw(self, buf, voice=None):
         """Whole slices of 40 uint16 (the frontend's own values) into ``buf``. Returns how many."""
-        return self._live().read(buf, True)
+        return self._live().read(buf, True, voice)
+
+    def speaking(self):
+        """Whether the newest slice made holds speech, read or not."""
+        return self._live().speaking()
 
     def reset(self):
         """Forget the audio so far and every queued slice."""

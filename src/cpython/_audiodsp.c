@@ -3458,17 +3458,37 @@ static PyObject *features_state_feed(audiodsp_features_object_t *self, PyObject 
     return PyLong_FromUnsignedLong(audiodsp_features_waiting(self->f));
 }
 
-// read(buf, raw): whole slices into a writable buffer, int8 or (raw) uint16
+// read(buf, raw, voice=None): whole slices into a writable buffer, int8 or
+// (raw) uint16, and a byte a slice into voice when it is given
 static PyObject *features_state_read(audiodsp_features_object_t *self, PyObject *args) {
-    Py_buffer out = {0};
+    Py_buffer out = {0}, vb = {0};
     int raw;
-    if (!PyArg_ParseTuple(args, "w*p:read", &out, &raw)) return NULL;
+    PyObject *voice_obj = Py_None;
+    if (!PyArg_ParseTuple(args, "w*p|O:read", &out, &raw, &voice_obj)) return NULL;
     size_t width = raw ? 2 * AUDIODSP_FEATURES_SIZE : AUDIODSP_FEATURES_SIZE;
     size_t max = (size_t)out.len / width;
-    size_t n = raw ? audiodsp_features_read_u16(self->f, (uint16_t *)out.buf, max)
-        : audiodsp_features_read_s8(self->f, (int8_t *)out.buf, max);
+    uint8_t *voice = NULL;
+    if (voice_obj != Py_None) {
+        if (PyObject_GetBuffer(voice_obj, &vb, PyBUF_WRITABLE) != 0) {
+            PyBuffer_Release(&out);
+            return NULL;
+        }
+        voice = (uint8_t *)vb.buf;
+        if ((size_t)vb.len < max) {
+            max = (size_t)vb.len;
+        }
+    }
+    size_t n = raw ? audiodsp_features_read_u16(self->f, (uint16_t *)out.buf, max, voice)
+        : audiodsp_features_read_s8(self->f, (int8_t *)out.buf, max, voice);
     PyBuffer_Release(&out);
+    if (voice != NULL) {
+        PyBuffer_Release(&vb);
+    }
     return PyLong_FromSize_t(n);
+}
+
+static PyObject *features_state_speaking(audiodsp_features_object_t *self, PyObject *unused) {
+    return PyBool_FromLong(audiodsp_features_speaking(self->f));
 }
 
 static PyObject *features_state_reset(audiodsp_features_object_t *self, PyObject *unused) {
@@ -3487,11 +3507,13 @@ static PyObject *features_state_stats(audiodsp_features_object_t *self, PyObject
 AUDIODSP_LOCKED_ARGS(features_state_feed, audiodsp_features_object_t)
 AUDIODSP_LOCKED_ARGS(features_state_read, audiodsp_features_object_t)
 AUDIODSP_LOCKED_ARGS(features_state_reset, audiodsp_features_object_t)
+AUDIODSP_LOCKED_ARGS(features_state_speaking, audiodsp_features_object_t)
 AUDIODSP_LOCKED_ARGS(features_state_stats, audiodsp_features_object_t)
 static PyMethodDef features_state_methods[] = {
     {"feed", (PyCFunction)features_state_feed_locked, METH_VARARGS, NULL},
     {"read", (PyCFunction)features_state_read_locked, METH_VARARGS, NULL},
     {"reset", (PyCFunction)features_state_reset_locked, METH_NOARGS, NULL},
+    {"speaking", (PyCFunction)features_state_speaking_locked, METH_NOARGS, NULL},
     {"stats", (PyCFunction)features_state_stats_locked, METH_NOARGS, NULL},
     {NULL, NULL, 0, NULL},
 };

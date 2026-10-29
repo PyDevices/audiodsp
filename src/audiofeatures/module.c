@@ -5,6 +5,8 @@
 //   fe.feed(pcm, 48000, channel_count=2)      # from Python, anywhere
 //   fe.attach(tap, 48000)                     # an audiopump.Tap, read in C
 //   n = fe.readinto(buf)                      # whole 10 ms slices of 40 int8
+//   n = fe.readinto(buf, voice)               # and a byte each: 1 for speech
+//   fe.speaking()                             # the newest slice holds speech
 //
 // As with audiometer.Meter, the two ways in differ in where the work runs.
 // feed() runs it in the caller. A tap is drained in C each time readinto()
@@ -141,29 +143,45 @@ static void audiofeatures_drain(audiofeatures_frontend_obj_t *self, uint32_t wan
     }
 }
 
-static mp_obj_t audiofeatures_read(mp_obj_t self_in, mp_obj_t buf_in, bool raw) {
-    audiofeatures_frontend_obj_t *self = audiofeatures_get(self_in);
+static mp_obj_t audiofeatures_read(size_t n_args, const mp_obj_t *args, bool raw) {
+    audiofeatures_frontend_obj_t *self = audiofeatures_get(args[0]);
     mp_buffer_info_t buf;
-    mp_get_buffer_raise(buf_in, &buf, MP_BUFFER_WRITE);
+    mp_get_buffer_raise(args[1], &buf, MP_BUFFER_WRITE);
     size_t width = raw ? 2 * AUDIODSP_FEATURES_SIZE : AUDIODSP_FEATURES_SIZE;
     size_t max = buf.len / width;
+    uint8_t *voice = NULL;
+    if (n_args > 2 && args[2] != mp_const_none) {
+        mp_buffer_info_t vb;
+        mp_get_buffer_raise(args[2], &vb, MP_BUFFER_WRITE);
+        voice = (uint8_t *)vb.buf;
+        if (vb.len < max) {
+            max = vb.len;
+        }
+    }
     audiofeatures_drain(self, max > UINT32_MAX ? UINT32_MAX : (uint32_t)max);
-    size_t n = raw ? audiodsp_features_read_u16(self->f, (uint16_t *)buf.buf, max)
-        : audiodsp_features_read_s8(self->f, (int8_t *)buf.buf, max);
+    size_t n = raw ? audiodsp_features_read_u16(self->f, (uint16_t *)buf.buf, max, voice)
+        : audiodsp_features_read_s8(self->f, (int8_t *)buf.buf, max, voice);
     return MP_OBJ_NEW_SMALL_INT(n);
 }
 
-// readinto(buf) -> slices: 40 int8 each, ready for a model
-static mp_obj_t audiofeatures_frontend_readinto(mp_obj_t self_in, mp_obj_t buf_in) {
-    return audiofeatures_read(self_in, buf_in, false);
+// readinto(buf, voice=None) -> slices: 40 int8 each, ready for a model, and
+// a byte each into voice, 1 when the slice holds speech
+static mp_obj_t audiofeatures_frontend_readinto(size_t n_args, const mp_obj_t *args) {
+    return audiofeatures_read(n_args, args, false);
 }
-static MP_DEFINE_CONST_FUN_OBJ_2(audiofeatures_frontend_readinto_obj, audiofeatures_frontend_readinto);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiofeatures_frontend_readinto_obj, 2, 3, audiofeatures_frontend_readinto);
 
-// readinto_raw(buf) -> slices: 40 uint16 each, the frontend's own values
-static mp_obj_t audiofeatures_frontend_readinto_raw(mp_obj_t self_in, mp_obj_t buf_in) {
-    return audiofeatures_read(self_in, buf_in, true);
+// readinto_raw(buf, voice=None) -> slices: 40 uint16 each, the frontend's own values
+static mp_obj_t audiofeatures_frontend_readinto_raw(size_t n_args, const mp_obj_t *args) {
+    return audiofeatures_read(n_args, args, true);
 }
-static MP_DEFINE_CONST_FUN_OBJ_2(audiofeatures_frontend_readinto_raw_obj, audiofeatures_frontend_readinto_raw);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiofeatures_frontend_readinto_raw_obj, 2, 3, audiofeatures_frontend_readinto_raw);
+
+// speaking() -> whether the newest slice made holds speech
+static mp_obj_t audiofeatures_frontend_speaking(mp_obj_t self_in) {
+    return mp_obj_new_bool(audiodsp_features_speaking(audiofeatures_get(self_in)->f));
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiofeatures_frontend_speaking_obj, audiofeatures_frontend_speaking);
 
 static mp_obj_t audiofeatures_frontend_reset(mp_obj_t self_in) {
     audiofeatures_frontend_obj_t *self = audiofeatures_get(self_in);
@@ -223,6 +241,7 @@ static const mp_rom_map_elem_t audiofeatures_frontend_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_detach), MP_ROM_PTR(&audiofeatures_frontend_detach_obj) },
     { MP_ROM_QSTR(MP_QSTR_readinto), MP_ROM_PTR(&audiofeatures_frontend_readinto_obj) },
     { MP_ROM_QSTR(MP_QSTR_readinto_raw), MP_ROM_PTR(&audiofeatures_frontend_readinto_raw_obj) },
+    { MP_ROM_QSTR(MP_QSTR_speaking), MP_ROM_PTR(&audiofeatures_frontend_speaking_obj) },
     { MP_ROM_QSTR(MP_QSTR_reset), MP_ROM_PTR(&audiofeatures_frontend_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_stats), MP_ROM_PTR(&audiofeatures_frontend_stats_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&audiofeatures_frontend_deinit_obj) },

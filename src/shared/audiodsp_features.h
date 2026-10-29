@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -57,9 +58,13 @@ uint32_t audiodsp_features_room(const audiodsp_features_t *f);
 uint32_t audiodsp_features_waiting(const audiodsp_features_t *f);
 
 // Up to max_slices of the oldest queued slices, removed from the queue.
-// Returns how many were written: AUDIODSP_FEATURES_SIZE values each.
-size_t audiodsp_features_read_u16(audiodsp_features_t *f, uint16_t *out, size_t max_slices);
-size_t audiodsp_features_read_s8(audiodsp_features_t *f, int8_t *out, size_t max_slices);
+// Returns how many were written: AUDIODSP_FEATURES_SIZE values each. When
+// voice isn't NULL it gets one byte a slice: 1 when the slice holds speech.
+size_t audiodsp_features_read_u16(audiodsp_features_t *f, uint16_t *out, size_t max_slices, uint8_t *voice);
+size_t audiodsp_features_read_s8(audiodsp_features_t *f, int8_t *out, size_t max_slices, uint8_t *voice);
+
+// Whether the newest slice made holds speech, read or not.
+bool audiodsp_features_speaking(const audiodsp_features_t *f);
 
 // The int8 a microWakeWord model takes for one raw value: ESPHome's
 // value * 256 / 666 - 128, rounded, in integers.

@@ -10,7 +10,8 @@ the same C everywhere, so a disagreement is the finding.
 The signal is made with integers only (tone and noise bursts, as in
 tests/test_cpython_audiofeatures.py), then held at 48 kHz stereo and 44.1 kHz
 mono by repeating samples, which is integer too. Each case is fed in two block
-sizes, and both must print the same.
+sizes, and both must print the same. Each case also prints its voice activity
+flags, one character a slice, which are integer arithmetic too.
 """
 
 import sys
@@ -23,12 +24,18 @@ features_module = __import__(MODULE)
 SIZE = 40
 
 
-def signal(quarters=6):
+PLAN = [(0, 0, 300), (7721, 9000, 300), (3861, 12000, 2000), (0, 0, 9000),
+        (25736, 6000, 600), (38604, 3000, 4000)]
+# For voice activity: a quiet floor, a burst, a long quiet, two bursts, quiet.
+QUIET = (0, 0, 300)
+VOICE_PLAN = [QUIET] * 4 + [(3861, 12000, 300), (7721, 6000, 300)] + [QUIET] * 6 + \
+    [(5148, 8000, 600)] + [QUIET] * 2 + [(0, 0, 6000)] + [QUIET] * 4
+
+
+def signal(quarters=6, plan=PLAN):
     out = array("h")
     s = 2024
     seg = 4000
-    plan = [(0, 0, 300), (7721, 9000, 300), (3861, 12000, 2000), (0, 0, 9000),
-            (25736, 6000, 600), (38604, 3000, 4000)]
     for i in range(quarters):
         step, level, noise = plan[i % len(plan)]
         x, y = level << 8, 0
@@ -57,28 +64,32 @@ def hold(pcm, rate, channels):
 def run(pcm, rate, channels, block):
     fe = features_module.Frontend(slices=64)
     raw = array("H", bytes(2 * SIZE * 64))
+    voice = bytearray(64)
     got = array("H")
+    flags = []
     mv = memoryview(pcm)
     step = block * channels
     for at in range(0, len(pcm), step):
         fe.feed(mv[at:at + step], rate, channels)
-        n = fe.readinto_raw(raw)
+        n = fe.readinto_raw(raw, voice)
         got.extend(raw[:n * SIZE])
+        flags.extend("v" if voice[i] else "." for i in range(n))
     dropped = fe.stats()["dropped"]
     fe.deinit()
-    return got, dropped
+    return got, dropped, "".join(flags)
 
 
 def main():
     base = signal()
     cases = (
         ("16k_mono", base, 16000, 1),
+        ("16k_voice", signal(len(VOICE_PLAN), VOICE_PLAN), 16000, 1),
         ("48k_stereo", hold(base, 48000, 2), 48000, 2),
         ("44k1_mono", hold(base, 44100, 1), 44100, 1),
     )
     for name, pcm, rate, channels in cases:
-        a, dropped = run(pcm, rate, channels, 480)
-        b, _ = run(pcm, rate, channels, 37)
+        a, dropped, va = run(pcm, rate, channels, 480)
+        b, _, vb = run(pcm, rate, channels, 37)
         h = 2166136261
         for v in a:
             h = ((h ^ v) * 16777619) & 0xFFFFFFFF
@@ -86,7 +97,9 @@ def main():
         print("%s slices %d dropped %d fnv %08x" % (name, slices, dropped, h))
         for k in range(0, slices, 25):
             print("%s %d %s" % (name, k, " ".join("%d" % v for v in a[k * SIZE:(k + 1) * SIZE])))
-        print("%s blocks %s" % (name, "same" if a == b else "DIFFERENT"))
+        print("%s blocks %s" % (name, "same" if a == b and va == vb else "DIFFERENT"))
+        for k in range(0, len(va), 50):
+            print("%s voice %d %s" % (name, k, va[k:k + 50]))
     print("quantize", " ".join("%d" % features_module.quantize(v) for v in (0, 1, 332, 333, 334, 665, 666, 670, 65535)))
 
 
