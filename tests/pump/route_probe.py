@@ -3,9 +3,10 @@ the port that must fault instead of recursing.
 
     <interpreter> tests/pump/route_probe.py [case ...] [--fault WHICH]
 
-Cases: ``ring``, ``events``, ``tap``, ``port`` (all by default).
-Faults: ``flip`` (ring), ``drop`` (events), ``short`` (tap), ``latch``
-(port). Each must make this exit non-zero.
+Cases: ``ring``, ``granular``, ``underrun``, ``overrun``, ``events``,
+``tap``, ``port`` (all by default).
+Faults: ``flip`` (ring), ``drop`` (underrun, overrun and events),
+``short`` (tap), ``latch`` (port). Each must make this exit non-zero.
 
 Everything here is measured on bytes, not on a description of bytes: the
 ring case compares what came out of the sink against what went in, the tap
@@ -158,6 +159,78 @@ def ring_granularity(fault):
     return say("granular", not refused and took == 4,
                "sub-frame writes accepted: %s; a 7-byte write took %d"
                % (refused or "none", took))
+
+
+def ring_underrun(fault):
+    """A producer that falls behind costs whole blocks of silence, counted,
+    and loses nothing it had already written.
+
+    A stream from a network arrives late in lumps. The ring holds a block
+    and a half, the pump asks for three: the first block is the stream, the
+    next two are silence and two underruns, and the half block is still in
+    the ring. Topped up, it comes out next, in order.
+    """
+    queue = audiopump.Ring(sample_rate=RATE, channel_count=CHANNELS,
+                           frames=BLOCK_FRAMES, capacity=4)
+    pattern = pattern_bytes(2)
+    half = BLOCK_BYTES + BLOCK_BYTES // 2
+    queue.write(memoryview(pattern)[:half])
+
+    first = pull(queue, 3)
+    want_first = digest(bytes(pattern[:BLOCK_BYTES]) + bytes(2 * BLOCK_BYTES))
+    held = queue.level()
+    counts = queue.stats()
+
+    if fault == "drop":
+        queue.clear()                 # what a ring that discards would do
+    queue.write(memoryview(pattern)[half:])
+    pull(queue, 1)
+    after = queue.stats()
+
+    ok = say("underrun", first[2] == want_first and counts[3] == 2
+             and counts[2] == 2 * BLOCK_BYTES,
+             "3 blocks from 1.5 queued: digest %016x / %016x, %d underruns,"
+             " %d bytes of silence" % (first[2], want_first, counts[3],
+                                       counts[2]))
+    return say("held", held == BLOCK_BYTES // 2
+               and after[7] == digest(pattern) and after[1] == len(pattern),
+               "%d bytes held through the gap; %d of %d out, digest %016x /"
+               " %016x" % (held, after[1], len(pattern), after[7],
+                           digest(pattern))) and ok
+
+
+def ring_overrun(fault):
+    """A write that does not fit is short, says so, and is counted.
+
+    A producer that keeps the remainder and offers it again loses nothing:
+    six blocks pushed through a ring two blocks deep, one pull between
+    writes, arrive whole and in order. The overruns are counted, and no
+    write ever blocks. ``--fault drop`` is the producer that believes every
+    write took everything.
+    """
+    queue = audiopump.Ring(sample_rate=RATE, channel_count=CHANNELS,
+                           frames=BLOCK_FRAMES, capacity=2)
+    pattern = pattern_bytes(6)
+    view = memoryview(pattern)
+    pos = 0
+    short = 0
+    rounds = 0
+    while pos < len(pattern) and rounds < 64:
+        rounds += 1
+        took = queue.write(view[pos:pos + 3 * BLOCK_BYTES // 2])
+        if took < min(3 * BLOCK_BYTES // 2, len(pattern) - pos):
+            short += 1
+        pos += 3 * BLOCK_BYTES // 2 if fault == "drop" else took
+        pull(queue, 1)
+    while queue.level() >= BLOCK_BYTES:
+        pull(queue, 1)
+    stats = queue.stats()
+    want = digest(pattern)
+    return say("overrun", stats[7] == want and stats[1] == len(pattern)
+               and short > 0 and stats[4] == short,
+               "%d short writes, %d overruns counted; %d of %d bytes out,"
+               " digest %016x / %016x" % (short, stats[4], stats[1],
+                                         len(pattern), stats[7], want))
 
 
 # --- the queue -------------------------------------------------------------
@@ -583,6 +656,7 @@ def refused(fault):
 
 
 CASES = (("ring", ring), ("granular", ring_granularity),
+         ("underrun", ring_underrun), ("overrun", ring_overrun),
          ("events", events), ("tap", tap), ("port", port),
          ("deep_loop", deep_loop), ("refused", refused),
          ("strike", strike))

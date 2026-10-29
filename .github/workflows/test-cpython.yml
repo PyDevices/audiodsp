@@ -79,6 +79,8 @@ jobs:
                          "pump_probe.py graph --fault late" \
                          "pump_probe.py graph --fault unqueued" \
                          "route_probe.py ring --fault flip" \
+                         "route_probe.py underrun --fault drop" \
+                         "route_probe.py overrun --fault drop" \
                          "route_probe.py events --fault drop" \
                          "route_probe.py tap --fault short" \
                          "route_probe.py tap --fault stale" \
