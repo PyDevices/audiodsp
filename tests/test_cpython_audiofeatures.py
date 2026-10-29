@@ -20,6 +20,7 @@ the resampler must remove, adds nothing.
 import os
 import shutil
 import subprocess
+import sys
 import unittest
 from array import array
 
@@ -253,7 +254,7 @@ class SurfaceTest(unittest.TestCase):
             fe.stats()
 
 
-@unittest.skipUnless(shutil.which("nm") and _audiodsp.__file__.endswith(".so"), "needs nm and an ELF build")
+@unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("nm"), "needs GNU nm and an ELF build")
 class SymbolTest(unittest.TestCase):
     """Every symbol of the microfrontend and kissfft is renamed, so another copy links."""
 

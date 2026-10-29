@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: Copyright (c) 2026 PyDevices
 
+#include "shared/audiodsp_fp_contract.h"
+
 #include "shared/audiodsp_features.h"
 
 #include <math.h>
@@ -61,6 +63,33 @@ static double rs_bessel_i0(double x) {
     return sum;
 }
 
+// sin(pi * x) from + - * / alone. libm's sin() is allowed to differ in the
+// last bit between libraries, and one bit in a tap can move a sample, so a
+// board's newlib and a desktop's glibc would make different taps. These
+// operations are exact IEEE ones everywhere.
+static double rs_sinpi(double x) {
+    double sign = 1.0;
+    if (x < 0.0) {
+        x = -x;
+        sign = -1.0;
+    }
+    x -= 2.0 * (double)(long)(x / 2.0);     // now 0 <= x < 2, exactly
+    if (x >= 1.0) {
+        x -= 1.0;
+        sign = -sign;
+    }
+    if (x > 0.5) {
+        x = 1.0 - x;                        // sin(pi x) = sin(pi (1 - x))
+    }
+    // Taylor series of sin(t), t = pi x <= pi / 2: 13 terms reach 1e-17.
+    double t = RS_PI * x, t2 = t * t, term = t, sum = t;
+    for (int k = 1; k < 14; k++) {
+        term *= -t2 / ((double)(2 * k) * (double)(2 * k + 1));
+        sum += term;
+    }
+    return sign * sum;
+}
+
 // The kernel at u output samples from the centre.
 static double rs_kernel(double u) {
     u = fabs(u);
@@ -69,7 +98,7 @@ static double rs_kernel(double u) {
     }
     double r = u / RS_ZEROS;
     double w = rs_bessel_i0(RS_BETA * sqrt(1.0 - r * r)) / rs_bessel_i0(RS_BETA);
-    double s = u < 1e-12 ? 1.0 : sin(RS_PI * u) / (RS_PI * u);
+    double s = u < 1e-12 ? 1.0 : rs_sinpi(u) / (RS_PI * u);
     return s * w;
 }
 

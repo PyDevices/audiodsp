@@ -23,6 +23,8 @@
 // include path, because the library names its headers by their full
 // "tensorflow/lite/..." path.
 
+#include "shared/audiodsp_fp_contract.h"
+
 #include <assert.h>
 #include <limits.h>
 #include <math.h>
