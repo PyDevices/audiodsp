@@ -50,7 +50,7 @@ MODULES = ("_audiodsp", "audiocore", "synthio", "audiomixer", "audiofilters",
            "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics",
            "audioroute", "audiomath", "audioecho", "audioshaper",
            "audioladder", "audiooscillator", "audioconvolve", "audiobiquad", "audioverb",
-           "audiomodal", "audiosampler", "audiometer", "audiopump",
+           "audiomodal", "audiosampler", "audiometer", "audiofeatures", "audiopump",
            "audiovorbis", "audiograph", "audiodsp_util")
 INSTRUMENTS = 16
 BLOCKS = 60

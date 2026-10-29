@@ -9,9 +9,11 @@ description = "CircuitPython-compatible audio synthesis and effects for PyDevice
 readme = "README.md"
 requires-python = ">=3.11"
 # audiovorbis compiles Xiph's Tremor into the extension, under its own
-# BSD-3-Clause licence, whose text travels with the wheel.
-license = "MIT AND BSD-3-Clause"
-license-files = ["LICENSE", "NOTICE", "third_party/tremor/COPYING"]
+# BSD-3-Clause licence, and audiofeatures compiles TensorFlow Lite Micro's
+# microfrontend (Apache-2.0) and kissfft (BSD-3-Clause). Their texts travel
+# with the wheel.
+license = "MIT AND BSD-3-Clause AND Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "third_party/tremor/COPYING", "third_party/microfrontend/LICENSE", "third_party/kissfft/COPYING"]
 authors = [{name = "PyDevices contributors"}]
 classifiers = [
   "Programming Language :: Python :: 3",
@@ -41,7 +43,7 @@ Repository = "https://github.com/PyDevices/audiodsp"
 Issues = "https://github.com/PyDevices/audiodsp/issues"
 
 [tool.setuptools]
-py-modules = ["audiocore", "synthio", "audiomixer", "audiofilters", "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics", "audioroute", "audiomath", "audioecho", "audioconvolve", "audiobiquad", "audioshaper", "audioladder", "audiooscillator", "audioverb", "audiomodal", "audiosampler", "audiometer", "audiopump", "audiovorbis", "audiograph"]
+py-modules = ["audiocore", "synthio", "audiomixer", "audiofilters", "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics", "audioroute", "audiomath", "audioecho", "audioconvolve", "audiobiquad", "audioshaper", "audioladder", "audiooscillator", "audioverb", "audiomodal", "audiosampler", "audiometer", "audiofeatures", "audiopump", "audiovorbis", "audiograph"]
 # Keep py-modules explicit: src/cpython is the root package directory now, and
 # an automatic scan there would also pick up anything else that lands in it.
 packages = ["audiorender", "audiodsp_util"]

@@ -388,4 +388,18 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiovorbis/VorbisDecoder.c \
     $(MPAUDIO_SRC_DIR)/audiovorbis/module.c
 
+# --- audiofeatures (Frontend) ---
+#
+# TensorFlow Lite Micro's audio microfrontend and the kissfft it calls, carried
+# in third_party/microfrontend (Apache-2.0) and third_party/kissfft
+# (BSD-3-Clause), compiled as one translation unit by
+# src/shared/audiodsp_microfrontend.c the way Tremor is. The library names its
+# headers by their full tensorflow/... path, hence the two include directories.
+# docs/guides/speech-features.md has what it does.
+CFLAGS_USERMOD += -I$(MPAUDIO_MOD_DIR)/third_party/microfrontend -I$(MPAUDIO_MOD_DIR)/third_party/kissfft
+SRC_USERMOD_LIB_C += \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_microfrontend.c \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_features.c
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/audiofeatures/module.c
+
 endif # not CircuitPython

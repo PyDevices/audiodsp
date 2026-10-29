@@ -249,6 +249,22 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/audiovorbis/module.c
 )
 
+# --- audiofeatures (Frontend) ---
+#
+# See micropython.mk: TensorFlow Lite Micro's microfrontend and kissfft from
+# third_party, compiled as one translation unit by
+# src/shared/audiodsp_microfrontend.c, which renames their symbols and silences
+# their warnings for their own code only.
+target_sources(usermod_mpaudio INTERFACE
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_microfrontend.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_features.c
+    ${MPAUDIO_SRC_DIR}/audiofeatures/module.c
+)
+target_include_directories(usermod_mpaudio INTERFACE
+    ${MPAUDIO_MOD_DIR}/third_party/microfrontend
+    ${MPAUDIO_MOD_DIR}/third_party/kissfft
+)
+
 
 # CIRCUITPY_SYNTHIO_MAX_CHANNELS (phase 8e decision, made while actually
 # building the ESP32-P4 firmware -- see docs/porting-plan.md "8e"): the

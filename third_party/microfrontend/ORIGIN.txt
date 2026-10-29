@@ -1,0 +1,20 @@
+TensorFlow Lite Micro's audio microfrontend: the feature extractor microWakeWord's
+models were trained on (window, FFT, mel filterbank, noise reduction, PCAN gain
+control, log scale).
+
+Source: https://github.com/tensorflow/tflite-micro
+        (tensorflow/lite/experimental/microfrontend/lib)
+Commit: 230c9d9531bd9b08d445b4f2ed0760756ffd5f78 (2026-10-09)
+License: Apache-2.0, see LICENSE
+
+The files here are that commit's library files, unchanged. The tests, the
+_io dumpers and the main programs are left out.
+
+Nothing in this directory is compiled on its own. src/shared/audiodsp_microfrontend.c
+includes the .c files into one translation unit and renames every external
+symbol to audiodsp_mf_*, so a firmware that links a second copy of the
+frontend (TensorFlow Lite Micro's own, say) still links. The three C++ files
+(fft.cc, fft_util.cc and kiss_fft_int16.cc) are not compiled either: audiodsp_microfrontend.c holds their C equivalent, so no
+build needs a C++ compiler. Its output is byte-identical to the C++ build's,
+which tests/test_cpython_audiofeatures.py checks against goldens that build
+wrote.

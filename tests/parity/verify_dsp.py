@@ -146,6 +146,12 @@ PROBES = (
      {"circuitpython": "audiometer is not added to CircuitPython (the meter's "
                        "sources are the sound card's and the pump's, neither of "
                        "which CircuitPython has)"}, None),
+    # audiofeatures prints feature slices, not PCM. Not built into
+    # CircuitPython either, for the same reason.
+    ("features_probe.py", "audiofeatures",
+     {"circuitpython": "audiofeatures is not added to CircuitPython (its "
+                       "sources are the sound card's and the pump's, neither of "
+                       "which CircuitPython has)"}, None),
     # synthio.Biquad and audiofilters.Filter are CircuitPython's, so they are
     # held to CircuitPython's bytes and NOT to a stored digest -- which is the
     # whole of audiodsp#77: graded against its own capture, this probe reported

@@ -75,8 +75,12 @@ setup(
                 # Xiph's Tremor, included into this one file from
                 # third_party/tremor; docs/reference/vorbis.md.
                 "src/shared/audiodsp_vorbis.c",
+                # TensorFlow Lite Micro's microfrontend and kissfft, included
+                # into this one file from third_party; audiofeatures' engine.
+                "src/shared/audiodsp_microfrontend.c",
+                "src/shared/audiodsp_features.c",
             ],
-            include_dirs=["src"],
+            include_dirs=["src", "third_party/microfrontend", "third_party/kissfft"],
             define_macros=[("AUDIODSP_VERSION", '"%s"' % VERSION),
                            ("AUDIODSP_REVISION", '"%s"' % REVISION)],
             extra_compile_args=MACOS_COMPILE_ARGS,
