@@ -19,6 +19,8 @@ mp_obj_t audiosampler_samplervoice_new(audiosampler_sampler_obj_t *parent,
     self->level = mp_obj_new_float(1.0);
     self->pan = mp_obj_new_float(0.0);
     self->pitch = mp_obj_new_float(1.0);
+    self->cutoff = mp_const_none;
+    self->vibrato_depth = mp_obj_new_float(0.0);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -33,7 +35,8 @@ static mp_obj_t audiosampler_samplervoice_play(size_t n_args,
     const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_buffer, ARG_rate, ARG_pitch, ARG_loop_start, ARG_loop_end,
            ARG_loop_mode, ARG_level, ARG_pan, ARG_delay, ARG_attack, ARG_hold,
-           ARG_decay, ARG_sustain, ARG_release };
+           ARG_decay, ARG_sustain, ARG_release,
+           ARG_cutoff, ARG_resonance, ARG_mod_delay, ARG_mod_attack, ARG_mod_hold, ARG_mod_decay, ARG_mod_sustain, ARG_mod_release, ARG_mod_to_pitch, ARG_mod_to_cutoff, ARG_vibrato_delay, ARG_vibrato_rate, ARG_vibrato_depth, ARG_lfo_delay, ARG_lfo_rate, ARG_lfo_to_pitch, ARG_lfo_to_cutoff, ARG_lfo_to_volume };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_buffer, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
         { MP_QSTR_rate, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
@@ -49,6 +52,24 @@ static mp_obj_t audiosampler_samplervoice_play(size_t n_args,
         { MP_QSTR_decay, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
         { MP_QSTR_sustain, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
         { MP_QSTR_release, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_cutoff, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_resonance, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_mod_delay, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_mod_attack, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_mod_hold, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_mod_decay, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_mod_sustain, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_mod_release, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_mod_to_pitch, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_mod_to_cutoff, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_vibrato_delay, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_vibrato_rate, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_vibrato_depth, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_lfo_delay, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_lfo_rate, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_lfo_to_pitch, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_lfo_to_cutoff, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_lfo_to_volume, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE} },
     };
     audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     audiosample_check_for_deinit(&self->parent->base);
@@ -88,6 +109,24 @@ static mp_obj_t audiosampler_samplervoice_play(size_t n_args,
     note.decay = float_arg(args[ARG_decay].u_obj, 0.0f);
     note.sustain = float_arg(args[ARG_sustain].u_obj, 1.0f);
     note.release = float_arg(args[ARG_release].u_obj, 0.0f);
+    note.cutoff = float_arg(args[ARG_cutoff].u_obj, 0.0f);
+    note.resonance = float_arg(args[ARG_resonance].u_obj, 0.0f);
+    note.mod_delay = float_arg(args[ARG_mod_delay].u_obj, 0.0f);
+    note.mod_attack = float_arg(args[ARG_mod_attack].u_obj, 0.0f);
+    note.mod_hold = float_arg(args[ARG_mod_hold].u_obj, 0.0f);
+    note.mod_decay = float_arg(args[ARG_mod_decay].u_obj, 0.0f);
+    note.mod_sustain = float_arg(args[ARG_mod_sustain].u_obj, 1.0f);
+    note.mod_release = float_arg(args[ARG_mod_release].u_obj, 0.0f);
+    note.mod_to_pitch = float_arg(args[ARG_mod_to_pitch].u_obj, 0.0f);
+    note.mod_to_cutoff = float_arg(args[ARG_mod_to_cutoff].u_obj, 0.0f);
+    note.vibrato_delay = float_arg(args[ARG_vibrato_delay].u_obj, 0.0f);
+    note.vibrato_rate = float_arg(args[ARG_vibrato_rate].u_obj, 0.0f);
+    note.vibrato_depth = float_arg(args[ARG_vibrato_depth].u_obj, 0.0f);
+    note.lfo_delay = float_arg(args[ARG_lfo_delay].u_obj, 0.0f);
+    note.lfo_rate = float_arg(args[ARG_lfo_rate].u_obj, 0.0f);
+    note.lfo_to_pitch = float_arg(args[ARG_lfo_to_pitch].u_obj, 0.0f);
+    note.lfo_to_cutoff = float_arg(args[ARG_lfo_to_cutoff].u_obj, 0.0f);
+    note.lfo_to_volume = float_arg(args[ARG_lfo_to_volume].u_obj, 0.0f);
 
     // Read and checked first, stored under the lock: a pull landing between
     // the kernel's play() and the reference store would read a buffer the
@@ -115,6 +154,9 @@ static mp_obj_t audiosampler_samplervoice_play(size_t n_args,
         ? mp_obj_new_float(0.0) : args[ARG_pan].u_obj;
     self->pitch = args[ARG_pitch].u_obj == mp_const_none
         ? mp_obj_new_float(1.0) : args[ARG_pitch].u_obj;
+    self->cutoff = args[ARG_cutoff].u_obj;
+    self->vibrato_depth = args[ARG_vibrato_depth].u_obj == mp_const_none
+        ? mp_obj_new_float(0.0) : args[ARG_vibrato_depth].u_obj;
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(audiosampler_samplervoice_play_obj, 1,
@@ -236,6 +278,61 @@ MP_PROPERTY_GETSET(audiosampler_samplervoice_pitch_obj,
     (mp_obj_t)&audiosampler_samplervoice_get_pitch_obj,
     (mp_obj_t)&audiosampler_samplervoice_set_pitch_obj);
 
+// The low-pass cutoff in Hz, None for no filter. Live: a change lands
+// within 32 frames, and a filter switched on starts from rest.
+static mp_obj_t audiosampler_samplervoice_obj_get_cutoff(mp_obj_t self_in) {
+    audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->parent->base);
+    return self->cutoff;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiosampler_samplervoice_get_cutoff_obj,
+    audiosampler_samplervoice_obj_get_cutoff);
+static mp_obj_t audiosampler_samplervoice_obj_set_cutoff(mp_obj_t self_in,
+    mp_obj_t value) {
+    audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->parent->base);
+    float cutoff = value == mp_const_none ? 0.0f
+        : (float)mp_obj_get_float(value);
+    audiodsp_pump_lock_acquire();
+    audiodsp_sampler_set_cutoff(&self->parent->sampler, self->index, cutoff);
+    self->cutoff = value;
+    audiodsp_pump_lock_release();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(audiosampler_samplervoice_set_cutoff_obj,
+    audiosampler_samplervoice_obj_set_cutoff);
+MP_PROPERTY_GETSET(audiosampler_samplervoice_cutoff_obj,
+    (mp_obj_t)&audiosampler_samplervoice_get_cutoff_obj,
+    (mp_obj_t)&audiosampler_samplervoice_set_cutoff_obj);
+
+// The vibrato LFO's depth in cents. Live, so a mod wheel is a series of
+// writes here; each lands within 32 frames.
+static mp_obj_t audiosampler_samplervoice_obj_get_vibrato_depth(
+    mp_obj_t self_in) {
+    audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->parent->base);
+    return self->vibrato_depth;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiosampler_samplervoice_get_vibrato_depth_obj,
+    audiosampler_samplervoice_obj_get_vibrato_depth);
+static mp_obj_t audiosampler_samplervoice_obj_set_vibrato_depth(
+    mp_obj_t self_in, mp_obj_t value) {
+    audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->parent->base);
+    float cents = (float)mp_obj_get_float(value);
+    audiodsp_pump_lock_acquire();
+    audiodsp_sampler_set_vibrato_depth(&self->parent->sampler, self->index,
+        cents);
+    self->vibrato_depth = value;
+    audiodsp_pump_lock_release();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(audiosampler_samplervoice_set_vibrato_depth_obj,
+    audiosampler_samplervoice_obj_set_vibrato_depth);
+MP_PROPERTY_GETSET(audiosampler_samplervoice_vibrato_depth_obj,
+    (mp_obj_t)&audiosampler_samplervoice_get_vibrato_depth_obj,
+    (mp_obj_t)&audiosampler_samplervoice_set_vibrato_depth_obj);
+
 // `deinit()` on a voice is `stop()`, with no fade, plus letting go of the
 // buffer: a voice
 // has nothing of its own to release, it belongs to its Sampler, but every
@@ -267,6 +364,9 @@ static const mp_rom_map_elem_t audiosampler_samplervoice_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_level), MP_ROM_PTR(&audiosampler_samplervoice_level_obj) },
     { MP_ROM_QSTR(MP_QSTR_pan), MP_ROM_PTR(&audiosampler_samplervoice_pan_obj) },
     { MP_ROM_QSTR(MP_QSTR_pitch), MP_ROM_PTR(&audiosampler_samplervoice_pitch_obj) },
+    { MP_ROM_QSTR(MP_QSTR_cutoff), MP_ROM_PTR(&audiosampler_samplervoice_cutoff_obj) },
+    { MP_ROM_QSTR(MP_QSTR_vibrato_depth),
+      MP_ROM_PTR(&audiosampler_samplervoice_vibrato_depth_obj) },
 };
 static MP_DEFINE_CONST_DICT(audiosampler_samplervoice_locals,
     audiosampler_samplervoice_locals_table);

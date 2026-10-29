@@ -2794,7 +2794,25 @@ static PyObject *sampler_state_play(audiodsp_sampler_object_t *self,
     static char *keywords[] = {"index", "buffer", "rate", "pitch",
                                "loop_start", "loop_end", "loop_mode", "level",
                                "pan", "delay", "attack", "hold", "decay",
-                               "sustain", "release", NULL};
+                               "sustain", "release",
+                               "cutoff",
+                               "resonance",
+                               "mod_delay",
+                               "mod_attack",
+                               "mod_hold",
+                               "mod_decay",
+                               "mod_sustain",
+                               "mod_release",
+                               "mod_to_pitch",
+                               "mod_to_cutoff",
+                               "vibrato_delay",
+                               "vibrato_rate",
+                               "vibrato_depth",
+                               "lfo_delay",
+                               "lfo_rate",
+                               "lfo_to_pitch",
+                               "lfo_to_cutoff",
+                               "lfo_to_volume", NULL};
     PyObject *index_obj;
     PyObject *buffer_obj;
     audiodsp_sampler_note_t note;
@@ -2803,10 +2821,13 @@ static PyObject *sampler_state_play(audiodsp_sampler_object_t *self,
     double delay = 0.0, attack = 0.0, hold = 0.0, decay = 0.0, sustain = 1.0,
            release = 0.0;
     unsigned long loop_start = 0, loop_end = 0, loop_mode = 0;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|ddkkkdddddddd:play",
+    double mod[18] = {0.0};
+    mod[6] = 1.0;  // mod_sustain
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs,
+        "OO|ddkkkdddddddddddddddddddddddddd:play",
         keywords, &index_obj, &buffer_obj, &rate, &pitch, &loop_start,
         &loop_end, &loop_mode, &level, &pan, &delay, &attack, &hold, &decay,
-        &sustain, &release)) {
+        &sustain, &release, &mod[0], &mod[1], &mod[2], &mod[3], &mod[4], &mod[5], &mod[6], &mod[7], &mod[8], &mod[9], &mod[10], &mod[11], &mod[12], &mod[13], &mod[14], &mod[15], &mod[16], &mod[17])) {
         return NULL;
     }
     uint32_t index;
@@ -2840,6 +2861,24 @@ static PyObject *sampler_state_play(audiodsp_sampler_object_t *self,
     note.decay = (float)decay;
     note.sustain = (float)sustain;
     note.release = (float)release;
+    note.cutoff = (float)mod[0];
+    note.resonance = (float)mod[1];
+    note.mod_delay = (float)mod[2];
+    note.mod_attack = (float)mod[3];
+    note.mod_hold = (float)mod[4];
+    note.mod_decay = (float)mod[5];
+    note.mod_sustain = (float)mod[6];
+    note.mod_release = (float)mod[7];
+    note.mod_to_pitch = (float)mod[8];
+    note.mod_to_cutoff = (float)mod[9];
+    note.vibrato_delay = (float)mod[10];
+    note.vibrato_rate = (float)mod[11];
+    note.vibrato_depth = (float)mod[12];
+    note.lfo_delay = (float)mod[13];
+    note.lfo_rate = (float)mod[14];
+    note.lfo_to_pitch = (float)mod[15];
+    note.lfo_to_cutoff = (float)mod[16];
+    note.lfo_to_volume = (float)mod[17];
     // Let go of what this voice was reading only once the new buffer is
     // known to be good, so a refused play() leaves the voice as it was.
     // The kernel leaves the voice and its tail untouched on a refusal.
@@ -2935,6 +2974,30 @@ static PyObject *sampler_state_set_pitch(audiodsp_sampler_object_t *self,
     Py_RETURN_NONE;
 }
 
+static PyObject *sampler_state_set_cutoff(audiodsp_sampler_object_t *self,
+    PyObject *args) {
+    PyObject *index_obj;
+    double value;
+    if (!PyArg_ParseTuple(args, "Od:set_cutoff", &index_obj, &value)) return NULL;
+    uint32_t index;
+    if (sampler_state_voice(self, index_obj, &index) < 0) return NULL;
+    audiodsp_sampler_set_cutoff(&self->sampler, index, (float)value);
+    Py_RETURN_NONE;
+}
+
+static PyObject *sampler_state_set_vibrato_depth(
+    audiodsp_sampler_object_t *self, PyObject *args) {
+    PyObject *index_obj;
+    double value;
+    if (!PyArg_ParseTuple(args, "Od:set_vibrato_depth", &index_obj, &value)) {
+        return NULL;
+    }
+    uint32_t index;
+    if (sampler_state_voice(self, index_obj, &index) < 0) return NULL;
+    audiodsp_sampler_set_vibrato_depth(&self->sampler, index, (float)value);
+    Py_RETURN_NONE;
+}
+
 static PyObject *sampler_state_sounding(audiodsp_sampler_object_t *self,
     PyObject *unused) {
     uint32_t count = 0;
@@ -2969,6 +3032,8 @@ AUDIODSP_LOCKED_ARGS(sampler_state_playing, audiodsp_sampler_object_t)
 AUDIODSP_LOCKED_ARGS(sampler_state_set_level, audiodsp_sampler_object_t)
 AUDIODSP_LOCKED_ARGS(sampler_state_set_pan, audiodsp_sampler_object_t)
 AUDIODSP_LOCKED_ARGS(sampler_state_set_pitch, audiodsp_sampler_object_t)
+AUDIODSP_LOCKED_ARGS(sampler_state_set_cutoff, audiodsp_sampler_object_t)
+AUDIODSP_LOCKED_ARGS(sampler_state_set_vibrato_depth, audiodsp_sampler_object_t)
 AUDIODSP_LOCKED_ARGS(sampler_state_sounding, audiodsp_sampler_object_t)
 AUDIODSP_LOCKED_ARGS(sampler_state_render, audiodsp_sampler_object_t)
 static PyMethodDef sampler_state_methods[] = {
@@ -2980,6 +3045,8 @@ static PyMethodDef sampler_state_methods[] = {
     {"set_level", (PyCFunction)sampler_state_set_level_locked, METH_VARARGS, NULL},
     {"set_pan", (PyCFunction)sampler_state_set_pan_locked, METH_VARARGS, NULL},
     {"set_pitch", (PyCFunction)sampler_state_set_pitch_locked, METH_VARARGS, NULL},
+    {"set_cutoff", (PyCFunction)sampler_state_set_cutoff_locked, METH_VARARGS, NULL},
+    {"set_vibrato_depth", (PyCFunction)sampler_state_set_vibrato_depth_locked, METH_VARARGS, NULL},
     {"sounding", (PyCFunction)sampler_state_sounding_locked, METH_NOARGS, NULL},
     {"render", (PyCFunction)sampler_state_render_locked, METH_NOARGS, NULL},
     {NULL, NULL, 0, NULL},

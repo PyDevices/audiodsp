@@ -7,6 +7,7 @@
 
 #include <string.h>
 
+#include "shared/audiodsp_exp2.h"
 #include "shared/audiodsp_hot.h"
 
 #define Q32_ONE 4294967296.0
@@ -70,6 +71,8 @@ void audiodsp_sampler_init(audiodsp_sampler_t *self, uint32_t sample_rate,
         voices[i].pitch = 1.0f;
         voices[i].rate_ratio = 1.0f;
         voices[i].sustain = 1.0f;
+        voices[i].mod_gain = 1.0f;
+        voices[i].filter_gain = 1.0f;
     }
 }
 
@@ -78,6 +81,7 @@ void audiodsp_sampler_note_init(audiodsp_sampler_note_t *note) {
     note->pitch = 1.0f;
     note->level = 1.0f;
     note->sustain = 1.0f;
+    note->mod_sustain = 1.0f;
 }
 
 // --- the envelope ------------------------------------------------------------
@@ -166,6 +170,240 @@ static void stage_done(audiodsp_sampler_voice_t *voice) {
     }
 }
 
+// --- the modulation envelope ---------------------------------------------------
+
+// The same six stages as the amplitude envelope, linear in its own units (a
+// fraction of full scale), and run once a chunk rather than once a sample.
+static void mod_enter(audiodsp_sampler_voice_t *voice, uint32_t stage) {
+    for (;;) {
+        voice->mod_stage = stage;
+        switch (stage) {
+            case AUDIODSP_SAMPLER_STAGE_DELAY:
+                voice->mod_env = 0.0f;
+                voice->mod_step = 0.0f;
+                if (voice->mod_delay_samples == 0u) {
+                    stage = AUDIODSP_SAMPLER_STAGE_ATTACK;
+                    continue;
+                }
+                voice->mod_left = voice->mod_delay_samples;
+                return;
+            case AUDIODSP_SAMPLER_STAGE_ATTACK:
+                voice->mod_env = 0.0f;
+                if (voice->mod_attack_samples == 0u) {
+                    stage = AUDIODSP_SAMPLER_STAGE_HOLD;
+                    continue;
+                }
+                voice->mod_left = voice->mod_attack_samples;
+                voice->mod_step = 1.0f / (float)voice->mod_attack_samples;
+                return;
+            case AUDIODSP_SAMPLER_STAGE_HOLD:
+                voice->mod_env = 1.0f;
+                voice->mod_step = 0.0f;
+                if (voice->mod_hold_samples == 0u) {
+                    stage = AUDIODSP_SAMPLER_STAGE_DECAY;
+                    continue;
+                }
+                voice->mod_left = voice->mod_hold_samples;
+                return;
+            case AUDIODSP_SAMPLER_STAGE_DECAY:
+                voice->mod_env = 1.0f;
+                if (voice->mod_decay_samples == 0u) {
+                    stage = AUDIODSP_SAMPLER_STAGE_SUSTAIN;
+                    continue;
+                }
+                voice->mod_left = voice->mod_decay_samples;
+                voice->mod_step = (voice->mod_sustain - 1.0f) /
+                    (float)voice->mod_decay_samples;
+                return;
+            case AUDIODSP_SAMPLER_STAGE_SUSTAIN:
+                voice->mod_env = voice->mod_sustain;
+                voice->mod_step = 0.0f;
+                voice->mod_left = 0;
+                return;
+            case AUDIODSP_SAMPLER_STAGE_RELEASE:
+                if (voice->mod_release_samples == 0u ||
+                    voice->mod_env <= 0.0f) {
+                    stage = AUDIODSP_SAMPLER_STAGE_IDLE;
+                    continue;
+                }
+                voice->mod_left = voice->mod_release_samples;
+                voice->mod_step = -voice->mod_env /
+                    (float)voice->mod_release_samples;
+                return;
+            case AUDIODSP_SAMPLER_STAGE_IDLE:
+            default:
+                voice->mod_stage = AUDIODSP_SAMPLER_STAGE_IDLE;
+                voice->mod_env = 0.0f;
+                voice->mod_step = 0.0f;
+                voice->mod_left = 0;
+                return;
+        }
+    }
+}
+
+static void mod_advance(audiodsp_sampler_voice_t *voice, uint32_t frames) {
+    while (frames > 0u) {
+        const uint32_t stage = voice->mod_stage;
+        if (stage == AUDIODSP_SAMPLER_STAGE_SUSTAIN ||
+            stage == AUDIODSP_SAMPLER_STAGE_IDLE) {
+            return;
+        }
+        uint32_t take = frames < voice->mod_left ? frames : voice->mod_left;
+        voice->mod_env += voice->mod_step * (float)take;
+        voice->mod_left -= take;
+        frames -= take;
+        if (voice->mod_left == 0u) {
+            switch (stage) {
+                case AUDIODSP_SAMPLER_STAGE_DELAY:
+                    mod_enter(voice, AUDIODSP_SAMPLER_STAGE_ATTACK);
+                    break;
+                case AUDIODSP_SAMPLER_STAGE_ATTACK:
+                    mod_enter(voice, AUDIODSP_SAMPLER_STAGE_HOLD);
+                    break;
+                case AUDIODSP_SAMPLER_STAGE_HOLD:
+                    mod_enter(voice, AUDIODSP_SAMPLER_STAGE_DECAY);
+                    break;
+                case AUDIODSP_SAMPLER_STAGE_DECAY:
+                    mod_enter(voice, AUDIODSP_SAMPLER_STAGE_SUSTAIN);
+                    break;
+                default:
+                    mod_enter(voice, AUDIODSP_SAMPLER_STAGE_IDLE);
+                    break;
+            }
+        }
+    }
+}
+
+// --- the filter and the LFOs -----------------------------------------------------
+
+#define SAMPLER_PI 3.14159265f
+
+// tan(x) for 0 <= x < pi/2, as sine over cosine, each a Taylor series: the
+// cutoff never goes past 0.45 of the output rate, so x stays under 1.42,
+// where the dropped terms are below 2e-8. libm's tanf would differ in the
+// last place between targets.
+static float tan_poly(float x) {
+    const float x2 = x * x;
+    const float s = x * (1.0f + x2 * (-1.0f / 6.0f + x2 * (1.0f / 120.0f
+        + x2 * (-1.0f / 5040.0f + x2 * (1.0f / 362880.0f
+        + x2 * (-1.0f / 39916800.0f))))));
+    const float c = 1.0f + x2 * (-0.5f + x2 * (1.0f / 24.0f
+        + x2 * (-1.0f / 720.0f + x2 * (1.0f / 40320.0f
+        + x2 * (-1.0f / 3628800.0f + x2 * (1.0f / 479001600.0f))))));
+    return s / c;
+}
+
+// 2^(cents / 1200).
+static inline float cents_ratio(float cents) {
+    return audiodsp_exp2_poly(cents * (1.0f / 1200.0f));
+}
+
+// The trapezoidal state-variable low-pass's three coefficients, for the
+// voice's cutoff moved by `cents`.
+static void filter_coefficients(const audiodsp_sampler_t *self,
+    audiodsp_sampler_voice_t *voice, float cents) {
+    float fc = voice->cutoff;
+    if (cents != 0.0f) {
+        fc *= cents_ratio(cents);
+    }
+    const float top = 0.45f * (float)self->sample_rate;
+    if (fc > top) {
+        fc = top;
+    } else if (fc < 5.0f) {
+        fc = 5.0f;
+    }
+    const float g = tan_poly(SAMPLER_PI * fc / (float)self->sample_rate);
+    voice->fa1 = 1.0f / (1.0f + g * (g + voice->filter_k));
+    voice->fa2 = g * voice->fa1;
+    voice->fa3 = g * voice->fa2;
+    voice->filter_cents = cents;
+    voice->filter_dirty = false;
+}
+
+// Works out what the voice needs from its settings, and puts the plain
+// path's step back when nothing moves the pitch any more.
+static void update_mods(audiodsp_sampler_voice_t *voice) {
+    uint32_t mods = 0;
+    if (voice->mod_to_pitch != 0.0f || voice->vibrato_depth != 0.0f ||
+        voice->lfo_to_pitch != 0.0f) {
+        mods |= AUDIODSP_SAMPLER_MOD_PITCH;
+    }
+    if (voice->mod_to_cutoff != 0.0f || voice->lfo_to_cutoff != 0.0f) {
+        mods |= AUDIODSP_SAMPLER_MOD_CUTOFF;
+    }
+    if (voice->lfo_to_volume != 0.0f) {
+        mods |= AUDIODSP_SAMPLER_MOD_VOLUME;
+    }
+    if (voice->mod_to_pitch != 0.0f || voice->mod_to_cutoff != 0.0f) {
+        mods |= AUDIODSP_SAMPLER_MOD_ENV;
+    }
+    if (voice->cutoff > 0.0f && (voice->cutoff < AUDIODSP_SAMPLER_OPEN_CUTOFF ||
+        voice->resonance > 0.0f || (mods & AUDIODSP_SAMPLER_MOD_CUTOFF))) {
+        mods |= AUDIODSP_SAMPLER_MOD_FILTER;
+    } else {
+        mods &= ~AUDIODSP_SAMPLER_MOD_CUTOFF;
+    }
+    if ((mods & AUDIODSP_SAMPLER_MOD_FILTER) &&
+        !(voice->mods & AUDIODSP_SAMPLER_MOD_FILTER)) {
+        voice->ic1 = 0.0f;
+        voice->ic2 = 0.0f;
+        voice->filter_dirty = true;
+    }
+    if (!(mods & AUDIODSP_SAMPLER_MOD_PITCH)) {
+        voice->step = voice->step_base;
+    }
+    voice->filter_gain = (mods & AUDIODSP_SAMPLER_MOD_FILTER) ?
+        audiodsp_exp2_poly(-voice->resonance * (0.5f * 0.16609640f)) : 1.0f;
+    voice->mods = mods;
+}
+
+// The resonance as the filter's 1/Q. Q's response at the cutoff is Q itself,
+// so Q = 10^(dB/20) would be the specification read literally; that is
+// 1.0 at 0 dB, a small bump, where the specification says 0 dB is not
+// resonant. sqrt(10^(dB/10) - 1/2) is Butterworth (0.707) at 0 dB, within
+// 0.1 dB of the literal reading from 10 dB up, and smooth between.
+static float resonance_k(float db) {
+    const float power = audiodsp_exp2_poly(db * 0.33219281f) - 0.5f;
+    // sqrt by Newton's method from a guess that is never short, so the
+    // result is the same bits everywhere.
+    float q = power > 1.0f ? power : 1.0f;
+    for (int n = 0; n < 24; ++n) {
+        q = 0.5f * (q + power / q);
+    }
+    return 1.0f / q;
+}
+
+// A triangle from 0, rising, at the phase of `elapsed` frames.
+static inline float triangle(uint32_t elapsed, uint32_t inc) {
+    const uint32_t phase = elapsed * inc;
+    const float t = (float)phase * (1.0f / 4294967296.0f);
+    if (t < 0.25f) {
+        return 4.0f * t;
+    }
+    if (t < 0.75f) {
+        return 2.0f - 4.0f * t;
+    }
+    return 4.0f * t - 4.0f;
+}
+
+static uint32_t lfo_inc(float hz, uint32_t sample_rate) {
+    float cycles = hz / (float)sample_rate;
+    if (!(cycles > 0.0f)) {
+        return 0;
+    }
+    if (cycles > 0.5f) {
+        cycles = 0.5f;
+    }
+    return (uint32_t)((double)cycles * Q32_ONE);
+}
+
+// `base` times `factor`, in Q32.32: the factor to 24 bits, about 1e-4 cents,
+// with no double on the way (a board's FPU is single precision).
+static inline uint64_t scale_step(uint64_t base, float factor) {
+    const uint64_t fq = (uint64_t)(factor * 16777216.0f + 0.5f);
+    return (((base >> 32) * fq) << 8) + (((base & 0xffffffffu) * fq) >> 24);
+}
+
 // --- the voice table -----------------------------------------------------------
 
 static bool audible(const audiodsp_sampler_voice_t *voice) {
@@ -228,6 +466,40 @@ bool audiodsp_sampler_play(audiodsp_sampler_t *self, uint32_t index,
     voice->pitch = clampf(note->pitch, AUDIODSP_SAMPLER_MIN_PITCH,
         AUDIODSP_SAMPLER_MAX_PITCH);
     voice->step = step_for(voice);
+    voice->step_base = voice->step;
+    voice->age = 0;
+
+    voice->cutoff = note->cutoff > 0.0f ? note->cutoff : 0.0f;
+    voice->resonance = clampf(note->resonance, 0.0f,
+        AUDIODSP_SAMPLER_MAX_RESONANCE);
+    voice->filter_k = resonance_k(voice->resonance);
+    voice->mod_delay_samples = seconds_to_samples(note->mod_delay,
+        self->sample_rate);
+    voice->mod_attack_samples = seconds_to_samples(note->mod_attack,
+        self->sample_rate);
+    voice->mod_hold_samples = seconds_to_samples(note->mod_hold,
+        self->sample_rate);
+    voice->mod_decay_samples = seconds_to_samples(note->mod_decay,
+        self->sample_rate);
+    voice->mod_release_samples = seconds_to_samples(note->mod_release,
+        self->sample_rate);
+    voice->mod_sustain = clampf(note->mod_sustain, 0.0f, 1.0f);
+    const float most = AUDIODSP_SAMPLER_MAX_CENTS;
+    voice->mod_to_pitch = clampf(note->mod_to_pitch, -most, most);
+    voice->mod_to_cutoff = clampf(note->mod_to_cutoff, -most, most);
+    voice->vibrato_delay = seconds_to_samples(note->vibrato_delay,
+        self->sample_rate);
+    voice->vibrato_inc = lfo_inc(note->vibrato_rate, self->sample_rate);
+    voice->vibrato_depth = clampf(note->vibrato_depth, -most, most);
+    voice->lfo_delay = seconds_to_samples(note->lfo_delay, self->sample_rate);
+    voice->lfo_inc = lfo_inc(note->lfo_rate, self->sample_rate);
+    voice->lfo_to_pitch = clampf(note->lfo_to_pitch, -most, most);
+    voice->lfo_to_cutoff = clampf(note->lfo_to_cutoff, -most, most);
+    voice->lfo_to_volume = clampf(note->lfo_to_volume, -96.0f, 96.0f);
+    voice->mods = 0;
+    update_mods(voice);
+    voice->mod_gain = voice->filter_gain;
+    mod_enter(voice, AUDIODSP_SAMPLER_STAGE_DELAY);
 
     voice->attack_samples = seconds_to_samples(note->attack, self->sample_rate);
     voice->hold_samples = seconds_to_samples(note->hold, self->sample_rate);
@@ -274,6 +546,9 @@ void audiodsp_sampler_release(audiodsp_sampler_t *self, uint32_t index) {
         voice->looping = false;
     }
     enter_stage(voice, AUDIODSP_SAMPLER_STAGE_RELEASE);
+    if (voice->mod_stage != AUDIODSP_SAMPLER_STAGE_IDLE) {
+        mod_enter(voice, AUDIODSP_SAMPLER_STAGE_RELEASE);
+    }
 }
 
 void audiodsp_sampler_stop(audiodsp_sampler_t *self, uint32_t index) {
@@ -330,6 +605,27 @@ void audiodsp_sampler_set_pitch(audiodsp_sampler_t *self, uint32_t index,
         voice->pitch = clampf(pitch, AUDIODSP_SAMPLER_MIN_PITCH,
             AUDIODSP_SAMPLER_MAX_PITCH);
         voice->step = step_for(voice);
+        voice->step_base = voice->step;
+    }
+}
+
+void audiodsp_sampler_set_cutoff(audiodsp_sampler_t *self, uint32_t index,
+    float cutoff) {
+    if (index < self->voice_count) {
+        audiodsp_sampler_voice_t *voice = &self->voices[index];
+        voice->cutoff = cutoff > 0.0f ? cutoff : 0.0f;
+        voice->filter_dirty = true;
+        update_mods(voice);
+    }
+}
+
+void audiodsp_sampler_set_vibrato_depth(audiodsp_sampler_t *self,
+    uint32_t index, float cents) {
+    if (index < self->voice_count) {
+        audiodsp_sampler_voice_t *voice = &self->voices[index];
+        voice->vibrato_depth = clampf(cents, -AUDIODSP_SAMPLER_MAX_CENTS,
+            AUDIODSP_SAMPLER_MAX_CENTS);
+        update_mods(voice);
     }
 }
 
@@ -504,9 +800,17 @@ static uint32_t render_run(audiodsp_sampler_t *self,
     return i;
 }
 
+static void render_voice_mod(audiodsp_sampler_t *self,
+    audiodsp_sampler_voice_t *voice);
+
 AUDIODSP_HOT
 static void render_voice(audiodsp_sampler_t *self,
     audiodsp_sampler_voice_t *voice) {
+    if (voice->mods != 0u) {
+        render_voice_mod(self, voice);
+        return;
+    }
+    voice->age += self->frames;
     const uint32_t frames = self->frames;
     const uint32_t channels = self->channel_count;
     float *mix = self->mix;
@@ -594,6 +898,213 @@ static void render_voice(audiodsp_sampler_t *self,
     }
     // The ramp lands exactly where it was asked to, whatever the rounding of
     // `frames` increments did on the way.
+    voice->gain[0] = target[0];
+    voice->gain[1] = target[1];
+}
+
+// --- the modulated voice ---------------------------------------------------------
+
+// `run` clean frames from frame `i` into `out`, the plain path's numbers in
+// its order, without the gains.
+static uint32_t make_run(audiodsp_sampler_voice_t *voice, float *out,
+    uint32_t i, uint32_t run) {
+    const int16_t *data = voice->data;
+    const uint64_t step = voice->step;
+    const bool ramp = voice->stage != AUDIODSP_SAMPLER_STAGE_SUSTAIN;
+    const float env_step = voice->env_step;
+    uint64_t position = voice->position;
+    float env = voice->env;
+    const uint32_t end = i + run;
+    for (; i < end; ++i) {
+        out[i] = tap_run(data, position) * env;
+        if (ramp) {
+            env += env_step;
+        }
+        position += step;
+    }
+    voice->position = position;
+    voice->env = env;
+    if (ramp) {
+        voice->stage_left -= run;
+    }
+    return i;
+}
+
+// `frames` frames of the voice, enveloped, into `out`: the plain path's
+// per-frame rules (delay, taps, stages, wraps and the end), with silence
+// after the voice stops.
+static void make_frames(audiodsp_sampler_voice_t *voice, float *out,
+    uint32_t frames) {
+    uint32_t i = 0;
+    while (i < frames && voice->stage == AUDIODSP_SAMPLER_STAGE_DELAY) {
+        uint32_t run = frames - i;
+        if (run > voice->stage_left) {
+            run = voice->stage_left;
+        }
+        for (uint32_t j = 0; j < run; ++j) {
+            out[i + j] = 0.0f;
+        }
+        i += run;
+        voice->stage_left -= run;
+        if (voice->stage_left == 0u) {
+            enter_stage(voice, AUDIODSP_SAMPLER_STAGE_ATTACK);
+        }
+    }
+    const int16_t *data = voice->data;
+    for (; i < frames; ++i) {
+        if (voice->stage == AUDIODSP_SAMPLER_STAGE_IDLE) {
+            break;
+        }
+        uint32_t run = clean_run(voice, frames - i);
+        if (run >= 2u) {
+            i = make_run(voice, out, i, run);
+            if (i >= frames) {
+                break;
+            }
+        }
+        const uint32_t index = (uint32_t)(voice->position >> 32);
+        const float x = (float)(uint32_t)voice->position *
+            (1.0f / 4294967296.0f);
+        const uint32_t limit = voice->looping ? voice->loop_end : voice->length;
+        float sample;
+        if (index >= 1u && index + 2u < limit) {
+            sample = hermite((float)data[index - 1u], (float)data[index],
+                (float)data[index + 1u], (float)data[index + 2u], x);
+        } else {
+            sample = hermite(tap(voice, (int64_t)index - 1),
+                tap(voice, (int64_t)index), tap(voice, (int64_t)index + 1),
+                tap(voice, (int64_t)index + 2), x);
+        }
+        out[i] = sample * voice->env;
+
+        if (voice->stage != AUDIODSP_SAMPLER_STAGE_SUSTAIN) {
+            voice->env += voice->env_step;
+            if (--voice->stage_left == 0u) {
+                stage_done(voice);
+                if (voice->stage == AUDIODSP_SAMPLER_STAGE_IDLE) {
+                    ++i;
+                    break;
+                }
+            }
+        }
+
+        voice->position += voice->step;
+        if (voice->looping) {
+            wrap(voice);
+        } else if ((voice->position >> 32) >= voice->length) {
+            enter_stage(voice, AUDIODSP_SAMPLER_STAGE_IDLE);
+            ++i;
+            break;
+        }
+    }
+    for (; i < frames; ++i) {
+        out[i] = 0.0f;
+    }
+}
+
+// Sets the chunk's step, filter and target volume from the modulators where
+// the voice is now, and returns the target volume.
+static float modulate(const audiodsp_sampler_t *self,
+    audiodsp_sampler_voice_t *voice) {
+    const uint32_t mods = voice->mods;
+    const uint32_t age = voice->age;
+    const float env = (mods & AUDIODSP_SAMPLER_MOD_ENV) ? voice->mod_env : 0.0f;
+    const float vibrato = (voice->vibrato_inc != 0u &&
+        age >= voice->vibrato_delay) ?
+        triangle(age - voice->vibrato_delay, voice->vibrato_inc) : 0.0f;
+    const float lfo = (voice->lfo_inc != 0u && age >= voice->lfo_delay) ?
+        triangle(age - voice->lfo_delay, voice->lfo_inc) : 0.0f;
+    if (mods & AUDIODSP_SAMPLER_MOD_PITCH) {
+        float cents = env * voice->mod_to_pitch +
+            vibrato * voice->vibrato_depth + lfo * voice->lfo_to_pitch;
+        cents = clampf(cents, -7200.0f, 7200.0f);
+        voice->step = cents == 0.0f ? voice->step_base :
+            scale_step(voice->step_base, cents_ratio(cents));
+    }
+    if (mods & AUDIODSP_SAMPLER_MOD_FILTER) {
+        float cents = 0.0f;
+        if (mods & AUDIODSP_SAMPLER_MOD_CUTOFF) {
+            cents = clampf(env * voice->mod_to_cutoff +
+                lfo * voice->lfo_to_cutoff, -AUDIODSP_SAMPLER_MAX_CENTS,
+                AUDIODSP_SAMPLER_MAX_CENTS);
+        }
+        if (voice->filter_dirty || cents != voice->filter_cents) {
+            filter_coefficients(self, voice, cents);
+        }
+    }
+    float gain = voice->filter_gain;
+    if (mods & AUDIODSP_SAMPLER_MOD_VOLUME) {
+        // dB to a ratio: 2^(dB * log2(10) / 20).
+        gain *= audiodsp_exp2_poly(lfo * voice->lfo_to_volume * 0.16609640f);
+    }
+    return gain;
+}
+
+AUDIODSP_HOT
+static void render_voice_mod(audiodsp_sampler_t *self,
+    audiodsp_sampler_voice_t *voice) {
+    const uint32_t frames = self->frames;
+    const uint32_t channels = self->channel_count;
+    float *mix = self->mix;
+    float row[AUDIODSP_SAMPLER_CONTROL];
+
+    float target[2];
+    target_gains(voice, channels, target);
+    float g0 = voice->gain[0];
+    float g1 = voice->gain[1];
+    const float per_frame = 1.0f / (float)frames;
+    const float dg0 = (target[0] - g0) * per_frame;
+    const float dg1 = (target[1] - g1) * per_frame;
+
+    for (uint32_t c = 0; c < frames;) {
+        if (voice->stage == AUDIODSP_SAMPLER_STAGE_IDLE) {
+            break;
+        }
+        uint32_t n = frames - c;
+        if (n > AUDIODSP_SAMPLER_CONTROL) {
+            n = AUDIODSP_SAMPLER_CONTROL;
+        }
+        const float want = modulate(self, voice);
+        make_frames(voice, row, n);
+        if (voice->mods & AUDIODSP_SAMPLER_MOD_FILTER) {
+            const float a1 = voice->fa1, a2 = voice->fa2, a3 = voice->fa3;
+            float ic1 = voice->ic1, ic2 = voice->ic2;
+            for (uint32_t j = 0; j < n; ++j) {
+                const float v3 = row[j] - ic2;
+                const float v1 = a1 * ic1 + a2 * v3;
+                const float v2 = ic2 + a2 * ic1 + a3 * v3;
+                ic1 = 2.0f * v1 - ic1;
+                ic2 = 2.0f * v2 - ic2;
+                row[j] = v2;
+            }
+            voice->ic1 = ic1;
+            voice->ic2 = ic2;
+        }
+        float gain = voice->mod_gain;
+        const float dgain = (want - gain) / (float)n;
+        if (channels == 2u) {
+            float *out = mix + 2u * c;
+            for (uint32_t j = 0; j < n; ++j) {
+                const float a = row[j] * gain;
+                out[2u * j] += a * g0;
+                out[2u * j + 1u] += a * g1;
+                g0 += dg0;
+                g1 += dg1;
+                gain += dgain;
+            }
+        } else {
+            float *out = mix + c;
+            for (uint32_t j = 0; j < n; ++j) {
+                out[j] += row[j] * gain * g0;
+                g0 += dg0;
+                gain += dgain;
+            }
+        }
+        voice->mod_gain = want;
+        voice->age += n;
+        mod_advance(voice, n);
+        c += n;
+    }
     voice->gain[0] = target[0];
     voice->gain[1] = target[1];
 }

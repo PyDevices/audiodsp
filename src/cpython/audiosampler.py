@@ -34,6 +34,22 @@ machine can use it for a flam without a second voice. `level`, `pan` and
 `pitch` are live: a change lands at the next block, the first two as a ramp
 across it so a fader move is a slope rather than a click.
 
+A voice can also carry what a SoundFont region asks for besides its
+amplitude envelope. `cutoff` (Hz) and `resonance` (dB at the cutoff above
+DC) set a two-pole resonant low-pass; a cutoff of 19.9 kHz or more with no
+resonance and nothing moving it is no filter, and that is the default. The
+modulation envelope (`mod_delay`, `mod_attack`, `mod_hold`, `mod_decay`,
+`mod_sustain`, `mod_release`) moves pitch by `mod_to_pitch` cents and the
+cutoff by `mod_to_cutoff` cents at full scale. The vibrato LFO
+(`vibrato_delay`, `vibrato_rate` in Hz, `vibrato_depth` in cents) moves
+pitch; the modulation LFO (`lfo_delay`, `lfo_rate`) moves pitch by
+`lfo_to_pitch` cents, the cutoff by `lfo_to_cutoff` cents and the level by
+`lfo_to_volume` dB at its peak. Both LFOs are triangles that start at zero,
+rising, after their delay. `cutoff` and `vibrato_depth` are live too, which
+is how a mod wheel reaches a sounding note. These are worked out every 32
+frames; a voice that uses none of them costs no more than one that never
+heard of them.
+
 Every voice is mixed in one C call per block, in float, and quantised once.
 Interpolation is a 4-point Hermite, so a loop at pitch 1.0 is a wire.
 """
@@ -64,11 +80,18 @@ class SamplerVoice:
         self._level = 1.0
         self._pan = 0.0
         self._pitch = 1.0
+        self._cutoff = None
+        self._vibrato_depth = 0.0
 
     def play(self, buffer, *, rate=None, pitch=1.0, loop_start=0,
              loop_end=None, loop_mode=LOOP_NONE, level=1.0, pan=0.0,
              delay=0.0, attack=0.0, hold=0.0, decay=0.0, sustain=1.0,
-             release=0.0):
+             release=0.0, cutoff=None, resonance=0.0, mod_delay=0.0,
+             mod_attack=0.0, mod_hold=0.0, mod_decay=0.0, mod_sustain=1.0,
+             mod_release=0.0, mod_to_pitch=0.0, mod_to_cutoff=0.0,
+             vibrato_delay=0.0, vibrato_rate=0.0, vibrato_depth=0.0,
+             lfo_delay=0.0, lfo_rate=0.0, lfo_to_pitch=0.0,
+             lfo_to_cutoff=0.0, lfo_to_volume=0.0):
         """Start `buffer` (mono signed 16-bit) on this voice, replacing
         whatever it was playing, which fades out over 5 ms under the new
         note. `loop_end` left out means the end of the buffer. Raises ValueError for a loop that does not fit the buffer or
@@ -82,8 +105,29 @@ class SamplerVoice:
             loop_mode=int(loop_mode), level=float(level), pan=float(pan),
             delay=float(delay), attack=float(attack), hold=float(hold),
             decay=float(decay), sustain=float(sustain),
-            release=float(release))
+            release=float(release),
+            cutoff=0.0 if cutoff is None else float(cutoff),
+            resonance=float(resonance),
+            mod_delay=float(mod_delay),
+            mod_attack=float(mod_attack),
+            mod_hold=float(mod_hold),
+            mod_decay=float(mod_decay),
+            mod_sustain=float(mod_sustain),
+            mod_release=float(mod_release),
+            mod_to_pitch=float(mod_to_pitch),
+            mod_to_cutoff=float(mod_to_cutoff),
+            vibrato_delay=float(vibrato_delay),
+            vibrato_rate=float(vibrato_rate),
+            vibrato_depth=float(vibrato_depth),
+            lfo_delay=float(lfo_delay),
+            lfo_rate=float(lfo_rate),
+            lfo_to_pitch=float(lfo_to_pitch),
+            lfo_to_cutoff=float(lfo_to_cutoff),
+            lfo_to_volume=float(lfo_to_volume),
+        )
         self._level = float(level)
+        self._cutoff = None if cutoff is None else float(cutoff)
+        self._vibrato_depth = float(vibrato_depth)
         self._pan = float(pan)
         self._pitch = float(pitch)
 
@@ -145,6 +189,32 @@ class SamplerVoice:
         self._sampler._check()
         self._pitch = float(value)
         self._sampler._state.set_pitch(self._index, self._pitch)
+
+
+    @property
+    def cutoff(self):
+        """The low-pass cutoff in Hz, None for no filter. Lands at the next
+        32 frames; the filter starts from rest if it was off."""
+        return self._cutoff
+
+    @cutoff.setter
+    def cutoff(self, value):
+        self._sampler._check()
+        self._cutoff = None if value is None else float(value)
+        self._sampler._state.set_cutoff(
+            self._index, 0.0 if value is None else self._cutoff)
+
+    @property
+    def vibrato_depth(self):
+        """The vibrato LFO's depth in cents. Lands at the next 32 frames."""
+        return self._vibrato_depth
+
+    @vibrato_depth.setter
+    def vibrato_depth(self, value):
+        self._sampler._check()
+        self._vibrato_depth = float(value)
+        self._sampler._state.set_vibrato_depth(self._index,
+                                               self._vibrato_depth)
 
 
 class SampleBuffer(bytearray):

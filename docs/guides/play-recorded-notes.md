@@ -42,6 +42,51 @@ bend is played. `release()` enters the release stage from wherever the
 envelope is; `stop()` is silence from the next block; `playing` says whether
 the voice still sounds.
 
+## Filter, modulation envelope and LFOs
+
+A voice can also do what a SoundFont region asks for besides its amplitude
+envelope. Give it a resonant low-pass, a second envelope that sweeps the
+cutoff and the pitch, a vibrato, and a slower LFO on pitch, cutoff and
+volume:
+
+```python
+sampler.voice[0].play(brass_c4, rate=44100, loop_start=2000, loop_end=6000,
+                      loop_mode=audiosampler.LOOP_UNTIL_RELEASE,
+                      attack=0.02, release=0.2,
+                      cutoff=800, resonance=6,             # Hz, dB
+                      mod_attack=0.05, mod_decay=0.4, mod_sustain=0.3,
+                      mod_to_cutoff=2400,                  # cents at full scale
+                      vibrato_delay=0.3, vibrato_rate=5.5, vibrato_depth=15)
+...
+sampler.voice[0].vibrato_depth = 50                        # a mod wheel
+sampler.voice[0].cutoff = 1200
+```
+
+`cutoff` is in Hz and `resonance` in dB: the filter's response at the cutoff
+sits that far above its response at DC, and DC drops by half of it, as the
+SoundFont specification puts it. Zero resonance is a Butterworth. A cutoff of
+19.9 kHz or more, with no resonance and nothing moving it, is no filter at
+all, and so is leaving it out.
+
+The modulation envelope has the amplitude envelope's six stages, prefixed
+`mod_`, and moves pitch by `mod_to_pitch` and the cutoff by `mod_to_cutoff`
+cents at full scale. The vibrato LFO (`vibrato_delay`, `vibrato_rate` in Hz,
+`vibrato_depth` in cents) moves pitch. The modulation LFO (`lfo_delay`,
+`lfo_rate`) moves pitch by `lfo_to_pitch` cents, the cutoff by
+`lfo_to_cutoff` cents and the level by `lfo_to_volume` dB at its peak. Both
+LFOs are triangles that start at zero, rising, once their delay is over.
+`cutoff` and `vibrato_depth` are live properties.
+
+These are worked out every 32 frames, which at 48 kHz is about fourteen
+times a cycle of the fastest LFO a SoundFont can ask for (110 Hz). A voice
+that uses none of them renders exactly as before and costs the same. One
+with a filter costs about 1.7 times as much on a desktop and twice as much
+on an ESP32-P4, where 48 filtered voices fit a 256-frame block and 64 only
+just do: see
+[what the filter and the LFOs cost](../how-it-works/upstream-diff.md#what-the-filter-and-the-lfos-cost).
+
+## How it renders
+
 Every voice is mixed in one C call per block, summed in float and quantised
 once, through a 4-point Hermite interpolator, so a loop at pitch 1.0 is a
 wire. For why the position is fixed point and how the pitch is verified by

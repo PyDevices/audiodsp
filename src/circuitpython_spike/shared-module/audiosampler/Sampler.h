@@ -45,6 +45,8 @@ typedef struct {
     mp_obj_t level;
     mp_obj_t pan;
     mp_obj_t pitch;
+    mp_obj_t cutoff;
+    mp_obj_t vibrato_depth;
 } audiosampler_samplervoice_obj_t;
 
 void audiosampler_sampler_reset_buffer(audiosampler_sampler_obj_t *self,

@@ -54,6 +54,34 @@
 // slot per voice rather than a pool so the binding knows, without asking,
 // which buffer each one is reading.
 //
+// WHAT A SOUNDFONT VOICE ADDS. A SoundFont region asks for more than an
+// amplitude envelope: a resonant low-pass, a second (modulation) envelope
+// that sweeps cutoff and pitch, a vibrato LFO on pitch and a modulation LFO
+// on pitch, cutoff and volume (SoundFont 2.04, section 8.1.2). A voice that
+// asks for none of them -- no cutoff below the open one, no resonance, every
+// depth zero -- takes the path above, untouched, and costs what it did
+// before any of this existed; the one addition is a counter of its age.
+//
+// A voice that asks for any of them renders in chunks of
+// AUDIODSP_SAMPLER_CONTROL frames. The modulators are worked out once a
+// chunk, at its start: the modulation envelope and both LFOs, the pitch they
+// add up to, and the cutoff. The samples of the chunk are made as above into
+// a scratch row, filtered, and mixed. Control rate is 1.5 kHz at 48 kHz,
+// well above the fastest LFO a bank can ask for (about 100 Hz).
+//
+// The filter is a two-pole low-pass, the trapezoidal state-variable form, so
+// a cutoff that moves every chunk never makes it unstable. Its response at
+// the cutoff is the resonance asked for, in dB above its response at DC, and
+// the DC response is lowered by half the resonance, as the specification
+// says. Zero resonance is Butterworth. The cutoff's tangent and every 2^x are
+// polynomials, so three interpreters on three architectures render the same
+// bits (see audiodsp_exp2.h).
+//
+// The LFOs are triangles from 0, rising, and start after their delay. Their
+// phase is the voice's age times their rate, in 32-bit integer arithmetic,
+// so a vibrato's depth turned up from zero halfway through a note picks up
+// where it would have been all along.
+//
 // The pulling loop is not here, for the same reason it is not in
 // audiodsp_modal.c: each runtime reaches its audio graph differently. Nor is
 // any memory: the binding owns the voice table, the mix accumulator and the
@@ -101,6 +129,21 @@
 //: voice, then each voice's tail, which plays out a stopped note's fade.
 #define AUDIODSP_SAMPLER_SLOTS(voice_count) (2u * (voice_count))
 
+//: Frames between two updates of a modulated voice's envelope, LFOs, pitch
+//: and filter. Unmodulated voices never see it.
+#define AUDIODSP_SAMPLER_CONTROL 32u
+
+//: A cutoff at or above this, in Hz, with no resonance and nothing moving it,
+//: is no filter at all: the SoundFont default of 13500 cents is 19.9 kHz, and
+//: the specification says such a filter "does not affect the signal".
+#define AUDIODSP_SAMPLER_OPEN_CUTOFF 19900.0f
+
+//: The resonance ceiling, in dB: the specification's 960 centibels.
+#define AUDIODSP_SAMPLER_MAX_RESONANCE 96.0f
+
+//: The most a modulator may move pitch or cutoff, either way, in cents.
+#define AUDIODSP_SAMPLER_MAX_CENTS 12000.0f
+
 //: How a voice treats `[loop_start, loop_end)`. The numbers are SoundFont's
 //: `sampleModes` so an instrument reader writes the file's value straight
 //: in; 2 is unused there and is refused here.
@@ -132,7 +175,34 @@ typedef struct {
     float pan;           // -1 (left) .. 1 (right); ignored for mono output
     float delay, attack, hold, decay, release; // seconds
     float sustain;       // 0..1, linear
+    // The low-pass. cutoff 0 (or at or above AUDIODSP_SAMPLER_OPEN_CUTOFF
+    // with no resonance and nothing moving it) is no filter.
+    float cutoff;        // Hz
+    float resonance;     // dB at the cutoff above DC, 0..96
+    // The modulation envelope, in the amplitude envelope's units, and how
+    // far it moves pitch and cutoff at full scale.
+    float mod_delay, mod_attack, mod_hold, mod_decay, mod_release; // seconds
+    float mod_sustain;   // 0..1, linear
+    float mod_to_pitch;  // cents
+    float mod_to_cutoff; // cents
+    // The vibrato LFO: pitch only.
+    float vibrato_delay; // seconds
+    float vibrato_rate;  // Hz
+    float vibrato_depth; // cents
+    // The modulation LFO: pitch, cutoff and volume.
+    float lfo_delay;     // seconds
+    float lfo_rate;      // Hz
+    float lfo_to_pitch;  // cents
+    float lfo_to_cutoff; // cents
+    float lfo_to_volume; // dB at the LFO's peak
 } audiodsp_sampler_note_t;
+
+//: What a voice's `mods` says it needs, besides the plain path.
+#define AUDIODSP_SAMPLER_MOD_FILTER 1u  // the low-pass runs
+#define AUDIODSP_SAMPLER_MOD_PITCH 2u   // something moves the pitch
+#define AUDIODSP_SAMPLER_MOD_CUTOFF 4u  // something moves the cutoff
+#define AUDIODSP_SAMPLER_MOD_VOLUME 8u  // the LFO moves the volume
+#define AUDIODSP_SAMPLER_MOD_ENV 16u    // the modulation envelope is used
 
 //: One voice. Written by the kernel only; a binding reads `stage` to answer
 //: `playing` and to know when to let go of the buffer it handed over.
@@ -161,6 +231,40 @@ typedef struct {
     float gain[2];
     // Where a run of clean frames left the gains, mid-block (render only).
     float gain_run[2];
+    // Frames since play(), for the LFOs. Wraps after a day at 48 kHz.
+    uint32_t age;
+    // AUDIODSP_SAMPLER_MOD_*: zero for a voice on the plain path.
+    uint32_t mods;
+    // The step pitch alone asks for; a modulated voice scales it each chunk.
+    uint64_t step_base;
+    // The low-pass: its cutoff (Hz) and 1/Q, the DC gain the resonance
+    // asks for, its two states, its coefficients, and the cutoff offset
+    // (cents) they were worked out for.
+    float cutoff;
+    float resonance;
+    float filter_k;
+    float filter_gain;
+    float ic1, ic2;
+    float fa1, fa2, fa3;
+    float filter_cents;
+    bool filter_dirty;
+    // The modulation envelope, as the amplitude one.
+    uint32_t mod_stage;
+    float mod_env;
+    float mod_step;
+    uint32_t mod_left;
+    uint32_t mod_delay_samples, mod_attack_samples, mod_hold_samples,
+             mod_decay_samples, mod_release_samples;
+    float mod_sustain;
+    float mod_to_pitch, mod_to_cutoff;
+    // The two LFOs: delay in frames, phase step per frame (Q0.32), depths.
+    uint32_t vibrato_delay, vibrato_inc;
+    float vibrato_depth;
+    uint32_t lfo_delay, lfo_inc;
+    float lfo_to_pitch, lfo_to_cutoff, lfo_to_volume;
+    // The volume factor the last chunk ended on (the filter's DC gain times
+    // the LFO's tremolo), so the next ramps from it.
+    float mod_gain;
 } audiodsp_sampler_voice_t;
 
 typedef struct {
@@ -223,6 +327,13 @@ void audiodsp_sampler_set_pan(audiodsp_sampler_t *self, uint32_t index,
     float pan);
 void audiodsp_sampler_set_pitch(audiodsp_sampler_t *self, uint32_t index,
     float pitch);
+// The cutoff (Hz) and the vibrato depth (cents) land at the next chunk. A
+// cutoff that opens the filter fully takes the voice back to the plain path;
+// one that closes it starts the filter from rest.
+void audiodsp_sampler_set_cutoff(audiodsp_sampler_t *self, uint32_t index,
+    float cutoff);
+void audiodsp_sampler_set_vibrato_depth(audiodsp_sampler_t *self,
+    uint32_t index, float cents);
 
 // Mixes every sounding voice, and every fading tail, into `out`: `frames`
 // interleaved frames of `channel_count` signed 16-bit samples. Silent when

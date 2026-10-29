@@ -27,6 +27,8 @@ typedef struct {
     mp_obj_t level;
     mp_obj_t pan;
     mp_obj_t pitch;
+    mp_obj_t cutoff;
+    mp_obj_t vibrato_depth;
 } audiosampler_samplervoice_obj_t;
 
 extern const mp_obj_type_t audiosampler_samplervoice_type;
