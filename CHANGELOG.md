@@ -1,3 +1,9 @@
+## v0.6.11.dev5 (2026-10-29)
+
+- audiograph: a TANH node, so a saturating mixer renders the same bytes everywhere (#332)
+- AGENTS.md: say how examples are written (#331)
+- Point at PyDevices/gallery (#330)
+
 ## v0.6.11.dev4 (2026-10-28)
 
 - audiograph: tables in pages, so a large patch fits a fragmented heap (#328)
