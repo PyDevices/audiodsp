@@ -16,5 +16,12 @@ audio pump holding up under live use such as a stompbox or a stage rig.
   frames instead of stepping, so an effect can fade its wet path in or out
   without a click when you switch it in mid-note.
 
+## Housekeeping
+
+- `.pyi` stubs for every module, so your editor completes audiodsp's API and
+  the Reference pages are generated from them rather than written by hand.
+- The CircuitPython glue's folder takes a lasting name (`src/circuitpython_spike/`
+  becomes `src/circuitpython/`), and `CIRCUITPYTHON_ORACLE` joins `DEPENDENCIES.lock`.
+
 Bugs, and things you need that don't work yet, go to
 [issues](https://github.com/PyDevices/audiodsp/issues).
