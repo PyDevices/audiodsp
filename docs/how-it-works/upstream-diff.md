@@ -70,8 +70,8 @@ run). On an ESP32-P4 at 400 MHz, 64 voices of a dense General MIDI file
 took about 5 ms of the block before the frames between a voice's events got
 a loop of their own (state in registers, two frames' interpolation worked
 out together for the in-order core, the same arithmetic in the same order,
-so the same bits): about 2.4 ms after. Memory is the voice table (about 100 bytes a voice, two
-slots each), a float accumulator of one block, and the output block. The
+so the same bits): about 2.4 ms after. Memory is the voice table (256 bytes a voice on a
+64-bit desktop since the filter and LFOs arrived, 112 before, two slots each), a float accumulator of one block, and the output block. The
 buffers are the caller's, held by reference while a voice sounds.
 
 A `Sampler` carries up to 128 voices (`audiosampler.MAX_VOICES`). Cost
@@ -83,6 +83,35 @@ sounding in a table of 128 take the same as in a table of 64. A board
 renders voices at its own pace, so scale the P4's 64 voices (2.4 ms of a
 5.3 ms block) to what you ask of it, and give `voice_count` the number it
 can keep up with.
+
+### What the filter and the LFOs cost
+
+A voice that sets none of `cutoff`, `resonance`, the modulation envelope's
+depths or the LFOs' takes the path every voice took before they existed,
+and renders the same bits (`sampler_probe.py`'s blocks from before them
+match). One that does renders in 32-frame chunks: once a chunk it works out
+its pitch, its filter's coefficients and its volume, then runs the chunk
+through a two-pole state-variable low-pass. The coefficients take a
+polynomial tangent and `audiodsp_exp2_poly`, never `tanf` or `powf`, so
+every target renders the same bits.
+
+[`tests/parity/sampler_cost.py`](../../tests/parity/sampler_cost.py) times
+it on any target, in microseconds per 256-frame stereo block at 48 kHz
+(5333 µs), every voice looping: *plain* is no filter, *filter* a 2 kHz
+low-pass with 6 dB of resonance, *full* the filter with the modulation
+envelope on pitch and cutoff, the vibrato LFO, and the modulation LFO on
+pitch, cutoff and volume.
+
+| Voices | CPython plain | filter | full | MicroPython unix plain | filter | full |
+|---|---|---|---|---|---|---|
+| 32 | 32 | 56 | 65 | 79 | 104 | 112 |
+| 48 | 47 | 83 | 95 | 111 | 154 | 163 |
+| 64 | 62 | 102 | 122 | 152 | 207 | 225 |
+| 128 | 115 | 208 | 247 | 308 | 407 | 452 |
+
+(x86-64, one core, gcc -O2.)
+
+P4_TABLE
 
 ### How it is verified
 

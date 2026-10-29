@@ -18,6 +18,8 @@ Three of the sections are invariants rather than PCM:
   sounded: the fade is 5 ms, 40 frames at 8 kHz, so 39 is the claim and 255
   would be no fade at all, a cut a block late. Its PCM, and that of a
   `play()` over a sounding voice, is emitted beside it.
+- **modulated** is PCM from voices with the filter, the modulation
+  envelope and both LFOs, and from a filter and a vibrato set live.
 - **held** prints how many frames of the buffer's tail were heard while a
   mode-3 voice was still held: zero is the claim.
 
@@ -194,6 +196,32 @@ def main():
     ends()
     fade()
     choke()
+    modulated()
+
+
+def modulated():
+    # The filter, the modulation envelope and both LFOs on one voice, and a
+    # filter moved live on another: the cutoff's tangent and every 2^x are
+    # polynomials so that this is the same bits everywhere. Times are whole
+    # samples at 8 kHz and depths whole cents.
+    sampler = build(2, 2)
+    sampler.voice[0].play(triangle(), pitch=1.5,
+                          loop_mode=sampler_module.LOOP_FOREVER,
+                          cutoff=1000.0, resonance=9.0, mod_attack=0.0625,
+                          mod_decay=0.125, mod_sustain=0.25,
+                          mod_to_pitch=200.0, mod_to_cutoff=1200.0,
+                          vibrato_delay=0.03125, vibrato_rate=6.0,
+                          vibrato_depth=30.0, lfo_rate=2.0, lfo_to_pitch=10.0,
+                          lfo_to_cutoff=300.0, lfo_to_volume=3.0)
+    sampler.voice[1].play(triangle(), pitch=0.75, pan=0.5,
+                          loop_mode=sampler_module.LOOP_FOREVER)
+    emit("modulated", sampler, 6)
+    sampler.voice[1].cutoff = 500.0
+    sampler.voice[1].vibrato_depth = 40.0
+    emit("closed", sampler, 4)
+    sampler.voice[0].release()
+    sampler.voice[1].cutoff = None
+    emit("opened", sampler, 3)
 
 
 main()
