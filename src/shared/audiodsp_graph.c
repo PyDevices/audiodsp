@@ -393,6 +393,10 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_OVERDRIVE_TONE] = 0.5f;
             node->param[AUDIODSP_GRAPH_OVERDRIVE_LEVEL] = 1.0f;
             break;
+        case AUDIODSP_GRAPH_TANH:
+            node->param[AUDIODSP_GRAPH_TANH_DRIVE] = 1.0f;
+            node->param[AUDIODSP_GRAPH_TANH_LEVEL] = 1.0f;
+            break;
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -1060,6 +1064,21 @@ static float graph_tanh(float x) {
     return p / q;
 }
 
+static void run_tanh(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    const int16_t *in = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs[n->inputs[0]];
+    if (in == NULL) {
+        memset(out, 0, frames * sizeof(int16_t));
+        return;
+    }
+    const float drive = n->param[AUDIODSP_GRAPH_TANH_DRIVE] / AUDIODSP_GRAPH_UNIT;
+    const float level = n->param[AUDIODSP_GRAPH_TANH_LEVEL] * AUDIODSP_GRAPH_UNIT;
+    for (uint32_t i = 0; i < frames; ++i) {
+        out[i] = sat16(graph_tanh((float)in[i] * drive) * level);
+    }
+}
+
 // 2^y in double without libm, for the cutoff: the integer part into the
 // scale, the fraction (within half) through a Taylor series to x^14 of
 // e^(f ln 2), good to about 1e-19. Once or twice a block, so it stays double.
@@ -1406,6 +1425,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_TWOPOLE:
                 run_twopole(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_TANH:
+                run_tanh(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:

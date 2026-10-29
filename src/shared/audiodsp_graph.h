@@ -136,6 +136,11 @@ typedef enum {
     // (synthio.Biquad, CircuitPython's own Q15 arithmetic) whose gain tone
     // sets.
     AUDIODSP_GRAPH_OVERDRIVE,
+    // inputs: audio. params: drive, level. level * tanh(drive * x), x in
+    // units of AUDIODSP_GRAPH_UNIT, with the graph's own tanh so every target
+    // renders the same bytes. A saturating mixer, or the input stage of a
+    // ladder, where OVERDRIVE (Q15 distortion and a shelf) is the wrong shape.
+    AUDIODSP_GRAPH_TANH,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -232,6 +237,13 @@ enum {
     AUDIODSP_GRAPH_OVERDRIVE_TONE,
     // A linear gain after the clipper, down to 1e-4.
     AUDIODSP_GRAPH_OVERDRIVE_LEVEL,
+};
+
+enum {
+    // Pre-gain on the input, in units of UNIT; 1 is unity.
+    AUDIODSP_GRAPH_TANH_DRIVE = 0,
+    // Linear gain after the tanh; 1 is unity (a full-scale +-UNIT).
+    AUDIODSP_GRAPH_TANH_LEVEL,
 };
 
 enum {

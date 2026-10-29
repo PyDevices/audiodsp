@@ -90,6 +90,7 @@ rather than its last block.
 | `SAMPLE_HOLD` | signal, clock | `SH_LAG` coefficient 0..1, `SH_RATE` Hz | the signal held at each rising edge of the clock, or `SH_RATE` times a second with the clock open, [below](#sample-and-hold) |
 | `TWOPOLE` | audio, cutoff CV | `TWOPOLE_TYPE` (`TWOPOLE_SK_LOWPASS`, `TWOPOLE_SK_HIGHPASS`, `TWOPOLE_CMOS_LOWPASS`, `TWOPOLE_CMOS_BANDPASS`, `TWOPOLE_CMOS_HIGHPASS`), `TWOPOLE_CUTOFF_HZ`, `TWOPOLE_DEPTH`, `TWOPOLE_RESONANCE` 0..1, `TWOPOLE_DRIVE` | a 12 dB/octave filter with its nonlinearity inside the loop, [below](#two-pole-filters) |
 | `OVERDRIVE` | audio | `OVERDRIVE_DRIVE` 0..1, `OVERDRIVE_TONE` 0..1, `OVERDRIVE_LEVEL` (linear, 1 is unity) | `audiofilters.Distortion`'s soft-clipped overdrive, then a high shelf, [below](#overdrive) |
+| `TANH` | audio | `TANH_DRIVE` (a gain before the tanh, 1 is unity), `TANH_LEVEL` (a gain after it, 1 is unity) | `TANH_LEVEL · tanh(TANH_DRIVE · x)` with `x` in units of `UNIT`, [below](#tanh) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -175,6 +176,18 @@ in double precision, and the RP2040 build has no double-precision `pow` or
 `log10` to link against. Check with `hasattr(audiograph, "OVERDRIVE")`. On
 CircuitPython, `audiofilters.Distortion` and `synthio.Biquad` are already built
 in, and you can chain them yourself.
+
+### Tanh
+
+`TANH` is `level * tanh(drive * x)`, where `x` is the input over `UNIT`, so a
+full-scale input at a drive of 1 is 0.76 of the way to the rail and a drive of 4
+or more squares a signal off. It is for a mixer that saturates, or the input stage
+in front of a ladder, where `OVERDRIVE` (Q15 distortion and a shelf) is the wrong
+shape. The tanh is the graph's own, the one `TWOPOLE` clips with: a rational
+function good to a few float ulps, with no libm, so MicroPython, CircuitPython and
+CPython render the same bytes. It is present on every target, `OVERDRIVE`'s
+RP2040 limit not applying. A drive large enough to push the result past ±32767 is
+held at the rail, and an open input is silence.
 
 ## Output
 
