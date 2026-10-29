@@ -21,6 +21,7 @@ have. Start with install, then your first program.
 - [Filter a sound](guides/filter-a-sound.md) with `audiobiquad`.
 - [Play recorded notes](guides/play-recorded-notes.md) with `audiosampler`.
 - [Meter levels](guides/meter-levels.md) for a spectrum display.
+- [Speech features](guides/speech-features.md) for a wake word model.
 - [Render on several threads](guides/use-threads.md), including free-threaded Python.
 
 ## Reference

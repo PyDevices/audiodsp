@@ -1,0 +1,16 @@
+KISS FFT by Mark Borgerding, as TensorFlow Lite Micro carries it: the FFT
+the audio microfrontend in ../microfrontend uses.
+
+Source: https://github.com/espressif/esp-tflite-micro (third_party/kissfft)
+Commit: 6dcc4ae70959f409bea6795f1cece5a273b4a7a4 (tag v1.3.7)
+License: BSD-3-Clause, see COPYING (Copyright (c) 2003-2010 Mark Borgerding)
+
+The files here are that commit's, unchanged. They already carry TensorFlow
+Lite Micro's three changes to upstream KISS FFT, each marked "Patched." in
+kiss_fft.h: KISS_FFT_MALLOC and KISS_FFT_FREE do nothing, so every state is
+built in memory the caller passes, and <stdint.h> is included.
+
+Nothing in this directory is compiled on its own. src/shared/audiodsp_microfrontend.c
+defines FIXED_POINT as 16 and includes kiss_fft.c and tools/kiss_fftr.c, which
+makes the int16 fixed-point FFT TensorFlow Lite Micro's kiss_fft_int16.cc
+makes, and renames its symbols to audiodsp_mf_*.

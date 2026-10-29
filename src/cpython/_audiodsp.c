@@ -34,6 +34,7 @@
 #include "shared/audiodsp_modal.h"
 #include "shared/audiodsp_sampler.h"
 #include "shared/audiodsp_meter.h"
+#include "shared/audiodsp_features.h"
 #include "shared/audiodsp_filter_f32.h"
 #include "shared/audiodsp_vorbis.h"
 #include "shared/audiodsp_graph.h"
@@ -127,6 +128,7 @@ typedef struct {
     PyObject *suboctave_state_type;
     PyObject *convolver_state_type;
     PyObject *meter_state_type;
+    PyObject *features_state_type;
     PyObject *vorbis_stream_type;
     PyObject *tank_state_type;
     PyObject *modal_state_type;
@@ -3402,6 +3404,114 @@ static PyType_Spec meter_state_spec = {
     .slots = meter_state_slots,
 };
 
+// --- FeaturesState: audiofeatures' engine (shared/audiodsp_features.c) ------
+
+typedef struct {
+    PyObject_HEAD
+    audiodsp_features_t *f;
+} audiodsp_features_object_t;
+
+static int features_state_init(audiodsp_features_object_t *self, PyObject *args, PyObject *kwargs) {
+    unsigned int slices;
+    if (!PyArg_ParseTuple(args, "I:FeaturesState", &slices)) return -1;
+    if (slices < 8 || slices > 100000) {
+        PyErr_SetString(PyExc_ValueError, "slices 8..100000");
+        return -1;
+    }
+    audiodsp_features_free(self->f);
+    self->f = audiodsp_features_new(slices);
+    if (self->f == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    return 0;
+}
+
+static void features_state_dealloc(audiodsp_features_object_t *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    audiodsp_features_free(self->f);
+    self->f = NULL;
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
+static PyObject *features_state_feed(audiodsp_features_object_t *self, PyObject *args) {
+    Py_buffer pcm = {0};
+    unsigned int rate, channels = 1;
+    if (!PyArg_ParseTuple(args, "y*I|I:feed", &pcm, &rate, &channels)) return NULL;
+    if (rate < AUDIODSP_FEATURES_MIN_RATE || rate > AUDIODSP_FEATURES_MAX_RATE) {
+        PyBuffer_Release(&pcm);
+        PyErr_SetString(PyExc_ValueError, "sample_rate 16 kHz..384 kHz");
+        return NULL;
+    }
+    if (channels < 1 || channels > 8 || pcm.len % (2 * (Py_ssize_t)channels)) {
+        PyBuffer_Release(&pcm);
+        PyErr_SetString(PyExc_ValueError, "whole s16 frames, 1..8 channels");
+        return NULL;
+    }
+    int rc = audiodsp_features_feed_s16(self->f, (const int16_t *)pcm.buf,
+        (size_t)(pcm.len / (2 * (Py_ssize_t)channels)), channels, rate);
+    PyBuffer_Release(&pcm);
+    if (rc != 0) {
+        return PyErr_NoMemory();
+    }
+    return PyLong_FromUnsignedLong(audiodsp_features_waiting(self->f));
+}
+
+// read(buf, raw): whole slices into a writable buffer, int8 or (raw) uint16
+static PyObject *features_state_read(audiodsp_features_object_t *self, PyObject *args) {
+    Py_buffer out = {0};
+    int raw;
+    if (!PyArg_ParseTuple(args, "w*p:read", &out, &raw)) return NULL;
+    size_t width = raw ? 2 * AUDIODSP_FEATURES_SIZE : AUDIODSP_FEATURES_SIZE;
+    size_t max = (size_t)out.len / width;
+    size_t n = raw ? audiodsp_features_read_u16(self->f, (uint16_t *)out.buf, max)
+        : audiodsp_features_read_s8(self->f, (int8_t *)out.buf, max);
+    PyBuffer_Release(&out);
+    return PyLong_FromSize_t(n);
+}
+
+static PyObject *features_state_reset(audiodsp_features_object_t *self, PyObject *unused) {
+    audiodsp_features_reset(self->f);
+    Py_RETURN_NONE;
+}
+
+static PyObject *features_state_stats(audiodsp_features_object_t *self, PyObject *unused) {
+    audiodsp_features_stats_t st;
+    audiodsp_features_stats(self->f, &st);
+    return Py_BuildValue("(kkkkkO)", (unsigned long)st.slices, (unsigned long)st.dropped,
+        (unsigned long)st.waiting, (unsigned long)st.capacity, (unsigned long)st.rate,
+        st.resampling ? Py_True : Py_False);
+}
+
+AUDIODSP_LOCKED_ARGS(features_state_feed, audiodsp_features_object_t)
+AUDIODSP_LOCKED_ARGS(features_state_read, audiodsp_features_object_t)
+AUDIODSP_LOCKED_ARGS(features_state_reset, audiodsp_features_object_t)
+AUDIODSP_LOCKED_ARGS(features_state_stats, audiodsp_features_object_t)
+static PyMethodDef features_state_methods[] = {
+    {"feed", (PyCFunction)features_state_feed_locked, METH_VARARGS, NULL},
+    {"read", (PyCFunction)features_state_read_locked, METH_VARARGS, NULL},
+    {"reset", (PyCFunction)features_state_reset_locked, METH_NOARGS, NULL},
+    {"stats", (PyCFunction)features_state_stats_locked, METH_NOARGS, NULL},
+    {NULL, NULL, 0, NULL},
+};
+
+AUDIODSP_LOCKED_INIT(features_state_init, audiodsp_features_object_t)
+static PyType_Slot features_state_slots[] = {
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, features_state_init_locked},
+    {Py_tp_dealloc, features_state_dealloc},
+    {Py_tp_methods, features_state_methods},
+    {0, NULL},
+};
+
+static PyType_Spec features_state_spec = {
+    .name = "_audiodsp.FeaturesState",
+    .basicsize = sizeof(audiodsp_features_object_t),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = features_state_slots,
+};
+
 // --- Graph: audiograph's runner (shared/audiodsp_graph.c) ------------------
 //
 // The same calls as the MicroPython binding (src/audiograph/Graph.c), with
@@ -5596,6 +5706,14 @@ static int audiodsp_exec(PyObject *module) {
         state->vorbis_stream_type) < 0) return -1;
     if (PyModule_AddIntConstant(module, "METER_MAX_BANDS",
         AUDIODSP_METER_MAX_BANDS) < 0) return -1;
+    state->features_state_type = PyType_FromModuleAndSpec(module,
+        &features_state_spec, NULL);
+    if (state->features_state_type == NULL) return -1;
+    if (PyModule_AddObjectRef(module, "FeaturesState",
+        state->features_state_type) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "FEATURES_SIZE", AUDIODSP_FEATURES_SIZE) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "FEATURES_RATE", AUDIODSP_FEATURES_RATE) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "FEATURES_STEP_MS", AUDIODSP_FEATURES_STEP_MS) < 0) return -1;
     state->tank_state_type = PyType_FromModuleAndSpec(module,
         &tank_state_spec, NULL);
     if (state->tank_state_type == NULL) return -1;
@@ -5668,6 +5786,7 @@ static int audiodsp_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->suboctave_state_type);
     Py_VISIT(state->convolver_state_type);
     Py_VISIT(state->meter_state_type);
+    Py_VISIT(state->features_state_type);
     Py_VISIT(state->vorbis_stream_type);
     Py_VISIT(state->tank_state_type);
     Py_VISIT(state->modal_state_type);
@@ -5695,6 +5814,7 @@ static int audiodsp_clear(PyObject *module) {
     Py_CLEAR(state->suboctave_state_type);
     Py_CLEAR(state->convolver_state_type);
     Py_CLEAR(state->meter_state_type);
+    Py_CLEAR(state->features_state_type);
     Py_CLEAR(state->vorbis_stream_type);
     Py_CLEAR(state->tank_state_type);
     Py_CLEAR(state->modal_state_type);

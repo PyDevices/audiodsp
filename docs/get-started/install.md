@@ -18,7 +18,7 @@ This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiodelays`, `audiofreeverb`, `audiospeed`, `audiodynamics`, `audioroute`,
 `audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audiooscillator`,
 `audioconvolve`, `audiobiquad`, `audioverb`, `audiomodal`, `audiosampler`, `audiometer`,
-`audiopump`, `audiovorbis`, `audiograph`, and the `audiorender` package.
+`audiofeatures`, `audiopump`, `audiovorbis`, `audiograph`, and the `audiorender` package.
 `audiomp3` remains firmware-only. The distribution declares no *required*
 runtime dependencies and does not itself publish an `audiodsp` import; its
 version is the `VERSION` file, which is also what `_audiodsp.__version__`
@@ -105,5 +105,5 @@ own `audiobusio`, `audioio` and `audiopwmio`; `audiocore`, `synthio`,
 `audiomixer` and the effects modules stay CircuitPython's. Two modules differ
 there: `audiopump` carries only `Ring` (see
 [Play computed audio](../guides/play-computed-audio.md)), and `audiometer`
-isn't built, because its sources are a board's pump and a USB sound card, and
-CircuitPython has neither.
+and `audiofeatures` aren't built, because their sources are a board's pump and
+a USB sound card, and CircuitPython has neither.

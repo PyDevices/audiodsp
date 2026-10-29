@@ -40,10 +40,10 @@ These have no ancestor anywhere and are audiodsp's own:
 Every one of them builds into CircuitPython 11 too, as a user C module; see
 [Install](../get-started/install.md#circuitpython-11).
 
-Three more are for cases CircuitPython doesn't cover. `audiometer` (band
-levels for a spectrum meter) is the one CircuitPython doesn't get: its
-sources are a board's pump and a USB sound card, and CircuitPython has
-neither. `audiovorbis` plays Ogg Vorbis files, which CircuitPython has no
+Four more are for cases CircuitPython doesn't cover. `audiometer` (band
+levels for a spectrum meter) and `audiofeatures` (speech features for a wake
+word model) are the two CircuitPython doesn't get: their sources are a board's
+pump and a USB sound card, and CircuitPython has neither. `audiovorbis` plays Ogg Vorbis files, which CircuitPython has no
 module for. And `audiopump.Ring` lets CircuitPython play audio your own code
 computes.
 

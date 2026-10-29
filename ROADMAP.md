@@ -15,6 +15,10 @@ audio pump holding up under live use such as a stompbox or a stage rig.
 - A level ramp on `audiomixer` voices: a level move ramps over a set number of
   frames instead of stepping, so an effect can fade its wet path in or out
   without a click when you switch it in mid-note.
+- Voice activity in `audiofeatures`: a flag per slice saying whether it holds
+  speech, from the frontend's own noise estimate, so a wake word model need
+  only run while someone is talking. The frontend costs about 14 KB of flash
+  on an ESP32-P4 today; this should add little to it.
 
 Bugs, and things you need that don't work yet, go to
 [issues](https://github.com/PyDevices/audiodsp/issues).
