@@ -14,6 +14,7 @@
 #include "shared/audiodsp_microfrontend_names.h"
 #include "tensorflow/lite/experimental/microfrontend/lib/frontend.h"
 #include "tensorflow/lite/experimental/microfrontend/lib/frontend_util.h"
+#include "tensorflow/lite/experimental/microfrontend/lib/bits.h"
 
 // --- the resampler -----------------------------------------------------------
 //
@@ -210,6 +211,134 @@ static const float *rs_row(rs_t *rs) {
     return rs->row;
 }
 
+// --- voice activity ----------------------------------------------------------
+//
+// Each slice gets a flag saying whether it holds speech, worked out from the
+// filterbank's own band amplitudes, before noise reduction touches them.
+// Everything is integer arithmetic, so every target flags the same slices.
+//
+// Per band, the level is log2 of the amplitude in 1/64 octave (0.094 dB) steps,
+// and a noise floor follows it: down 2 steps a slice when the level is under
+// it, up 1/4 step a slice when it is over. That holds the floor near the
+// quietest tenth of what the band hears, so speech, which comes and goes,
+// barely moves it, and a steady noise becomes the floor in a few seconds. A
+// band quieter than any real microphone (digital silence between files, say)
+// leaves its floor alone.
+//
+// The floor starts as the mean of the first VAD_PRIME slices, which are
+// never voice. A slice's score is the mean, over the VAD_TOP bands furthest above their
+// floors, of how far above they are, averaged over the last VAD_SMOOTH
+// slices. Voice is a score of VAD_ON or more, and it holds for VAD_HOLD slices
+// after the score drops, so a word's tail and the gaps between words stay in.
+// While the flag is up the floor rises more slowly, and then faster the longer
+// it stays up, so a noise that steps up and stays is taken in within a few
+// seconds instead of reading as speech forever.
+
+#define VAD_TOP 4               // bands scored
+#define VAD_ON 110              // score for speech: about 10 dB above the floor
+#define VAD_CLIP 192            // a band counts at most 18 dB above its floor
+#define VAD_SMOOTH 5            // slices the score is averaged over
+#define VAD_HOLD 10             // slices voice holds after the score drops
+#define VAD_LEVEL_MIN 200       // a level under this (about -80 dBFS) is no news
+#define VAD_FALL 32             // floor steps, in 1/16 of a level step a slice
+#define VAD_RISE 4
+#define VAD_RISE_VOICE 2
+#define VAD_RISE_SHIFT 4        // the rise grows by one every 2^4 slices of voice
+#define VAD_PRIME 16            // slices whose mean starts the floor, never voice
+
+typedef struct {
+    int32_t floor[AUDIODSP_FEATURES_SIZE];  // each band's noise floor, 1/1024 octave
+    int16_t recent[VAD_SMOOTH];             // the last slices' scores
+    uint16_t run;                           // slices voiced in a row
+    uint8_t at, hold, voice;
+    uint8_t primed;                         // slices heard, up to VAD_PRIME
+} audiodsp_vad_t;
+
+// log2(x) in 1/64 octave: the top bit's place, then six bits of mantissa,
+// read as linear. 0 and 1 both give 0.
+static int32_t vad_level(uint32_t x) {
+    if (x < 2) {
+        return 0;
+    }
+    int m = MostSignificantBit32(x) - 1;
+    uint32_t frac = m >= 6 ? (x >> (m - 6)) & 63 : (x << (6 - m)) & 63;
+    return m * 64 + (int32_t)frac;
+}
+
+static void vad_reset(audiodsp_vad_t *v) {
+    memset(v, 0, sizeof(*v));
+}
+
+static uint8_t vad_slice(audiodsp_vad_t *v, const uint32_t *amp) {
+    int32_t level[AUDIODSP_FEATURES_SIZE], above[AUDIODSP_FEATURES_SIZE];
+    for (int b = 0; b < AUDIODSP_FEATURES_SIZE; b++) {
+        level[b] = vad_level(amp[b]);
+    }
+    if (v->primed < VAD_PRIME) {
+        // The floor starts as the mean of the first slices: one slice alone
+        // could catch a band low and read the next ones as voice.
+        int32_t n = v->primed;
+        for (int b = 0; b < AUDIODSP_FEATURES_SIZE; b++) {
+            int32_t l = level[b] < VAD_LEVEL_MIN ? VAD_LEVEL_MIN : level[b];
+            v->floor[b] = (v->floor[b] * n + (l << 4)) / (n + 1);
+        }
+        v->primed++;
+        v->voice = 0;
+        return 0;
+    }
+    for (int b = 0; b < AUDIODSP_FEATURES_SIZE; b++) {
+        int32_t d = level[b] - (v->floor[b] >> 4);
+        above[b] = d < 0 ? 0 : d > VAD_CLIP ? VAD_CLIP : d;
+    }
+    // The mean of the VAD_TOP largest, by selection.
+    int32_t sum = 0;
+    for (int i = 0; i < VAD_TOP; i++) {
+        int best = i;
+        for (int j = i + 1; j < AUDIODSP_FEATURES_SIZE; j++) {
+            if (above[j] > above[best]) {
+                best = j;
+            }
+        }
+        int32_t t = above[i];
+        above[i] = above[best];
+        above[best] = t;
+        sum += above[i];
+    }
+    v->recent[v->at] = (int16_t)(sum / VAD_TOP);
+    v->at = (uint8_t)((v->at + 1) % VAD_SMOOTH);
+    int32_t score = 0;
+    for (int i = 0; i < VAD_SMOOTH; i++) {
+        score += v->recent[i];
+    }
+    score /= VAD_SMOOTH;
+    uint8_t voice;
+    if (score >= VAD_ON) {
+        v->hold = VAD_HOLD;
+        voice = 1;
+    } else if (v->hold > 0) {
+        v->hold--;
+        voice = 1;
+    } else {
+        voice = 0;
+    }
+    int32_t rise = voice ? VAD_RISE_VOICE + (int32_t)(v->run >> VAD_RISE_SHIFT) : VAD_RISE;
+    for (int b = 0; b < AUDIODSP_FEATURES_SIZE; b++) {
+        if (level[b] < VAD_LEVEL_MIN) {
+            continue;
+        }
+        int32_t t = level[b] << 4;
+        int32_t d = t - v->floor[b];
+        if (d < 0) {
+            v->floor[b] -= -d < VAD_FALL ? -d : VAD_FALL;
+        } else {
+            v->floor[b] += d < rise ? d : rise;
+        }
+    }
+    v->run = voice ? (v->run < 65535 ? v->run + 1 : v->run) : 0;
+    v->voice = voice;
+    return voice;
+}
+
 // --- the engine --------------------------------------------------------------
 
 struct audiodsp_features {
@@ -219,6 +348,8 @@ struct audiodsp_features {
     rs_t rs;
     uint32_t rate;          // last rate fed
     uint16_t *queue;        // capacity slices
+    uint8_t *voice;         // a flag for each queued slice
+    audiodsp_vad_t vad;
     uint32_t capacity, head, count;
     uint32_t slices, dropped;
 };
@@ -259,8 +390,9 @@ audiodsp_features_t *audiodsp_features_new(uint32_t capacity) {
     }
     f->capacity = capacity;
     f->queue = malloc((size_t)capacity * AUDIODSP_FEATURES_SIZE * sizeof(uint16_t));
+    f->voice = malloc(capacity);
     features_config(&f->config);
-    if (f->queue == NULL) {
+    if (f->queue == NULL || f->voice == NULL) {
         audiodsp_features_free(f);
         return NULL;
     }
@@ -284,6 +416,7 @@ void audiodsp_features_free(audiodsp_features_t *f) {
     }
     rs_free(&f->rs);
     free(f->queue);
+    free(f->voice);
     free(f);
 }
 
@@ -292,11 +425,12 @@ void audiodsp_features_reset(audiodsp_features_t *f) {
     if (f->rs.buf != NULL) {
         rs_restart(&f->rs);
     }
+    vad_reset(&f->vad);
     f->head = f->count = 0;
     f->slices = f->dropped = 0;
 }
 
-static void features_push(audiodsp_features_t *f, const uint16_t *values) {
+static void features_push(audiodsp_features_t *f, const uint16_t *values, uint8_t voice) {
     if (f->count == f->capacity) {
         f->head = (f->head + 1) % f->capacity;
         f->count--;
@@ -304,23 +438,47 @@ static void features_push(audiodsp_features_t *f, const uint16_t *values) {
     }
     uint32_t tail = (f->head + f->count) % f->capacity;
     memcpy(f->queue + (size_t)tail * AUDIODSP_FEATURES_SIZE, values, AUDIODSP_FEATURES_SIZE * sizeof(uint16_t));
+    f->voice[tail] = voice;
     f->count++;
     f->slices++;
+}
+
+// One slice, when the window has filled: FrontendProcessSamples() step for
+// step (frontend.c), so the values are the library's own, with a copy of the
+// band amplitudes taken for voice activity before noise reduction changes
+// them. Returns false while the window still wants samples.
+static bool features_slice(audiodsp_features_t *f, const int16_t *x, size_t n, size_t *read) {
+    struct FrontendState *st = &f->fe;
+    if (!WindowProcessSamples(&st->window, x, n, read)) {
+        return false;
+    }
+    int input_shift = 15 - MostSignificantBit32(st->window.max_abs_output_value);
+    FftCompute(&st->fft, st->window.output, input_shift);
+    int32_t *energy = (int32_t *)st->fft.output;
+    FilterbankConvertFftComplexToEnergy(&st->filterbank, st->fft.output, energy);
+    FilterbankAccumulateChannels(&st->filterbank, energy);
+    uint32_t *scaled = FilterbankSqrt(&st->filterbank, input_shift);
+    uint8_t voice = vad_slice(&f->vad, scaled);
+    NoiseReductionApply(&st->noise_reduction, scaled);
+    if (st->pcan_gain_control.enable_pcan) {
+        PcanGainControlApply(&st->pcan_gain_control, scaled);
+    }
+    int correction_bits = MostSignificantBit32(st->fft.fft_size) - 1 - (kFilterbankBits / 2);
+    uint16_t *logged = LogScaleApply(&st->log_scale, scaled, st->filterbank.num_channels, correction_bits);
+    features_push(f, logged, voice);
+    return true;
 }
 
 // 16 kHz mono samples through the frontend.
 static void features_run(audiodsp_features_t *f, const int16_t *x, size_t n) {
     while (n > 0) {
         size_t read = 0;
-        struct FrontendOutput out = FrontendProcessSamples(&f->fe, x, n, &read);
-        if (read == 0) {
+        bool made = features_slice(f, x, n, &read);
+        if (read == 0 && !made) {
             break;
         }
         x += read;
         n -= read;
-        if (out.size == AUDIODSP_FEATURES_SIZE) {
-            features_push(f, out.values);
-        }
     }
 }
 
@@ -427,9 +585,12 @@ uint32_t audiodsp_features_waiting(const audiodsp_features_t *f) {
     return f->count;
 }
 
-size_t audiodsp_features_read_u16(audiodsp_features_t *f, uint16_t *out, size_t max_slices) {
+size_t audiodsp_features_read_u16(audiodsp_features_t *f, uint16_t *out, size_t max_slices, uint8_t *voice) {
     size_t n = 0;
     while (n < max_slices && f->count > 0) {
+        if (voice != NULL) {
+            voice[n] = f->voice[f->head];
+        }
         memcpy(out + n * AUDIODSP_FEATURES_SIZE, f->queue + (size_t)f->head * AUDIODSP_FEATURES_SIZE,
             AUDIODSP_FEATURES_SIZE * sizeof(uint16_t));
         f->head = (f->head + 1) % f->capacity;
@@ -439,9 +600,12 @@ size_t audiodsp_features_read_u16(audiodsp_features_t *f, uint16_t *out, size_t 
     return n;
 }
 
-size_t audiodsp_features_read_s8(audiodsp_features_t *f, int8_t *out, size_t max_slices) {
+size_t audiodsp_features_read_s8(audiodsp_features_t *f, int8_t *out, size_t max_slices, uint8_t *voice) {
     size_t n = 0;
     while (n < max_slices && f->count > 0) {
+        if (voice != NULL) {
+            voice[n] = f->voice[f->head];
+        }
         const uint16_t *v = f->queue + (size_t)f->head * AUDIODSP_FEATURES_SIZE;
         for (int i = 0; i < AUDIODSP_FEATURES_SIZE; i++) {
             out[n * AUDIODSP_FEATURES_SIZE + i] = audiodsp_features_quantize(v[i]);
@@ -451,6 +615,10 @@ size_t audiodsp_features_read_s8(audiodsp_features_t *f, int8_t *out, size_t max
         n++;
     }
     return n;
+}
+
+bool audiodsp_features_speaking(const audiodsp_features_t *f) {
+    return f->vad.voice != 0;
 }
 
 void audiodsp_features_stats(const audiodsp_features_t *f, audiodsp_features_stats_t *st) {

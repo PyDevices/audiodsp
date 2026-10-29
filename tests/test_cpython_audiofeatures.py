@@ -34,7 +34,7 @@ DATA = os.path.join(HERE, "data", "audiofeatures")
 SIZE = audiofeatures.FEATURE_SIZE
 
 
-def signal(seconds=3):
+def signal(seconds=3, plan=None):
     """Integer-only 16 kHz test audio: a noise floor, then tone and noise bursts.
 
     Integers only, so it is the same audio on every platform. Changing it
@@ -44,10 +44,14 @@ def signal(seconds=3):
     s = 2024
     seg = 16000 // 4
     # (Minsky circle step, 2*pi*f/16000 in Q16; tone level; noise level)
-    plan = [(0, 0, 300), (0, 0, 300), (7721, 9000, 300), (15442, 4000, 300),
-            (3861, 12000, 2000), (0, 0, 9000), (25736, 6000, 600), (0, 0, 300),
-            (11581, 15000, 300), (38604, 3000, 4000), (0, 0, 150), (5148, 8000, 1200)]
-    for i in range(seconds * 4):
+    quarters = seconds * 4
+    if plan is None:
+        plan = [(0, 0, 300), (0, 0, 300), (7721, 9000, 300), (15442, 4000, 300),
+                (3861, 12000, 2000), (0, 0, 9000), (25736, 6000, 600), (0, 0, 300),
+                (11581, 15000, 300), (38604, 3000, 4000), (0, 0, 150), (5148, 8000, 1200)]
+    else:
+        quarters = len(plan)
+    for i in range(quarters):
         step, level, noise = plan[i % len(plan)]
         x, y = level << 8, 0
         for n in range(seg):
@@ -65,8 +69,20 @@ def signal(seconds=3):
     return out
 
 
-def golden(ext):
-    with open(os.path.join(DATA, "signal_16k." + ext), "rb") as f:
+QUIET = (0, 0, 300)
+#: Quarter-second segments for voice activity: a quiet floor, tone bursts
+#: (rising onto the floor and dying away) and a burst of loud noise.
+BURSTS = [QUIET] * 4 + [(3861, 12000, 300), (7721, 6000, 300)] + [QUIET] * 6 + \
+    [(5148, 8000, 600)] + [QUIET] * 2 + [(0, 0, 6000)] + [QUIET] * 4
+
+
+def bursts():
+    """signal()'s generator over BURSTS: 5 s, integers only."""
+    return signal(plan=BURSTS)
+
+
+def golden(ext, name="signal_16k"):
+    with open(os.path.join(DATA, name + "." + ext), "rb") as f:
         return f.read()
 
 
@@ -187,6 +203,134 @@ class ResamplerTest(unittest.TestCase):
         fe.feed(bytes(3200), 16000)
         self.assertFalse(fe.stats()["resampling"])
         self.assertEqual(fe.stats()["rate"], 16000)
+
+
+def voice(pcm, rate=16000, block=480, channels=1):
+    """Every slice's voice flag, as bytes, fed `block` frames at a time."""
+    fe = audiofeatures.Frontend(slices=64)
+    buf = bytearray(SIZE * 64)
+    flags = bytearray(64)
+    out = bytearray()
+    mv = memoryview(pcm).cast("B")
+    step = block * 2 * channels
+    for at in range(0, len(mv), step):
+        fe.feed(mv[at:at + step], rate, channels)
+        n = fe.readinto(buf, flags)
+        out += flags[:n]
+    fe.deinit()
+    return bytes(out)
+
+
+def noise(seconds, rms, seed=1):
+    """Gaussian noise at `rms`, from numpy's seeded generator."""
+    rng = np.random.default_rng(seed)
+    return rng.normal(0, rms, int(16000 * seconds))
+
+
+def pcm(x):
+    return np.clip(np.round(x), -32768, 32767).astype("<i2")
+
+
+def wrong_by(got, want):
+    return sum(a != b for a, b in zip(got, want)) + abs(len(got) - len(want))
+
+
+class VoiceTest(unittest.TestCase):
+
+    def test_goldens(self):
+        for name, x in (("signal_16k", signal()), ("bursts_16k", bursts())):
+            with self.subTest(name=name):
+                want = golden("voice", name)
+                for block in (1, 160, 4096):
+                    self.assertEqual(voice(x, block=block), want)
+
+    def test_goldens_catch_a_slice_late_or_no_hold(self):
+        # The planted faults for test_goldens: a detector one slice late, or
+        # one without its hold, must not pass. Both differ in many slices.
+        want = golden("voice", "bursts_16k")
+        late = b"\x00" + want[:-1]
+        self.assertGreater(wrong_by(late, want), 3)
+        no_hold = bytearray(want)
+        for i in range(len(want)):
+            if want[i] and (i + 1 == len(want) or not want[i + 1]):
+                no_hold[max(0, i - 9):i + 1] = bytes(i + 1 - max(0, i - 9))
+        self.assertGreater(wrong_by(bytes(no_hold), want), 20)
+
+    def test_bursts_are_voice_and_the_floor_between_is_not(self):
+        flags = voice(bursts())
+        # Slice k covers 10k..10k+30 ms. Each quarter is 25 slices.
+        def quarter(q):
+            return flags[q * 25 + 3:q * 25 + 22]
+        for q, (step, level, noise_level) in enumerate(BURSTS):
+            if q < 2:
+                continue        # the floor is still being learnt
+            loud = level > 0 or noise_level > 1000
+            before = q > 0 and (BURSTS[q - 1][1] > 0 or BURSTS[q - 1][2] > 1000)
+            if loud:
+                self.assertGreater(sum(quarter(q)), 15, q)
+            elif not before:
+                self.assertEqual(sum(quarter(q)), 0, q)
+
+    def test_steady_noise_is_never_voice(self):
+        for rms in (30, 300, 3000):
+            with self.subTest(rms=rms):
+                flags = voice(pcm(noise(10, rms)))
+                self.assertEqual(sum(flags), 0)
+
+    def test_a_noise_that_steps_up_is_learnt(self):
+        # 3 s of quiet noise, then 20 dB louder for 10 s: voice at first,
+        # since that is what a sudden sound is, then never again.
+        x = np.concatenate([noise(3, 100), noise(10, 1000, seed=2)])
+        flags = voice(pcm(x))
+        self.assertGreater(sum(flags[300:350]), 40)
+        self.assertEqual(sum(flags[800:]), 0)   # measured: clear 3.5 s after the step
+
+    def test_digital_silence_then_noise(self):
+        # A stream that starts silent and then meets a microphone's floor.
+        x = np.concatenate([np.zeros(32000), noise(10, 100)])
+        flags = voice(pcm(x))
+        self.assertEqual(sum(flags[:200]), 0)
+        self.assertEqual(sum(flags[700:]), 0)
+
+    def test_48k_flags_match_16k(self):
+        x = np.frombuffer(bursts().tobytes(), "<i2")
+        a = voice(x)
+        b = voice(upsample(x, 3), rate=48000)
+        n = min(len(a), len(b))
+        self.assertLessEqual(wrong_by(a[:n], b[:n]), 4)
+
+    def test_speaking_is_the_newest_flag(self):
+        fe = audiofeatures.Frontend(slices=1000)
+        x = bursts()
+        mv = memoryview(x).cast("B")
+        buf = bytearray(SIZE * 1000)
+        flags = bytearray(1000)
+        seen = []
+        for at in range(0, len(mv), 320):
+            fe.feed(mv[at:at + 320], 16000)
+            seen.append(fe.speaking())
+        n = fe.readinto(buf, flags)
+        self.assertEqual(fe.speaking(), bool(flags[n - 1]))
+        self.assertTrue(any(seen) and not all(seen))
+
+    def test_voice_buffer_limits_the_read(self):
+        fe = audiofeatures.Frontend()
+        fe.feed(bytes(32000), 16000)
+        flags = bytearray(5)
+        self.assertEqual(fe.readinto(bytearray(SIZE * 10), flags), 5)
+        self.assertEqual(fe.readinto_raw(array("H", bytes(4 * SIZE)), flags), 2)
+        self.assertEqual(fe.readinto(bytearray(SIZE), None), 1)
+        self.assertEqual(fe.stats()["waiting"], 90)
+
+    def test_reset_forgets_the_floor(self):
+        fe = audiofeatures.Frontend()
+        fe.feed(pcm(noise(1, 3000)).tobytes(), 16000)
+        fe.reset()
+        self.assertFalse(fe.speaking())
+        fe.feed(pcm(noise(1, 3000)).tobytes(), 16000)
+        flags = bytearray(100)
+        fe.readinto(bytearray(SIZE * 100), flags)
+        self.assertEqual(sum(flags), 0)
 
 
 class SurfaceTest(unittest.TestCase):

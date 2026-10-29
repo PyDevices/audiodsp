@@ -25,7 +25,7 @@ It adds modules CircuitPython doesn't have. Each has a page here or a guide:
 | `audiograph` | A whole patch rendered by one C call per block | [reference](sources-and-synthesis.md#audiograph), [how it works](../how-it-works/audiograph.md) |
 | `audiosampler` | Recorded notes played at any pitch, looped, under an envelope | [guide](../guides/play-recorded-notes.md) |
 | `audiometer` | Band levels for a spectrum meter | [guide](../guides/meter-levels.md) |
-| `audiofeatures` | Speech features for a wake word model | [guide](../guides/speech-features.md) |
+| `audiofeatures` | Speech features and voice activity for a wake word model | [guide](../guides/speech-features.md) |
 | `audiovorbis` | Ogg Vorbis files | [guide](../guides/decode-vorbis.md), [C interface](vorbis.md) |
 | `audiopump` | The audio pull, off the interpreter thread | [guide](../guides/run-the-audio-pump.md), [reference](audiopump.md) |
 
