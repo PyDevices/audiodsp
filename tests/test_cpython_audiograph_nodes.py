@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE and OVERDRIVE, held to what they stand in for.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE and TANH, held to what they stand in for.
 
 | node | held to | bar |
 |---|---|---|
@@ -15,6 +15,7 @@
 | `TWOPOLE`, CMOS low-pass, band-pass, high-pass | vrack's `dsp/twopole.py` `CMOSFilterCore`, with the cutoff CV still, stepping between blocks, running through a block, and not connected | 0 counts |
 | `TWOPOLE`, Sallen-Key low-pass and high-pass | `SallenKeyLPFCore` and `SallenKeyHPFCore`, the same four CV cases | 1 count, on under 1 sample in 100 (the float `tanh`) |
 | `OVERDRIVE` | vrack's `OverdriveCore`: `audiofilters.Distortion` in overdrive mode with soft clipping, then `audiofilters.Filter` with a `synthio.Biquad` high shelf, driven the way vrack's bridge drives them | 0 counts |
+| `TANH` | `level * UNIT * tanh(drive * x / UNIT)` in double precision, over a ramp through the clip, a program, and the knobs moving | 1 count (a few float ulps of tanh, which moves a half-count tie the other way) |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -895,6 +896,116 @@ class Overdrive(unittest.TestCase):
         rig.g.reset(rig.node)
         again = [rig.run(b) for b in blocks]
         self.assertEqual(first, again)
+
+
+# -------------------------------------------------------------------- TANH --
+
+def tanh_ref(block, drive, level):
+    """`level * UNIT * tanh(drive * x / UNIT)`, in double precision, rounded half to even."""
+    return [sat(level * UNIT * math.tanh(drive * v / UNIT)) for v in block]
+
+
+class Tanh(unittest.TestCase):
+
+    def ramp(self, frames, blocks, amplitude):
+        # a triangle from -amplitude to +amplitude over the run, so every
+        # level from silence to the clip is met, with a little of a square
+        total = frames * blocks
+        values = []
+        for i in range(total):
+            p = i / total
+            tri = 4.0 * p - 1.0 if p < 0.5 else 3.0 - 4.0 * p
+            values.append(max(-32768, min(32767, int(tri * amplitude)
+                                          + (300 if (i // 37) % 2 else -300))))
+        return [values[b * frames:(b + 1) * frames] for b in range(blocks)]
+
+    def compare(self, settings, frames=128, amplitude=32767):
+        rig = Rig(frames, ag.TANH, 1)
+        got, want = [], []
+        for block, (drive, level) in zip(self.ramp(frames, len(settings), amplitude),
+                                         settings):
+            rig.set(ag.TANH_DRIVE, drive)
+            rig.set(ag.TANH_LEVEL, level)
+            got += rig.run(block)
+            want += tanh_ref(block, drive, level)
+        return got, want
+
+    def test_matches_tanh(self):
+        # vrack's MonoSynth mixer drives 1.2 to 4.8 into it at a level of 0.65
+        for drive, level in ((1.0, 1.0), (1.2, 0.65), (4.8, 0.43), (0.25, 1.0),
+                             (8.0, 0.5), (1.0, 1.5)):
+            got, want = self.compare([(drive, level)] * 40)
+            self.assertLessEqual(worst(got, want), 1, (drive, level))
+
+    def test_it_saturates(self):
+        got, _ = self.compare([(4.0, 1.0)] * 20)
+        self.assertGreater(max(got), 16300)
+        self.assertLessEqual(max(got), 16384)
+        self.assertGreater(min(got), -16385)
+        # at unity gain a small signal passes nearly unchanged
+        small = Rig(128, ag.TANH, 1).run([v // 64 for v in range(-4096, 4096, 64)])
+        self.assertLessEqual(worst(small, [v // 64 for v in range(-4096, 4096, 64)]), 1)
+
+    def test_defaults_are_unity(self):
+        block = [(i * 211) % 4096 - 2048 for i in range(128)]
+        self.assertEqual(Rig(128, ag.TANH, 1).run(block), tanh_ref(block, 1.0, 1.0))
+
+    def test_matches_while_the_knobs_move(self):
+        settings = [(0.125 * (1 + b % 40), 0.0625 * (1 + b % 33)) for b in range(80)]
+        got, want = self.compare(settings)
+        self.assertLessEqual(worst(got, want), 1)
+
+    def test_the_level_can_push_past_the_rail(self):
+        got, _ = self.compare([(8.0, 4.0)] * 10)
+        self.assertEqual(max(got), 32767)
+        self.assertEqual(min(got), -32768)
+
+    def test_an_open_input_is_silence(self):
+        rig = Rig(64, ag.TANH, 1, open_=(0,))
+        self.assertEqual(rig.run(), [0] * 64)
+
+    def test_other_block_sizes(self):
+        for frames in (32, 64, 256):
+            got, want = self.compare([(1.2, 0.65)] * 20, frames=frames)
+            self.assertLessEqual(worst(got, want), 1, frames)
+
+    def test_the_check_catches_a_wrong_tanh(self):
+        # planted faults in the reference, as a stand-in for them in the
+        # node: each must fail the 1-count bar this file holds the node to
+        frames, blocks = 128, 40
+        settings = [(1.2, 0.65)] * blocks
+        got, _ = self.compare(settings)
+        blocks_in = self.ramp(frames, blocks, 32767)
+        wrong = {
+            "drive and level swapped": lambda b: tanh_ref(b, 0.65, 1.2),
+            "a clip, not a tanh": lambda b: [
+                sat(0.65 * UNIT * max(-1.0, min(1.0, 1.2 * v / UNIT))) for v in b],
+            "the rational tanh in the rack's fast_tanh": lambda b: [
+                sat(0.65 * UNIT * self.fast_tanh(1.2 * v / UNIT)) for v in b],
+            "drive off by 2%": lambda b: tanh_ref(b, 1.2 * 1.02, 0.65),
+            "level off by 1%": lambda b: tanh_ref(b, 1.2, 0.65 * 1.01),
+        }
+        for name, fault in wrong.items():
+            want = []
+            for block in blocks_in:
+                want += fault(block)
+            self.assertGreater(worst(got, want), 1, name)
+
+    @staticmethod
+    def fast_tanh(x):
+        if x < -3.0:
+            return -1.0
+        if x > 3.0:
+            return 1.0
+        x2 = x * x
+        return x * (27.0 + x2) / (27.0 + 9.0 * x2)
+
+    def test_reset_is_harmless(self):
+        rig = Rig(128, ag.TANH, 1)
+        block = [(i * 211) % 4096 - 2048 for i in range(128)]
+        first = rig.run(block)
+        rig.g.reset(rig.node)
+        self.assertEqual(first, rig.run(block))
 
 
 # ------------------------------------------------------------- VCA curve --
