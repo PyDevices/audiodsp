@@ -78,9 +78,11 @@ LFOs are triangles that start at zero, rising, once their delay is over.
 `cutoff` and `vibrato_depth` are live properties.
 
 These are worked out every 32 frames, which at 48 kHz is about fourteen
-times a cycle of the fastest LFO a SoundFont can ask for (110 Hz). A voice that uses none of them
-renders exactly as before and costs the same. One that does costs about
-1.7 times as much on a desktop; the numbers for a board are in
+times a cycle of the fastest LFO a SoundFont can ask for (110 Hz). A voice
+that uses none of them renders exactly as before and costs the same. One
+with a filter costs about 1.7 times as much on a desktop and twice as much
+on an ESP32-P4, where 48 filtered voices fit a 256-frame block and 64 only
+just do: see
 [what the filter and the LFOs cost](../how-it-works/upstream-diff.md#what-the-filter-and-the-lfos-cost).
 
 ## How it renders

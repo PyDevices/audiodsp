@@ -111,7 +111,19 @@ pitch, cutoff and volume.
 
 (x86-64, one core, gcc -O2.)
 
-P4_TABLE
+On an ESP32-P4 at 400 MHz (MicroPython, the script run over the REPL):
+
+| Voices | plain before | plain | filter | full |
+|---|---|---|---|---|
+| 32 | 1383 | 1384 | 2626 | 3465 |
+| 48 | 2039 | 2040 | 3904 | 5179 |
+| 64 | 2745 | 2804 | 5290 | 6970 |
+
+*Plain before* is the same firmware built from the commit before the
+filter. A board fits 48 filtered voices with room to spare, and 64 with
+almost none; with every LFO and the modulation envelope moving as well, 48
+still fit and 64 don't. A bank rarely asks for all of it at once on every
+voice, but size a board's `voice_count` with this table in mind.
 
 ### How it is verified
 
