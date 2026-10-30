@@ -524,6 +524,13 @@ enum {
 int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
     const audiodsp_graph_t *src, uint32_t src_node);
 
+// Trades patches between `a` and `b`: nodes, buffers, queue, groups and the
+// sounding mask change places, and each keeps its own frame count, so a
+// caller that times notes by a graph's frames sees no jump. The two must
+// have the same sample rate, frames and channel count (checked by the
+// caller), and neither may be rendering: the bindings take the pump lock.
+void audiodsp_graph_swap(audiodsp_graph_t *a, audiodsp_graph_t *b);
+
 // Renders one block. `out` takes frames * channel_count samples from the
 // OUT node (and is untouched when there is none). Nodes whose group bit is
 // clear in `enable` are skipped; AUDIODSP_GRAPH_ALWAYS nodes always run.

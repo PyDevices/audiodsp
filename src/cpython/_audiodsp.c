@@ -4190,7 +4190,13 @@ static PyObject *graph_state_carry_in(audiodsp_graph_object_t *self, long node,
     if (src != self) {
         Py_ssize_t n = PyList_GET_SIZE(src->keep);
         for (Py_ssize_t i = 0; i < n; ++i) {
-            if (PyList_Append(self->keep, PyList_GET_ITEM(src->keep, i)) < 0) {
+            // once each: a graph carries many nodes from one source
+            PyObject *item = PyList_GET_ITEM(src->keep, i);
+            Py_ssize_t held = PyList_GET_SIZE(self->keep), j = 0;
+            while (j < held && PyList_GET_ITEM(self->keep, j) != item) {
+                ++j;
+            }
+            if (j == held && PyList_Append(self->keep, item) < 0) {
                 return NULL;
             }
         }
@@ -4213,6 +4219,55 @@ static PyObject *graph_state_carry_locked(PyObject *self, PyObject *args) {
     Py_BEGIN_CRITICAL_SECTION(src);
     result = graph_state_carry_in((audiodsp_graph_object_t *)self, node,
         (audiodsp_graph_object_t *)src, src_node);
+    Py_END_CRITICAL_SECTION();
+    Py_END_CRITICAL_SECTION();
+    return result;
+}
+
+// swap(other): the two graphs trade patches. Each keeps what pulls it, its
+// output blocks and its frame count; the nodes, buffers, queue and borrowed
+// tables change places, and so does the memory that holds them.
+static PyObject *graph_state_swap_in(audiodsp_graph_object_t *self,
+    audiodsp_graph_object_t *other) {
+    if (!graph_live(self) || !graph_live(other)) {
+        return NULL;
+    }
+    if (self->graph.sample_rate != other->graph.sample_rate
+        || self->graph.frames != other->graph.frames
+        || self->graph.channel_count != other->graph.channel_count) {
+        PyErr_SetString(PyExc_ValueError,
+            "swap: the graphs differ in sample_rate, frames or channel_count");
+        return NULL;
+    }
+    if (self == other) {
+        Py_RETURN_NONE;
+    }
+    audiodsp_graph_swap(&self->graph, &other->graph);
+#define GRAPH_TRADE(type, field) do { \
+        type t_ = self->field; \
+        self->field = other->field; \
+        other->field = t_; \
+    } while (0)
+    GRAPH_TRADE(uint32_t, next_buffer);
+    GRAPH_TRADE(PyObject *, keep);
+    GRAPH_TRADE(int16_t *, bufs);
+    GRAPH_TRADE(audiodsp_graph_node_t *, table);
+    GRAPH_TRADE(audiodsp_graph_record_t *, records);
+    GRAPH_TRADE(float *, shadow);
+#undef GRAPH_TRADE
+    Py_RETURN_NONE;
+}
+
+static PyObject *graph_state_swap_locked(PyObject *self, PyObject *other) {
+    if (Py_TYPE(other) != Py_TYPE(self)) {
+        PyErr_SetString(PyExc_TypeError, "other must be a Graph");
+        return NULL;
+    }
+    PyObject *result;
+    Py_BEGIN_CRITICAL_SECTION(self);
+    Py_BEGIN_CRITICAL_SECTION(other);
+    result = graph_state_swap_in((audiodsp_graph_object_t *)self,
+        (audiodsp_graph_object_t *)other);
     Py_END_CRITICAL_SECTION();
     Py_END_CRITICAL_SECTION();
     return result;
@@ -4594,6 +4649,8 @@ static PyMethodDef graph_state_methods[] = {
      PyDoc_STR("reset(node): clear a node's running state at the next block.")},
     {"carry", (PyCFunction)graph_state_carry_locked, METH_VARARGS,
      PyDoc_STR("carry(node, src_graph, src_node): hand a node of src_graph over to node, its running state and config with it.")},
+    {"swap", (PyCFunction)graph_state_swap_locked, METH_O,
+     PyDoc_STR("swap(other): trade patches with other on a block boundary; each keeps what pulls it and its frame count.")},
     {"run", (PyCFunction)graph_state_run_locked, METH_VARARGS,
      PyDoc_STR("run(out=None, block=0, enable=0xFFFFFFFF): render one block; returns the sounding groups.")},
     {"peak", (PyCFunction)graph_state_peak_locked, METH_O,

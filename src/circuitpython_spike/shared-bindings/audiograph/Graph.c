@@ -130,6 +130,13 @@
 //|         different kinds, args or sizes, or graphs at different rates."""
 //|         ...
 //|
+//|     def swap(self, other: Graph) -> None:
+//|         """Trade patches with ``other`` on a block boundary: each graph keeps
+//|         what pulls it, its output blocks and its frame count, and takes the
+//|         other's nodes, buffers, queue and tables. Raises ``ValueError`` for
+//|         graphs of different rates, frames or channel counts."""
+//|         ...
+//|
 //|     def run(self, out: Optional[WriteableBuffer] = None, block: int = 0,
 //|             enable: int = 0xFFFFFFFF) -> int:
 //|         """Render one block into ``out`` at block ``block`` and return the
@@ -384,13 +391,52 @@ static mp_obj_t audiograph_graph_carry(size_t n_args, const mp_obj_t *args) {
         mp_obj_t *items = NULL;
         mp_obj_list_get(src->keep, &len, &items);
         for (size_t i = 0; i < len; ++i) {
-            mp_obj_list_append(self->keep, items[i]);
+            // once each: a graph carries many nodes from one source
+            size_t held = 0;
+            mp_obj_t *mine = NULL;
+            mp_obj_list_get(self->keep, &held, &mine);
+            size_t j = 0;
+            while (j < held && mine[j] != items[i]) {
+                ++j;
+            }
+            if (j == held) {
+                mp_obj_list_append(self->keep, items[i]);
+            }
         }
     }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiograph_graph_carry_obj, 4, 4,
     audiograph_graph_carry);
+
+// swap(other). No lock: the output pulls on this same thread, between
+// bytecodes, so this is on a block boundary already.
+static mp_obj_t audiograph_graph_swap(mp_obj_t self_in, mp_obj_t other_in) {
+    audiograph_graph_obj_t *self = graph_self(self_in);
+    if (!mp_obj_is_type(other_in, &audiograph_graph_type)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("other must be a Graph"));
+    }
+    audiograph_graph_obj_t *other = graph_self(other_in);
+    if (self->graph.sample_rate != other->graph.sample_rate
+        || self->graph.frames != other->graph.frames
+        || self->graph.channel_count != other->graph.channel_count) {
+        mp_raise_ValueError(MP_ERROR_TEXT(
+            "swap: the graphs differ in sample_rate, frames or channel_count"));
+    }
+    if (self == other) {
+        return mp_const_none;
+    }
+    audiodsp_graph_swap(&self->graph, &other->graph);
+    uint32_t next = self->next_buffer;
+    self->next_buffer = other->next_buffer;
+    other->next_buffer = next;
+    mp_obj_t keep = self->keep;
+    self->keep = other->keep;
+    other->keep = keep;
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(audiograph_graph_swap_obj,
+    audiograph_graph_swap);
 
 static mp_obj_t audiograph_graph_enable(mp_obj_t self_in, mp_obj_t mask) {
     audiograph_graph_obj_t *self = graph_self(self_in);
@@ -553,6 +599,7 @@ static const mp_rom_map_elem_t audiograph_graph_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_table), MP_ROM_PTR(&audiograph_graph_table_obj) },
     { MP_ROM_QSTR(MP_QSTR_reset), MP_ROM_PTR(&audiograph_graph_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_carry), MP_ROM_PTR(&audiograph_graph_carry_obj) },
+    { MP_ROM_QSTR(MP_QSTR_swap), MP_ROM_PTR(&audiograph_graph_swap_obj) },
     { MP_ROM_QSTR(MP_QSTR_run), MP_ROM_PTR(&audiograph_graph_run_obj) },
     { MP_ROM_QSTR(MP_QSTR_peak), MP_ROM_PTR(&audiograph_graph_peak_obj) },
     { MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&audiograph_graph_read_obj) },

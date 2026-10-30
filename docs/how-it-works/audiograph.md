@@ -367,8 +367,40 @@ might still read it.
 built with different `arg`s (a delay of another length), hold state of a
 different size, or belong to graphs at different sample rates, and
 `TypeError` when `src_graph` is not a graph. A node it refuses keeps the
-fresh state it was built with. Neither graph may be playing from the pump
-while you carry.
+fresh state it was built with. A graph the pump is pulling refuses `carry()`
+with `RuntimeError` until you park the pump, below.
+
+### Swapping while the pump plays
+
+The pump, an output or a mixer holds on to the graph you handed it, so a
+patch change there can't hand it a new object. `swap(other)` trades the two
+graphs' patches instead: nodes, buffers, wiring and queue. The graph the pump
+pulls keeps its identity and its frame count, and renders `other`'s patch from
+the next block on. `other` is left holding the old patch, ready to drop.
+
+```python
+new = ag.Graph(sample_rate=48000, frames=128, channel_count=2)
+# ... build the changed patch while the pump plays on ...
+if audiopump.park():                      # the pump finishes its block and waits
+    try:
+        for old_node, new_node in matched:
+            new.carry(new_node, g, old_node)
+        g.swap(new)                       # g plays the changed patch
+    finally:
+        audiopump.unpark()
+new.deinit()                              # the old patch
+```
+
+Build the new graph while the pump plays: only the carry and the swap need
+it parked, and they take microseconds. `swap()` takes the pump's lock, so even
+unparked it never lands inside a block, but `carry()` would read state the pump
+is writing, which is why it waits for the park. Where the pump runs inside
+`service()` on your own thread, nothing renders between two of your calls,
+and you don't need to park.
+
+`swap()` raises `TypeError` when `other` is not a graph and `ValueError` when
+the two differ in sample rate, block size or channel count. Node ids are
+the patch's, so after a swap use the ids you got from building `new`.
 
 ## Limits, and what is checked
 
