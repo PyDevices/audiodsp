@@ -92,6 +92,7 @@ rather than its last block.
 | `OVERDRIVE` | audio | `OVERDRIVE_DRIVE` 0..1, `OVERDRIVE_TONE` 0..1, `OVERDRIVE_LEVEL` (linear, 1 is unity) | `audiofilters.Distortion`'s soft-clipped overdrive, then a high shelf, [below](#overdrive) |
 | `TANH` | audio | `TANH_DRIVE` (a gain before the tanh, 1 is unity), `TANH_LEVEL` (a gain after it, 1 is unity) | `TANH_LEVEL · tanh(TANH_DRIVE · x)` with `x` in units of `UNIT`, [below](#tanh) |
 | `PAN` | up to eight | 0..7: a gain per input, `PAN_PAN + i`: input `i`'s pan, −1 (left) to 1 (right); built with `arg` = the right side's buffer | a stereo mixer, the left side to the node's output and the right to the buffer `arg` names, [below](#pan) |
+| `WAVEFOLD` | audio, fold CV | `WAVEFOLD_FOLD` 0..1, `WAVEFOLD_SYMMETRY` −1..1 | a West Coast wavefolder: three sine folds crossfaded with the input by the fold, [below](#wavefold) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -216,6 +217,23 @@ the graph, or is the node's own output.
 Two `MIX` nodes given the same gains, one a side, render the same samples,
 so `PAN` saves a node and a read of every input rather than changing the sound.
 
+### Wavefold
+
+`WAVEFOLD` is a West Coast wavefolder, vrack's `WavefolderCore`. The input,
+offset by a quarter of `WAVEFOLD_SYMMETRY`, is driven by `1 + 7 * fold` into
+three sine folds, `f1 = sin(x·π/2)`, `f2 = sin((1.5·f1 + 0.5·x)·π/2)` and
+`f3 = sin((1.3·f2 + 0.4·f1)·π/2)`, and the output is the input crossfaded with
+half of `f3` by the fold. A fold CV on the second input, in units of `UNIT`,
+adds to `WAVEFOLD_FOLD` every sample and is not clamped, as the rack's isn't.
+With the fold at 0.001 or under and no CV connected, the input passes through
+untouched; an open audio input is silence, which the symmetry still offsets.
+
+The arithmetic is float32, operation for operation as the rack's numpy does
+it, and the sine is the graph's own polynomial rather than libm's, so every
+target renders the same bytes and the node is present on CircuitPython too.
+Against the rack's arithmetic with a correctly rounded sine it is within one
+count, on about one sample in a thousand.
+
 ## Output
 
 `run(out, block, enable)` writes the `OUT` node's block into `out` at block
@@ -315,14 +333,17 @@ interpreter you name, and compares every sample. `graph_parity_probe.py` is one
 patch with the runner's first node kinds in it (two voices with their groups
 parking, a fed buffer, moved gains and cutoffs, a delay reset mid-tail, a mono
 graph); `graph_nodes_probe.py` is the phaser, the glide, every LFO shape, the
-sample-and-hold, the five two-pole types and the overdrive. The tolerance is 0 counts: the three compile the same C
+sample-and-hold, the five two-pole types, the overdrive, the pan and the
+wavefolder. The tolerance is 0 counts: the three compile the same C
 and are handed the same floats, so any difference is a defect rather than
 rounding. Each planted fault makes it fail: one input sample one count off, one
 `set()` a block late, a phaser's frequency a block late, a legato flag flipped,
 a shape switched a block late, a clock edge a sample late, a cutoff CV a block
-late, an overdrive's tone a block late. CI runs it against
+late, an overdrive's tone a block late, a pan a block late, a wavefolder's
+symmetry a block late. CI runs it against
 MicroPython in both float widths; the three-way with the CircuitPython unix
-build is a local run.
+build is a local run, where the overdrives are left out of CircuitPython's
+comparison because it has no `OVERDRIVE`.
 
 [`tests/test_cpython_audiograph_nodes.py`](../../tests/test_cpython_audiograph_nodes.py) holds the newer nodes to what they
 stand in for: `PHASER` to `audiobiquad.AllPass` at 0 counts, the glide, the
@@ -332,4 +353,5 @@ the same name in vrack, and `OVERDRIVE` to `OverdriveCore`'s own chain of
 the overdrive match at 0 counts. The Sallen-Key pair matches within one count,
 on under one sample in a hundred: the node's `tanh` is a rational function in
 float that is the same on every target, where vrack's is the C library's in
-double.
+double. `WAVEFOLD` is held to `WavefolderCore` transcribed in float32 with a
+correctly rounded sine, within one count.

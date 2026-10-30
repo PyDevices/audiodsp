@@ -1101,6 +1101,63 @@ static void run_out(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
 }
 
 
+// ----------------------------------------------------------- WAVEFOLD --
+
+// sin(y) for any float y, without libm: y in cycles, folded into [0, 1), then
+// the LFO's polynomial. The product y / 2 pi is rounded once, so the angle
+// carries an error of a float ulp of the turns, about 1e-6 radians at the
+// largest fold: hundredths of a count on the wire.
+static float graph_sin(float y) {
+    if (!(y == y)) {
+        return 0.0f;
+    }
+    y = y > 1.0e6f ? 1.0e6f : (y < -1.0e6f ? -1.0e6f : y);
+    float p = y * 0.159154943091895336f;
+    float whole = (float)(int32_t)p;
+    if (whole > p) {
+        whole -= 1.0f;
+    }
+    p -= whole;
+    return lfo_sine(p >= 1.0f ? 0.0f : p);
+}
+
+// WavefolderCore.render, operation for operation in float32 as numpy does it:
+// the drive 1 + 7f, f1 = sin(x pi/2), f2 = sin((1.5 f1 + 0.5 x) pi/2),
+// f3 = sin((1.3 f2 + 0.4 f1) pi/2), and the dry signal crossfaded with half
+// of f3 by the fold f.
+static void run_wavefold(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    const int16_t *in = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs[n->inputs[0]];
+    const int16_t *cv = (n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE)
+        ? graph->bufs[n->inputs[1]] : NULL;
+    const float fold = n->param[AUDIODSP_GRAPH_WAVEFOLD_FOLD];
+    if (fold <= 0.001f && cv == NULL) {
+        if (in == NULL) {
+            memset(out, 0, frames * sizeof(int16_t));
+        } else if (in != out) {
+            memcpy(out, in, frames * sizeof(int16_t));
+        }
+        return;
+    }
+    const float half_pi = 1.57079632679489662f;
+    const float inv = 1.0f / AUDIODSP_GRAPH_UNIT;
+    const float offset = n->param[AUDIODSP_GRAPH_WAVEFOLD_SYMMETRY] * 0.25f;
+    for (uint32_t i = 0; i < frames; ++i) {
+        const float src = in != NULL ? (float)in[i] * inv : 0.0f;
+        float f = fold;
+        if (cv != NULL) {
+            f += (float)cv[i] * inv;
+        }
+        float x = src + offset;
+        x *= f * 7.0f + 1.0f;
+        const float f1 = graph_sin(x * half_pi);
+        const float f2 = graph_sin((f1 * 1.5f + x * 0.5f) * half_pi);
+        const float f3 = graph_sin((f2 * 1.3f + f1 * 0.4f) * half_pi) * 0.5f;
+        out[i] = sat16((src * (-f + 1.0f) + f3 * f) * AUDIODSP_GRAPH_UNIT);
+    }
+}
+
 // ------------------------------------------------------------ TWOPOLE --
 
 // tanh, the same on every target: libm's differs in the last place between
@@ -1498,6 +1555,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_PAN:
                 run_pan(graph, n, dst, frames, acc);
+                break;
+            case AUDIODSP_GRAPH_WAVEFOLD:
+                run_wavefold(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:
