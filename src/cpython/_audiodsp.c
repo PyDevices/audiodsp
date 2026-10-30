@@ -4148,6 +4148,76 @@ static PyObject *graph_state_reset(audiodsp_graph_object_t *self,
     Py_RETURN_NONE;
 }
 
+// carry(node, src_graph, src_node): hands a node of another graph (or of
+// this one) over to `node`, running state and all. See audiodsp_graph_carry().
+static PyObject *graph_state_carry_in(audiodsp_graph_object_t *self, long node,
+    audiodsp_graph_object_t *src, long src_node) {
+    if (!graph_live(self) || !graph_live(src)) {
+        return NULL;
+    }
+    if (node < 0 || src_node < 0) {
+        PyErr_SetString(PyExc_ValueError, "bad node");
+        return NULL;
+    }
+    audiodsp_graph_drain(&src->graph);
+    audiodsp_graph_drain(&self->graph);
+    const char *refused = NULL;
+    switch (audiodsp_graph_carry(&self->graph, (uint32_t)node, &src->graph,
+        (uint32_t)src_node)) {
+        case AUDIODSP_GRAPH_CARRY_OK:
+            break;
+        case AUDIODSP_GRAPH_CARRY_KIND:
+            refused = "carry: the nodes are of different kinds";
+            break;
+        case AUDIODSP_GRAPH_CARRY_ARG:
+            refused = "carry: the nodes were built with different args";
+            break;
+        case AUDIODSP_GRAPH_CARRY_SIZE:
+            refused = "carry: the nodes' state differs in size";
+            break;
+        case AUDIODSP_GRAPH_CARRY_RATE:
+            refused = "carry: the graphs run at different sample rates";
+            break;
+        default:
+            refused = "bad node";
+            break;
+    }
+    if (refused != NULL) {
+        PyErr_SetString(PyExc_ValueError, refused);
+        return NULL;
+    }
+    // a delay may still be playing the source's wow table: keep it alive here
+    if (src != self) {
+        Py_ssize_t n = PyList_GET_SIZE(src->keep);
+        for (Py_ssize_t i = 0; i < n; ++i) {
+            if (PyList_Append(self->keep, PyList_GET_ITEM(src->keep, i)) < 0) {
+                return NULL;
+            }
+        }
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *graph_state_carry_locked(PyObject *self, PyObject *args) {
+    long node, src_node;
+    PyObject *src;
+    if (!PyArg_ParseTuple(args, "lOl:carry", &node, &src, &src_node)) {
+        return NULL;
+    }
+    if (Py_TYPE(src) != Py_TYPE(self)) {
+        PyErr_SetString(PyExc_TypeError, "src_graph must be a Graph");
+        return NULL;
+    }
+    PyObject *result;
+    Py_BEGIN_CRITICAL_SECTION(self);
+    Py_BEGIN_CRITICAL_SECTION(src);
+    result = graph_state_carry_in((audiodsp_graph_object_t *)self, node,
+        (audiodsp_graph_object_t *)src, src_node);
+    Py_END_CRITICAL_SECTION();
+    Py_END_CRITICAL_SECTION();
+    return result;
+}
+
 // enable(mask): the groups a pull renders, queued like set().
 static PyObject *graph_state_enable(audiodsp_graph_object_t *self,
     PyObject *arg) {
@@ -4522,6 +4592,8 @@ static PyMethodDef graph_state_methods[] = {
      PyDoc_STR("table(node, int16_array): a feedback delay's wow shape, borrowed.")},
     {"reset", (PyCFunction)graph_state_reset_locked, METH_O,
      PyDoc_STR("reset(node): clear a node's running state at the next block.")},
+    {"carry", (PyCFunction)graph_state_carry_locked, METH_VARARGS,
+     PyDoc_STR("carry(node, src_graph, src_node): hand a node of src_graph over to node, its running state and config with it.")},
     {"run", (PyCFunction)graph_state_run_locked, METH_VARARGS,
      PyDoc_STR("run(out=None, block=0, enable=0xFFFFFFFF): render one block; returns the sounding groups.")},
     {"peak", (PyCFunction)graph_state_peak_locked, METH_O,

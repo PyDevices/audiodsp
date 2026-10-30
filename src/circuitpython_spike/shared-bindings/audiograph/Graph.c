@@ -122,6 +122,14 @@
 //|         """Clear a node's running state at the next block."""
 //|         ...
 //|
+//|     def carry(self, node: int, src_graph: Graph, src_node: int) -> None:
+//|         """Hand node ``src_node`` of ``src_graph`` over to ``node``: its running
+//|         state and its config, so this graph renders from here on what the
+//|         source would have. The node keeps its own wiring and parameters.
+//|         Both queues are drained first. Raises ``ValueError`` for nodes of
+//|         different kinds, args or sizes, or graphs at different rates."""
+//|         ...
+//|
 //|     def run(self, out: Optional[WriteableBuffer] = None, block: int = 0,
 //|             enable: int = 0xFFFFFFFF) -> int:
 //|         """Render one block into ``out`` at block ``block`` and return the
@@ -340,6 +348,50 @@ static mp_obj_t audiograph_graph_reset(mp_obj_t self_in, mp_obj_t node) {
 static MP_DEFINE_CONST_FUN_OBJ_2(audiograph_graph_reset_obj,
     audiograph_graph_reset);
 
+// carry(node, src_graph, src_node). See audiodsp_graph_carry().
+static mp_obj_t audiograph_graph_carry(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+    audiograph_graph_obj_t *self = graph_self(args[0]);
+    if (!mp_obj_is_type(args[2], &audiograph_graph_type)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("src_graph must be a Graph"));
+    }
+    audiograph_graph_obj_t *src = graph_self(args[2]);
+    mp_int_t node = mp_obj_get_int(args[1]);
+    mp_int_t src_node = mp_obj_get_int(args[3]);
+    if (node < 0 || src_node < 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad node"));
+    }
+    audiodsp_graph_drain(&src->graph);
+    audiodsp_graph_drain(&self->graph);
+    switch (audiodsp_graph_carry(&self->graph, (uint32_t)node, &src->graph,
+        (uint32_t)src_node)) {
+        case AUDIODSP_GRAPH_CARRY_OK:
+            break;
+        case AUDIODSP_GRAPH_CARRY_KIND:
+            mp_raise_ValueError(MP_ERROR_TEXT("carry: the nodes are of different kinds"));
+        case AUDIODSP_GRAPH_CARRY_ARG:
+            mp_raise_ValueError(MP_ERROR_TEXT("carry: the nodes were built with different args"));
+        case AUDIODSP_GRAPH_CARRY_SIZE:
+            mp_raise_ValueError(MP_ERROR_TEXT("carry: the nodes' state differs in size"));
+        case AUDIODSP_GRAPH_CARRY_RATE:
+            mp_raise_ValueError(MP_ERROR_TEXT("carry: the graphs run at different sample rates"));
+        default:
+            mp_raise_ValueError(MP_ERROR_TEXT("bad node"));
+    }
+    // a delay may still be playing the source's wow table: keep it alive here
+    if (src != self) {
+        size_t len = 0;
+        mp_obj_t *items = NULL;
+        mp_obj_list_get(src->keep, &len, &items);
+        for (size_t i = 0; i < len; ++i) {
+            mp_obj_list_append(self->keep, items[i]);
+        }
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiograph_graph_carry_obj, 4, 4,
+    audiograph_graph_carry);
+
 static mp_obj_t audiograph_graph_enable(mp_obj_t self_in, mp_obj_t mask) {
     audiograph_graph_obj_t *self = graph_self(self_in);
     graph_push(self, AUDIODSP_GRAPH_OP_ENABLE, 0, 0, 0.0f,
@@ -500,6 +552,7 @@ static const mp_rom_map_elem_t audiograph_graph_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_get), MP_ROM_PTR(&audiograph_graph_get_obj) },
     { MP_ROM_QSTR(MP_QSTR_table), MP_ROM_PTR(&audiograph_graph_table_obj) },
     { MP_ROM_QSTR(MP_QSTR_reset), MP_ROM_PTR(&audiograph_graph_reset_obj) },
+    { MP_ROM_QSTR(MP_QSTR_carry), MP_ROM_PTR(&audiograph_graph_carry_obj) },
     { MP_ROM_QSTR(MP_QSTR_run), MP_ROM_PTR(&audiograph_graph_run_obj) },
     { MP_ROM_QSTR(MP_QSTR_peak), MP_ROM_PTR(&audiograph_graph_peak_obj) },
     { MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&audiograph_graph_read_obj) },

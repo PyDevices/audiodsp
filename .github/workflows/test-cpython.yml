@@ -49,6 +49,23 @@ jobs:
       # PyDevices/audiocomponents now.
       - run: python -m unittest discover -s tests -p "test_*.py"
       - run: python tests/parity/verify_acceptance.py
+      # carry() hands a running node to a graph built beside it. The two
+      # mistakes it could make in C are built in on purpose here, one at a
+      # time: the delay line left pointing at the source's, and the source's
+      # pending parameter change dropped. The probe must FAIL on each, then
+      # pass on the wheel (the unit tests above ran it).
+      - name: Graph.carry's planted faults are caught
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: |
+          for planted in 1 2; do
+            CFLAGS="-DAUDIODSP_GRAPH_CARRY_FAULT=$planted" python setup.py -q build_ext \
+              --build-temp /tmp/carry$planted/t --build-lib /tmp/carry$planted/l
+            if PYTHONPATH=/tmp/carry$planted/l:src/cpython python tests/parity/graph_carry_probe.py > /tmp/carry$planted.txt; then
+              echo "the planted fault passed, so this probe proves nothing: $planted" >&2
+              exit 1
+            fi
+            tail -n 4 /tmp/carry$planted.txt
+          done
       # The CPython half of the deinit surface (the native half runs in
       # clean-build.yml, on a real MicroPython build). The planted fault runs
       # first and must fail.

@@ -11,6 +11,9 @@
 | every method the MicroPython `Graph` has exists here | the same set |
 | `hold()` keeps a batch back until `commit()`, and `get()` reads the last `set()` | exact |
 | a queue too small for a batch splits it and still applies all of it | counted |
+| `graph_carry_probe.py`: a graph that takes a running one's nodes renders what it would have | GRAPH CARRY PASS |
+| `carry()` refuses a node of another kind, arg, state size or sample rate, a bad node and a non-graph | ValueError, TypeError |
+| a wow table a carried delay borrowed from its source outlives the source | held |
 
 The renders themselves are held to MicroPython's and CircuitPython's by
 `tests/parity/verify_graph.py`, sample for sample; this file is what the wheel
@@ -164,6 +167,68 @@ class TheModule(unittest.TestCase):
         self.assertEqual(g.stats()["pushed"], 0)
         with self.assertRaises(ValueError):
             ag.Graph(queue=-1)
+
+    def test_a_carried_graph_renders_what_its_source_would_have(self):
+        result = subprocess.run(
+            [sys.executable,
+             str(ROOT / "tests" / "parity" / "graph_carry_probe.py")],
+            capture_output=True, text=True, timeout=120, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr)
+        self.assertIn("GRAPH CARRY PASS", result.stdout)
+
+    @staticmethod
+    def _one(kind, arg=0.0, rate=48000):
+        g = ag.Graph(sample_rate=rate, frames=8, buffers=2, nodes=2)
+        return g, g.add(kind, ag.ALWAYS, (None,), g.buffer(), arg)
+
+    def test_carry_refuses_another_kind(self):
+        a, na = self._one(ag.OSC)
+        b, nb = self._one(ag.LADDER)
+        with self.assertRaisesRegex(ValueError, "kind"):
+            a.carry(na, b, nb)
+
+    def test_carry_refuses_another_arg(self):
+        a, na = self._one(ag.FBDELAY, 20.0)
+        b, nb = self._one(ag.FBDELAY, 30.0)
+        with self.assertRaisesRegex(ValueError, "arg"):
+            a.carry(na, b, nb)
+
+    def test_carry_refuses_another_size(self):
+        a, na = self._one(ag.FBDELAY, 20.0)
+        b, nb = self._one(ag.FBDELAY, 20.0, rate=44100)
+        with self.assertRaisesRegex(ValueError, "size"):
+            a.carry(na, b, nb)
+
+    def test_carry_refuses_another_rate(self):
+        a, na = self._one(ag.OSC)
+        b, nb = self._one(ag.OSC, rate=44100)
+        with self.assertRaisesRegex(ValueError, "rate"):
+            a.carry(na, b, nb)
+
+    def test_carry_refuses_a_bad_node_or_a_non_graph(self):
+        a, na = self._one(ag.OSC)
+        b, nb = self._one(ag.OSC)
+        for bad in ((5, b, nb), (na, b, 5), (-1, b, nb)):
+            with self.assertRaises(ValueError):
+                a.carry(*bad)
+        with self.assertRaises(TypeError):
+            a.carry(na, object(), nb)
+        a.carry(na, a, na)                        # onto itself: nothing moves
+
+    def test_a_carried_wow_table_outlives_its_source(self):
+        a, na = self._one(ag.FBDELAY, 20.0)
+        b, nb = self._one(ag.FBDELAY, 20.0)
+        wow = array("h", [0, 8000, 0, -8000])
+        for g, n in ((a, na), (b, nb)):
+            g.set(n, ag.DELAY_WOW_HZ, 5.0)
+            g.set(n, ag.DELAY_WOW_DEPTH_MS, 2.0)
+        b.table(nb, wow)
+        b.run(None)
+        a.carry(na, b, nb)
+        del b
+        with self.assertRaises(BufferError):      # a holds it now
+            wow.append(0)
+        a.run(None)
 
     def test_a_deinited_graph_refuses_everything(self):
         g, a, _b = self._pair()
