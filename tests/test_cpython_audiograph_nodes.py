@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, TANH, PAN and WAVEFOLD, held to what they stand in for.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, TANH, PAN, WAVEFOLD and LPG, held to what they stand in for.
 
 | node | held to | bar |
 |---|---|---|
@@ -18,6 +18,7 @@
 | `TANH` | `level * UNIT * tanh(drive * x / UNIT)` in double precision, over a ramp through the clip, a program, and the knobs moving | 1 count (a few float ulps of tanh, which moves a half-count tie the other way) |
 | `PAN` | two `MIX` nodes, one a side, given the balance's gains in float32: centred, panned, past the ends, with gains and pans moving between blocks, an open input, a reset and a skipped group | 0 counts |
 | `WAVEFOLD` | vrack's `dsp/wavefolder.py` `WavefolderCore`, with no CV, a fold CV, the knobs moving, a hot input, an open input and the bypass at fold 0.001 | 1 count, on about 1 sample in 1000 (the sine is a polynomial) |
+| `LPG` | vrack's `dsp/lpg.py` `LowPassGateCore`, its filter `audiofilters.Filter` with a `synthio.Biquad` low-pass driven as vrack's bridge drives it: VCF, VCA and BOTH, struck, on a control, with the manual level, the knobs and level moving, a hot input and an open one | 1 count (the node's own exp and pow against libm's); 0 measured over 168192 samples |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -1302,4 +1303,156 @@ class Wavefold(unittest.TestCase):
     def test_other_block_sizes(self):
         for frames in (32, 64, 256):
             got, want = self.compare([(0.4, -0.25)] * 10, frames=frames)
+            self.assertLessEqual(worst(got, want), 1, frames)
+
+
+# --------------------------------------------------------------------- LPG --
+
+class LpgRef:
+    """vrack's `LowPassGateCore`: the vactrol in double with libm's exp and
+    pow, and its filter a `synthio.Biquad` low-pass inside
+    `audiofilters.Filter`, built and pulled the way vrack's `NodeBridge` and
+    `BiquadFilter` do. The gains are float32 as numpy applies them."""
+
+    def __init__(self, frames):
+        self.frames = frames
+        self.vactrol = 0.0
+        self.cutoff = 1000.0
+        self.input = array("h", bytes(2 * frames))
+        source = audiocore.RawSample(self.input, channel_count=1, sample_rate=RATE)
+        kwargs = dict(buffer_size=frames * 2, sample_rate=RATE, bits_per_sample=16,
+                      samples_signed=True, channel_count=1)
+        self.biquad = synthio.Biquad(synthio.FilterMode.LOW_PASS, 1000.0, Q=0.7071)
+        lpf = audiofilters.Filter(filter=self.biquad, **kwargs)
+        through = audiofilters.Filter(filter=None, **kwargs)
+        through.play(source, loop=True)
+        lpf.play(through)
+        self.tail = lpf
+        audiocore.get_buffer(self.tail)  # the bridge's throwaway first pull
+
+    def render(self, block, control=None, strike=None, manual=0.0, decay=0.25,
+               mode=2, level=1.0):
+        n, sr = self.frames, float(RATE)
+        target = manual
+        if control is not None:
+            target += control[0] / UNIT
+        if strike is not None:
+            target += 1.5 * (strike[0] / UNIT)
+        target = max(0.0, min(1.0, target))
+        vs = self.vactrol
+        if target > vs:
+            vs += (target - vs) * (1.0 - math.exp(-n / (0.002 * sr)))
+        else:
+            vs *= math.exp(-n / (max(0.01, decay) * sr))
+        self.vactrol = vs
+        v = max(0.0, min(1.0, vs))
+        if mode == 1:
+            out = [f32(x * f32(v)) for x in block]
+        else:
+            cutoff = max(10.0, min(sr * 0.45, 30.0 * (400.0 ** v)))
+            if cutoff != self.cutoff:
+                self.cutoff = cutoff
+                self.biquad.frequency = cutoff
+            self.input[:] = array("h", block)
+            out = list(array("h", bytes(audiocore.get_buffer(self.tail)[1])))
+            if mode == 2:
+                g = f32(v ** 1.3)
+                out = [f32(y * g) for y in out]
+        return [sat(f32(y * f32(level))) for y in out]
+
+
+def lpg_strikes(frames, blocks, every=24, width=2):
+    """A trigger: full scale for `width` blocks out of each `every`."""
+    return [[UNIT if b % every < width else 0] * frames for b in range(blocks)]
+
+
+def lpg_ramp(frames, blocks, period=40):
+    """A control rising 0..1 over `period` blocks and falling back."""
+    out = []
+    for b in range(blocks):
+        p = b % period
+        level = p / (period / 2) if p < period // 2 else 2 - p / (period / 2)
+        out.append([int(level * UNIT)] * frames)
+    return out
+
+
+class Lpg(unittest.TestCase):
+
+    def compare(self, blocks, frames=128, control=None, strike=None, settings=None,
+                amplitude=12000, open_=()):
+        rig = Rig(frames, ag.LPG, 3, open_=tuple(open_)
+                  + ((1,) if control is None else ()) + ((2,) if strike is None else ()))
+        ref = LpgRef(frames)
+        settings = settings or [(0.0, 0.25, 2, 1.0)] * blocks
+        got, want = [], []
+        for b, block in enumerate(tones(frames, blocks, amplitude)):
+            manual, decay, mode, level = settings[b]
+            rig.set(ag.LPG_MANUAL, manual)
+            rig.set(ag.LPG_DECAY, decay)
+            rig.set(ag.LPG_MODE, mode)
+            rig.set(ag.LPG_LEVEL, level)
+            c = control[b] if control is not None else None
+            s = strike[b] if strike is not None else None
+            src = [0] * frames if 0 in open_ else block
+            got += rig.run(None if 0 in open_ else block, c, s)
+            want += ref.render(src, c, s, manual, decay, mode, level)
+        return got, want
+
+    def test_matches_lowpassgatecore(self):
+        frames, blocks = 128, 96
+        for mode in (0, 1, 2):
+            for decay in (0.25, 0.0625, 1.5):
+                got, want = self.compare(
+                    blocks, strike=lpg_strikes(frames, blocks),
+                    settings=[(0.0, decay, mode, 1.0)] * blocks)
+                self.assertLessEqual(worst(got, want), 1, (mode, decay))
+                self.assertGreater(sum(1 for g, w in zip(got, want) if g == w),
+                                   0.999 * len(got), (mode, decay))
+
+    def test_the_control_and_manual(self):
+        frames, blocks = 128, 120
+        for mode in (0, 2):
+            got, want = self.compare(blocks, control=lpg_ramp(frames, blocks),
+                                     settings=[(0.125, 0.375, mode, 1.0)] * blocks)
+            self.assertLessEqual(worst(got, want), 1, mode)
+        # the manual level alone opens the gate
+        got, want = self.compare(40, settings=[(0.75, 0.25, 0, 1.0)] * 40)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(max(got[-1280:]), 4000)
+
+    def test_a_struck_gate_rings_and_dies(self):
+        frames, blocks = 128, 120
+        got, want = self.compare(blocks, strike=lpg_strikes(frames, blocks, every=1000),
+                                 settings=[(0.0, 0.0625, 2, 1.0)] * blocks)
+        self.assertLessEqual(worst(got, want), 1)
+        energy = [sum(abs(v) for v in got[b * frames:(b + 1) * frames])
+                  for b in range(blocks)]
+        self.assertGreater(energy[3], 100 * max(1, energy[-1]))
+
+    def test_the_knobs_moving_a_hot_input_and_the_level(self):
+        frames, blocks = 128, 90
+        settings = [((b % 5) / 8.0, (1, 0.125, 0.5)[b % 3], (b // 7) % 3,
+                     (1.0, 0.5, 1.5)[(b // 11) % 3]) for b in range(blocks)]
+        got, want = self.compare(blocks, control=lpg_ramp(frames, blocks, 30),
+                                 strike=lpg_strikes(frames, blocks, 17),
+                                 settings=settings, amplitude=30000)
+        self.assertLessEqual(worst(got, want), 1)
+
+    def test_closed_is_silence(self):
+        got, want = self.compare(10, settings=[(0.0, 0.25, 2, 1.0)] * 10)
+        self.assertEqual(set(got), {0})
+        self.assertEqual(got, want)
+
+    def test_an_open_input(self):
+        got, want = self.compare(20, strike=lpg_strikes(128, 20),
+                                 settings=[(0.0, 0.25, 0, 1.0)] * 20, open_=(0,))
+        self.assertEqual(set(got), {0})
+        self.assertEqual(got, want)
+
+    def test_other_block_sizes(self):
+        for frames in (32, 64, 256):
+            blocks = 40
+            got, want = self.compare(blocks, frames=frames,
+                                     strike=lpg_strikes(frames, blocks, 12),
+                                     settings=[(0.0, 0.125, 2, 1.0)] * blocks)
             self.assertLessEqual(worst(got, want), 1, frames)

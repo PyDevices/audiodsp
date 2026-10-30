@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN and WAVEFOLD, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD and LPG, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -9,6 +9,7 @@
     graph_nodes_probe.py --fault overdrive  # one tone change a block late
     graph_nodes_probe.py --fault pan        # one pan change a block late
     graph_nodes_probe.py --fault wavefold   # one symmetry change a block late
+    graph_nodes_probe.py --fault lpg        # one strike a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -30,7 +31,10 @@ sawtooth, hot, with the tone swept); and a stereo PAN of four of these and an
 open input, its gains and pans moving every few blocks, past the ends once,
 and reset once, both sides printed; and three wavefolders (the sawtooth folded
 deep, the sawtooth with the cutoff CV on its fold and the symmetry swept, and a
-phaser folded at full depth).
+phaser folded at full depth); and three low-pass gates (the deep fold struck
+every twenty blocks in BOTH mode and reset once, the sawtooth filtered on the
+triangle LFO, and a phaser on the cutoff CV with a manual level and the level
+turned down, in VCA mode and then BOTH).
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -54,7 +58,7 @@ except (ImportError, AttributeError):
     print("GRAPH PARITY SKIPPED: no audiograph nodes here")
     sys.exit(0)
 
-FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold")
+FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -74,8 +78,8 @@ def check(ok, what):
         failures.append(what)
 
 
-g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=48,
-             nodes=48)
+g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=56,
+             nodes=56)
 watched = []
 
 
@@ -203,6 +207,20 @@ wf_c, _ = node("wf_c", ag.WAVEFOLD, (dict(watched)["phaser6"],))
 g.set(wf_c, ag.WAVEFOLD_FOLD, 1.0)
 g.set(wf_c, ag.WAVEFOLD_SYMMETRY, -0.75)
 
+# -- low-pass gates: the deep fold struck, the sawtooth on an LFO, a phaser on
+# the cutoff CV with a manual level
+strike_b = g.buffer()
+lpg_a, _ = node("lpg_a", ag.LPG, (dict(watched)["wf_a"], None, strike_b))
+g.set(lpg_a, ag.LPG_DECAY, 0.125)
+lpg_b, _ = node("lpg_b", ag.LPG, (saw_b, lfos[0][1], None))
+g.set(lpg_b, ag.LPG_MODE, ag.LPG_VCF)
+g.set(lpg_b, ag.LPG_DECAY, 0.0625)
+lpg_c, _ = node("lpg_c", ag.LPG, (dict(watched)["phaser6"], cv_b))
+g.set(lpg_c, ag.LPG_MODE, ag.LPG_VCA)
+g.set(lpg_c, ag.LPG_MANUAL, 0.25)
+g.set(lpg_c, ag.LPG_DECAY, 0.5)
+g.set(lpg_c, ag.LPG_LEVEL, 0.75)
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -215,6 +233,7 @@ seen = {}
 saw_block = array("h", bytes(2 * FRAMES))
 cv = array("h", bytes(2 * FRAMES))
 last_cv = array("h", bytes(2 * FRAMES))
+strike = array("h", bytes(2 * FRAMES))
 moved = False
 pan_sides_differ = False
 left_block = None
@@ -313,6 +332,16 @@ for b in range(BLOCKS):
     if b == 96:
         g.set(wf_a, ag.WAVEFOLD_FOLD, 0.875)
 
+    # a strike every twenty blocks, two blocks long; the VCA gate turns BOTH
+    struck_at = b if FAULT != "lpg" or b != 60 else b - 1
+    for i in range(FRAMES):
+        strike[i] = UNIT if struck_at % 20 < 2 else 0
+    g.write(strike_b, strike)
+    if b == 100:
+        g.set(lpg_c, ag.LPG_MODE, ag.LPG_BOTH)
+    if b == 140:
+        g.reset(lpg_a)
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -360,6 +389,9 @@ check(pan_sides_differ, "the pan puts the inputs in different places")
 for name in ("wf_a", "wf_b", "wf_c"):
     check(seen[name][0] > 5000 and seen[name][2] > 2000,
           "the wavefolder %s renders sound" % name)
+for name in ("lpg_a", "lpg_b", "lpg_c"):
+    check(seen[name][0] > 2000 and seen[name][2] > 1000,
+          "the low-pass gate %s renders sound" % name)
 
 if failures:
     for what in failures:
