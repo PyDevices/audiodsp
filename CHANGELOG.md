@@ -1,3 +1,8 @@
+## v0.6.11.dev9 (2026-10-30)
+
+- Graph carry probe: compare as it renders, so it fits MicroPython's heap; install setuptools for the fault builds
+- audiograph: Graph.carry, so a graph built beside a running one takes over its nodes' state
+
 ## v0.6.11.dev8 (2026-10-30)
 
 - audiograph: a MODAL node, a struck modal resonator bank
