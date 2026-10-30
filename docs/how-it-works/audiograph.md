@@ -93,6 +93,7 @@ rather than its last block.
 | `TANH` | audio | `TANH_DRIVE` (a gain before the tanh, 1 is unity), `TANH_LEVEL` (a gain after it, 1 is unity) | `TANH_LEVEL · tanh(TANH_DRIVE · x)` with `x` in units of `UNIT`, [below](#tanh) |
 | `PAN` | up to eight | 0..7: a gain per input, `PAN_PAN + i`: input `i`'s pan, −1 (left) to 1 (right); built with `arg` = the right side's buffer | a stereo mixer, the left side to the node's output and the right to the buffer `arg` names, [below](#pan) |
 | `WAVEFOLD` | audio, fold CV | `WAVEFOLD_FOLD` 0..1, `WAVEFOLD_SYMMETRY` −1..1 | a West Coast wavefolder: three sine folds crossfaded with the input by the fold, [below](#wavefold) |
+| `LPG` | audio, control, strike | `LPG_MODE` (`LPG_VCF`, `LPG_VCA`, `LPG_BOTH`), `LPG_DECAY` seconds, `LPG_MANUAL` 0..1, `LPG_LEVEL` | a vactrol low-pass gate, [below](#low-pass-gate) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -234,6 +235,25 @@ target renders the same bytes and the node is present on CircuitPython too.
 Against the rack's arithmetic with a correctly rounded sine it is within one
 count, on about one sample in a thousand.
 
+### Low-pass gate
+
+`LPG` is a vactrol low-pass gate, vrack's `LowPassGateCore`. Once a block its
+vactrol moves toward `LPG_MANUAL` plus the control input plus 1.5 times the
+strike input, each read at the block's first sample in units of `UNIT` and the
+sum held to 0..1. It rises in about 2 ms and falls by e every `LPG_DECAY`
+seconds, so a strike of a block or two rings and dies away.
+
+`LPG_VCA` scales the input by the vactrol. `LPG_VCF` low-passes it at
+`30 * 400^v` Hz, 30 Hz closed to 12 kHz open, through the same Q15 biquad
+`synthio.Biquad` runs inside `audiofilters.Filter`, soft knee past ±28000
+included. `LPG_BOTH`, the default, filters and scales by `v^1.3`, so the highs
+die before the lows. `LPG_LEVEL` multiplies the output last.
+
+The vactrol is double precision and its exp, pow and log are the graph's own,
+so the node renders the same bytes on every target, CircuitPython included.
+Against the rack's chain of `audiofilters` nodes with libm's exp and pow it
+matched at 0 counts over every case in the tests.
+
 ## Output
 
 `run(out, block, enable)` writes the `OUT` node's block into `out` at block
@@ -333,14 +353,14 @@ interpreter you name, and compares every sample. `graph_parity_probe.py` is one
 patch with the runner's first node kinds in it (two voices with their groups
 parking, a fed buffer, moved gains and cutoffs, a delay reset mid-tail, a mono
 graph); `graph_nodes_probe.py` is the phaser, the glide, every LFO shape, the
-sample-and-hold, the five two-pole types, the overdrive, the pan and the
-wavefolder. The tolerance is 0 counts: the three compile the same C
+sample-and-hold, the five two-pole types, the overdrive, the pan, the
+wavefolder and the low-pass gate. The tolerance is 0 counts: the three compile the same C
 and are handed the same floats, so any difference is a defect rather than
 rounding. Each planted fault makes it fail: one input sample one count off, one
 `set()` a block late, a phaser's frequency a block late, a legato flag flipped,
 a shape switched a block late, a clock edge a sample late, a cutoff CV a block
 late, an overdrive's tone a block late, a pan a block late, a wavefolder's
-symmetry a block late. CI runs it against
+symmetry a block late, a low-pass gate's strike a block late. CI runs it against
 MicroPython in both float widths; the three-way with the CircuitPython unix
 build is a local run, where the overdrives are left out of CircuitPython's
 comparison because it has no `OVERDRIVE`.
@@ -354,4 +374,5 @@ the overdrive match at 0 counts. The Sallen-Key pair matches within one count,
 on under one sample in a hundred: the node's `tanh` is a rational function in
 float that is the same on every target, where vrack's is the C library's in
 double. `WAVEFOLD` is held to `WavefolderCore` transcribed in float32 with a
-correctly rounded sine, within one count.
+correctly rounded sine, within one count, and `LPG` to `LowPassGateCore` with
+its `audiofilters.Filter`, at 0 counts measured.

@@ -155,6 +155,15 @@ typedef enum {
     // signal by the fold. The fold CV adds to the fold every sample. With
     // the fold at 0.001 or under and no CV, the input passes straight through.
     AUDIODSP_GRAPH_WAVEFOLD,
+    // inputs: audio, control, strike. params: mode, decay, manual, level.
+    // vrack's dsp/lpg.py LowPassGateCore, a vactrol low-pass gate. Once a
+    // block the vactrol moves toward manual + control + 1.5 * strike (each
+    // input's first sample, the sum held to 0..1): up in about 2 ms, down
+    // with the decay in seconds. VCA scales the input by it, VCF low-passes
+    // it at 30 * 400^v Hz (synthio.Biquad in audiofilters.Filter, to the
+    // count), BOTH does both with a gain of v^1.3. The level scales the
+    // output last.
+    AUDIODSP_GRAPH_LPG,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -265,6 +274,23 @@ enum {
     AUDIODSP_GRAPH_WAVEFOLD_FOLD = 0,
     // -1..1: an offset of a quarter of it ahead of the folds.
     AUDIODSP_GRAPH_WAVEFOLD_SYMMETRY,
+};
+
+enum {
+    // 0 VCF, 1 VCA, 2 BOTH (the nearest; anything else is BOTH).
+    AUDIODSP_GRAPH_LPG_MODE = 0,
+    // Seconds for the vactrol to fall by e; 0.01 at least.
+    AUDIODSP_GRAPH_LPG_DECAY,
+    // A level added to the control, 0..1.
+    AUDIODSP_GRAPH_LPG_MANUAL,
+    // A gain after the gate; 1 is unity.
+    AUDIODSP_GRAPH_LPG_LEVEL,
+};
+
+enum {
+    AUDIODSP_GRAPH_LPG_VCF = 0,
+    AUDIODSP_GRAPH_LPG_VCA,
+    AUDIODSP_GRAPH_LPG_BOTH,
 };
 
 enum {

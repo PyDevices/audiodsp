@@ -144,6 +144,16 @@ typedef struct {
 } graph_twopole_t;
 
 typedef struct {
+    // The vactrol's state, in double as LowPassGateCore keeps it.
+    double vactrol;
+    // The cutoff the coefficients were made for; 0 before the first.
+    double cutoff;
+    // synthio.Biquad's Q15 low-pass coefficients and its filter state.
+    int32_t a1, a2, b0, b1, b2;
+    int32_t x0, x1, y0, y1;
+} graph_lpg_t;
+
+typedef struct {
     uint32_t rng;
 } graph_noise_t;
 
@@ -194,6 +204,8 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_sh_t);
         case AUDIODSP_GRAPH_TWOPOLE:
             return sizeof(graph_twopole_t);
+        case AUDIODSP_GRAPH_LPG:
+            return sizeof(graph_lpg_t);
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
         case AUDIODSP_GRAPH_OVERDRIVE:
             return audiodsp_graph_overdrive_size();
@@ -411,6 +423,13 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_TANH_DRIVE] = 1.0f;
             node->param[AUDIODSP_GRAPH_TANH_LEVEL] = 1.0f;
             break;
+        case AUDIODSP_GRAPH_LPG:
+            // LowPassGateCore.render's defaults, and unity after it.
+            node->param[AUDIODSP_GRAPH_LPG_MODE] = (float)AUDIODSP_GRAPH_LPG_BOTH;
+            node->param[AUDIODSP_GRAPH_LPG_DECAY] = 0.25f;
+            node->param[AUDIODSP_GRAPH_LPG_MANUAL] = 0.0f;
+            node->param[AUDIODSP_GRAPH_LPG_LEVEL] = 1.0f;
+            break;
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -536,6 +555,12 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             graph_twopole_t *d = n->data;
             d->s1 = 0.0f;
             d->s2 = 0.0f;
+            break;
+        }
+        case AUDIODSP_GRAPH_LPG: {
+            graph_lpg_t *d = n->data;
+            d->vactrol = 0.0;
+            d->x0 = d->x1 = d->y0 = d->y1 = 0;
             break;
         }
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
@@ -1427,6 +1452,195 @@ static void run_twopole(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     d->s2 = s2;
 }
 
+// ---------------------------------------------------------------- LPG --
+
+// log2(v) for v > 0 in double, without libm: v brought into [sqrt(1/2),
+// sqrt(2)) by powers of two, then ln through the atanh series of
+// s = (v - 1) / (v + 1), |s| under 0.172, to s^25 (about 1e-19).
+static double graph_log2d(double v) {
+    int32_t e = 0;
+    while (v < 2.3283064365386963e-10) {   // 2^-32
+        v *= 4294967296.0;
+        e -= 32;
+    }
+    while (v < 0.70710678118654752440) {
+        v *= 2.0;
+        e -= 1;
+    }
+    while (v >= 1.41421356237309504880) {
+        v *= 0.5;
+        e += 1;
+    }
+    const double s = (v - 1.0) / (v + 1.0);
+    const double s2 = s * s;
+    double r = 1.0 / 25.0;
+    r = r * s2 + 1.0 / 23.0;
+    r = r * s2 + 1.0 / 21.0;
+    r = r * s2 + 1.0 / 19.0;
+    r = r * s2 + 1.0 / 17.0;
+    r = r * s2 + 1.0 / 15.0;
+    r = r * s2 + 1.0 / 13.0;
+    r = r * s2 + 1.0 / 11.0;
+    r = r * s2 + 1.0 / 9.0;
+    r = r * s2 + 1.0 / 7.0;
+    r = r * s2 + 1.0 / 5.0;
+    r = r * s2 + 1.0 / 3.0;
+    r = r * s2 + 1.0;
+    return (double)e + 2.0 * s * r * 1.44269504088896340736;
+}
+
+#define LPG_LOG2E 1.44269504088896340736
+#define LPG_LOG2_400 8.64385618977472469574
+#define LPG_Q 0.7071
+#define LPG_PI 3.14159265358979323846
+#define LPG_Q15 32768.0
+
+// round(ldexp(v, 15)): half away from zero, as C's round() does.
+static int32_t lpg_q15(double v) {
+    const double r = v * LPG_Q15;
+    int32_t t = (int32_t)r;
+    const double frac = r - (double)t;
+    if (frac >= 0.5) {
+        ++t;
+    } else if (frac <= -0.5) {
+        --t;
+    }
+    return t;
+}
+
+// synthio.Biquad's LOW_PASS coefficients at Q 0.7071, as
+// audiodsp_biquad_cp_configure makes them: CircuitPython's fast_sincos, its
+// W0 scale and Q15. A copy here, without libm, because the CircuitPython
+// build does not link audiodsp_biquad.c.
+static void lpg_configure(graph_lpg_t *d, double cutoff, uint32_t sample_rate) {
+    const double reciprocal_sr = 1.0 / sample_rate;
+    const double w0 = cutoff * ((2 * LPG_PI) * reciprocal_sr);
+    const double x = (w0 * (4 / LPG_PI)) - 1;
+    const double x2 = x * x, x3 = x2 * x, x4 = x2 * x2, x5 = x2 * x3;
+    const double c0 = 0.70708592,
+        c1x = -0.55535724 * x,
+        c2x2 = -0.21798592 * x2,
+        c3x3 = 0.05707685 * x3,
+        c4x4 = 0.0109 * x4,
+        c5x5 = -0.00171961 * x5;
+    const double evens = c4x4 + c2x2 + c0, odds = c5x5 + c3x3 + c1x;
+    const double c = evens + odds;
+    const double s = evens - odds;
+    const double alpha = s / (2 * LPG_Q);
+    const double a0 = 1 + alpha, a1 = -2 * c, a2 = 1 - alpha;
+    const double b0 = (1 - c) * .5, b1 = 1 - c;
+    const double reciprocal = 1 / a0;
+    d->a1 = lpg_q15(a1 * reciprocal);
+    d->a2 = lpg_q15(a2 * reciprocal);
+    d->b0 = lpg_q15(b0 * reciprocal);
+    d->b1 = lpg_q15(b1 * reciprocal);
+    d->b2 = lpg_q15(b0 * reciprocal);
+    d->cutoff = cutoff;
+}
+
+// audiodsp_sat16(value, 15): the shift rounds toward zero for a negative.
+static inline int32_t lpg_shift15(int32_t value) {
+    if (value < 0) {
+        value += 0x7FFF;
+    }
+    value >>= 15;
+    return value > 32767 ? 32767 : (value < -32768 ? -32768 : value);
+}
+
+// LowPassGateCore.render. The vactrol steps once a block toward the manual
+// level plus the control's and 1.5 times the strike's first samples: up in
+// about 2 ms, down with the decay. VCA scales the input by it; VCF runs the
+// input through synthio.Biquad's low-pass at 30 * 400^v Hz inside
+// audiofilters.Filter, Q15 and the soft knee past +-28000 included; BOTH does
+// that and scales by v^1.3. The level multiplies last.
+static void run_lpg(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_lpg_t *d = n->data;
+    const int16_t *in = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs[n->inputs[0]];
+    const int16_t *control = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[1]] : NULL;
+    const int16_t *strike = n->ninputs > 2 && n->inputs[2] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[2]] : NULL;
+    const double sr = (double)graph->sample_rate;
+    const double inv = 1.0 / (double)AUDIODSP_GRAPH_UNIT;
+
+    double target = (double)n->param[AUDIODSP_GRAPH_LPG_MANUAL];
+    if (control != NULL) {
+        target += (double)control[0] * inv;
+    }
+    if (strike != NULL) {
+        target += 1.5 * ((double)strike[0] * inv);
+    }
+    target = target < 0.0 ? 0.0 : (target > 1.0 ? 1.0 : target);
+    double vs = d->vactrol;
+    if (target > vs) {
+        vs += (target - vs) * (1.0 - graph_exp2d(-(double)frames / (0.002 * sr) * LPG_LOG2E));
+    } else {
+        double decay = (double)n->param[AUDIODSP_GRAPH_LPG_DECAY];
+        decay = decay > 0.01 ? decay : 0.01;
+        vs *= graph_exp2d(-(double)frames / (decay * sr) * LPG_LOG2E);
+    }
+    d->vactrol = vs;
+    const double v = vs < 0.0 ? 0.0 : (vs > 1.0 ? 1.0 : vs);
+
+    const float pick = n->param[AUDIODSP_GRAPH_LPG_MODE] + 0.5f;
+    const uint32_t mode = pick >= 0.0f && pick < 3.0f
+        ? (uint32_t)pick : (uint32_t)AUDIODSP_GRAPH_LPG_BOTH;
+    const float level = n->param[AUDIODSP_GRAPH_LPG_LEVEL];
+
+    if (mode == AUDIODSP_GRAPH_LPG_VCA) {
+        const float g = (float)v;
+        for (uint32_t i = 0; i < frames; ++i) {
+            const float x = in != NULL ? (float)in[i] * g : 0.0f;
+            out[i] = sat16(x * level);
+        }
+        return;
+    }
+
+    double cutoff = 30.0 * graph_exp2d(v * LPG_LOG2_400);
+    const double top = sr * 0.45;
+    cutoff = cutoff < 10.0 ? 10.0 : (cutoff > top ? top : cutoff);
+    if (cutoff != d->cutoff) {
+        lpg_configure(d, cutoff, graph->sample_rate);
+    }
+    float g = 1.0f;
+    if (mode == AUDIODSP_GRAPH_LPG_BOTH) {
+        if (v <= 0.0) {
+            g = 0.0f;
+        } else {
+            const double e = 1.3 * graph_log2d(v);
+            g = e < -60.0 ? 0.0f : (float)graph_exp2d(e);
+        }
+    }
+    const int32_t knee = 0x0fffffff / (32768 * 2 - 28000);
+    int32_t x0 = d->x0, x1 = d->x1, y0 = d->y0, y1 = d->y1;
+    for (uint32_t i = 0; i < frames; ++i) {
+        const int32_t sample = in != NULL ? in[i] : 0;
+        const int32_t y = lpg_shift15(d->b0 * sample + d->b1 * x0 + d->b2 * x1
+            - d->a1 * y0 - d->a2 * y1 + (1 << 14));
+        x1 = x0;
+        x0 = sample;
+        y1 = y0;
+        y0 = y;
+        int32_t w = y;
+        if (w < -28000) {
+            w = (((w + 28000) * knee) >> 16) - 28000;
+        } else if (w > 28000) {
+            w = (((w - 28000) * knee) >> 16) + 28000;
+        }
+        float o = (float)w;
+        if (mode == AUDIODSP_GRAPH_LPG_BOTH) {
+            o *= g;
+        }
+        out[i] = sat16(o * level);
+    }
+    d->x0 = x0;
+    d->x1 = x1;
+    d->y0 = y0;
+    d->y1 = y1;
+}
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -1558,6 +1772,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_WAVEFOLD:
                 run_wavefold(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_LPG:
+                run_lpg(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:
