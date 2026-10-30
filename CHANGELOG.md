@@ -1,3 +1,7 @@
+## v0.6.11.dev8 (2026-10-30)
+
+- audiograph: a MODAL node, a struck modal resonator bank
+
 ## v0.6.11.dev7 (2026-10-30)
 
 - audiograph: an LPG node, the vactrol low-pass gate (#344)
