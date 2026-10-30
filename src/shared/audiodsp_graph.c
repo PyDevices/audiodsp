@@ -152,6 +152,14 @@ typedef struct {
     float gain_now[AUDIODSP_GRAPH_MAX_INPUTS];
 } graph_mix_t;
 
+typedef struct {
+    bool primed;
+    // The right side's buffer id (the node's output is the left side).
+    int16_t right;
+    float left_now[AUDIODSP_GRAPH_MAX_INPUTS];
+    float right_now[AUDIODSP_GRAPH_MAX_INPUTS];
+} graph_pan_t;
+
 size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
     uint32_t sample_rate, float arg) {
     switch (kind) {
@@ -176,6 +184,8 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_noise_t);
         case AUDIODSP_GRAPH_MIX:
             return sizeof(graph_mix_t);
+        case AUDIODSP_GRAPH_PAN:
+            return sizeof(graph_pan_t);
         case AUDIODSP_GRAPH_PHASER:
             return sizeof(graph_phaser_t) + (size_t)phaser_stages(arg) * sizeof(float);
         case AUDIODSP_GRAPH_LAG:
@@ -254,6 +264,10 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
         return -1;
     }
     if (output == AUDIODSP_GRAPH_NONE && kind != AUDIODSP_GRAPH_OUT) {
+        return -1;
+    }
+    if (kind == AUDIODSP_GRAPH_PAN && (!(arg >= 0.0f && arg < (float)graph->nbufs) ||
+        arg != (float)(int16_t)arg || (int16_t)arg == output)) {
         return -1;
     }
     for (uint32_t i = 0; i < ninputs; ++i) {
@@ -408,6 +422,12 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
                 node->param[i] = 1.0f;
             }
             break;
+        case AUDIODSP_GRAPH_PAN:
+            ((graph_pan_t *)data)->right = (int16_t)arg;
+            for (uint32_t i = 0; i < AUDIODSP_GRAPH_MAX_INPUTS; ++i) {
+                node->param[i] = 1.0f;
+            }
+            break;
         case AUDIODSP_GRAPH_VCA:
             node->param[AUDIODSP_GRAPH_VCA_GAIN] = 1.0f;
             break;
@@ -489,6 +509,9 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
         }
         case AUDIODSP_GRAPH_MIX:
             ((graph_mix_t *)n->data)->primed = false;
+            break;
+        case AUDIODSP_GRAPH_PAN:
+            ((graph_pan_t *)n->data)->primed = false;
             break;
         case AUDIODSP_GRAPH_PHASER:
             audiodsp_allpass_f32_reset(&((graph_phaser_t *)n->data)->state);
@@ -942,6 +965,29 @@ static void run_noise(audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
     d->rng = x;
 }
 
+// One input into a mixer's sum at gain g1: ramped across the block from the
+// gain it had (*now) when that moved, skipped at a gain of 0 that did not.
+static void mix_input(float *acc, const int16_t *in, float *now, float g1,
+    uint32_t frames) {
+    const float g0 = *now;
+    *now = g1;
+    if (g0 == g1) {
+        if (g1 == 0.0f) {
+            return;
+        }
+        for (uint32_t i = 0; i < frames; ++i) {
+            acc[i] += g1 * (float)in[i];
+        }
+    } else {
+        const float step = (g1 - g0) * (1.0f / (float)frames);
+        float g = g0;
+        for (uint32_t i = 0; i < frames; ++i) {
+            g += step;
+            acc[i] += g * (float)in[i];
+        }
+    }
+}
+
 static void run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames, float *acc) {
     graph_mix_t *d = n->data;
@@ -955,33 +1001,50 @@ static void run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     for (uint32_t i = 0; i < frames; ++i) {
         acc[i] = offset;
     }
-    const float inv = 1.0f / (float)frames;
     for (uint32_t k = 0; k < n->ninputs; ++k) {
-        if (n->inputs[k] == AUDIODSP_GRAPH_NONE) {
-            continue;
-        }
-        const int16_t *in = graph->bufs[n->inputs[k]];
-        const float g1 = n->param[k];
-        const float g0 = d->gain_now[k];
-        d->gain_now[k] = g1;
-        if (g0 == g1) {
-            if (g1 == 0.0f) {
-                continue;
-            }
-            for (uint32_t i = 0; i < frames; ++i) {
-                acc[i] += g1 * (float)in[i];
-            }
-        } else {
-            const float step = (g1 - g0) * inv;
-            float g = g0;
-            for (uint32_t i = 0; i < frames; ++i) {
-                g += step;
-                acc[i] += g * (float)in[i];
-            }
+        if (n->inputs[k] != AUDIODSP_GRAPH_NONE) {
+            mix_input(acc, graph->bufs[n->inputs[k]], &d->gain_now[k], n->param[k], frames);
         }
     }
     for (uint32_t i = 0; i < frames; ++i) {
         out[i] = sat16(acc[i]);
+    }
+}
+
+static void run_pan(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames, float *acc) {
+    graph_pan_t *d = n->data;
+    float left[AUDIODSP_GRAPH_MAX_INPUTS];
+    float right[AUDIODSP_GRAPH_MAX_INPUTS];
+    for (uint32_t k = 0; k < AUDIODSP_GRAPH_MAX_INPUTS; ++k) {
+        const float g = n->param[k];
+        float pan = n->param[AUDIODSP_GRAPH_PAN_PAN + k];
+        pan = pan < -1.0f ? -1.0f : (pan > 1.0f ? 1.0f : pan);
+        left[k] = pan > 0.0f ? g * (1.0f - pan) : g;
+        right[k] = pan < 0.0f ? g * (1.0f + pan) : g;
+    }
+    if (!d->primed) {
+        for (uint32_t k = 0; k < AUDIODSP_GRAPH_MAX_INPUTS; ++k) {
+            d->left_now[k] = left[k];
+            d->right_now[k] = right[k];
+        }
+        d->primed = true;
+    }
+    for (int side = 0; side < 2; ++side) {
+        float *now = side ? d->right_now : d->left_now;
+        const float *gain = side ? right : left;
+        int16_t *dst = side ? graph->bufs[d->right] : out;
+        for (uint32_t i = 0; i < frames; ++i) {
+            acc[i] = 0.0f;
+        }
+        for (uint32_t k = 0; k < n->ninputs; ++k) {
+            if (n->inputs[k] != AUDIODSP_GRAPH_NONE) {
+                mix_input(acc, graph->bufs[n->inputs[k]], &now[k], gain[k], frames);
+            }
+        }
+        for (uint32_t i = 0; i < frames; ++i) {
+            dst[i] = sat16(acc[i]);
+        }
     }
 }
 
@@ -1322,6 +1385,10 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 if (dst != NULL) {
                     memset(dst, 0, frames * sizeof(int16_t));
                 }
+                if (n->kind == AUDIODSP_GRAPH_PAN) {
+                    memset(graph->bufs[((graph_pan_t *)n->data)->right], 0,
+                        frames * sizeof(int16_t));
+                }
             }
             continue;
         }
@@ -1428,6 +1495,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_TANH:
                 run_tanh(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_PAN:
+                run_pan(graph, n, dst, frames, acc);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:

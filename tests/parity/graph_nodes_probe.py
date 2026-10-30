@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE and OVERDRIVE, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE and PAN, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -7,6 +7,7 @@
     graph_nodes_probe.py --fault hold    # one clock edge a sample late
     graph_nodes_probe.py --fault twopole    # one block's cutoff CV a block late
     graph_nodes_probe.py --fault overdrive  # one tone change a block late
+    graph_nodes_probe.py --fault pan        # one pan change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -23,8 +24,10 @@ only, one-pole); and four sample-and-holds (noise clocked by the square LFO,
 the same with a lag, a written clock with two edges in a block, and the
 oscillator held at a rate with no clock); the five two-pole types on a
 sawtooth and on noise, with a cutoff CV that holds still for some blocks and
-runs through others, and one with no CV connected; and three overdrives (the
-sawtooth, hot, with the tone swept).
+runs through others, and one with no CV connected; three overdrives (the
+sawtooth, hot, with the tone swept); and a stereo PAN of four of these and an
+open input, its gains and pans moving every few blocks, past the ends once,
+and reset once, both sides printed.
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -44,7 +47,7 @@ except (ImportError, AttributeError):
     print("GRAPH PARITY SKIPPED: no audiograph nodes here")
     sys.exit(0)
 
-FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive")
+FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -169,6 +172,13 @@ g.set(od_b, ag.OVERDRIVE_TONE, 1.0)
 g.set(od_b, ag.OVERDRIVE_LEVEL, 2.0)
 od_c, _ = node("od_c", ag.OVERDRIVE, (noise_b,))
 
+# -- a stereo pan of four of the above and an open input
+pan_left, pan_right = g.buffer(), g.buffer()
+pan_ins = (saw_b, noise_b, None, lfos[0][1], dict(watched)["phaser6"])
+pan = g.add(ag.PAN, ag.ALWAYS, pan_ins, pan_left, pan_right)
+watched.append(("pan_l", pan_left))
+watched.append(("pan_r", pan_right))
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -182,6 +192,8 @@ saw_block = array("h", bytes(2 * FRAMES))
 cv = array("h", bytes(2 * FRAMES))
 last_cv = array("h", bytes(2 * FRAMES))
 moved = False
+pan_sides_differ = False
+left_block = None
 
 for b in range(BLOCKS):
     # the phaser's centre: a triangle sweep over 64 blocks, in whole hertz
@@ -260,6 +272,16 @@ for b in range(BLOCKS):
     if b == 140:
         g.reset(od_a)
 
+    # the pan: each input's gain and pan move every few blocks, in quarters,
+    # past the ends from block 110; the node is reset at 130
+    pan_at = b if FAULT != "pan" or b != 36 else b - 1
+    for i in range(len(pan_ins)):
+        g.set(pan, i, ((pan_at // 6 + i) % 5) / 4.0)
+        position = (((pan_at // 4) * 3 + i * 5) % 9 - 4) / 4.0
+        g.set(pan, ag.PAN_PAN + i, position * 1.5 if b >= 110 else position)
+    if b == 130:
+        g.reset(pan)
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -274,6 +296,10 @@ for b in range(BLOCKS):
             stats[3] = v
         if name == "phaser4" and block != saw_block:
             moved = True
+        if name == "pan_l":
+            left_block = list(block)
+        if name == "pan_r" and list(block) != left_block:
+            pan_sides_differ = True
 
 check(seen["phaser4"][0] > 10000 and seen["phaser4"][2] > 4000,
       "the swept phaser renders sound")
@@ -295,6 +321,10 @@ for name in ("od_a", "od_b", "od_c"):
     check(seen[name][0] > 5000 and seen[name][2] > 500,
           "the overdrive %s renders sound" % name)
 check(seen["od_b"][2] > 20000, "the hot overdrive reaches the knee")
+for name in ("pan_l", "pan_r"):
+    check(seen[name][0] > 5000 and seen[name][2] > 4000,
+          "the pan's %s side renders sound" % name)
+check(pan_sides_differ, "the pan puts the inputs in different places")
 
 if failures:
     for what in failures:
