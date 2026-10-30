@@ -1,3 +1,13 @@
+## v0.6.11.dev6 (2026-10-30)
+
+- audiograph: a PAN node, a stereo mixer with a balance on each input (#340)
+- audiopump: DriftResampler, which holds a Ring filled on another clock at its target fill (#339)
+- Roadmap: the native-module kit's remaining pieces (#338)
+- audiosampler: a resonant low-pass, a modulation envelope and two LFOs per voice (#337)
+- audiofeatures: a voice activity flag per slice (#336)
+- audiofeatures: speech features for a wake word model (#334)
+- audiopump.Ring: prove an underrun is silence and a count, and an overrun a short write (#335)
+
 ## v0.6.11.dev5 (2026-10-29)
 
 - audiograph: a TANH node, so a saturating mixer renders the same bytes everywhere (#332)
