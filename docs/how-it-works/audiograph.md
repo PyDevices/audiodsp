@@ -94,6 +94,7 @@ rather than its last block.
 | `PAN` | up to eight | 0..7: a gain per input, `PAN_PAN + i`: input `i`'s pan, −1 (left) to 1 (right); built with `arg` = the right side's buffer | a stereo mixer, the left side to the node's output and the right to the buffer `arg` names, [below](#pan) |
 | `WAVEFOLD` | audio, fold CV | `WAVEFOLD_FOLD` 0..1, `WAVEFOLD_SYMMETRY` −1..1 | a West Coast wavefolder: three sine folds crossfaded with the input by the fold, [below](#wavefold) |
 | `LPG` | audio, control, strike | `LPG_MODE` (`LPG_VCF`, `LPG_VCA`, `LPG_BOTH`), `LPG_DECAY` seconds, `LPG_MANUAL` 0..1, `LPG_LEVEL` | a vactrol low-pass gate, [below](#low-pass-gate) |
+| `MODAL` | excitation, strike | `MODAL_FREQUENCY` Hz, `MODAL_DECAY` seconds, `MODAL_BRIGHTNESS` 0..1, `MODAL_INPUT`, `MODAL_MIX` 0..1, `MODAL_RATIO` + 0..7 | a struck bank of eight modes, [below](#modal-resonator) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -254,6 +255,25 @@ so the node renders the same bytes on every target, CircuitPython included.
 Against the rack's chain of `audiofilters` nodes with libm's exp and pow it
 matched at 0 counts over every case in the tests.
 
+### Modal resonator
+
+`MODAL` is eight tuned resonators struck or rung by their input: bells, bars
+and drum heads. Mode `m` sits at `MODAL_FREQUENCY` times `MODAL_RATIO + m`
+(held under 0.45 of the sample rate), rings for `MODAL_DECAY * (1 - m / 16)`
+seconds, and peaks at `(0.2 + 0.8 * MODAL_BRIGHTNESS)^m / (m + 1)`. A ratio of 0
+turns its mode off.
+
+The first rising edge of the strike input past 0.1 in a block starts a burst of
+forty samples, 0.85 falling by 0.85 a sample, added to the excitation input.
+`MODAL_INPUT` scales that sum before it is rounded to the wire and run through
+the bank. `MODAL_MIX` goes from the excitation alone (0) to the bank alone (1),
+so a node at 0 with every ratio at 0 is just the strike, ready for a string or
+a delay.
+
+The bank is `audiomodal.Bank`'s own kernel, called on each block, so its modes
+match `audiomodal.Bank` sample for sample. The node retunes only when the
+frequency, decay, brightness or a ratio moves.
+
 ## Output
 
 `run(out, block, enable)` writes the `OUT` node's block into `out` at block
@@ -360,7 +380,8 @@ rounding. Each planted fault makes it fail: one input sample one count off, one
 `set()` a block late, a phaser's frequency a block late, a legato flag flipped,
 a shape switched a block late, a clock edge a sample late, a cutoff CV a block
 late, an overdrive's tone a block late, a pan a block late, a wavefolder's
-symmetry a block late, a low-pass gate's strike a block late. CI runs it against
+symmetry a block late, a low-pass gate's strike a block late, a modal
+resonator's frequency change a block late. CI runs it against
 MicroPython in both float widths; the three-way with the CircuitPython unix
 build is a local run, where the overdrives are left out of CircuitPython's
 comparison because it has no `OVERDRIVE`.
@@ -374,5 +395,8 @@ the overdrive match at 0 counts. The Sallen-Key pair matches within one count,
 on under one sample in a hundred: the node's `tanh` is a rational function in
 float that is the same on every target, where vrack's is the C library's in
 double. `WAVEFOLD` is held to `WavefolderCore` transcribed in float32 with a
-correctly rounded sine, within one count, and `LPG` to `LowPassGateCore` with
-its `audiofilters.Filter`, at 0 counts measured.
+correctly rounded sine, within one count, `LPG` to `LowPassGateCore` with
+its `audiofilters.Filter`, at 0 counts measured, and `MODAL` to
+`ModalResonatorCore` with its `audiomodal.Bank`, within one count on about one
+sample in three hundred: the strike's burst is a running product where vrack
+takes an exp.

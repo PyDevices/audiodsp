@@ -57,6 +57,7 @@
 #include "shared/audiodsp_filter_f32.h"
 #include "shared/audiodsp_feedback_delay.h"
 #include "shared/audiodsp_ladder.h"
+#include "shared/audiodsp_modal.h"
 #include "shared/audiodsp_oscillator.h"
 #include "shared/audiodsp_samplehold.h"
 
@@ -164,6 +165,18 @@ typedef enum {
     // count), BOTH does both with a gain of v^1.3. The level scales the
     // output last.
     AUDIODSP_GRAPH_LPG,
+    // inputs: excitation, strike. params: frequency, decay, brightness,
+    // input, mix, and eight ratios. A struck modal resonator: eight of
+    // audiomodal.Bank's two-pole modes at frequency * ratio[m] (a ratio of 0
+    // turns its mode off), mode m ringing for decay * (1 - m / 16) seconds
+    // at a gain of (0.2 + 0.8 * brightness)^m / (m + 1). The first rising
+    // edge of the strike above 0.1 in a block starts a burst of forty
+    // samples falling from 0.85 by 0.85 a sample, added to the excitation;
+    // the input scales that sum before it is rounded to the wire and run
+    // through the bank. Mix 0 passes the excitation alone. vrack's
+    // dsp/modal.py ModalResonatorCore and its Exciter, without the bridge's
+    // 256 frames of latency.
+    AUDIODSP_GRAPH_MODAL,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -292,6 +305,24 @@ enum {
     AUDIODSP_GRAPH_LPG_VCA,
     AUDIODSP_GRAPH_LPG_BOTH,
 };
+
+enum {
+    // Hz of the first mode before its ratio; each mode is held to 0.45 * rate.
+    AUDIODSP_GRAPH_MODAL_FREQUENCY = 0,
+    // Seconds for the first mode to fall 60 dB.
+    AUDIODSP_GRAPH_MODAL_DECAY,
+    // 0..1: how loud the upper modes are against the first.
+    AUDIODSP_GRAPH_MODAL_BRIGHTNESS,
+    // The gain on the excitation and the strike's burst, in units of 1.0.
+    AUDIODSP_GRAPH_MODAL_INPUT,
+    // 0..1, between the excitation (0) and the bank (1).
+    AUDIODSP_GRAPH_MODAL_MIX,
+    // The first of eight ratios, one per mode.
+    AUDIODSP_GRAPH_MODAL_RATIO = 8,
+};
+
+//: Modes in one MODAL node.
+#define AUDIODSP_GRAPH_MODAL_MODES 8u
 
 enum {
     AUDIODSP_GRAPH_MIX_OFFSET = 8,

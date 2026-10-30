@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, TANH, PAN, WAVEFOLD and LPG, held to what they stand in for.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, TANH, PAN, WAVEFOLD, LPG and MODAL, held to what they stand in for.
 
 | node | held to | bar |
 |---|---|---|
@@ -19,6 +19,7 @@
 | `PAN` | two `MIX` nodes, one a side, given the balance's gains in float32: centred, panned, past the ends, with gains and pans moving between blocks, an open input, a reset and a skipped group | 0 counts |
 | `WAVEFOLD` | vrack's `dsp/wavefolder.py` `WavefolderCore`, with no CV, a fold CV, the knobs moving, a hot input, an open input and the bypass at fold 0.001 | 1 count, on about 1 sample in 1000 (the sine is a polynomial) |
 | `LPG` | vrack's `dsp/lpg.py` `LowPassGateCore`, its filter `audiofilters.Filter` with a `synthio.Biquad` low-pass driven as vrack's bridge drives it: VCF, VCA and BOTH, struck, on a control, with the manual level, the knobs and level moving, a hot input and an open one | 1 count (the node's own exp and pow against libm's); 0 measured over 168192 samples |
+| `MODAL` | vrack's `dsp/modal.py` `ModalResonatorCore`: its `Exciter` in float32, the sum cast to int16 as vrack's bridge casts it, and `audiomodal.Bank` pulled 256 frames at a time, lined up with its input: bar and membrane ratios, struck, rung by noise, mix 0, a mode turned off, the knobs moving, and 32 to 256 frames | 1 count (the strike's burst is a product where numpy takes an exp); 586 of 170240 samples measured |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -1455,4 +1456,204 @@ class Lpg(unittest.TestCase):
             got, want = self.compare(blocks, frames=frames,
                                      strike=lpg_strikes(frames, blocks, 12),
                                      settings=[(0.0, 0.125, 2, 1.0)] * blocks)
+            self.assertLessEqual(worst(got, want), 1, frames)
+
+
+# ------------------------------------------------------------------- MODAL --
+
+import audiomodal  # noqa: E402
+
+MODAL_BAR = (1.0, 2.0, 3.0, 4.2, 7.9, 9.8, 11.9, 14.2)
+MODAL_MEMBRANE = (1.0, 1.59, 2.14, 2.30, 2.65, 2.92, 3.16, 3.50)
+
+
+class ModalRef:
+    """vrack's `ModalResonatorCore`: its `Exciter` transcribed in float32 as
+    numpy runs it, the sum rounded to int16 by the bridge's cast, and an
+    `audiomodal.Bank` pulled 256 frames at a time behind a passthrough
+    `audiofilters.Filter`, as vrack's `ChunkedBridge` pulls it. The rack hears
+    each chunk 256 frames late; this lines the chunk up with its input."""
+
+    def __init__(self, frames):
+        self.frames = frames
+        self.high = False
+        self.level = 0.0
+        self.pending = 0
+        self.bank = audiomodal.Bank(sample_rate=RATE, modes=8, channel_count=1,
+                                    mix=1.0, gain=1.0)
+        self.input = array("h", bytes(512))
+        source = audiocore.RawSample(self.input, channel_count=1, sample_rate=RATE)
+        through = audiofilters.Filter(filter=None, buffer_size=512, sample_rate=RATE,
+                                      bits_per_sample=16, samples_signed=True,
+                                      channel_count=1)
+        through.play(source, loop=True)
+        self.bank.play(through)
+        audiocore.get_buffer(self.bank)  # the bridge's throwaway first pull
+        self.pend = array("h")
+        self.out = []
+        self.log = f32(math.log(0.85))
+
+    def tune(self, freq, ratios, decay, brightness):
+        top = RATE * 0.45
+        for m in range(8):
+            f = min(top, freq * ratios[m])
+            gain = (1.0 / (m + 1)) * ((0.2 + 0.8 * brightness) ** m)
+            self.bank.set_mode(m, f, decay * (1.0 - 0.5 * m / 8), gain)
+
+    def _burst(self, dst, start, end):
+        if self.pending <= 0 or end <= start:
+            return
+        k = min(self.pending, end - start)
+        level = f32(self.level)
+        for j in range(k):
+            b = f32(f32(math.exp(f32((j + 1) * self.log))) * level)
+            dst[start + j] = f32(dst[start + j] + b)
+        self.level = f32(f32(math.exp(f32(k * self.log))) * level)
+        self.pending -= k
+        if self.pending <= 0:
+            self.level = 0.0
+
+    def render(self, audio, strike, level, mix=1.0):
+        n = self.frames
+        dst = [f32(v / UNIT) for v in audio] if audio is not None else [0.0] * n
+        start = 0
+        if strike is not None:
+            edge = -1
+            high = self.high
+            for i, v in enumerate(strike):
+                now = v / UNIT > 0.1
+                if now and not high:
+                    edge = i
+                    break
+                high = now
+            self.high = strike[-1] / UNIT > 0.1
+            if edge >= 0:
+                self._burst(dst, 0, edge)
+                self.level, self.pending = 1.0, 40
+                start = edge
+        self._burst(dst, start, n)
+        lv = f32(level)
+        for v in dst:
+            x = f32(v * lv) * UNIT
+            x = max(-32768.0, min(32767.0, x))
+            self.pend.append(int(x + 0.5) if x >= 0 else -int(-x + 0.5))
+        self.bank.set(mix=mix)
+        while len(self.pend) >= 256:
+            self.input[:] = self.pend[:256]
+            del self.pend[:256]
+            self.out += list(array("h", bytes(audiocore.get_buffer(self.bank)[1])))
+
+
+def modal_strikes(frames, blocks, every=40, width=3):
+    """A trigger: full scale for `width` blocks out of each `every`, from block 1."""
+    return [[UNIT if (b - 1) % every < width and b >= 1 else 0] * frames
+            for b in range(blocks)]
+
+
+def modal_noise(frames, blocks, amplitude=6000, seed=7):
+    """A quiet, deterministic noise excitation."""
+    out, r = [], seed
+    for _ in range(blocks):
+        block = []
+        for _ in range(frames):
+            r = (r * 1103515245 + 12345) & 0x7FFFFFFF
+            block.append((r >> 8) % (2 * amplitude + 1) - amplitude)
+        out.append(block)
+    return out
+
+
+class Modal(unittest.TestCase):
+
+    def compare(self, blocks, frames=128, audio=None, strike=None, settings=None):
+        """`settings` per block: (freq, decay, brightness, input, mix, ratios)."""
+        rig = Rig(frames, ag.MODAL, 2, open_=((0,) if audio is None else ())
+                  + ((1,) if strike is None else ()))
+        ref = ModalRef(frames)
+        got = []
+        last = None
+        for b in range(blocks):
+            freq, decay, bright, level, mix, ratios = settings[b]
+            if (freq, decay, bright, ratios) != last:
+                last = (freq, decay, bright, ratios)
+                ref.tune(freq, ratios, decay, bright)
+            rig.set(ag.MODAL_FREQUENCY, freq)
+            rig.set(ag.MODAL_DECAY, decay)
+            rig.set(ag.MODAL_BRIGHTNESS, bright)
+            rig.set(ag.MODAL_INPUT, level)
+            rig.set(ag.MODAL_MIX, mix)
+            for m, r in enumerate(ratios):
+                rig.set(ag.MODAL_RATIO + m, r)
+            a = audio[b] if audio is not None else None
+            s = strike[b] if strike is not None else None
+            got += rig.run(a, s)
+            ref.render(a, s, level, mix)
+        return got, ref.out
+
+    def test_matches_modalresonatorcore(self):
+        frames, blocks = 128, 160
+        for ratios, freq, decay, bright in (
+                (MODAL_BAR, 261.63, 1.6, 0.6),
+                (MODAL_MEMBRANE, 110.0, 0.5, 0.2),
+                (MODAL_BAR, 880.0, 3.0, 1.0),
+                (MODAL_BAR, 3000.0, 0.2, 0.9)):  # the top modes held under 0.45 * rate
+            got, want = self.compare(blocks, strike=modal_strikes(frames, blocks),
+                                     settings=[(freq, decay, bright, 0.05, 1.0, ratios)]
+                                     * blocks)
+            self.assertEqual(len(got), len(want))
+            self.assertLessEqual(worst(got, want), 1, (ratios, freq))
+            self.assertGreater(max(abs(v) for v in got), 2000, (ratios, freq))
+
+    def test_audio_excites_it(self):
+        frames, blocks = 128, 80
+        got, want = self.compare(blocks, audio=modal_noise(frames, blocks),
+                                 strike=modal_strikes(frames, blocks, 30),
+                                 settings=[(440.0, 0.8, 0.5, 0.05, 1.0, MODAL_BAR)]
+                                 * blocks)
+        self.assertLessEqual(worst(got, want), 1)
+
+    def test_mix_zero_is_the_excitation(self):
+        frames, blocks = 128, 40
+        got, want = self.compare(blocks, audio=modal_noise(frames, blocks),
+                                 strike=modal_strikes(frames, blocks, 10),
+                                 settings=[(440.0, 0.8, 0.5, 0.15, 0.0, (0.0,) * 8)]
+                                 * blocks)
+        self.assertEqual(got, want)
+        self.assertNotEqual(set(got), {0})
+
+    def test_the_knobs_moving(self):
+        # at 256 frames the bank's chunk is the node's block, so a change
+        # lands on the same sample in both
+        frames, blocks = 256, 120
+        settings = [(220.0 * (1 + (b // 30)), (1.2, 0.4)[(b // 20) % 2],
+                     (0.1, 0.9)[(b // 25) % 2], 0.05, 1.0,
+                     (MODAL_BAR, MODAL_MEMBRANE)[(b // 40) % 2]) for b in range(blocks)]
+        got, want = self.compare(blocks, frames=frames,
+                                 strike=modal_strikes(frames, blocks, 15), settings=settings)
+        self.assertLessEqual(worst(got, want), 1)
+
+    def test_a_ratio_of_zero_turns_its_mode_off(self):
+        frames, blocks = 256, 30
+        ratios = (1.0,) + (0.0,) * 7
+        got, want = self.compare(blocks, frames=frames, strike=modal_strikes(frames, blocks),
+                                 settings=[(440.0, 0.5, 1.0, 0.05, 1.0, ratios)] * blocks)
+        self.assertLessEqual(worst(got, want), 1)
+
+    def test_unstruck_is_silence_and_a_reset_stops_it(self):
+        frames, blocks = 128, 30
+        got, want = self.compare(blocks, settings=[(440.0, 2.0, 0.6, 0.05, 1.0, MODAL_BAR)]
+                                 * blocks)
+        self.assertEqual(set(got), {0})
+        rig = Rig(frames, ag.MODAL, 2, open_=(0,))
+        rig.run(None, [UNIT] * frames)
+        self.assertNotEqual(set(rig.run(None, [UNIT] * frames)), {0})
+        rig.g.reset(rig.node)
+        self.assertEqual(set(rig.run(None, [0] * frames)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 64, 256):
+            blocks = 256 * 40 // frames
+            got, want = self.compare(blocks, frames=frames,
+                                     strike=modal_strikes(frames, blocks, 2048 // frames),
+                                     settings=[(330.0, 1.0, 0.6, 0.05, 1.0, MODAL_BAR)]
+                                     * blocks)
             self.assertLessEqual(worst(got, want), 1, frames)

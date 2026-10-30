@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD and LPG, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG and MODAL, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -10,6 +10,7 @@
     graph_nodes_probe.py --fault pan        # one pan change a block late
     graph_nodes_probe.py --fault wavefold   # one symmetry change a block late
     graph_nodes_probe.py --fault lpg        # one strike a block late
+    graph_nodes_probe.py --fault modal      # one frequency change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -34,7 +35,10 @@ deep, the sawtooth with the cutoff CV on its fold and the symmetry swept, and a
 phaser folded at full depth); and three low-pass gates (the deep fold struck
 every twenty blocks in BOTH mode and reset once, the sawtooth filtered on the
 triangle LFO, and a phaser on the cutoff CV with a manual level and the level
-turned down, in VCA mode and then BOTH).
+turned down, in VCA mode and then BOTH); and three modal resonators (a bar
+struck with the low-pass gates and reset once, a membrane rung by the noise
+with its frequency stepped and its mix at three quarters, and the sawtooth
+with its own strikes at mix 0, the excitation alone).
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -58,7 +62,8 @@ except (ImportError, AttributeError):
     print("GRAPH PARITY SKIPPED: no audiograph nodes here")
     sys.exit(0)
 
-FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg")
+FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
+          "modal")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -78,8 +83,8 @@ def check(ok, what):
         failures.append(what)
 
 
-g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=56,
-             nodes=56)
+g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=60,
+             nodes=60)
 watched = []
 
 
@@ -221,6 +226,28 @@ g.set(lpg_c, ag.LPG_MANUAL, 0.25)
 g.set(lpg_c, ag.LPG_DECAY, 0.5)
 g.set(lpg_c, ag.LPG_LEVEL, 0.75)
 
+# -- modal resonators: a bar struck, a membrane rung by noise, the excitation alone
+modal_a, _ = node("modal_a", ag.MODAL, (None, strike_b))
+g.set(modal_a, ag.MODAL_FREQUENCY, 440.0)
+g.set(modal_a, ag.MODAL_DECAY, 1.5)
+g.set(modal_a, ag.MODAL_BRIGHTNESS, 0.625)
+g.set(modal_a, ag.MODAL_INPUT, 0.0625)
+for m, r in enumerate((1.0, 2.0, 3.0, 4.25, 7.875, 9.75, 12.0, 14.25)):
+    g.set(modal_a, ag.MODAL_RATIO + m, r)
+modal_b, _ = node("modal_b", ag.MODAL, (noise_b,))
+g.set(modal_b, ag.MODAL_DECAY, 0.5)
+g.set(modal_b, ag.MODAL_BRIGHTNESS, 0.25)
+g.set(modal_b, ag.MODAL_INPUT, 0.015625)
+g.set(modal_b, ag.MODAL_MIX, 0.75)
+for m, r in enumerate((1.0, 1.59375, 2.125, 2.3125, 2.625, 2.875, 3.125, 3.5)):
+    g.set(modal_b, ag.MODAL_RATIO + m, r)
+modal_strike_b = g.buffer()
+modal_c, _ = node("modal_c", ag.MODAL, (saw_b, modal_strike_b))
+g.set(modal_c, ag.MODAL_INPUT, 0.25)
+g.set(modal_c, ag.MODAL_MIX, 0.0)
+for m in range(8):
+    g.set(modal_c, ag.MODAL_RATIO + m, 0.0)
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -234,6 +261,7 @@ saw_block = array("h", bytes(2 * FRAMES))
 cv = array("h", bytes(2 * FRAMES))
 last_cv = array("h", bytes(2 * FRAMES))
 strike = array("h", bytes(2 * FRAMES))
+modal_strike = array("h", bytes(2 * FRAMES))
 moved = False
 pan_sides_differ = False
 left_block = None
@@ -342,6 +370,16 @@ for b in range(BLOCKS):
     if b == 140:
         g.reset(lpg_a)
 
+    # the membrane's frequency steps every ten blocks; the bar is reset once;
+    # the sawtooth's own strike rises twice in some blocks
+    tuned_at = b if FAULT != "modal" or b != 80 else b - 1
+    g.set(modal_b, ag.MODAL_FREQUENCY, 110.0 * (1 + (tuned_at // 10) % 4))
+    if b == 150:
+        g.reset(modal_a)
+    for i in range(FRAMES):
+        modal_strike[i] = UNIT if (b % 7 == 3 and (i // 16) % 2 == 1) else 0
+    g.write(modal_strike_b, modal_strike)
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -392,6 +430,10 @@ for name in ("wf_a", "wf_b", "wf_c"):
 for name in ("lpg_a", "lpg_b", "lpg_c"):
     check(seen[name][0] > 2000 and seen[name][2] > 1000,
           "the low-pass gate %s renders sound" % name)
+
+for name in ("modal_a", "modal_b", "modal_c"):
+    check(seen[name][0] > 2000 and seen[name][2] > 1000,
+          "the modal resonator %s renders sound" % name)
 
 if failures:
     for what in failures:
