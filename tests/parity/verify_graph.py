@@ -7,14 +7,17 @@
     verify_graph.py --micropython PATH --fault phaser  # must FAIL (and lag, lfo, hold)
     verify_graph.py --micropython PATH --fault twopole # must FAIL (and overdrive, pan, wavefold, lpg, modal)
     verify_graph.py --micropython PATH --fault drain   # must FAIL (and split)
+    verify_graph.py --micropython PATH --fault offbeat # must FAIL
 
-Runs two probes on this CPython (``audiograph`` from the installed wheel) and
+Runs the probes on this CPython (``audiograph`` from the installed wheel) and
 on each interpreter named, and compares the renders sample for sample.
 ``graph_parity_probe.py`` is the runner: every output sample of every block,
 the buffers' peaks and a mono graph's blocks. ``graph_nodes_probe.py`` is the
 phaser, the glide, the LFO's shapes, the sample-and-hold, the two-pole filters,
 the overdrive, the pan, the wavefolder, the low-pass gate and the modal resonator: every sample each of them writes. ``graph_source_probe.py`` is the graph pulled as a source,
-through its queue, which must render what ``run()`` renders. The block headers (which voices ran, which were still
+through its queue, which must render what ``run()`` renders. ``graph_carry_probe.py`` is a
+graph built beside a running one taking over its nodes with ``carry()``: every
+sample every node writes after the swap. The block headers (which voices ran, which were still
 sounding), the parameters read back and the probes' own checks must match
 exactly.
 
@@ -51,6 +54,7 @@ PROBES = (
     ("nodes", HERE / "graph_nodes_probe.py", ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
                                                  "modal")),
     ("source", HERE / "graph_source_probe.py", ("drain", "split")),
+    ("carry", HERE / "graph_carry_probe.py", ("offbeat",)),
 )
 FAULTS = tuple(f for _, _, faults in PROBES for f in faults)
 #: Lines whose fields after the tag are samples, compared within the tolerance.

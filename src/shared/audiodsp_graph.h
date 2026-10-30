@@ -359,6 +359,8 @@ typedef struct {
     bool dirty;
     // Ran last block. A node skipped after running zeroes its output once.
     bool ran;
+    // The `arg` it was built with, which carry() holds a source node to.
+    float arg;
     // The kernel's config and state, sized by audiodsp_graph_node_data_size.
     void *data;
 } audiodsp_graph_node_t;
@@ -497,6 +499,30 @@ bool audiodsp_graph_set_table(audiodsp_graph_t *graph, uint32_t node,
 
 // Clears a node's running state (the kernel's reset).
 bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node);
+
+// What audiodsp_graph_carry() returns.
+enum {
+    AUDIODSP_GRAPH_CARRY_OK = 0,
+    AUDIODSP_GRAPH_CARRY_BAD_NODE,  // a node index past its graph's nodes
+    AUDIODSP_GRAPH_CARRY_KIND,      // the two nodes are of different kinds
+    AUDIODSP_GRAPH_CARRY_ARG,       // built with different `arg`s
+    AUDIODSP_GRAPH_CARRY_SIZE,      // their config and state differ in size
+    AUDIODSP_GRAPH_CARRY_RATE,      // the graphs run at different sample rates
+};
+
+// Hands node `src_node` of `src` over to node `node` of `dst`: its running
+// state (an oscillator's phase, an envelope's stage and level, a filter's or
+// a delay line's contents, a generator's seed) and the config its parameters
+// made, so `dst` renders from here on what `src` would have. `dst` keeps its
+// own wiring, its parameters and its wow table: where a parameter differs
+// from the source's, the node takes it as a set() would, at the next block.
+// A PAN keeps its own right-side buffer, so its `arg` is not compared. A
+// FBDELAY's line goes with it, repointed at `dst`'s copy; the wow table the
+// source was playing stays borrowed, and the caller keeps it alive. Neither
+// graph may be rendering, and both queues should be drained first. Returns
+// one of AUDIODSP_GRAPH_CARRY_*.
+int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
+    const audiodsp_graph_t *src, uint32_t src_node);
 
 // Renders one block. `out` takes frames * channel_count samples from the
 // OUT node (and is untouched when there is none). Nodes whose group bit is

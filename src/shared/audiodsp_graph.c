@@ -324,6 +324,7 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
     node->noutputs = output == AUDIODSP_GRAPH_NONE ? 0 : 1;
     node->data = data;
     node->dirty = true;
+    node->arg = arg;
     const uint32_t rate = graph->sample_rate;
     switch (kind) {
         case AUDIODSP_GRAPH_OSC: {
@@ -532,6 +533,95 @@ bool audiodsp_graph_set_table(audiodsp_graph_t *graph, uint32_t node,
     }
     graph_fbdelay_t *d = audiodsp_graph_node(graph, node)->data;
     return audiodsp_feedback_delay_set_wow_shape(&d->config, table, length);
+}
+
+// The planted faults that tests/parity/graph_carry_probe.py must catch, for a
+// build made with -DAUDIODSP_GRAPH_CARRY_FAULT=n: 1 leaves a FBDELAY's line
+// pointing at the source's, 2 drops the source's pending parameter change.
+#ifndef AUDIODSP_GRAPH_CARRY_FAULT
+#define AUDIODSP_GRAPH_CARRY_FAULT 0
+#endif
+
+int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
+    const audiodsp_graph_t *src, uint32_t src_node) {
+    if (node >= dst->nnodes || src_node >= src->nnodes) {
+        return AUDIODSP_GRAPH_CARRY_BAD_NODE;
+    }
+    audiodsp_graph_node_t *d = audiodsp_graph_node(dst, node);
+    const audiodsp_graph_node_t *s = audiodsp_graph_node(src, src_node);
+    if (d == s) {
+        return AUDIODSP_GRAPH_CARRY_OK;
+    }
+    if (d->kind != s->kind) {
+        return AUDIODSP_GRAPH_CARRY_KIND;
+    }
+    const audiodsp_graph_kind_t kind = (audiodsp_graph_kind_t)d->kind;
+    if (kind != AUDIODSP_GRAPH_PAN && !(d->arg == s->arg)) {
+        return AUDIODSP_GRAPH_CARRY_ARG;
+    }
+    const size_t size = audiodsp_graph_node_data_size(kind, dst->sample_rate, d->arg);
+    if (size != audiodsp_graph_node_data_size(kind, src->sample_rate, s->arg)) {
+        return AUDIODSP_GRAPH_CARRY_SIZE;
+    }
+    if (dst->sample_rate != src->sample_rate) {
+        return AUDIODSP_GRAPH_CARRY_RATE;
+    }
+    // What stays the destination's own: a PAN's right side, a delay's wow table.
+    int16_t right = 0;
+    const int16_t *wow = NULL;
+    uint32_t wow_shift = 0;
+    if (kind == AUDIODSP_GRAPH_PAN) {
+        right = ((const graph_pan_t *)d->data)->right;
+    } else if (kind == AUDIODSP_GRAPH_FBDELAY) {
+        wow = ((const graph_fbdelay_t *)d->data)->config.wow_shape;
+        wow_shift = ((const graph_fbdelay_t *)d->data)->config.wow_shape_shift;
+    }
+    if (size) {
+        memcpy(d->data, s->data, size);
+    }
+    switch (kind) {
+        case AUDIODSP_GRAPH_FBDELAY: {
+            // The line came with the state; the state must read this copy of it.
+            // A table that differs from the source's takes over as table()
+            // would hand it over: the depth dips, the table swaps at zero.
+            graph_fbdelay_t *f = d->data;
+            #if AUDIODSP_GRAPH_CARRY_FAULT != 1
+            f->state.line = f->line;
+            #endif
+            f->config.wow_shape = wow;
+            f->config.wow_shape_shift = wow_shift;
+            // An equal copy of the table playing is the same table: no dip.
+            if (wow != NULL && f->state.wow_shape_playing != NULL &&
+                f->state.wow_shape_playing != wow &&
+                f->state.wow_shape_playing_shift == wow_shift &&
+                memcmp(f->state.wow_shape_playing, wow,
+                    sizeof(int16_t) << wow_shift) == 0) {
+                f->state.wow_shape_playing = wow;
+            }
+            break;
+        }
+        case AUDIODSP_GRAPH_PHASER: {
+            graph_phaser_t *ph = d->data;
+            ph->state.stage_state = ph->lanes;
+            break;
+        }
+        case AUDIODSP_GRAPH_MODAL:
+            modal_bind(d->data);
+            break;
+        case AUDIODSP_GRAPH_PAN:
+            ((graph_pan_t *)d->data)->right = right;
+            break;
+        default:
+            break;
+    }
+    d->ran = s->ran;
+    const bool moved = memcmp(d->param, s->param, sizeof(d->param)) != 0;
+    #if AUDIODSP_GRAPH_CARRY_FAULT == 2
+    d->dirty = moved;
+    #else
+    d->dirty = s->dirty || moved;
+    #endif
+    return AUDIODSP_GRAPH_CARRY_OK;
 }
 
 bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {

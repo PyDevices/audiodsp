@@ -338,6 +338,38 @@ With nobody else pulling, `run(out, block, enable)` still works as it always
 has, and drains the queue first, so a graph you drive yourself sees changes
 the same way.
 
+## Changing a patch while it plays
+
+A graph's shape is fixed once it plays, so a patch change builds a second
+graph beside the first and swaps it in. `carry(node, src_graph, src_node)`
+hands the new graph a running node's state: its voice, envelope, oscillator
+phase, filter memory and delay line continue where `src_graph` left them,
+and the next `run()` renders what the old graph's next block would have.
+
+```python
+new = ag.Graph(sample_rate=48000, frames=128, channel_count=2)
+# ... build the changed patch, set its parameters from the panel ...
+for old_node, new_node in matched:        # the nodes both patches have
+    new.carry(new_node, old, old_node)
+# the next block comes from new; drop old
+```
+
+Do it between two blocks: after the old graph's last `run()` and before the
+new one's first. The new graph keeps its own wiring and parameters. A
+parameter that differs from the old node's lands on the next block, as a
+`set()` would, and so does a change the old graph had queued but not yet
+rendered. A delay keeps its own wow table: an equal copy of the one playing
+plays on without a break, and a different one takes over with the dip
+`table()` gives. A table the old graph lent stays held while the new graph
+might still read it.
+
+`carry()` raises `ValueError` when the two nodes are of different kinds, were
+built with different `arg`s (a delay of another length), hold state of a
+different size, or belong to graphs at different sample rates, and
+`TypeError` when `src_graph` is not a graph. A node it refuses keeps the
+fresh state it was built with. Neither graph may be playing from the pump
+while you carry.
+
 ## Limits, and what is checked
 
 A block is at most 256 frames, a node has at most eight inputs and sixteen
