@@ -1,3 +1,9 @@
+## v0.6.11.dev7 (2026-10-30)
+
+- audiograph: an LPG node, the vactrol low-pass gate (#344)
+- audiograph: a WAVEFOLD node, the West Coast wavefolder (#343)
+- Graph nodes probe: run on CircuitPython, which has no OVERDRIVE (#342)
+
 ## v0.6.11.dev6 (2026-10-30)
 
 - audiograph: a PAN node, a stereo mixer with a balance on each input (#340)
