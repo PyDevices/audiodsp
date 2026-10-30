@@ -251,18 +251,14 @@ def carry_all(dst, src):
         dst.g.carry(dst.n[name], src.g, src.n[name])
 
 
-# -- R, the reference
+# -- R, the reference, and S, the source, side by side up to the swap; S's
+# block-48 changes queued. Each graph renders as the comparison goes, so
+# nothing is kept but the counts (a whole render does not fit a small heap).
 r = Patch()
-reference = []
-for b in range(BLOCKS):
-    r.drive(b)
-    r.run(b)
-    if b >= SWAP:
-        reference.append(r.outputs())
-
-# -- S, the source, up to the swap; its block-48 changes queued
 s = Patch()
 for b in range(SWAP):
+    r.drive(b)
+    r.run(b)
     s.drive(b, "S")
     s.run(b)
 s.drive(SWAP, "S")
@@ -279,8 +275,8 @@ if FAULT == "offbeat":
     s.run(SWAP)  # the carry lands a block after S rendered the swap block
 carry_all(d, s)
 
-rendered = []
-fresh_seen = []
+differ = {}
+untaken = None
 churn = []
 for k, b in enumerate(range(SWAP, BLOCKS)):
     if s is not None:
@@ -291,34 +287,33 @@ for k, b in enumerate(range(SWAP, BLOCKS)):
             s = None
             gc.collect()
             churn = [array("h", [12345] * 256) for _ in range(64)]
+    r.drive(b)
+    r.run(b)
     if b != SWAP:
         d.drive(b, "D")
         fresh.drive(b, "D")
     d.run(b)
     fresh.run(b)
+    want = r.outputs()
     got = d.outputs()
-    rendered.append(got)
-    for name, values in got:
-        print("node %d %s %s" % (b, name, " ".join([str(v) for v in values])))
-    fresh_seen.append(fresh.outputs())
+    for (name, a), (_, c) in zip(want, got):
+        print("node %d %s %s" % (b, name, " ".join([str(v) for v in c])))
+        if a != c:
+            differ[name] = differ.get(name, 0) + 1
+    if untaken is None:
+        untaken = set(name for name, _ in want)
+    for (name, a), (_, c) in zip(want, fresh.outputs()):
+        if a != c:
+            untaken.discard(name)
+    want = got = None
 del churn
 
 # -- D against R, node by node
-differ = {}
-for want, got in zip(reference, rendered):
-    for (name, a), (_, c) in zip(want, got):
-        if a != c:
-            differ[name] = differ.get(name, 0) + 1
 for name in sorted(differ):
     print("differs %s %d blocks" % (name, differ[name]))
 check(not differ, "the carried graph renders what the reference renders, on every node")
 
 # -- a D that took nothing differs from R wherever state matters
-untaken = set(name for name, _ in reference[0])
-for want, got in zip(reference, fresh_seen):
-    for (name, a), (_, c) in zip(want, got):
-        if a != c:
-            untaken.discard(name)
 for name in ("osc", "osc_voice", "env", "ladder", "biquad", "delay_shared", "delay_copy",
              "delay_new", "lfo_random", "noise", "glide", "glide_pole", "phaser",
              "hold_clock", "twopole", "lpg", "modal"):

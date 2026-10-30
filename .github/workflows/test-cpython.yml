@@ -57,6 +57,7 @@ jobs:
       - name: Graph.carry's planted faults are caught
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: |
+          python -m pip install setuptools
           for planted in 1 2; do
             CFLAGS="-DAUDIODSP_GRAPH_CARRY_FAULT=$planted" python setup.py -q build_ext \
               --build-temp /tmp/carry$planted/t --build-lib /tmp/carry$planted/l
