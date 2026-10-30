@@ -14,6 +14,10 @@
 | `graph_carry_probe.py`: a graph that takes a running one's nodes renders what it would have | GRAPH CARRY PASS |
 | `carry()` refuses a node of another kind, arg, state size or sample rate, a bad node and a non-graph | ValueError, TypeError |
 | a wow table a carried delay borrowed from its source outlives the source | held |
+| a chain of graphs, each carrying many nodes from the last, holds each table once | bounded |
+| `swap()` refuses a non-graph and a graph of another rate, block or channel count | TypeError, ValueError |
+| a graph built, carried and swapped in mid-stream plays on as if nothing changed | exact |
+| `swap()` trades the patches and keeps the frame count with the stream | exact |
 
 The renders themselves are held to MicroPython's and CircuitPython's by
 `tests/parity/verify_graph.py`, sample for sample; this file is what the wheel
@@ -229,6 +233,73 @@ class TheModule(unittest.TestCase):
         with self.assertRaises(BufferError):      # a holds it now
             wow.append(0)
         a.run(None)
+
+    @staticmethod
+    def _voice(frames=8):
+        g = ag.Graph(frames=frames, channel_count=2, buffers=2, nodes=3)
+        out = g.buffer()
+        osc = g.add(ag.OSC, ag.ALWAYS, (None, None, None, None), out)
+        g.set(osc, ag.OSC_FREQUENCY, 330.0)
+        g.set(osc, ag.OSC_WAVEFORM, 1)
+        g.set(osc, ag.OSC_LEVEL, 0.5)
+        g.add(ag.OUT, ag.ALWAYS, (out, out), None)
+        return g, osc
+
+    def test_swap_refuses_a_non_graph_or_another_shape(self):
+        a, _ = self._voice()
+        with self.assertRaises(TypeError):
+            a.swap(object())
+        for kw in ({"frames": 16}, {"channel_count": 1}, {"sample_rate": 44100}):
+            other = ag.Graph(**dict({"frames": 8, "channel_count": 2}, **kw))
+            with self.assertRaisesRegex(ValueError, "differ"):
+                a.swap(other)
+        a.swap(a)                                 # onto itself: nothing moves
+
+    def test_a_swap_mid_stream_plays_on_unbroken(self):
+        ref, _ = self._voice()
+        whole = [self._pull(ref) for _ in range(20)]
+        a, osc_a = self._voice()
+        heard = [self._pull(a) for _ in range(9)]
+        b, osc_b = self._voice()
+        b.carry(osc_b, a, osc_a)
+        a.swap(b)                                 # a plays b's patch now
+        heard += [self._pull(a) for _ in range(11)]
+        self.assertEqual(heard, whole)
+        self.assertEqual(a.sounding()[1], 20 * 8)  # the stream's frames stay with a
+        self.assertEqual(b.sounding()[1], 0)       # and b keeps its own, none
+
+    def test_swap_trades_the_patches(self):
+        g, x, y = self._pair()
+        g.set(x, 0, 100.0)
+        g.set(y, 0, -100.0)
+        self.assertEqual(self._pull(g), [100, -100] * 4)
+        h, p, _q = self._pair()
+        g.swap(h)
+        self.assertEqual(self._pull(g), [0, 0] * 4)   # h's patch, never set
+        self.assertEqual(self._pull(h), [100, -100] * 4)
+        g.set(p, 0, 7.0)                          # a set on g reaches the patch it plays
+        self.assertEqual(self._pull(g), [7, 0] * 4)
+
+    def test_carrying_many_nodes_holds_a_table_once(self):
+        wow = array("h", [0, 8000, 0, -8000])
+
+        def delays():
+            g = ag.Graph(frames=8, buffers=2, nodes=8)
+            src, dst = g.buffer(), g.buffer()
+            nodes = [g.add(ag.FBDELAY, ag.ALWAYS, (src,), dst, 20.0) for _ in range(8)]
+            return g, nodes
+
+        old, old_nodes = delays()
+        old.table(old_nodes[0], wow)
+        tracemalloc.start()
+        for _ in range(6):                        # six patch changes in a row
+            new, new_nodes = delays()
+            for n, o in zip(new_nodes, old_nodes):
+                new.carry(n, old, o)
+            old, old_nodes = new, new_nodes
+        grown = tracemalloc.get_traced_memory()[0]
+        tracemalloc.stop()
+        self.assertLess(grown, 64 * 1024)         # not a list that multiplies each time
 
     def test_a_deinited_graph_refuses_everything(self):
         g, a, _b = self._pair()

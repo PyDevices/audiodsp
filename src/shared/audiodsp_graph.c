@@ -2194,6 +2194,16 @@ uint32_t audiodsp_graph_render_mask(audiodsp_graph_t *graph, int16_t *out,
     return render(graph, out, false, enable);
 }
 
+void audiodsp_graph_swap(audiodsp_graph_t *a, audiodsp_graph_t *b) {
+    audiodsp_graph_t t = *a;
+    *a = *b;
+    *b = t;
+    // the frame count belongs to the stream, not to the patch
+    const uint32_t frame = a->pub_frame;
+    a->pub_frame = b->pub_frame;
+    b->pub_frame = frame;
+}
+
 void audiodsp_graph_published(const audiodsp_graph_t *graph,
     uint32_t *sounding, uint32_t *frame, uint32_t *applied) {
     *applied = GRAPH_LOAD_ACQ(&graph->pub_applied);

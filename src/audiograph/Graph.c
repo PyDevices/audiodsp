@@ -32,6 +32,17 @@ static audiograph_graph_obj_t *graph_idle(mp_obj_t self_in) {
     return self;
 }
 
+// The same, for carry(): a pump parked at a block boundary is
+// not rendering, so a graph it pulls may hand its state over then.
+static audiograph_graph_obj_t *graph_still(mp_obj_t self_in) {
+    audiograph_graph_obj_t *self = graph_self(self_in);
+    if (self->pumped && audiopump_is_running() && !audiopump_c_parked()) {
+        mp_raise_msg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("the pump is rendering this graph: park it first"));
+    }
+    return self;
+}
+
 static void graph_push(audiograph_graph_obj_t *self, uint8_t op,
     uint32_t node, uint32_t index, float value, uint32_t mask) {
     audiodsp_graph_enqueue(&self->graph, op, node, index, value, mask,
@@ -270,11 +281,11 @@ static MP_DEFINE_CONST_FUN_OBJ_2(audiograph_graph_reset_obj,
 // another size, or from a graph at another sample rate.
 static mp_obj_t audiograph_graph_carry(size_t n_args, const mp_obj_t *args) {
     (void)n_args;
-    audiograph_graph_obj_t *self = graph_idle(args[0]);
+    audiograph_graph_obj_t *self = graph_still(args[0]);
     if (!mp_obj_is_type(args[2], &audiograph_graph_type)) {
         mp_raise_TypeError(MP_ERROR_TEXT("src_graph must be a Graph"));
     }
-    audiograph_graph_obj_t *src = graph_idle(args[2]);
+    audiograph_graph_obj_t *src = graph_still(args[2]);
     mp_int_t node = mp_obj_get_int(args[1]);
     mp_int_t src_node = mp_obj_get_int(args[3]);
     if (node < 0 || src_node < 0) {
@@ -303,13 +314,57 @@ static mp_obj_t audiograph_graph_carry(size_t n_args, const mp_obj_t *args) {
         mp_obj_t *items = NULL;
         mp_obj_list_get(src->keep, &len, &items);
         for (size_t i = 0; i < len; ++i) {
-            mp_obj_list_append(self->keep, items[i]);
+            // once each: a graph carries many nodes from one source
+            size_t held = 0;
+            mp_obj_t *mine = NULL;
+            mp_obj_list_get(self->keep, &held, &mine);
+            size_t j = 0;
+            while (j < held && mine[j] != items[i]) {
+                ++j;
+            }
+            if (j == held) {
+                mp_obj_list_append(self->keep, items[i]);
+            }
         }
     }
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiograph_graph_carry_obj, 4, 4,
     audiograph_graph_carry);
+
+// swap(other): the two graphs trade patches under the pump lock, so on a
+// block boundary. Each keeps what pulls it, its output blocks and its frame
+// count; the nodes, buffers, queue and borrowed tables change places. A
+// graph built and carried beside a playing one takes over the playing one's
+// place this way, without whatever pulls it having to know.
+static mp_obj_t audiograph_graph_swap(mp_obj_t self_in, mp_obj_t other_in) {
+    audiograph_graph_obj_t *self = graph_self(self_in);
+    if (!mp_obj_is_type(other_in, &audiograph_graph_type)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("other must be a Graph"));
+    }
+    audiograph_graph_obj_t *other = graph_self(other_in);
+    if (self->graph.sample_rate != other->graph.sample_rate
+        || self->graph.frames != other->graph.frames
+        || self->graph.channel_count != other->graph.channel_count) {
+        mp_raise_ValueError(MP_ERROR_TEXT(
+            "swap: the graphs differ in sample_rate, frames or channel_count"));
+    }
+    if (self == other) {
+        return mp_const_none;
+    }
+    audiodsp_pump_lock_acquire();
+    audiodsp_graph_swap(&self->graph, &other->graph);
+    uint32_t next = self->next_buffer;
+    self->next_buffer = other->next_buffer;
+    other->next_buffer = next;
+    mp_obj_t keep = self->keep;
+    self->keep = other->keep;
+    other->keep = keep;
+    audiodsp_pump_lock_release();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(audiograph_graph_swap_obj,
+    audiograph_graph_swap);
 
 // enable(mask): the groups a pull renders, queued like set(), so a note's
 // gate and its group's enable land in the same block.
@@ -526,6 +581,7 @@ static const mp_rom_map_elem_t audiograph_graph_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_table), MP_ROM_PTR(&audiograph_graph_table_obj) },
     { MP_ROM_QSTR(MP_QSTR_reset), MP_ROM_PTR(&audiograph_graph_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_carry), MP_ROM_PTR(&audiograph_graph_carry_obj) },
+    { MP_ROM_QSTR(MP_QSTR_swap), MP_ROM_PTR(&audiograph_graph_swap_obj) },
     { MP_ROM_QSTR(MP_QSTR_run), MP_ROM_PTR(&audiograph_graph_run_obj) },
     { MP_ROM_QSTR(MP_QSTR_peak), MP_ROM_PTR(&audiograph_graph_peak_obj) },
     { MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&audiograph_graph_read_obj) },
