@@ -60,6 +60,7 @@ AUDIODSP_CP_SOURCES += $(addprefix $(AUDIODSP_CP_SRC)/shared/, \
 	audiodsp_vorbis.c \
 	audiodsp_port.c \
 	audiodsp_graph.c \
+	audiodsp_drift.c \
 	)
 
 # The graph's OVERDRIVE node needs double-precision libm the RP2040 build

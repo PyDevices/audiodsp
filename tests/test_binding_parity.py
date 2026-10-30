@@ -166,12 +166,13 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
 
 
 class TheCircuitPythonRingIsThePumpsRing(unittest.TestCase):
-    """`audiopump.Ring` is bound twice too: `src/audiopump/audiopump_ring.c`
+    """`audiopump.Ring` and `audiopump.DriftResampler` are bound twice too: `src/audiopump/audiopump_ring.c`
     for MicroPython, where the pump pulls it, and
     `src/circuitpython_spike/shared-bindings/audiopump/Ring.c` for
     CircuitPython, where the board's audio output does. The point of the
     CircuitPython one is that a producer written against either runs on both,
-    so the two must expose the same names.
+    so the two must expose the same names. DriftResampler is the same: its
+    MicroPython binding is `src/audiopump/audiopump_drift.c`.
 
     It is held here by name rather than through `MODULES`, because the rest of
     MicroPython's `audiopump` (the pump itself, `Events`, `Tap`) has no
@@ -182,24 +183,29 @@ class TheCircuitPythonRingIsThePumpsRing(unittest.TestCase):
     MICROPYTHON_ONLY = {"from_usb"}
 
     def test_the_two_rings_expose_the_same_names(self):
-        micropython = surfaces([str(ROOT / "src" / "audiopump" / "audiopump_ring.c")], "")
+        micropython = surfaces([str(ROOT / "src" / "audiopump" / "audiopump_ring.c"),
+                                str(ROOT / "src" / "audiopump" / "audiopump_drift.c")], "")
         circuitpython = circuitpython_surfaces("audiopump")
         # The control: both tables are found, so agreement means something.
-        self.assertEqual(sorted(micropython), ["audiopump_ring"])
-        self.assertEqual(sorted(circuitpython), ["audiopump_ring"])
+        both = ["audiopump_driftresampler", "audiopump_ring"]
+        self.assertEqual(sorted(micropython), both)
+        self.assertEqual(sorted(circuitpython), both)
         self.assertIn("write", circuitpython["audiopump_ring"])
+        self.assertIn("target", circuitpython["audiopump_driftresampler"])
         self.assertEqual(
             micropython["audiopump_ring"] - self.MICROPYTHON_ONLY,
             circuitpython["audiopump_ring"])
+        self.assertEqual(micropython["audiopump_driftresampler"],
+                         circuitpython["audiopump_driftresampler"])
 
-    def test_the_circuitpython_module_carries_only_the_ring(self):
+    def test_the_circuitpython_module_carries_only_the_ring_and_resampler(self):
         source = (ROOT / "src" / "circuitpython_spike" / "shared-bindings"
                   / "audiopump" / "__init__.c").read_text()
         table = re.search(r"globals_table\[\]\s*=\s*\{(.*?)\n\};", source, re.DOTALL)
         self.assertIsNotNone(table)
         # The key of each entry, not its value: `__name__`'s value is a qstr too.
         keys = re.findall(r"\{\s*MP_ROM_QSTR\(MP_QSTR_(\w+)\)", table.group(1))
-        self.assertEqual(sorted(keys), ["Ring", "__name__"])
+        self.assertEqual(sorted(keys), ["DriftResampler", "Ring", "__name__"])
 
     def test_the_circuitpython_build_compiles_it(self):
         glue = (ROOT / "circuitpython.mk").read_text()

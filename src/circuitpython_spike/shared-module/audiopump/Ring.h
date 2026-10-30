@@ -98,3 +98,13 @@ void audiopump_ring_reset_buffer(audiopump_ring_obj_t *self,
 audioio_get_buffer_result_t audiopump_ring_get_buffer(
     audiopump_ring_obj_t *self, bool single_channel_output, uint8_t channel,
     uint8_t **buffer, uint32_t *buffer_length);
+
+// The consumer side for a node that reads the ring at its own pace instead
+// of a block per pull (audiopump.DriftResampler). Only from the ring's one
+// consumer. `readable` carries out a pending clear() first, as a pull does.
+uint32_t audiopump_ring_readable(audiopump_ring_obj_t *self);
+// `len` bytes, whole frames, no more than readable.
+void audiopump_ring_read(audiopump_ring_obj_t *self, uint8_t *dst,
+    uint32_t len);
+// A block of silence the reader played because the ring ran short.
+void audiopump_ring_starve(audiopump_ring_obj_t *self, uint32_t len);

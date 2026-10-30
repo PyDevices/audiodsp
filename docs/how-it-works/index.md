@@ -137,5 +137,6 @@ push-PCM transports.
 - [Differences from upstream, with measurements](upstream-diff.md): the reasons behind each one.
 - [Upstream reports](../upstream-reports/README.md): the fixes sent to CircuitPython.
 - [The graph runner](audiograph.md): how `audiograph.Graph` renders a patch.
+- [The drift resampler](drift-resampler.md): how `audiopump.DriftResampler` holds a Ring filled on another clock.
 - [Writing a pump port](pump-ports.md): how a platform plugs in a clock, a thread and a sink.
 - [Wheels and platforms](wheels-and-platforms.md): what the release builds, and what it skips.

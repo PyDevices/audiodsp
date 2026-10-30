@@ -45,7 +45,8 @@ levels for a spectrum meter) and `audiofeatures` (speech features for a wake
 word model) are the two CircuitPython doesn't get: their sources are a board's
 pump and a USB sound card, and CircuitPython has neither. `audiovorbis` plays Ogg Vorbis files, which CircuitPython has no
 module for. And `audiopump.Ring` lets CircuitPython play audio your own code
-computes.
+computes, with `audiopump.DriftResampler` to play one filled on another
+device's clock ([the drift resampler](drift-resampler.md)).
 
 ## Why `audioroute.Port` exists
 

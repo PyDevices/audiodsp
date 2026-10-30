@@ -111,7 +111,9 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiopump/audiopump.c \
     $(MPAUDIO_SRC_DIR)/audiopump/audiopump_ring.c \
     $(MPAUDIO_SRC_DIR)/audiopump/audiopump_events.c \
-    $(MPAUDIO_SRC_DIR)/audiopump/audiopump_tap.c
+    $(MPAUDIO_SRC_DIR)/audiopump/audiopump_tap.c \
+    $(MPAUDIO_SRC_DIR)/audiopump/audiopump_drift.c \
+    $(MPAUDIO_SRC_DIR)/shared/audiodsp_drift.c
 
 # --- module skeleton: empty `import <name>` targets for every top-level
 #     module this tree will grow into (see docs/porting-plan.md). Tiers add

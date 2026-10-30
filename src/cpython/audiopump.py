@@ -1138,8 +1138,146 @@ class Ring(_AudioSample):
         self._rpos = self._wpos
 
 
+    # The consumer side for a node that reads at its own pace instead of a
+    # block per pull (DriftResampler). The same bookkeeping a pull does.
+    def _readable(self):
+        return self._w - self._r
+
+    def _take(self, n):
+        at = self._rpos
+        first = min(self._cap - at, n)
+        out = bytes(self._ring[at:at + first])
+        if n > first:
+            out += bytes(self._ring[:n - first])
+        self._out_digest = _fnv(out, self._out_digest)
+        self._read += n
+        self._rpos = (at + n) % self._cap
+        self._r += n
+        return out
+
+    def _starve(self, n):
+        self._underruns += 1
+        self._starved += n
+
+
+class DriftResampler(_AudioSample):
+    """Plays a Ring filled on one clock at another clock's rate.
+
+        ring = audiopump.Ring(frames=256, capacity=8)
+        drift = audiopump.DriftResampler(ring, target=1024)
+
+    Two devices that both run at 48 kHz differ by tens of parts per
+    million, so a Ring between an input and an output on separate clocks
+    slowly fills or empties. This node reads the Ring between its samples
+    with a 32-tap windowed sinc, and a slow PI loop steers the ratio to hold
+    the Ring at `target` frames. It must be the Ring's only consumer.
+
+    `sample_rate` is the output's rate, from the Ring's own up to twice it.
+    `target` defaults to half the Ring. `max_ppm` bounds the correction and
+    `bandwidth` (hertz, 0.001 to 0.1) is how fast the loop follows once it
+    has locked; it starts eight times faster and narrows over about a minute.
+
+    Until the Ring first reaches `target` the node plays silence. If the
+    Ring runs short of a block, it plays a block of silence, counts an
+    `underrun`, and waits for the target again, keeping its rate. `ppm`,
+    `fill` and `rate` say what the loop is doing.
+    """
+
+    def __init__(self, ring, *, sample_rate=None, target=None, max_ppm=1000,
+                 bandwidth=0.01):
+        if not isinstance(ring, Ring):
+            raise TypeError("ring must be an audiopump.Ring")
+        ring._check()
+        self._ring = ring
+        self.channel_count = ring.channel_count
+        self.bits_per_sample = 16
+        self.samples_signed = True
+        self.single_buffer = False
+        frame = ring._frame
+        self._frame = frame
+        self._frames = ring._block // frame
+        self._capacity = ring._cap // frame
+        in_rate = ring.sample_rate
+        self.sample_rate = in_rate if sample_rate is None else int(sample_rate)
+        max_ppm = int(max_ppm)
+        if max_ppm < 0 or max_ppm > 10000:
+            raise ValueError("max_ppm must be from 0 to 10000")
+        # 0 asks the kernel for its default; a real target is at least 2.
+        target = 0 if target is None else max(int(target), 1)
+        self._state = _audiodsp.DriftState(
+            channel_count=self.channel_count, frames=self._frames,
+            in_rate=in_rate, out_rate=self.sample_rate, target=int(target),
+            max_ppm=max_ppm, bandwidth=float(bandwidth),
+            capacity=self._capacity)
+        self.max_buffer_length = self._frames * frame
+        self._silence = bytes(self.max_buffer_length)
+        self._out = (bytearray(self.max_buffer_length),
+                     bytearray(self.max_buffer_length))
+        self._which = 0
+        self._deinited = False
+
+    @property
+    def ppm(self):
+        """The ratio's offset from nominal, in parts per million."""
+        self._check()
+        return self._state.status()[0]
+
+    @property
+    def fill(self):
+        """The Ring's fill as the loop sees it, smoothed, in frames."""
+        self._check()
+        return self._state.status()[1]
+
+    @property
+    def rate(self):
+        """Input frames read per output frame."""
+        self._check()
+        return self._state.status()[2]
+
+    @property
+    def underruns(self):
+        self._check()
+        return self._state.status()[3]
+
+    @property
+    def target(self):
+        self._check()
+        return self._state.status()[4]
+
+    @target.setter
+    def target(self, value):
+        self._check()
+        self._state.set_target(int(value), self._capacity)
+
+    def reset(self):
+        """Forget the rate estimate and wait for the target again."""
+        self._check()
+        self._state.reset()
+
+    def _release(self):
+        pass
+
+    def _reset_buffer(self, single_channel_output=False, audio_channel=0):
+        self._which = 0
+
+    def _get_buffer(self, single_channel_output=False, audio_channel=0):
+        self._check()
+        ring = self._ring
+        frame = self._frame
+        before = self._state.status()[3]
+        need = self._state.plan(ring._readable() // frame)
+        dst = self._out[self._which]
+        self._which ^= 1
+        if need == 0:
+            dst[:] = self._silence
+            if self._state.status()[3] != before:
+                ring._starve(len(dst))
+        else:
+            dst[:] = self._state.render(ring._take(need * frame))
+        return GET_BUFFER_MORE_DATA, memoryview(dst)
+
 __all__ = (
-    "Events", "Ring", "Tap", "backpressure", "drain", "driver", "events",
+    "DriftResampler", "Events", "Ring", "Tap", "backpressure", "drain", "driver", "events",
     "fades", "fault", "info", "join", "lock_reset", "lock_stats", "now", "park",
     "pull", "reset", "retarget", "running", "service", "shutdown", "spawn",
     "stop", "tap", "threaded", "unpark",

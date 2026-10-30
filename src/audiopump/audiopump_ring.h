@@ -24,3 +24,18 @@ extern const mp_obj_type_t audiopump_ring_type;
 // at a time: while a C producer feeds the Ring, don't also write() to it.
 #define AUDIOPUMP_RING_HAS_SINK_WRITE (1)
 uint32_t audiopump_ring_sink_write(void *ctx, const uint8_t *src, uint32_t len);
+
+// The consumer side for a node that reads a Ring at its own pace instead of
+// a block per pull (audiopump.DriftResampler). Call these only from the
+// Ring's one consumer, never alongside a pull of the Ring itself.
+//
+// `audiopump_ring_capacity` is the ring's size in bytes and
+// `audiopump_ring_readable` the bytes queued. `audiopump_ring_read` copies
+// `len` of them out, whole frames and no more than readable, and gives the
+// room back; the digest and the byte count see them as they would a pull.
+// `audiopump_ring_starve` counts a block of silence the reader played
+// because the ring ran short, as an underrun of the ring.
+uint32_t audiopump_ring_capacity(void *ctx);
+uint32_t audiopump_ring_readable(void *ctx);
+void audiopump_ring_read(void *ctx, uint8_t *dst, uint32_t len);
+void audiopump_ring_starve(void *ctx, uint32_t len);

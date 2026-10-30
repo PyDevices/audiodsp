@@ -28,6 +28,7 @@
 #include "shared/audiodsp_feedback_delay.h"
 #include "shared/audiodsp_shaper.h"
 #include "shared/audiodsp_samplehold.h"
+#include "shared/audiodsp_drift.h"
 #include "shared/audiodsp_ladder.h"
 #include "shared/audiodsp_oscillator.h"
 #include "shared/audiodsp_tank.h"
@@ -121,6 +122,7 @@ typedef struct {
     PyObject *feedback_delay_state_type;
     PyObject *waveshaper_state_type;
     PyObject *samplehold_state_type;
+    PyObject *drift_state_type;
     PyObject *ladder_state_type;
     PyObject *oscillator_state_type;
     PyObject *biquad_f32_state_type;
@@ -1897,6 +1899,178 @@ static PyType_Spec samplehold_state_spec = {
     .basicsize = sizeof(audiodsp_samplehold_object_t),
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
     .slots = samplehold_state_slots,
+};
+
+// audiopump.DriftResampler's kernel: the interpolator's history and the
+// control loop. The Python class reads the Ring and hands this the frames
+// plan() asked for; everything that decides a sample or a ratio is here, in
+// the same C the other two runtimes run.
+
+typedef struct {
+    PyObject_HEAD
+    audiodsp_drift_t drift;
+    float *work;
+} audiodsp_drift_object_t;
+
+static int drift_state_init(audiodsp_drift_object_t *self, PyObject *args,
+    PyObject *kwargs) {
+    unsigned int channels, frames, in_rate, out_rate, target, max_ppm;
+    unsigned int capacity;
+    double bandwidth;
+    static char *keywords[] = {"channel_count", "frames", "in_rate",
+        "out_rate", "target", "max_ppm", "bandwidth", "capacity", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "IIIIIIdI:DriftState",
+        keywords, &channels, &frames, &in_rate, &out_rate, &target, &max_ppm,
+        &bandwidth, &capacity)) return -1;
+    if (channels < 1 || channels > 2) {
+        PyErr_SetString(PyExc_ValueError, "channel_count must be 1 or 2");
+        return -1;
+    }
+    if (frames < 16 || frames > AUDIODSP_DRIFT_MAX_FRAMES) {
+        PyErr_SetString(PyExc_ValueError, "the ring's frames must be 16 to 1024");
+        return -1;
+    }
+    if (!audiodsp_drift_rates_ok(in_rate, out_rate)) {
+        PyErr_SetString(PyExc_ValueError,
+            "sample_rate must be from the ring's rate to twice it");
+        return -1;
+    }
+    if (max_ppm > AUDIODSP_DRIFT_MAX_PPM) {
+        PyErr_SetString(PyExc_ValueError, "max_ppm must be from 0 to 10000");
+        return -1;
+    }
+    const float bw = (float)bandwidth;
+    if (!(bw >= AUDIODSP_DRIFT_MIN_BANDWIDTH && bw <= AUDIODSP_DRIFT_MAX_BANDWIDTH)) {
+        PyErr_SetString(PyExc_ValueError, "bandwidth must be from 0.001 to 0.1 Hz");
+        return -1;
+    }
+    const uint32_t least = audiodsp_drift_min_target(frames, in_rate,
+        out_rate, max_ppm);
+    if (target == 0) {
+        // None in Python.
+        target = audiodsp_drift_default_target(least, capacity);
+    }
+    if (target < least || target > audiodsp_drift_max_target(capacity)) {
+        PyErr_SetString(PyExc_ValueError,
+            "target must cover a block and fit in the ring");
+        return -1;
+    }
+    const uint32_t work = audiodsp_drift_capacity(frames, in_rate, out_rate,
+        max_ppm);
+    PyMem_Free(self->work);
+    self->work = PyMem_Malloc(sizeof(float) * work * channels);
+    if (self->work == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    audiodsp_drift_init(&self->drift, self->work, channels, frames, in_rate,
+        out_rate, target, max_ppm, bw);
+    return 0;
+}
+
+static void drift_state_dealloc(audiodsp_drift_object_t *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    PyMem_Free(self->work);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
+static PyObject *drift_state_plan(audiodsp_drift_object_t *self, PyObject *arg) {
+    unsigned long level = PyLong_AsUnsignedLong(arg);
+    if (level == (unsigned long)-1 && PyErr_Occurred()) return NULL;
+    if (self->work == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "DriftState not initialised");
+        return NULL;
+    }
+    return PyLong_FromUnsignedLong(
+        audiodsp_drift_plan(&self->drift, (uint32_t)level));
+}
+
+static PyObject *drift_state_render(audiodsp_drift_object_t *self,
+    PyObject *args) {
+    Py_buffer input = {0};
+    if (!PyArg_ParseTuple(args, "y*:render", &input)) return NULL;
+    const Py_ssize_t frame = (Py_ssize_t)self->drift.channels * 2;
+    if (self->work == NULL || input.len != (Py_ssize_t)self->drift.pending * frame) {
+        PyBuffer_Release(&input);
+        PyErr_SetString(PyExc_ValueError,
+            "render takes exactly the frames plan() asked for");
+        return NULL;
+    }
+    PyObject *result = PyBytes_FromStringAndSize(NULL,
+        (Py_ssize_t)self->drift.frames * frame);
+    if (result != NULL) {
+        audiodsp_drift_push(&self->drift, (const int16_t *)input.buf,
+            self->drift.pending);
+        audiodsp_drift_render(&self->drift,
+            (int16_t *)PyBytes_AS_STRING(result));
+    }
+    PyBuffer_Release(&input);
+    return result;
+}
+
+static PyObject *drift_state_reset(audiodsp_drift_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    if (self->work != NULL) audiodsp_drift_reset(&self->drift);
+    Py_RETURN_NONE;
+}
+
+// (ppm, fill, rate, underruns, target)
+static PyObject *drift_state_status(audiodsp_drift_object_t *self,
+    PyObject *unused) {
+    (void)unused;
+    return Py_BuildValue("(dddkk)",
+        (double)audiodsp_drift_ppm(&self->drift),
+        (double)audiodsp_drift_fill(&self->drift),
+        (double)audiodsp_drift_rate(&self->drift),
+        (unsigned long)self->drift.underruns,
+        (unsigned long)self->drift.target);
+}
+
+static PyObject *drift_state_set_target(audiodsp_drift_object_t *self,
+    PyObject *args) {
+    unsigned int target, capacity;
+    if (!PyArg_ParseTuple(args, "II:set_target", &target, &capacity)) return NULL;
+    const audiodsp_drift_t *d = &self->drift;
+    if (target < audiodsp_drift_min_target(d->frames, d->in_rate, d->out_rate,
+        d->max_ppm) || target > audiodsp_drift_max_target(capacity)) {
+        PyErr_SetString(PyExc_ValueError,
+            "target must cover a block and fit in the ring");
+        return NULL;
+    }
+    self->drift.target = target;
+    Py_RETURN_NONE;
+}
+
+AUDIODSP_LOCKED_ARGS(drift_state_plan, audiodsp_drift_object_t)
+AUDIODSP_LOCKED_ARGS(drift_state_render, audiodsp_drift_object_t)
+AUDIODSP_LOCKED_ARGS(drift_state_reset, audiodsp_drift_object_t)
+AUDIODSP_LOCKED_ARGS(drift_state_status, audiodsp_drift_object_t)
+AUDIODSP_LOCKED_ARGS(drift_state_set_target, audiodsp_drift_object_t)
+static PyMethodDef drift_state_methods[] = {
+    {"plan", (PyCFunction)drift_state_plan_locked, METH_O, NULL},
+    {"render", (PyCFunction)drift_state_render_locked, METH_VARARGS, NULL},
+    {"reset", (PyCFunction)drift_state_reset_locked, METH_NOARGS, NULL},
+    {"status", (PyCFunction)drift_state_status_locked, METH_NOARGS, NULL},
+    {"set_target", (PyCFunction)drift_state_set_target_locked, METH_VARARGS, NULL},
+    {NULL, NULL, 0, NULL},
+};
+
+AUDIODSP_LOCKED_INIT(drift_state_init, audiodsp_drift_object_t)
+static PyType_Slot drift_state_slots[] = {
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, drift_state_init_locked},
+    {Py_tp_dealloc, drift_state_dealloc},
+    {Py_tp_methods, drift_state_methods},
+    {0, NULL},
+};
+
+static PyType_Spec drift_state_spec = {
+    .name = "_audiodsp.DriftState",
+    .basicsize = sizeof(audiodsp_drift_object_t),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = drift_state_slots,
 };
 
 // audioladder.Ladder's integrators and solver history. Small enough to sit in
@@ -5730,6 +5904,11 @@ static int audiodsp_exec(PyObject *module) {
         AUDIODSP_SHAPER_FRAMES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "SHAPER_MAX_OVERSAMPLE",
         AUDIODSP_SHAPER_MAX_OVERSAMPLE) < 0) return -1;
+    state->drift_state_type = PyType_FromModuleAndSpec(module,
+        &drift_state_spec, NULL);
+    if (state->drift_state_type == NULL) return -1;
+    if (PyModule_AddObjectRef(module, "DriftState",
+        state->drift_state_type) < 0) return -1;
     state->samplehold_state_type = PyType_FromModuleAndSpec(module,
         &samplehold_state_spec, NULL);
     if (state->samplehold_state_type == NULL) return -1;
@@ -5868,6 +6047,7 @@ static int audiodsp_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->feedback_delay_state_type);
     Py_VISIT(state->waveshaper_state_type);
     Py_VISIT(state->samplehold_state_type);
+    Py_VISIT(state->drift_state_type);
     Py_VISIT(state->ladder_state_type);
     Py_VISIT(state->oscillator_state_type);
     Py_VISIT(state->biquad_f32_state_type);
@@ -5896,6 +6076,7 @@ static int audiodsp_clear(PyObject *module) {
     Py_CLEAR(state->feedback_delay_state_type);
     Py_CLEAR(state->waveshaper_state_type);
     Py_CLEAR(state->samplehold_state_type);
+    Py_CLEAR(state->drift_state_type);
     Py_CLEAR(state->ladder_state_type);
     Py_CLEAR(state->oscillator_state_type);
     Py_CLEAR(state->biquad_f32_state_type);
