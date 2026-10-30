@@ -61,9 +61,12 @@ jobs:
             # fails if either grows, stops diverging, or anything else
             # diverges at all. An accepted difference nobody has measured is
             # indistinguishable from a new defect.
+            # Re-measured with the widened biquad (#310): its coefficients
+            # carry up to 30 bits, so #101's mp_float_t W0 now reaches more of
+            # them than Q15 did, and 4 lines became 35 and 6.
             known-divergent: >-
-              --known-divergent biquad_component_probe.py:4
-              --known-divergent echo_filter_probe.py:4
+              --known-divergent biquad_component_probe.py:35
+              --known-divergent echo_filter_probe.py:6
     name: unix-usermod (${{ matrix.float-impl.name }}-precision)
     steps:
       - uses: actions/checkout@v7

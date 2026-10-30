@@ -860,7 +860,10 @@ class Overdrive(unittest.TestCase):
             rig.set(ag.OVERDRIVE_TONE, tone)
             rig.set(ag.OVERDRIVE_LEVEL, level)
             got += rig.run(block)
-            want += ref.render(block, drive, tone, level)
+            # The node holds tone as the wire stores it, in float32. The
+            # shelf's coefficients carry up to 30 fractional bits, so a tone
+            # float32 can't hold exactly moves one, and the output by a count.
+            want += ref.render(block, drive, f32(tone), level)
         return got, want
 
     def test_matches_overdrivecore(self):

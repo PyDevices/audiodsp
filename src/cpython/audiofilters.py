@@ -289,10 +289,12 @@ class Phaser(_Effect):
         return bytes(result)
 
 
-# CircuitPython 10.3.0's audiofilters_process_filter_chain: Q15 coefficients
-# from the same fast_sincos / Q_rsqrt tick as shared-module/synthio/Biquad.c,
-# then synthio_sat16 of the five-product sum. audiodsp_biquad is a different
-# arithmetic (wider shift) and is not this helper.
+# CircuitPython's synthio_biquad_filter_samples, as audiodsp_biquad_cp_* in
+# src/shared/audiodsp_biquad.c has it (CircuitPython main ae47a3f15d): the
+# coefficients from the same fast_sincos / Q_rsqrt tick as
+# shared-module/synthio/Biquad.c with a per-filter shift, and the feedback
+# state kept with _STATE_SHIFT bits below the sample. audiobiquad's sine and
+# cosine are different and are not this helper.
 _PAIR_SCALE = 0xfffffff // (32768 * 2 - 28000)
 
 
@@ -326,14 +328,39 @@ def _q_rsqrt(number):
 
 
 def _fast_sincos(theta):
-    x = (theta * (4.0 / math.pi)) - 1.0
-    x2 = x * x
-    x3 = x2 * x
-    x4 = x2 * x2
-    x5 = x2 * x3
-    evens = 0.0109 * x4 + -0.21798592 * x2 + 0.70708592
-    odds = -0.00171961 * x5 + 0.05707685 * x3 + -0.55535724 * x
-    return evens - odds, evens + odds
+    # Reflect into [0, pi / 2], then into [0, pi / 4] by swapping sine and
+    # cosine, and evaluate upstream's minimax polynomial for each there.
+    negate_cos = theta > (math.pi / 2)
+    t = (math.pi - theta) if negate_cos else theta
+    swap = t > (math.pi / 4)
+    if swap:
+        t = (math.pi / 2) - t
+    t2 = t * t
+    s = t * (1 + t2 * (-0.16666651 + t2 * (0.0083319786 + t2 * -0.00019495635)))
+    c = 1 + t2 * (-0.5 + t2 * (0.041666647 + t2 * (-0.0013887368 + t2 * 0.000024438452)))
+    sine = c if swap else s
+    cosine = s if swap else c
+    return sine, (-cosine if negate_cos else cosine)
+
+
+_MAX_SHIFT = 30
+_STATE_SHIFT = 12
+_STATE_MAX = 32767 << _STATE_SHIFT
+_STATE_MIN = -32768 << _STATE_SHIFT
+
+
+def _choose_shift(values):
+    largest = 1.0
+    for value in values:
+        if abs(value) > largest:
+            largest = abs(value)
+    shift = 31 - math.frexp(largest)[1]
+    return max(1, min(shift, _MAX_SHIFT))
+
+
+def _scale(value, shift):
+    scaled = _c_round(math.ldexp(value, shift))
+    return max(-2147483648, min(scaled, 2147483647))
 
 
 def _c_round(value):
@@ -361,7 +388,7 @@ def _cp_biquad_coeffs(biquad, w_scale):
         else:
             b0, b1, b2 = 1.0, -2.0 * cosine, 1.0
     elif mode == 4:
-        b0, b1, b2 = 1.0 + alpha * gain, -2.0 * cosine, 1.0 + alpha * gain
+        b0, b1, b2 = 1.0 + alpha * gain, -2.0 * cosine, 1.0 - alpha * gain
         a0, a1, a2 = 1.0 + alpha / gain, -2.0 * cosine, 1.0 - alpha / gain
     else:
         root = gain * _q_rsqrt(gain) if gain else 0.0
@@ -380,22 +407,20 @@ def _cp_biquad_coeffs(biquad, w_scale):
             a1 = 2 * ((gain - 1) - (gain + 1) * cosine)
             a2 = (gain + 1) - (gain - 1) * cosine - 2 * root * alpha
     reciprocal = 1.0 / a0
-    return (
-        _c_round(math.ldexp(a1 * reciprocal, 15)),
-        _c_round(math.ldexp(a2 * reciprocal, 15)),
-        _c_round(math.ldexp(b0 * reciprocal, 15)),
-        _c_round(math.ldexp(b1 * reciprocal, 15)),
-        _c_round(math.ldexp(b2 * reciprocal, 15)),
-    )
+    values = (a1 * reciprocal, a2 * reciprocal, b0 * reciprocal,
+              b1 * reciprocal, b2 * reciprocal)
+    shift = _choose_shift(values)
+    return tuple(_scale(value, shift) for value in values) + (shift,)
 
 
 def _cp_biquad_sample(coeffs, state, word):
-    a1, a2, b0, b1, b2 = coeffs
+    a1, a2, b0, b1, b2, shift = coeffs
     x0, x1, y0, y1 = state
-    output = _sat16(
-        b0 * word + b1 * x0 + b2 * x1 - a1 * y0 - a2 * y1 + (1 << 14), 15)
-    state[1], state[0], state[3], state[2] = x0, word, y0, output
-    return output
+    acc = ((b0 * word + b1 * x0 + b2 * x1) << _STATE_SHIFT) - a1 * y0 - a2 * y1
+    y = (acc + (1 << (shift - 1))) >> shift
+    y = max(_STATE_MIN, min(y, _STATE_MAX))
+    state[1], state[0], state[3], state[2] = x0, word, y0, y
+    return (y + (1 << (_STATE_SHIFT - 1))) >> _STATE_SHIFT
 
 
 class _FilterChain:
@@ -420,7 +445,7 @@ class _FilterChain:
         self.objs = items
         self.channel_count = channel_count
         self.states = [[0, 0, 0, 0] for _ in range(len(items) * channel_count)]
-        self.coeffs = [(0, 0, 0, 0, 0) for _ in items]
+        self.coeffs = [(0, 0, 0, 0, 0, 15) for _ in items]
 
     def __bool__(self):
         return bool(self.objs)
@@ -431,8 +456,8 @@ class _FilterChain:
 
     def tick(self, sample_rate):
         # A multiply by a reciprocal, matching synthio_global_W_scale exactly.
-        # `(2 * pi) / sample_rate` differs in the last bits, and Q15 rounding
-        # turns that into different coefficients. See audiodsp_biquad_cp_w0().
+        # `(2 * pi) / sample_rate` differs in the last bits, and rounding the
+        # coefficients turns that into different ones. See audiodsp_biquad_cp_w0().
         w_scale = (2.0 * math.pi) * (1.0 / sample_rate)
         self.coeffs = [_cp_biquad_coeffs(biquad, w_scale)
                        for biquad in self.objs]

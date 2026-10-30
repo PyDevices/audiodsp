@@ -148,8 +148,10 @@ typedef struct {
     double vactrol;
     // The cutoff the coefficients were made for; 0 before the first.
     double cutoff;
-    // synthio.Biquad's Q15 low-pass coefficients and its filter state.
+    // synthio.Biquad's low-pass coefficients, their fractional bits, and its
+    // filter state (`y` with LPG_STATE_SHIFT bits below the sample).
     int32_t a1, a2, b0, b1, b2;
+    int32_t shift;
     int32_t x0, x1, y0, y1;
 } graph_lpg_t;
 
@@ -1634,65 +1636,103 @@ static double graph_log2d(double v) {
 #define LPG_LOG2_400 8.64385618977472469574
 #define LPG_Q 0.7071
 #define LPG_PI 3.14159265358979323846
-#define LPG_Q15 32768.0
+#define LPG_MAX_SHIFT 30
+#define LPG_STATE_SHIFT 12
+#define LPG_STATE_MAX (32767 * (1 << LPG_STATE_SHIFT))
+#define LPG_STATE_MIN (-32768 * (1 << LPG_STATE_SHIFT))
 
-// round(ldexp(v, 15)): half away from zero, as C's round() does.
-static int32_t lpg_q15(double v) {
-    const double r = v * LPG_Q15;
-    int32_t t = (int32_t)r;
+// round(ldexp(v, shift)): half away from zero, as C's round() does, clamped
+// to an int32_t as synthio's biquad_scale_arg_float clamps it.
+static int32_t lpg_scale(double v, int shift) {
+    const double r = v * (double)((int64_t)1 << shift);
+    int64_t t = (int64_t)r;
     const double frac = r - (double)t;
     if (frac >= 0.5) {
         ++t;
     } else if (frac <= -0.5) {
         --t;
     }
-    return t;
+    return t > INT32_MAX ? INT32_MAX : (t < INT32_MIN ? INT32_MIN : (int32_t)t);
+}
+
+static double lpg_fabs(double v) {
+    return v < 0 ? -v : v;
+}
+
+// synthio's biquad_choose_shift: the most fractional bits the largest
+// coefficient leaves room for in an int32_t, up to 30. frexp's exponent is
+// counted by doubling.
+static int lpg_choose_shift(const double *values, int count) {
+    double largest = 1;
+    for (int i = 0; i < count; i++) {
+        if (lpg_fabs(values[i]) > largest) {
+            largest = lpg_fabs(values[i]);
+        }
+    }
+    int exponent = 0;
+    for (double power = 1; largest >= power; power *= 2) {
+        exponent++;
+    }
+    int shift = 31 - exponent;
+    if (shift > LPG_MAX_SHIFT) {
+        shift = LPG_MAX_SHIFT;
+    }
+    return shift < 1 ? 1 : shift;
 }
 
 // synthio.Biquad's LOW_PASS coefficients at Q 0.7071, as
-// audiodsp_biquad_cp_configure makes them: CircuitPython's fast_sincos, its
-// W0 scale and Q15. A copy here, without libm, because the CircuitPython
-// build does not link audiodsp_biquad.c.
+// audiodsp_biquad_cp_configure makes them: CircuitPython's reflected
+// fast_sincos, its W0 scale and its per-filter shift. A copy here, without
+// libm, because the CircuitPython build does not link audiodsp_biquad.c.
 static void lpg_configure(graph_lpg_t *d, double cutoff, uint32_t sample_rate) {
     const double reciprocal_sr = 1.0 / sample_rate;
     const double w0 = cutoff * ((2 * LPG_PI) * reciprocal_sr);
-    const double x = (w0 * (4 / LPG_PI)) - 1;
-    const double x2 = x * x, x3 = x2 * x, x4 = x2 * x2, x5 = x2 * x3;
-    const double c0 = 0.70708592,
-        c1x = -0.55535724 * x,
-        c2x2 = -0.21798592 * x2,
-        c3x3 = 0.05707685 * x3,
-        c4x4 = 0.0109 * x4,
-        c5x5 = -0.00171961 * x5;
-    const double evens = c4x4 + c2x2 + c0, odds = c5x5 + c3x3 + c1x;
-    const double c = evens + odds;
-    const double s = evens - odds;
+    const bool negate_cos = w0 > (LPG_PI / 2);
+    double t = negate_cos ? (LPG_PI - w0) : w0;
+    const bool swap = t > (LPG_PI / 4);
+    if (swap) {
+        t = (LPG_PI / 2) - t;
+    }
+    const double t2 = t * t;
+    const double ps = t * (1 + t2 * (-0.16666651 + t2 * (0.0083319786 + t2 * -0.00019495635)));
+    const double pc = 1 + t2 * (-0.5 + t2 * (0.041666647 + t2 * (-0.0013887368 + t2 * 0.000024438452)));
+    const double s = swap ? pc : ps;
+    const double c = negate_cos ? -(swap ? ps : pc) : (swap ? ps : pc);
     const double alpha = s / (2 * LPG_Q);
-    const double a0 = 1 + alpha, a1 = -2 * c, a2 = 1 - alpha;
-    const double b0 = (1 - c) * .5, b1 = 1 - c;
+    const double a0 = 1 + alpha;
     const double reciprocal = 1 / a0;
-    d->a1 = lpg_q15(a1 * reciprocal);
-    d->a2 = lpg_q15(a2 * reciprocal);
-    d->b0 = lpg_q15(b0 * reciprocal);
-    d->b1 = lpg_q15(b1 * reciprocal);
-    d->b2 = lpg_q15(b0 * reciprocal);
+    const double a1 = -2 * c * reciprocal;
+    const double a2 = (1 - alpha) * reciprocal;
+    const double b0 = (1 - c) * .5 * reciprocal;
+    const double b1 = (1 - c) * reciprocal;
+    const double values[] = {a1, a2, b0, b1, b0};
+    const int shift = lpg_choose_shift(values, 5);
+    d->shift = shift;
+    d->a1 = lpg_scale(a1, shift);
+    d->a2 = lpg_scale(a2, shift);
+    d->b0 = lpg_scale(b0, shift);
+    d->b1 = lpg_scale(b1, shift);
+    d->b2 = lpg_scale(b0, shift);
     d->cutoff = cutoff;
 }
 
-// audiodsp_sat16(value, 15): the shift rounds toward zero for a negative.
-static inline int32_t lpg_shift15(int32_t value) {
-    if (value < 0) {
-        value += 0x7FFF;
-    }
-    value >>= 15;
-    return value > 32767 ? 32767 : (value < -32768 ? -32768 : value);
+// synthio's biquad_filter_sample: the int64_t sum, rounded to nearest, kept
+// with LPG_STATE_SHIFT bits below the sample and clamped to the sample range.
+static inline int32_t lpg_filter(const graph_lpg_t *d, int32_t input,
+    int32_t x0, int32_t x1, int32_t y0, int32_t y1) {
+    int64_t acc = ((int64_t)d->b0 * input + (int64_t)d->b1 * x0
+        + (int64_t)d->b2 * x1) * (1 << LPG_STATE_SHIFT)
+        - (int64_t)d->a1 * y0 - (int64_t)d->a2 * y1;
+    acc = (acc + ((int64_t)1 << (d->shift - 1))) >> d->shift;
+    return acc > LPG_STATE_MAX ? LPG_STATE_MAX
+        : (acc < LPG_STATE_MIN ? LPG_STATE_MIN : (int32_t)acc);
 }
 
 // LowPassGateCore.render. The vactrol steps once a block toward the manual
 // level plus the control's and 1.5 times the strike's first samples: up in
 // about 2 ms, down with the decay. VCA scales the input by it; VCF runs the
 // input through synthio.Biquad's low-pass at 30 * 400^v Hz inside
-// audiofilters.Filter, Q15 and the soft knee past +-28000 included; BOTH does
+// audiofilters.Filter, its fixed point and the soft knee past +-28000 included; BOTH does
 // that and scales by v^1.3. The level multiplies last.
 static void run_lpg(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
@@ -1758,13 +1798,12 @@ static void run_lpg(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int32_t x0 = d->x0, x1 = d->x1, y0 = d->y0, y1 = d->y1;
     for (uint32_t i = 0; i < frames; ++i) {
         const int32_t sample = in != NULL ? in[i] : 0;
-        const int32_t y = lpg_shift15(d->b0 * sample + d->b1 * x0 + d->b2 * x1
-            - d->a1 * y0 - d->a2 * y1 + (1 << 14));
+        const int32_t y = lpg_filter(d, sample, x0, x1, y0, y1);
         x1 = x0;
         x0 = sample;
         y1 = y0;
         y0 = y;
-        int32_t w = y;
+        int32_t w = (y + (1 << (LPG_STATE_SHIFT - 1))) >> LPG_STATE_SHIFT;
         if (w < -28000) {
             w = (((w + 28000) * knee) >> 16) - 28000;
         } else if (w > 28000) {

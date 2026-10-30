@@ -161,9 +161,9 @@ PROBES = (
     ("biquad_component_probe.py", "audiofilters",
      {"circuitpython": "this probe also covers Note.filter cascades, which "
                        "are this port's extension and which CircuitPython "
-                       "refuses. Everything else in it matches 11.0.0-alpha.1 "
-                       "byte for byte, PEAKING_EQ and the filter reset "
-                       "included. See docs/how-it-works/upstream-diff.md"},
+                       "refuses, and its biquads are CircuitPython main's "
+                       "(ae47a3f15d), ahead of the pinned 11.0.0-alpha.2. "
+                       "See docs/how-it-works/upstream-sync.md"},
      None),
     # audiomixer is CircuitPython's, so like biquad_component_probe.py it is
     # held to the interpreters agreeing rather than to a capture. The twin
@@ -233,7 +233,14 @@ PROBES = (
                        "deliberate departures recorded in "
                        "docs/how-it-works/upstream-diff.md"},
      None),
-    ("echo_filter_probe.py", "audiodelays", {}, None),
+    ("echo_filter_probe.py", "audiodelays",
+     {"circuitpython": "synthio.Biquad is CircuitPython main's (ae47a3f15d, "
+                       "adafruit/circuitpython#11679), ahead of the pinned "
+                       "11.0.0-alpha.2 oracle; it matched alpha.2 byte for "
+                       "byte before that change. Drop this skip when the pin "
+                       "moves to a release with #11679. See "
+                       "docs/how-it-works/upstream-sync.md"},
+     None),
     # A delay line shorter than one audio buffer. CircuitPython 10.3.0 raised
     # it to the buffer's length after clamping it to the allocation, so the
     # line ran past its memory; upstream fixed the order in 6dddbda87
@@ -296,7 +303,14 @@ PROBES = (
      None),
     ("delay_time_probe.py", "audioecho", {}, None),
     ("feedback_delay_frames_probe.py", "audioecho", {}, None),
-    ("freeverb_filter_probe.py", "audiofreeverb", {}, None),
+    ("freeverb_filter_probe.py", "audiofreeverb",
+     {"circuitpython": "synthio.Biquad is CircuitPython main's (ae47a3f15d, "
+                       "adafruit/circuitpython#11679), ahead of the pinned "
+                       "11.0.0-alpha.2 oracle; it matched alpha.2 byte for "
+                       "byte before that change. Drop this skip when the pin "
+                       "moves to a release with #11679. See "
+                       "docs/how-it-works/upstream-sync.md"},
+     None),
     # A host reset mid-stream clears each node's own state and keeps the
     # source frames it has already taken, as CircuitPython's effects do
     # (audiodsp#181). The probe asserts it per node, and the PCM it prints
