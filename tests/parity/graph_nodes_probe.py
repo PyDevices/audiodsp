@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE and PAN, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN and WAVEFOLD, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -8,6 +8,7 @@
     graph_nodes_probe.py --fault twopole    # one block's cutoff CV a block late
     graph_nodes_probe.py --fault overdrive  # one tone change a block late
     graph_nodes_probe.py --fault pan        # one pan change a block late
+    graph_nodes_probe.py --fault wavefold   # one symmetry change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -27,7 +28,9 @@ sawtooth and on noise, with a cutoff CV that holds still for some blocks and
 runs through others, and one with no CV connected; three overdrives (the
 sawtooth, hot, with the tone swept); and a stereo PAN of four of these and an
 open input, its gains and pans moving every few blocks, past the ends once,
-and reset once, both sides printed.
+and reset once, both sides printed; and three wavefolders (the sawtooth folded
+deep, the sawtooth with the cutoff CV on its fold and the symmetry swept, and a
+phaser folded at full depth).
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -51,7 +54,7 @@ except (ImportError, AttributeError):
     print("GRAPH PARITY SKIPPED: no audiograph nodes here")
     sys.exit(0)
 
-FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan")
+FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -191,6 +194,15 @@ pan = g.add(ag.PAN, ag.ALWAYS, pan_ins, pan_left, pan_right)
 watched.append(("pan_l", pan_left))
 watched.append(("pan_r", pan_right))
 
+# -- wavefolders: the sawtooth deep, the sawtooth on a CV, a phaser at full depth
+wf_a, _ = node("wf_a", ag.WAVEFOLD, (saw_b, None))
+g.set(wf_a, ag.WAVEFOLD_FOLD, 0.625)
+wf_b, _ = node("wf_b", ag.WAVEFOLD, (saw_b, cv_b))
+g.set(wf_b, ag.WAVEFOLD_FOLD, 0.25)
+wf_c, _ = node("wf_c", ag.WAVEFOLD, (dict(watched)["phaser6"],))
+g.set(wf_c, ag.WAVEFOLD_FOLD, 1.0)
+g.set(wf_c, ag.WAVEFOLD_SYMMETRY, -0.75)
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -295,6 +307,12 @@ for b in range(BLOCKS):
     if b == 130:
         g.reset(pan)
 
+    # the wavefolder's symmetry swept in eighths; the deep one's fold moved
+    sym_at = b if FAULT != "wavefold" or b != 44 else b - 1
+    g.set(wf_b, ag.WAVEFOLD_SYMMETRY, ((sym_at // 4) % 17 - 8) / 8.0)
+    if b == 96:
+        g.set(wf_a, ag.WAVEFOLD_FOLD, 0.875)
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -339,6 +357,9 @@ for name in ("pan_l", "pan_r"):
     check(seen[name][0] > 5000 and seen[name][2] > 4000,
           "the pan's %s side renders sound" % name)
 check(pan_sides_differ, "the pan puts the inputs in different places")
+for name in ("wf_a", "wf_b", "wf_c"):
+    check(seen[name][0] > 5000 and seen[name][2] > 2000,
+          "the wavefolder %s renders sound" % name)
 
 if failures:
     for what in failures:

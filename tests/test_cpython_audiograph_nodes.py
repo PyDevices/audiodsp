@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, TANH and PAN, held to what they stand in for.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, TANH, PAN and WAVEFOLD, held to what they stand in for.
 
 | node | held to | bar |
 |---|---|---|
@@ -17,6 +17,7 @@
 | `OVERDRIVE` | vrack's `OverdriveCore`: `audiofilters.Distortion` in overdrive mode with soft clipping, then `audiofilters.Filter` with a `synthio.Biquad` high shelf, driven the way vrack's bridge drives them | 0 counts |
 | `TANH` | `level * UNIT * tanh(drive * x / UNIT)` in double precision, over a ramp through the clip, a program, and the knobs moving | 1 count (a few float ulps of tanh, which moves a half-count tie the other way) |
 | `PAN` | two `MIX` nodes, one a side, given the balance's gains in float32: centred, panned, past the ends, with gains and pans moving between blocks, an open input, a reset and a skipped group | 0 counts |
+| `WAVEFOLD` | vrack's `dsp/wavefolder.py` `WavefolderCore`, with no CV, a fold CV, the knobs moving, a hot input, an open input and the bypass at fold 0.001 | 1 count, on about 1 sample in 1000 (the sine is a polynomial) |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -1196,3 +1197,109 @@ class Pan(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------- WAVEFOLD --
+
+HALF_PI32 = f32(0.5 * math.pi)
+
+
+def sin32(value):
+    return f32(math.sin(f32(value)))
+
+
+def wavefold_ref(src, fold, symmetry, cv=None):
+    """vrack's `WavefolderCore.render` on one block, operation for operation in
+    float32, `src` and `cv` in counts. The rack's output, on the wire."""
+    if fold <= 0.001 and cv is None:
+        return list(src)
+    out = []
+    offset = f32(symmetry * 0.25)
+    for i, count in enumerate(src):
+        s = count / UNIT
+        f = f32(fold)
+        if cv is not None:
+            f = a_(f, cv[i] / UNIT)
+        x = a_(s, offset)
+        x = m(x, a_(m(f, 7.0), 1.0))
+        f1 = sin32(m(x, HALF_PI32))
+        f2 = sin32(m(a_(m(f1, 1.5), m(x, 0.5)), HALF_PI32))
+        f3 = m(sin32(m(a_(m(f2, 1.3), m(f1, 0.4)), HALF_PI32)), 0.5)
+        out.append(sat(a_(m(s, a_(-f, 1.0)), m(f3, f)) * UNIT))
+    return out
+
+
+def tones(frames, blocks, amplitude=8192):
+    """A sine and its fifth, the principal oscillator's range and then some."""
+    return [[round(amplitude * (0.75 * math.sin(2 * math.pi * 220.0 * (b * frames + i) / RATE)
+                                + 0.25 * math.sin(2 * math.pi * 330.0 * (b * frames + i) / RATE)))
+             for i in range(frames)] for b in range(blocks)]
+
+
+class Wavefold(unittest.TestCase):
+
+    def compare(self, settings, cv=None, frames=128, amplitude=8192, open_=()):
+        # with no CV the CV input is open, as the rack's fold_cv is None
+        rig = Rig(frames, ag.WAVEFOLD, 2, open_=tuple(open_) + ((1,) if cv is None else ()))
+        got, want = [], []
+        blocks = tones(frames, len(settings), amplitude)
+        for b, (block, (fold, symmetry)) in enumerate(zip(blocks, settings)):
+            rig.set(ag.WAVEFOLD_FOLD, fold)
+            rig.set(ag.WAVEFOLD_SYMMETRY, symmetry)
+            cv_block = cv[b] if cv is not None else None
+            src = [0] * frames if 0 in open_ else block
+            got += rig.run(None if 0 in open_ else block, cv_block)
+            want += wavefold_ref(src, fold, symmetry, cv_block)
+        return got, want
+
+    def test_matches_wavefoldercore(self):
+        for fold, symmetry in ((0.2, 0.0), (0.5, 0.25), (1.0, -1.0), (0.75, 1.0),
+                               (0.0625, -0.375), (0.35, 0.6)):
+            got, want = self.compare([(fold, symmetry)] * 20)
+            self.assertLessEqual(worst(got, want), 1, (fold, symmetry))
+            self.assertGreater(sum(1 for g, w in zip(got, want) if g == w),
+                               0.99 * len(got), (fold, symmetry))
+
+    def test_folds(self):
+        # a deep fold puts many more turns in a block than the input has
+        def turns(block):
+            return sum(1 for a, b, c in zip(block, block[1:], block[2:])
+                       if (b - a) * (c - b) < 0)
+        clean, _ = self.compare([(0.002, 0.0)] * 4)
+        folded, _ = self.compare([(1.0, 0.0)] * 4)
+        self.assertGreater(turns(folded), 4 * turns(clean))
+
+    def test_the_fold_cv_adds_to_the_fold(self):
+        frames, blocks = 128, 24
+        cv = [[((b * frames + i) * 13) % 8192 - 2048 for i in range(frames)]
+              for b in range(blocks)]
+        got, want = self.compare([(0.25, 0.125)] * blocks, cv=cv)
+        self.assertLessEqual(worst(got, want), 1)
+        # and a CV with the knob at 0 still folds
+        got, want = self.compare([(0.0, 0.0)] * blocks, cv=cv)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertNotEqual(got, [v for b in tones(frames, blocks) for v in b])
+
+    def test_the_knobs_moving_and_a_hot_input(self):
+        settings = [((b % 11) / 10.0, ((b % 7) - 3) / 3.0) for b in range(60)]
+        got, want = self.compare(settings, amplitude=16000)
+        self.assertLessEqual(worst(got, want), 1)
+
+    def test_no_fold_passes_the_input(self):
+        got, want = self.compare([(0.0, 0.5), (0.001, -1.0)] * 3)
+        self.assertEqual(got, [v for b in tones(128, 6) for v in b])
+        self.assertEqual(got, want)
+
+    def test_an_open_input_is_silence_folded(self):
+        # the symmetry offsets silence, so a fold of it is a constant
+        got, want = self.compare([(0.5, 1.0)] * 3, open_=(0,))
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertEqual(len(set(got)), 1)
+        self.assertNotEqual(got[0], 0)
+        got, _ = self.compare([(0.0, 1.0)] * 3, open_=(0,))
+        self.assertEqual(set(got), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 64, 256):
+            got, want = self.compare([(0.4, -0.25)] * 10, frames=frames)
+            self.assertLessEqual(worst(got, want), 1, frames)

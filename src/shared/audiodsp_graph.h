@@ -149,6 +149,12 @@ typedef enum {
     // at gain otherwise, the pan stopped at -1 and 1. Each side's gain ramps
     // across a block when it moved, as MIX's do.
     AUDIODSP_GRAPH_PAN,
+    // inputs: audio, fold CV. params: fold, symmetry. vrack's
+    // dsp/wavefolder.py WavefolderCore, the West Coast wavefolder: three
+    // sine-shaped folds driven by 1 + 7 * fold, crossfaded with the dry
+    // signal by the fold. The fold CV adds to the fold every sample. With
+    // the fold at 0.001 or under and no CV, the input passes straight through.
+    AUDIODSP_GRAPH_WAVEFOLD,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -252,6 +258,13 @@ enum {
     AUDIODSP_GRAPH_TANH_DRIVE = 0,
     // Linear gain after the tanh; 1 is unity (a full-scale +-UNIT).
     AUDIODSP_GRAPH_TANH_LEVEL,
+};
+
+enum {
+    // 0..1: the depth of the folds and the share of the folded signal.
+    AUDIODSP_GRAPH_WAVEFOLD_FOLD = 0,
+    // -1..1: an offset of a quarter of it ahead of the folds.
+    AUDIODSP_GRAPH_WAVEFOLD_SYMMETRY,
 };
 
 enum {
