@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE and TANH, held to what they stand in for.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, TANH and PAN, held to what they stand in for.
 
 | node | held to | bar |
 |---|---|---|
@@ -16,6 +16,7 @@
 | `TWOPOLE`, Sallen-Key low-pass and high-pass | `SallenKeyLPFCore` and `SallenKeyHPFCore`, the same four CV cases | 1 count, on under 1 sample in 100 (the float `tanh`) |
 | `OVERDRIVE` | vrack's `OverdriveCore`: `audiofilters.Distortion` in overdrive mode with soft clipping, then `audiofilters.Filter` with a `synthio.Biquad` high shelf, driven the way vrack's bridge drives them | 0 counts |
 | `TANH` | `level * UNIT * tanh(drive * x / UNIT)` in double precision, over a ramp through the clip, a program, and the knobs moving | 1 count (a few float ulps of tanh, which moves a half-count tie the other way) |
+| `PAN` | two `MIX` nodes, one a side, given the balance's gains in float32: centred, panned, past the ends, with gains and pans moving between blocks, an open input, a reset and a skipped group | 0 counts |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -1043,6 +1044,154 @@ class VcaCurve(unittest.TestCase):
         self.assertEqual(self.run_vca(audio, [UNIT] * 32, ag.VCA_EXPONENTIAL), audio)
         self.assertEqual(self.run_vca(audio, [0] * 32, ag.VCA_EXPONENTIAL),
                          [sat(a / 1000.0) for a in audio])
+
+
+# --------------------------------------------------------------------- PAN --
+
+def balance(gain, pan):
+    """PAN's two gains for one input, in float32 as the node works them out."""
+    gain, pan = f32(gain), f32(max(-1.0, min(1.0, f32(pan))))
+    left = f32(gain * f32(1.0 - pan)) if pan > 0.0 else gain
+    right = f32(gain * f32(1.0 + pan)) if pan < 0.0 else gain
+    return left, right
+
+
+class PanRig:
+    """A PAN node and the two MIX nodes it stands in for, on the same inputs."""
+
+    def __init__(self, frames, inputs, open_=(), group=ag.ALWAYS):
+        self.frames = frames
+        self.g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                          buffers=16, nodes=8)
+        self.ins = [None if i in open_ else self.g.buffer() for i in range(inputs)]
+        self.left, self.right = self.g.buffer(), self.g.buffer()
+        self.mix_left, self.mix_right = self.g.buffer(), self.g.buffer()
+        self.pan = self.g.add(ag.PAN, group, tuple(self.ins), self.left, self.right)
+        self.mixes = (self.g.add(ag.MIX, group, tuple(self.ins), self.mix_left),
+                      self.g.add(ag.MIX, group, tuple(self.ins), self.mix_right))
+        self._block = array("h", bytes(2 * frames))
+
+    def set(self, i, gain, pan):
+        self.g.set(self.pan, i, gain)
+        self.g.set(self.pan, ag.PAN_PAN + i, pan)
+        left, right = balance(gain, pan)
+        self.g.set(self.mixes[0], i, left)
+        self.g.set(self.mixes[1], i, right)
+
+    def reset(self):
+        for node in (self.pan,) + self.mixes:
+            self.g.reset(node)
+
+    def read(self, buffer):
+        self.g.read(buffer, self._block)
+        return list(self._block)
+
+    def run(self, blocks, enable=None):
+        for buffer, values in zip(self.ins, blocks):
+            if buffer is not None:
+                self.g.write(buffer, array("h", values))
+        self.g.run(None, 0, 0xFFFFFFFF if enable is None else enable)
+        return ((self.read(self.left), self.read(self.right)),
+                (self.read(self.mix_left), self.read(self.mix_right)))
+
+
+def voices(block, frames, count):
+    """`count` voices of a block: saws at different rates and levels."""
+    return [[((((block * frames + i) * (97 + 31 * v)) % 4096) - 2048) * (3 + v % 4)
+             for i in range(frames)] for v in range(count)]
+
+
+class Pan(unittest.TestCase):
+
+    def test_matches_two_mixers_with_gains_and_pans_moving(self):
+        rig = PanRig(128, 8)
+        heard = 0
+        for block in range(40):
+            for v in range(8):
+                gain = (0.0, 0.25, 0.5, 1.0, 0.75)[(block // 4 + v) % 5]
+                pan = ((block * 3 + v * 5) % 9 - 4) / 4.0  # -1 .. 1 in quarters
+                if block >= 30:
+                    pan *= 1.5  # past the ends
+                rig.set(v, gain, pan)
+            (left, right), (mix_left, mix_right) = rig.run(voices(block, 128, 8))
+            self.assertEqual(left, mix_left, block)
+            self.assertEqual(right, mix_right, block)
+            heard = max(heard, max(abs(x - y) for x, y in zip(left, right)))
+        self.assertGreater(heard, 4000)  # the sides differ: the pans did something
+
+    def test_centred_is_a_mixer_on_each_side(self):
+        rig = PanRig(64, 3)
+        for v, gain in enumerate((1.0, 0.5, 0.125)):
+            rig.set(v, gain, 0.0)
+        blocks = voices(0, 64, 3)
+        (left, right), _ = rig.run(blocks)
+        want = [sat(a + 0.5 * b + 0.125 * c) for a, b, c in zip(*blocks)]
+        self.assertEqual(left, want)
+        self.assertEqual(right, want)
+
+    def test_hard_left_and_hard_right(self):
+        rig = PanRig(64, 2)
+        rig.set(0, 1.0, -1.0)
+        rig.set(1, 1.0, 1.0)
+        blocks = voices(0, 64, 2)
+        (left, right), _ = rig.run(blocks)
+        self.assertEqual(left, blocks[0])
+        self.assertEqual(right, blocks[1])
+
+    def test_a_new_pan_ramps_across_the_block(self):
+        rig = PanRig(128, 1)
+        rig.set(0, 1.0, 0.0)
+        rig.run([[8000] * 128])
+        rig.set(0, 1.0, 1.0)
+        (left, right), _ = rig.run([[8000] * 128])
+        self.assertEqual(right, [8000] * 128)
+        self.assertEqual(left[-1], 0)
+        self.assertTrue(all(a >= b for a, b in zip(left, left[1:])))
+        self.assertGreater(left[63], 3000)
+
+    def test_reset_takes_the_gains_as_they_stand(self):
+        rig = PanRig(128, 1)
+        rig.set(0, 1.0, 0.0)
+        rig.run([[8000] * 128])
+        rig.set(0, 0.5, -0.5)
+        rig.reset()
+        (left, right), (mix_left, mix_right) = rig.run([[8000] * 128])
+        self.assertEqual(left, [4000] * 128)
+        self.assertEqual(right, [2000] * 128)
+        self.assertEqual((left, right), (mix_left, mix_right))
+
+    def test_an_open_input_adds_nothing(self):
+        rig = PanRig(64, 3, open_=(1,))
+        for v in range(3):
+            rig.set(v, 1.0, 0.5)
+        blocks = voices(0, 64, 3)
+        (left, right), (mix_left, mix_right) = rig.run(blocks)
+        self.assertEqual((left, right), (mix_left, mix_right))
+        self.assertEqual(right, [sat(a + c) for a, c in zip(blocks[0], blocks[2])])
+
+    def test_a_skipped_group_silences_both_sides(self):
+        rig = PanRig(64, 1, group=3)
+        rig.set(0, 1.0, 0.25)
+        (left, right), _ = rig.run([[8000] * 64], 1 << 3)
+        self.assertEqual((left[0], right[0]), (6000, 8000))
+        (left, right), _ = rig.run([[8000] * 64], 0)
+        self.assertEqual(left, [0] * 64)
+        self.assertEqual(right, [0] * 64)
+
+    def test_the_right_side_must_be_a_buffer_of_its_own(self):
+        g = ag.Graph(sample_rate=RATE, frames=64, channel_count=1, buffers=4, nodes=4)
+        a, b = g.buffer(), g.buffer()
+        for right in (a, 4.0, -1.0, 1.5):
+            with self.assertRaises(ValueError, msg=right):
+                g.add(ag.PAN, ag.ALWAYS, (b,), a, right)
+        g.add(ag.PAN, ag.ALWAYS, (b,), a, 2)
+
+    def test_defaults_are_unity_and_centred(self):
+        g = ag.Graph(sample_rate=RATE, frames=64, channel_count=1, buffers=4, nodes=4)
+        node = g.add(ag.PAN, ag.ALWAYS, (g.buffer(),), g.buffer(), 2)
+        for i in range(8):
+            self.assertEqual(g.get(node, i), 1.0)
+            self.assertEqual(g.get(node, ag.PAN_PAN + i), 0.0)
 
 
 if __name__ == "__main__":

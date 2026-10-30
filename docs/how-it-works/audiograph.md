@@ -91,6 +91,7 @@ rather than its last block.
 | `TWOPOLE` | audio, cutoff CV | `TWOPOLE_TYPE` (`TWOPOLE_SK_LOWPASS`, `TWOPOLE_SK_HIGHPASS`, `TWOPOLE_CMOS_LOWPASS`, `TWOPOLE_CMOS_BANDPASS`, `TWOPOLE_CMOS_HIGHPASS`), `TWOPOLE_CUTOFF_HZ`, `TWOPOLE_DEPTH`, `TWOPOLE_RESONANCE` 0..1, `TWOPOLE_DRIVE` | a 12 dB/octave filter with its nonlinearity inside the loop, [below](#two-pole-filters) |
 | `OVERDRIVE` | audio | `OVERDRIVE_DRIVE` 0..1, `OVERDRIVE_TONE` 0..1, `OVERDRIVE_LEVEL` (linear, 1 is unity) | `audiofilters.Distortion`'s soft-clipped overdrive, then a high shelf, [below](#overdrive) |
 | `TANH` | audio | `TANH_DRIVE` (a gain before the tanh, 1 is unity), `TANH_LEVEL` (a gain after it, 1 is unity) | `TANH_LEVEL · tanh(TANH_DRIVE · x)` with `x` in units of `UNIT`, [below](#tanh) |
+| `PAN` | up to eight | 0..7: a gain per input, `PAN_PAN + i`: input `i`'s pan, −1 (left) to 1 (right); built with `arg` = the right side's buffer | a stereo mixer, the left side to the node's output and the right to the buffer `arg` names, [below](#pan) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -188,6 +189,32 @@ function good to a few float ulps, with no libm, so MicroPython, CircuitPython a
 CPython render the same bytes. It is present on every target, `OVERDRIVE`'s
 RP2040 limit not applying. A drive large enough to push the result past ±32767 is
 held at the rail, and an open input is silence.
+
+### Pan
+
+`PAN` is a stereo mixer with a balance on each input, and the one node that
+writes two buffers: its output is the left side, and the buffer you pass as
+`arg` is the right.
+
+```python
+left, right = g.buffer(), g.buffer()
+pan = g.add(audiograph.PAN, group, (voice1, voice2), left, right)
+g.set(pan, 1, 0.5)                       # voice 2 at half gain
+g.set(pan, audiograph.PAN_PAN + 1, 0.25)  # and a quarter to the right
+```
+
+The balance is linear: an input panned right by `p` reaches the left side at
+`gain * (1 - p)` and the right side at full `gain`, and panned left the other
+way round, so a centred input is at `gain` on both sides. A pan past −1 or 1
+stops there. Each side's gain ramps across the block when the gain or the pan
+moved, as `MIX`'s gains do, so a voice moved across the field or faded out
+does not step; `reset(node)` takes the gains as they stand, with no ramp. The
+gains start at 1 and the pans at 0. When the node's group is switched off,
+both sides fall silent. `add()` refuses a right side that is not a buffer of
+the graph, or is the node's own output.
+
+Two `MIX` nodes given the same gains, one a side, render the same samples,
+so `PAN` saves a node and a read of every input rather than changing the sound.
 
 ## Output
 

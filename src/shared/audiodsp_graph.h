@@ -141,6 +141,14 @@ typedef enum {
     // renders the same bytes. A saturating mixer, or the input stage of a
     // ladder, where OVERDRIVE (Q15 distortion and a shelf) is the wrong shape.
     AUDIODSP_GRAPH_TANH,
+    // inputs: up to 8. params: gain[8], pan[8]. A stereo mixer with a
+    // balance on each input, and the one node with two outputs: the left
+    // side is its output and the right side the buffer `arg` names. Input i
+    // goes to the left at gain * (1 - pan) for a pan over 0 and at gain
+    // otherwise, and to the right at gain * (1 + pan) for a pan under 0 and
+    // at gain otherwise, the pan stopped at -1 and 1. Each side's gain ramps
+    // across a block when it moved, as MIX's do.
+    AUDIODSP_GRAPH_PAN,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -248,6 +256,11 @@ enum {
 
 enum {
     AUDIODSP_GRAPH_MIX_OFFSET = 8,
+};
+
+enum {
+    // PAN: input i's gain is param i, its pan param PAN_PAN + i.
+    AUDIODSP_GRAPH_PAN_PAN = 8,
 };
 
 enum {
@@ -393,7 +406,9 @@ void audiodsp_graph_init(audiodsp_graph_t *graph, uint32_t sample_rate,
 // Appends a node. `data` is the caller's, of audiodsp_graph_node_data_size
 // bytes, zeroed. Returns the node's index, or -1 when the graph is full, a
 // buffer id is out of range, or a node other than OUT has no output buffer
-// (every other kind writes one; OUT writes the caller's buffer instead).
+// (every other kind writes one; OUT writes the caller's buffer instead). A
+// PAN node's `arg` is its right side's buffer id, which must be in range and
+// not its output.
 int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
     uint32_t group, const int16_t *inputs, uint32_t ninputs, int16_t output,
     void *data, float arg);
