@@ -196,6 +196,46 @@ static audioio_get_buffer_result_t AUDIODSP_HOT audiopump_ring_get_buffer(
     return GET_BUFFER_MORE_DATA;
 }
 
+// The same consumer, for a node that reads at its own pace. See
+// audiopump_ring.h.
+uint32_t audiopump_ring_capacity(void *ctx) {
+    return ((audiopump_ring_obj_t *)ctx)->cap;
+}
+
+uint32_t audiopump_ring_readable(void *ctx) {
+    audiopump_ring_obj_t *self = ctx;
+    return AUDIOPUMP_RING_LOAD_ACQ(&self->w) - self->r;
+}
+
+void AUDIODSP_HOT audiopump_ring_read(void *ctx, uint8_t *dst, uint32_t len) {
+    audiopump_ring_obj_t *self = ctx;
+    const uint32_t r = self->r;
+    const uint32_t at = self->rpos;
+    uint32_t first = self->cap - at;
+    if (first > len) {
+        first = len;
+    }
+    memcpy(dst, self->ring + at, first);
+    if (len > first) {
+        memcpy(dst + first, self->ring, len - first);
+    }
+    uint64_t digest = self->out_digest;
+    for (uint32_t i = 0; i < len; i++) {
+        digest ^= dst[i];
+        digest *= AUDIOPUMP_RING_FNV_PRIME;
+    }
+    self->out_digest = digest;
+    self->read += len;
+    self->rpos = (at + len) % self->cap;
+    AUDIOPUMP_RING_STORE_REL(&self->r, r + len);
+}
+
+void audiopump_ring_starve(void *ctx, uint32_t len) {
+    audiopump_ring_obj_t *self = ctx;
+    self->underruns++;
+    self->starved += len;
+}
+
 // --- the producer side: this runs on the interpreter thread ---------------
 
 // The producer side again, for a C producer on another task: each packet of

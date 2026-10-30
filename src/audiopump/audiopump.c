@@ -45,6 +45,7 @@
 #include "audiopump/audiopump_events.h"
 #include "audiopump/audiopump_ring.h"
 #include "audiopump/audiopump_tap.h"
+#include "audiopump/audiopump_drift.h"
 
 // The same acquire/release pair the push ring uses, and here for the same
 // reason: `volatile` orders the compiler, not the machine, and a 64-bit store
@@ -2381,6 +2382,7 @@ static const mp_rom_map_elem_t audiopump_globals_table[] = {
     // The push side. Every port, not just esp32: the ring is RAM and a
     // memcpy, so the unix build is where its correctness is settled.
     { MP_ROM_QSTR(MP_QSTR_Ring), MP_ROM_PTR(&audiopump_ring_type) },
+    { MP_ROM_QSTR(MP_QSTR_DriftResampler), MP_ROM_PTR(&audiopump_drift_type) },
     // Sequenced music, and the way out to a meter. Same reasoning: RAM,
     // arithmetic and a memcpy, so the unix build settles both.
     { MP_ROM_QSTR(MP_QSTR_Events), MP_ROM_PTR(&audiopump_events_type) },

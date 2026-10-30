@@ -155,6 +155,39 @@ static void ring_take_clear(audiopump_ring_obj_t *self) {
     RING_STORE_REL(&self->clear_done, seq);
 }
 
+uint32_t audiopump_ring_readable(audiopump_ring_obj_t *self) {
+    ring_take_clear(self);
+    return RING_LOAD_ACQ(&self->w) - self->r;
+}
+
+void audiopump_ring_read(audiopump_ring_obj_t *self, uint8_t *dst,
+    uint32_t len) {
+    const uint32_t r = self->r;
+    const uint32_t at = self->rpos;
+    uint32_t first = self->cap - at;
+    if (first > len) {
+        first = len;
+    }
+    memcpy(dst, self->ring + at, first);
+    if (len > first) {
+        memcpy(dst + first, self->ring, len - first);
+    }
+    uint64_t digest = self->out_digest;
+    for (uint32_t i = 0; i < len; i++) {
+        digest ^= dst[i];
+        digest *= RING_FNV_PRIME;
+    }
+    self->out_digest = digest;
+    self->read += len;
+    self->rpos = (at + len) % self->cap;
+    RING_STORE_REL(&self->r, r + len);
+}
+
+void audiopump_ring_starve(audiopump_ring_obj_t *self, uint32_t len) {
+    self->underruns++;
+    self->starved += len;
+}
+
 static uint8_t *ring_pull_block(audiopump_ring_obj_t *self) {
     ring_take_clear(self);
 

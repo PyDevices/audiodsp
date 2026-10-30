@@ -15,6 +15,9 @@ audio pump holding up under live use such as a stompbox or a stage rig.
 - A level ramp on `audiomixer` voices: a level move ramps over a set number of
   frames instead of stepping, so an effect can fade its wet path in or out
   without a click when you switch it in mid-note.
+- `audiopump.DriftResampler` converting down as well as up, with its filter's
+  cutoff following the output rate, so a 48 kHz stream can play on a
+  44.1 kHz output.
 
 ## Housekeeping
 

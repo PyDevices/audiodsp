@@ -30,6 +30,8 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/audiopump/audiopump_ring.c
     ${MPAUDIO_SRC_DIR}/audiopump/audiopump_events.c
     ${MPAUDIO_SRC_DIR}/audiopump/audiopump_tap.c
+    ${MPAUDIO_SRC_DIR}/audiopump/audiopump_drift.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_drift.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_rawsample.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_synth_dsp.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_envelope.c

@@ -351,6 +351,9 @@ PROBES = (
                        "comes back empty, and ours return - a deliberate "
                        "departure recorded in docs/how-it-works/upstream-diff.md"},
      None),
+    # audiopump.DriftResampler following a producer on another clock: the
+    # control loop and the interpolation, three ways.
+    ("drift_probe.py", "audiopump", {}, None),
 )
 
 

@@ -7,6 +7,7 @@
 #include "py/runtime.h"
 
 #include "shared-bindings/audiopump/__init__.h"
+#include "shared-bindings/audiopump/DriftResampler.h"
 #include "shared-bindings/audiopump/Ring.h"
 
 //| """A stream sample your code fills, played by CircuitPython's audio outputs
@@ -20,11 +21,16 @@
 //| On MicroPython, audiodsp's `audiopump` also runs the pull loop itself.
 //| CircuitPython's outputs already pull, so here the module carries only
 //| `Ring`, and code written against `audiopump.Ring` runs on both.
+//|
+//| `DriftResampler` plays a `Ring` filled on another clock (a USB or network
+//| stream, a second codec) at the output's rate, steering its ratio so the
+//| Ring neither runs dry nor overflows.
 //| """
 
 static const mp_rom_map_elem_t audiopump_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audiopump) },
     { MP_ROM_QSTR(MP_QSTR_Ring), MP_ROM_PTR(&audiopump_ring_type) },
+    { MP_ROM_QSTR(MP_QSTR_DriftResampler), MP_ROM_PTR(&audiopump_driftresampler_type) },
 };
 static MP_DEFINE_CONST_DICT(audiopump_module_globals, audiopump_module_globals_table);
 

@@ -61,6 +61,7 @@ setup(
                 "src/shared/audiodsp_filter_f32.c",
                 "src/shared/audiodsp_shaper.c",
                 "src/shared/audiodsp_samplehold.c",
+                "src/shared/audiodsp_drift.c",
                 "src/shared/audiodsp_ladder.c",
                 "src/shared/audiodsp_oscillator.c",
                 "src/shared/audiodsp_trig.c",
