@@ -32,6 +32,10 @@ and reset once, both sides printed.
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
 
+A build without one of these kinds prints ``absent KIND name ...`` first, naming
+the nodes it left out; verify_graph.py accepts that only where the kind is
+left out by design (OVERDRIVE on CircuitPython).
+
 Each fault is a mistake a binding or a caller could make in one of these nodes
 without the node itself being wrong; verify_graph.py plants each on one
 interpreter and must see it.
@@ -161,16 +165,24 @@ g.set(tp_open, ag.TWOPOLE_TYPE, ag.TWOPOLE_SK_LOWPASS)
 g.set(tp_open, ag.TWOPOLE_CUTOFF_HZ, 1250.0)
 g.set(tp_open, ag.TWOPOLE_RESONANCE, 0.5)
 
-# -- overdrives: the sawtooth hot, a quiet one and one with the tone swept
-od_a, _ = node("od_a", ag.OVERDRIVE, (saw_b,))
-g.set(od_a, ag.OVERDRIVE_DRIVE, 0.75)
-g.set(od_a, ag.OVERDRIVE_TONE, 0.25)
-g.set(od_a, ag.OVERDRIVE_LEVEL, 0.5)
-od_b, _ = node("od_b", ag.OVERDRIVE, (saw_b,))
-g.set(od_b, ag.OVERDRIVE_DRIVE, 1.0)
-g.set(od_b, ag.OVERDRIVE_TONE, 1.0)
-g.set(od_b, ag.OVERDRIVE_LEVEL, 2.0)
-od_c, _ = node("od_c", ag.OVERDRIVE, (noise_b,))
+# -- overdrives: the sawtooth hot, a quiet one and one with the tone swept.
+# CircuitPython's audiograph has no OVERDRIVE (it needs a double-precision libm
+# its RP2040 build can't link), so there the probe says which nodes it left out
+# and verify_graph.py compares the rest.
+OVERDRIVES = ("od_a", "od_b", "od_c")
+if hasattr(ag, "OVERDRIVE"):
+    od_a, _ = node("od_a", ag.OVERDRIVE, (saw_b,))
+    g.set(od_a, ag.OVERDRIVE_DRIVE, 0.75)
+    g.set(od_a, ag.OVERDRIVE_TONE, 0.25)
+    g.set(od_a, ag.OVERDRIVE_LEVEL, 0.5)
+    od_b, _ = node("od_b", ag.OVERDRIVE, (saw_b,))
+    g.set(od_b, ag.OVERDRIVE_DRIVE, 1.0)
+    g.set(od_b, ag.OVERDRIVE_TONE, 1.0)
+    g.set(od_b, ag.OVERDRIVE_LEVEL, 2.0)
+    od_c, _ = node("od_c", ag.OVERDRIVE, (noise_b,))
+else:
+    od_a = od_b = od_c = None
+    print("absent OVERDRIVE " + " ".join(OVERDRIVES))
 
 # -- a stereo pan of four of the above and an open input
 pan_left, pan_right = g.buffer(), g.buffer()
@@ -264,13 +276,14 @@ for b in range(BLOCKS):
         g.reset(tp_cmos_bp)
 
     # the tone of one overdrive swept in steps, a level moved mid-render
-    tone_at = b if FAULT != "overdrive" or b != 72 else b - 1
-    g.set(od_c, ag.OVERDRIVE_TONE, ((tone_at // 8) % 17) / 16.0)
-    g.set(od_c, ag.OVERDRIVE_DRIVE, 0.625)
-    if b == 90:
-        g.set(od_c, ag.OVERDRIVE_LEVEL, 0.25)
-    if b == 140:
-        g.reset(od_a)
+    if od_c is not None:
+        tone_at = b if FAULT != "overdrive" or b != 72 else b - 1
+        g.set(od_c, ag.OVERDRIVE_TONE, ((tone_at // 8) % 17) / 16.0)
+        g.set(od_c, ag.OVERDRIVE_DRIVE, 0.625)
+        if b == 90:
+            g.set(od_c, ag.OVERDRIVE_LEVEL, 0.25)
+        if b == 140:
+            g.reset(od_a)
 
     # the pan: each input's gain and pan move every few blocks, in quarters,
     # past the ends from block 110; the node is reset at 130
@@ -317,10 +330,11 @@ for name in ("tp_sk_lp", "tp_sk_hp", "tp_cmos_lp", "tp_cmos_bp", "tp_cmos_hp",
              "tp_open"):
     check(seen[name][0] > 5000 and seen[name][2] > 500,
           "the two-pole %s renders sound" % name)
-for name in ("od_a", "od_b", "od_c"):
-    check(seen[name][0] > 5000 and seen[name][2] > 500,
-          "the overdrive %s renders sound" % name)
-check(seen["od_b"][2] > 20000, "the hot overdrive reaches the knee")
+if od_a is not None:
+    for name in OVERDRIVES:
+        check(seen[name][0] > 5000 and seen[name][2] > 500,
+              "the overdrive %s renders sound" % name)
+    check(seen["od_b"][2] > 20000, "the hot overdrive reaches the knee")
 for name in ("pan_l", "pan_r"):
     check(seen[name][0] > 5000 and seen[name][2] > 4000,
           "the pan's %s side renders sound" % name)

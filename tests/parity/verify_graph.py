@@ -28,7 +28,9 @@ one.
 
 Two interpreters are the minimum, and fewer is refused: one cannot disagree
 with itself. CI runs CPython against MicroPython; the three-way with the
-CircuitPython unix build is a local run, as for verify_dsp.py.
+CircuitPython unix build is a local run, as for verify_dsp.py. CircuitPython's
+audiograph has no ``OVERDRIVE``, so on it the nodes probe leaves the overdrives
+out and says so, and they are compared on the other two (``ABSENT_BY_DESIGN``).
 
 ``--fault`` plants a mistake on every interpreter after the first, in the
 probe it belongs to (each probe's docstring has what its faults are), and the
@@ -56,6 +58,12 @@ SAMPLE_LINES = ("pcm", "peaks", "mono", "node")
 #: pcm line's block, enable mask and sounding mask; a node line's block and
 #: node name.
 HEADER_FIELDS = {"pcm": 3, "peaks": 0, "mono": 0, "node": 2}
+#: The node kinds an interpreter's audiograph leaves out by design. A probe run
+#: there prints ``absent KIND name ...``, and those nodes' lines are left out of
+#: the comparison; an ``absent`` line from any other interpreter is a mismatch.
+#: CircuitPython has no OVERDRIVE: it needs a double-precision libm that
+#: CircuitPython's RP2040 build can't link (src/shared/audiodsp_graph_overdrive.h).
+ABSENT_BY_DESIGN = {"circuitpython": ("OVERDRIVE",)}
 
 
 def render(argv, probe, fault, timeout):
@@ -68,6 +76,27 @@ def render(argv, probe, fault, timeout):
     if "GRAPH PARITY SKIPPED" in text:
         raise SystemExit("%s has no audiograph" % argv[0])
     return result.returncode, text.splitlines()
+
+
+def leave_out_absent(name, reference, other):
+    """The reference and the other render without the nodes ``other`` says its
+    build leaves out by design: (reference, other, the nodes left out, refusals)."""
+    left_out, refusals = [], []
+    kept = []
+    for line in other:
+        fields = line.split()
+        if fields[:1] != ["absent"]:
+            kept.append(line)
+        elif len(fields) > 2 and fields[1] in ABSENT_BY_DESIGN.get(name, ()):
+            left_out.extend(fields[2:])
+        else:
+            refusals.append("%s has no %s, which it should" % (name, " ".join(fields[1:2])))
+    if not left_out:
+        return reference, kept, left_out, refusals
+    gone = set(left_out)
+    reference = [line for line in reference
+                 if not (line.startswith("node ") and line.split()[2:3][0] in gone)]
+    return reference, kept, left_out, refusals
 
 
 def compare(reference, other, tolerance):
@@ -146,12 +175,18 @@ def main():
                 failed = True
 
         for name, _ in interpreters[1:]:
+            ours, theirs, left_out, refusals = leave_out_absent(
+                name, renders[reference], renders[name])
             compared, differing, worst, first, mismatches = compare(
-                renders[reference], renders[name], args.tolerance)
+                ours, theirs, args.tolerance)
+            mismatches = refusals + mismatches
             verdict = "FAIL" if mismatches else "ok  "
             print("%s  %-6s %s = %s: %d samples, %d differ, worst %g counts "
                   "(tolerance %g)" % (verdict, probe_name, reference, name,
                                       compared, differing, worst, args.tolerance))
+            if left_out:
+                print("        not compared: %s, which %s leaves out by design"
+                      % (", ".join(left_out), name))
             if first:
                 print("        first difference at %s" % first)
             for line in mismatches[:5]:
