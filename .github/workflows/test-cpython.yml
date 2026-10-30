@@ -14,8 +14,41 @@ on:
       - 'docs/**'
       - 'LICENSE'
 
+  # Everything, weekly: the scope skips what a change can't reach, so this is the
+  # run that would notice drift in what no change touched (new runner images,
+  # moved dependencies).
+  schedule:
+    - cron: '37 5 * * 1'
+  workflow_dispatch:
+
+# A new push to a pull request cancels the run it supersedes. A push to main is
+# never cancelled: each one keeps its own record.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # What this change can reach (tools/ci_scope.py). A pull request is diffed
+  # against its base and a push to main from the commit it moved from; a manual
+  # or weekly run, or a base git can't find, runs everything.
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      unit: ${{ steps.scope.outputs.unit }}
+      wheels: ${{ steps.scope.outputs.wheels }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 tools/ci_scope.py --event "$EVENT" --base "$BASE"
+
   test:
+    needs: scope
+    if: needs.scope.outputs.unit == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -141,6 +174,8 @@ jobs:
   # in each wheel. Nothing is uploaded anywhere. Release wheels still come
   # from the org reusable workflow; this job proves they would build.
   macos-wheels:
+    needs: scope
+    if: needs.scope.outputs.wheels == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -156,6 +191,8 @@ jobs:
   # what closing that gap costs. Proving the build here first means the org
   # change, when it comes, is a matrix line rather than a discovery.
   linux-arm-wheels:
+    needs: scope
+    if: needs.scope.outputs.wheels == 'true'
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
@@ -177,6 +214,8 @@ jobs:
   # warning, so the extra's work is proved by numpy arriving, not by pip's
   # exit code. Fresh venvs, since this runner's Python has numpy in it.
   render-extra:
+    needs: scope
+    if: needs.scope.outputs.wheels == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     name: the [render] extra

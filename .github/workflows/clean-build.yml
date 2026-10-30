@@ -16,13 +16,40 @@ on:
       - '**.md'
       - 'docs/**'
       - 'LICENSE'
+  schedule:
+    - cron: '43 5 * * 1'
   workflow_dispatch:
+
+# A new push to a pull request cancels the run it supersedes. A push to main is
+# never cancelled: each one keeps its own record.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  # What this change can reach (tools/ci_scope.py). A pull request is diffed
+  # against its base and a push to main from the commit it moved from; a manual
+  # or weekly run, or a base git can't find, runs everything.
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.scope.outputs.build }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 tools/ci_scope.py --event "$EVENT" --base "$BASE"
+
   unix-usermod:
+    needs: scope
+    if: needs.scope.outputs.build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -342,6 +369,8 @@ jobs:
   # link into `usermod`, every named source present on disk, and the voice
   # ceiling defined.
   cmake-configure:
+    needs: scope
+    if: needs.scope.outputs.build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     name: cmake configure (standalone)
