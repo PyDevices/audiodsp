@@ -2213,6 +2213,17 @@ the flat-EQ passthrough, and the Nyquist refusal.
 
 ## The biquads were Q15, so they could not go low — now `audiobiquad` only (audiodsp#77)
 
+> **SINCE audiodsp#310 (2026-10-30), `synthio.Biquad` no longer parks.** It runs
+> CircuitPython main's arithmetic at ae47a3f15d (adafruit/circuitpython#11679):
+> coefficients with a per-filter shift of up to 30 bits and state that keeps 12
+> bits below the sample, rounded to nearest. A DC burst into a low-pass now
+> settles at exact zero at 400 Hz and 1000 Hz, and 1 and 4 counts off it at
+> 100 Hz and 40 Hz, where the Q15 kernel held 2631 and 16143. A 200 Hz
+> `LOW_SHELF` at A=1.0 behind `audiofilters.Filter` settles at 0, not +371. No
+> CircuitPython release carries this yet; [upstream-sync.md](upstream-sync.md#ahead-of-the-pin-the-widened-biquad-audiodsp310)
+> says what that means for the oracle. The tables below are the Q15 kernel's,
+> kept as the record.
+
 > **SCOPE CHANGED 2026-09-09 (the maintainer's call on audiodsp#77).** This deviation now
 > applies to **`audiobiquad`, which is ours, and to nothing CircuitPython has.**
 > `synthio.Biquad` — and so `audiofilters.Filter` and a `Note.filter` chain —
@@ -2289,9 +2300,10 @@ the flat-EQ passthrough, and the Nyquist refusal.
 from `audiobiquad` there is one to a few LSB, and it is the node CircuitPython
 has, so it is the one a ported sketch will already be using.
 
-**Below about 100 Hz, use `audiobiquad`.** It reaches exact zero on every one of
-the cases above, where `synthio.Biquad` settles on a constant it cannot be
-talked out of. The same applies to `audiobiquad.AllPass` against
+**Below about 100 Hz, prefer `audiobiquad`.** Its float state reaches exact
+zero on every one of the cases above. `synthio.Biquad` used to settle on a
+constant it could not be talked out of; since audiodsp#310 it gets within a few
+counts of zero, which is inaudible but not exact. The same applies to `audiobiquad.AllPass` against
 `audiofilters.Phaser`, whose feedback is clamped to `0.1..0.9` so a true null is
 not reachable.
 

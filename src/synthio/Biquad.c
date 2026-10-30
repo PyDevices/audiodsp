@@ -89,7 +89,7 @@ void common_hal_synthio_biquad_tick(mp_obj_t self_in) {
         return;
     }
 
-    // CircuitPython's own Q15 arithmetic, from the shared kernel so all three
+    // CircuitPython's own arithmetic, from the shared kernel so all three
     // targets run one copy (audiodsp#77). `synthio.Biquad` is a node
     // CircuitPython also has, so it renders CircuitPython's bytes; the widened
     // kernel beside it in audiodsp_biquad.c is used only by `audiobiquad`,

@@ -75,6 +75,43 @@ to turn up.
 7. Update the record below: what was taken, what was held back, and any
    difference that a fix retired or added.
 
+## Ahead of the pin: the widened biquad (audiodsp#310)
+
+`synthio.Biquad` runs CircuitPython main's arithmetic at ae47a3f15d
+(adafruit/circuitpython#11679), which no release carries yet. A biquad on a
+low shelf or a low-frequency filter used to settle at a DC offset in silence
+(+371 for a 200 Hz `LOW_SHELF` at A=1.0 behind `audiofilters.Filter` at
+36 kHz), and the fix couldn't wait for a release. It came in as two commits,
+both taken in upstream's words:
+
+- **24546b7d1d**: `fast_sincos` reflects the angle into the first quadrant
+  before its polynomials, so cosine near pi is no longer off.
+- **0a7df85004**: each filter's coefficients carry a shift of up to 30 bits,
+  chosen from the largest one, and the state keeps 12 fractional bits in a
+  64-bit sum that rounds to nearest. The old Q15 coefficients and integer
+  state are gone.
+
+It is in [`src/shared/audiodsp_biquad.c`](../../src/shared/audiodsp_biquad.c), in the LPG node's copy in
+[`src/shared/audiodsp_graph.c`](../../src/shared/audiodsp_graph.c), and in the Python filter chain in
+[`src/cpython/audiofilters.py`](../../src/cpython/audiofilters.py). A harness built from upstream's own `Biquad.c`
+at ae47a3f15d agrees with this port on 20,000 random filters and 40,960,000
+samples, with no difference. Upstream's four biquad tests
+(`synthio_biquad_dc_offset`, `_low_frequency`, `_high_frequency`, `_peaking`)
+print upstream's expected output on MicroPython and on CPython.
+
+Until the pin moves to a release with #11679, the alpha.2 oracle disagrees
+wherever a `synthio.Biquad` is heard. `verify_dsp.py` skips the oracle for
+`echo_filter_probe`, `freeverb_filter_probe` and `biquad_component_probe`, and
+`synthtools_acceptance`'s `circuitpython_stdout` differs on `lead`, `bend` and
+`bass`. Two stored digests were re-captured from this port, not the oracle:
+`biquad_component` and `synthtools_acceptance`. **When the pin moves, drop
+those three skips and re-capture both from the oracle.**
+
+Held for that resync: the `synthio.MidiTrack` commits between alpha.2 and
+ae47a3f15d (679e9700ab, ff05e5b620, aad79fe5eb, 6dfa7e5f20, a54b951de6) and
+the new `audiotap` module (e9b2fd49f5, f889146e81), which needs the decision
+step 2 asks for.
+
 ## The last resync: 11.0.0-alpha.2
 
 The pin moved from 11.0.0-alpha.1 to 11.0.0-alpha.2 (d53b2277c). Between the

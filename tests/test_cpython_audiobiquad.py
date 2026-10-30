@@ -218,36 +218,28 @@ class TailTest(unittest.TestCase):
                 self._tail(node),
                 "feedback %g never reached zero" % (feedback,))
 
-    def test_the_frozen_kernel_has_fixed_points_this_one_does_not(self):
-        """audiodsp#23, reproduced at the kernel rather than cited.
+    def test_the_frozen_kernel_parks_by_counts_not_thousands(self):
+        """audiodsp#23 and audiodsp#310, reproduced at the kernel.
 
-        Not every trajectory lands on one -- which is why the defect went
-        unnoticed -- but a plain DC burst into a low-pass does, and the state
-        it lands on reproduces itself for as long as anyone cares to look.
+        A plain DC burst into a low-pass, then silence. CircuitPython's Q15
+        kernel landed on a state that reproduced itself for as long as anyone
+        cared to look, and it was large:
 
-        **The numbers here were 1 and 4 until 2026-09-09, and that was this
-        test measuring the wrong kernel.** `BiquadState.process_s16` ran
-        audiodsp's widened fixed point at the time, which does park but only on
-        a negligible value; audiodsp#77 pointed it at CircuitPython's actual Q15
-        arithmetic, which is what the name always claimed. The defect is far
-        larger than 1 LSB:
+            40 Hz   parked at 16143      100 Hz  parked at 2631
+            400 Hz  parked at 160       1000 Hz  parked at 22
 
-            40 Hz   parks at 16143      100 Hz  parks at 2631
-            400 Hz  parks at 160       1000 Hz  parks at 22
-
-        16143 is half of full scale, held forever, from a filter asked for a
-        40 Hz low-pass. Measured identically on the CPython extension, desktop
-        MicroPython and CircuitPython 10.3.0 (2026-09-09), so it is a fact
-        about CircuitPython's kernel and not about one binding. `audiobiquad`,
-        whose float state is the point of it, reaches exact zero at every one of
-        these -- that is B4 above.
-
-        This is the measurement `docs/upstream-reports/biquad-band-edges.md`
-        exists to carry, and it is the cost of holding `synthio.Biquad` to
-        CircuitPython's bytes.
+        Measured identically on the CPython extension, desktop MicroPython and
+        CircuitPython 10.3.0 (2026-09-09), so it was a fact about the kernel.
+        CircuitPython main (ae47a3f15d, adafruit/circuitpython#11679) widened
+        the coefficients and kept 12 bits of the feedback below the sample, and
+        this port took it: 400 Hz and 1000 Hz now reach exact zero, and 100 Hz
+        and 40 Hz sit 1 and 4 counts off it. `audiobiquad`, whose float state
+        is the point of it, still reaches exact zero at every one of these --
+        that is B4 above. The numbers are pinned so a change to the kernel
+        has to say what it did to them.
         """
         parked = []
-        for frequency, expected in ((100.0, 2631), (40.0, 16143)):
+        for frequency, expected in ((100.0, 1), (40.0, 4)):
             state = _audiodsp.BiquadState()
             state.process_s16(array("h", [30000] * 256).tobytes(), 0,
                               frequency, 0.7071067811865475, 1.0, 48000, 1.0,
