@@ -154,6 +154,28 @@ typedef struct {
 } graph_lpg_t;
 
 typedef struct {
+    // audiomodal.Bank's kernel, one channel, with its tables inline.
+    audiodsp_modal_config_t config;
+    audiodsp_modal_state_t state;
+    audiodsp_modal_mode_t modes[AUDIODSP_GRAPH_MODAL_MODES];
+    audiodsp_modal_coeff_t coeffs[AUDIODSP_GRAPH_MODAL_MODES];
+    float s1[AUDIODSP_GRAPH_MODAL_MODES];
+    float s2[AUDIODSP_GRAPH_MODAL_MODES];
+    // The parameters the modes were made from: frequency, decay,
+    // brightness and the ratios, once `ready` says the modes were made.
+    float tuned[3 + AUDIODSP_GRAPH_MODAL_MODES];
+    bool ready;
+    // The strike's burst: its last value and the samples it has left.
+    double burst;
+    int32_t pending;
+    // The strike was above the threshold at the end of the last block.
+    bool high;
+} graph_modal_t;
+
+static void modal_init(graph_modal_t *d, uint32_t sample_rate);
+static void modal_bind(graph_modal_t *d);
+
+typedef struct {
     uint32_t rng;
 } graph_noise_t;
 
@@ -206,6 +228,8 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_twopole_t);
         case AUDIODSP_GRAPH_LPG:
             return sizeof(graph_lpg_t);
+        case AUDIODSP_GRAPH_MODAL:
+            return sizeof(graph_modal_t);
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
         case AUDIODSP_GRAPH_OVERDRIVE:
             return audiodsp_graph_overdrive_size();
@@ -430,6 +454,24 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_LPG_MANUAL] = 0.0f;
             node->param[AUDIODSP_GRAPH_LPG_LEVEL] = 1.0f;
             break;
+        case AUDIODSP_GRAPH_MODAL: {
+            // ModalResonator's panel at rest: middle C, a bar's ratios at
+            // structure 0.5, its damping, brightness and strike level.
+            graph_modal_t *d = data;
+            static const float bar[AUDIODSP_GRAPH_MODAL_MODES] = {
+                1.0f, 2.0f, 3.0f, 4.2f, 7.9f, 9.8f, 11.9f, 14.2f,
+            };
+            node->param[AUDIODSP_GRAPH_MODAL_FREQUENCY] = 261.6256f;
+            node->param[AUDIODSP_GRAPH_MODAL_DECAY] = 1.6068429f;
+            node->param[AUDIODSP_GRAPH_MODAL_BRIGHTNESS] = 0.6f;
+            node->param[AUDIODSP_GRAPH_MODAL_INPUT] = 0.05f;
+            node->param[AUDIODSP_GRAPH_MODAL_MIX] = 1.0f;
+            for (uint32_t m = 0; m < AUDIODSP_GRAPH_MODAL_MODES; ++m) {
+                node->param[AUDIODSP_GRAPH_MODAL_RATIO + m] = bar[m];
+            }
+            modal_init(d, graph->sample_rate);
+            break;
+        }
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -561,6 +603,15 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             graph_lpg_t *d = n->data;
             d->vactrol = 0.0;
             d->x0 = d->x1 = d->y0 = d->y1 = 0;
+            break;
+        }
+        case AUDIODSP_GRAPH_MODAL: {
+            graph_modal_t *d = n->data;
+            modal_bind(d);
+            audiodsp_modal_reset(&d->state);
+            d->burst = 0.0;
+            d->pending = 0;
+            d->high = false;
             break;
         }
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
@@ -1641,6 +1692,123 @@ static void run_lpg(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     d->y1 = y1;
 }
 
+// -------------------------------------------------------------- MODAL --
+//
+// vrack's dsp/modal.py: an Exciter adds a strike's burst to the excitation,
+// the sum is scaled and rounded to int16 as the rack's bridge rounds it, and
+// audiomodal.Bank's kernel rings it. The bank is the kernel itself, called on
+// the whole block, so the modes match audiomodal.Bank sample for sample; the
+// rack hears them 256 frames later, through its ChunkedBridge.
+
+#define MODAL_STRIKE_DECAY 0.85
+#define MODAL_STRIKE_SAMPLES 40
+#define MODAL_THRESHOLD (0.1f * AUDIODSP_GRAPH_UNIT)
+
+// The kernel keeps pointers to its tables, which live in the node's data.
+static void modal_bind(graph_modal_t *d) {
+    d->config.modes = d->modes;
+    d->config.coeffs = d->coeffs;
+    d->state.s1 = d->s1;
+    d->state.s2 = d->s2;
+    d->state.words = AUDIODSP_GRAPH_MODAL_MODES;
+}
+
+static void modal_init(graph_modal_t *d, uint32_t sample_rate) {
+    audiodsp_modal_config_init(&d->config, sample_rate, 1u,
+        AUDIODSP_GRAPH_MODAL_MODES, d->modes, d->coeffs);
+    audiodsp_modal_state_init(&d->state, &d->config, d->s1, d->s2,
+        AUDIODSP_GRAPH_MODAL_MODES);
+    d->ready = false;
+}
+
+// ModalResonatorCore.tune: mode m at frequency * ratio[m] (under 0.45 of
+// the rate), decay * (1 - 0.5 * m / 8) seconds, and a gain of
+// (0.2 + 0.8 * brightness)^m / (m + 1).
+static void modal_tune(graph_modal_t *d, const float *param, uint32_t sample_rate) {
+    const double top = (double)sample_rate * 0.45;
+    const double freq = (double)param[AUDIODSP_GRAPH_MODAL_FREQUENCY];
+    const double decay = (double)param[AUDIODSP_GRAPH_MODAL_DECAY];
+    const double tilt = 0.2 + 0.8 * (double)param[AUDIODSP_GRAPH_MODAL_BRIGHTNESS];
+    double power = 1.0;
+    for (uint32_t m = 0; m < AUDIODSP_GRAPH_MODAL_MODES; ++m) {
+        const double ratio = (double)param[AUDIODSP_GRAPH_MODAL_RATIO + m];
+        double f = freq * ratio;
+        if (f > top) {
+            f = top;
+        }
+        const double t = decay * (1.0 - 0.5 * (double)m / (double)AUDIODSP_GRAPH_MODAL_MODES);
+        const double gain = (1.0 / (double)(m + 1u)) * power;
+        audiodsp_modal_set_mode(&d->config, m, (float)f, (float)t, (float)gain);
+        power *= tilt;
+    }
+    audiodsp_modal_config_finish(&d->config);
+}
+
+static void run_modal(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_modal_t *d = n->data;
+    modal_bind(d);
+    const int16_t *in = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const int16_t *strike = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[1]] : NULL;
+
+    // Retune only when a parameter the modes depend on moved.
+    bool moved = !d->ready;
+    d->ready = true;
+    for (uint32_t i = 0; i < 3 + AUDIODSP_GRAPH_MODAL_MODES; ++i) {
+        const float v = n->param[i < 3 ? i : AUDIODSP_GRAPH_MODAL_RATIO + (i - 3)];
+        if (v != d->tuned[i]) {
+            d->tuned[i] = v;
+            moved = true;
+        }
+    }
+    if (moved) {
+        modal_tune(d, n->param, graph->sample_rate);
+    }
+    audiodsp_modal_configure(&d->config, AUDIODSP_MODAL_OPT_MIX,
+        n->param[AUDIODSP_GRAPH_MODAL_MIX]);
+
+    // The Exciter: the first rising edge of the strike this block restarts
+    // the burst there.
+    int32_t edge = -1;
+    if (strike != NULL) {
+        bool high = d->high;
+        for (uint32_t i = 0; i < frames; ++i) {
+            const bool now = (float)strike[i] > MODAL_THRESHOLD;
+            if (now && !high) {
+                edge = (int32_t)i;
+                break;
+            }
+            high = now;
+        }
+        d->high = (float)strike[frames - 1] > MODAL_THRESHOLD;
+    }
+    const float input = n->param[AUDIODSP_GRAPH_MODAL_INPUT];
+    const float inv = 1.0f / AUDIODSP_GRAPH_UNIT;
+    int16_t x[AUDIODSP_GRAPH_MAX_FRAMES];
+    for (uint32_t i = 0; i < frames; ++i) {
+        if ((int32_t)i == edge) {
+            d->burst = 1.0;
+            d->pending = MODAL_STRIKE_SAMPLES;
+        }
+        float e = in != NULL ? (float)in[i] * inv : 0.0f;
+        if (d->pending > 0) {
+            d->burst *= MODAL_STRIKE_DECAY;
+            e += (float)d->burst;
+            if (--d->pending == 0) {
+                d->burst = 0.0;
+            }
+        }
+        // The bridge's cast: scale, clamp to the rails, round half away
+        // from zero.
+        float v = e * input * AUDIODSP_GRAPH_UNIT;
+        v = v > 32767.0f ? 32767.0f : (v < -32768.0f ? -32768.0f : v);
+        x[i] = (int16_t)(v >= 0.0f ? v + 0.5f : v - 0.5f);
+    }
+    audiodsp_modal_process_s16(&d->config, &d->state, out, x, frames);
+}
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -1775,6 +1943,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_LPG:
                 run_lpg(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_MODAL:
+                run_modal(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:
