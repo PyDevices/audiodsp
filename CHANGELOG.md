@@ -1,3 +1,7 @@
+## v0.6.12 (2026-10-31)
+
+- audiosampler: keep the filter and LFO state out of the voice table (#355)
+
 ## v0.6.11 (2026-10-31)
 
 - synthio.Biquad: take CircuitPython main's widened biquad (#353)
