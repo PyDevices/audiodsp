@@ -12,6 +12,15 @@
 
 #define Q32_ONE 4294967296.0
 
+// Every field of a voice is paid twice per voice by every sampler, whether
+// its notes use it or not, so the voice stays as small as it was before the
+// filter and the LFOs: 112 bytes on a 32-bit board, 120 on a 64-bit desktop.
+// What only a modulated voice needs goes in audiodsp_sampler_mod_t.
+// A voice that grows past that fails to compile here, as an array of -1.
+typedef char audiodsp_sampler_voice_grew[
+    sizeof(audiodsp_sampler_voice_t) <= (sizeof(void *) == 8 ? 120u : 112u)
+    ? 1 : -1];
+
 static float clampf(float value, float low, float high) {
     if (value < low) {
         return low;

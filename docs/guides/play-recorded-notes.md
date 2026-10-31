@@ -85,6 +85,13 @@ on an ESP32-P4, where 48 filtered voices fit a 256-frame block and 64 only
 just do: see
 [what the filter and the LFOs cost](../how-it-works/upstream-diff.md#what-the-filter-and-the-lfos-cost).
 
+They cost no memory until a voice uses them. The first `play()` that asks for
+any of them, or the first `cutoff` or nonzero `vibrato_depth` set on a voice,
+gives that voice about 270 bytes for their state, which it then keeps. A
+`Sampler(voice_count=32)` on MicroPython takes about 19 KB whatever its notes
+ask for, and one whose 32 voices all use them takes about 7 KB more, in 32
+small pieces rather than one large one.
+
 ## How it renders
 
 Every voice is mixed in one C call per block, summed in float and quantised

@@ -65,7 +65,7 @@
 // is a separate record, attached to a voice the first time it asks for any of
 // them. A voice table is every voice and every tail, so a field on the voice
 // is paid 2 x voice_count times by every sampler, and a table that grew from
-// 7 KB to 18 KB at 32 voices was the one allocation a crowded heap refused.
+// 7 KB to 16 KB at 32 voices was the one allocation a crowded heap refused.
 //
 // A voice that asks for any of them renders in chunks of
 // AUDIODSP_SAMPLER_CONTROL frames. The modulators are worked out once a
