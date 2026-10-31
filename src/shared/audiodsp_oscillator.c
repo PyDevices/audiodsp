@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "shared/audiodsp_fp_contract.h"
+#include "shared/audiodsp_hot.h"
 
 #include "shared/audiodsp_oscillator.h"
 #include "shared/audiodsp_exp2.h"
@@ -77,7 +78,7 @@ void audiodsp_oscillator_configure(audiodsp_oscillator_config_t *config,
     }
 }
 
-static float clampf(float value, float low, float high) {
+static float AUDIODSP_GRAPH_HOT clampf(float value, float low, float high) {
     if (!(value >= low)) {
         return low;
     }
@@ -129,7 +130,7 @@ void audiodsp_oscillator_reset(audiodsp_oscillator_state_t *state) {
 // sin(2 pi phase) for phase in [0, 1), deterministic for the same reason.
 // Folded into a quarter either side of zero, then an odd series to the
 // eleventh power.
-static float sin_cycle(float phase) {
+static float AUDIODSP_GRAPH_HOT sin_cycle(float phase) {
     float y;
     if (phase < 0.25f) {
         y = phase;
@@ -145,14 +146,14 @@ static float sin_cycle(float phase) {
         + x2 * (-1.0f / 39916800.0f))))));
 }
 
-static float triangle_at(float phase) {
+static float AUDIODSP_GRAPH_HOT triangle_at(float phase) {
     return phase < 0.5f ? 4.0f * phase - 1.0f : 3.0f - 4.0f * phase;
 }
 
 // A step of `height` that happened `t` samples before the sample being
 // computed (0 <= t <= 1): half of the PolyBLEP residual goes on the sample
 // before the step, half on the one after.
-static void blep(float *before, float *after, float height, float t) {
+static void AUDIODSP_GRAPH_HOT blep(float *before, float *after, float height, float t) {
     const float u = 1.0f - t;
     *before += height * 0.5f * t * t;
     *after -= height * 0.5f * u * u;
@@ -160,20 +161,20 @@ static void blep(float *before, float *after, float height, float t) {
 
 // A change of `slope` (in units per sample) at the same place: the integral
 // of the residual above.
-static void blamp(float *before, float *after, float slope, float t) {
+static void AUDIODSP_GRAPH_HOT blamp(float *before, float *after, float slope, float t) {
     const float u = 1.0f - t;
     *before += slope * (1.0f / 6.0f) * t * t * t;
     *after += slope * (1.0f / 6.0f) * u * u * u;
 }
 
-static float clamp_t(float t) {
+static float AUDIODSP_GRAPH_HOT clamp_t(float t) {
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
 }
 
 // Advances `*phase` to `end` (unwrapped, so at most one reset), placing the
 // events crossed on the way. `offset` is how many samples the segment ends
 // before the sample being computed.
-static void run_segment(audiodsp_oscillator_state_t *state, float *next,
+static void AUDIODSP_GRAPH_HOT run_segment(audiodsp_oscillator_state_t *state, float *next,
     uint8_t waves, float *phase, float end, float dt, float inv_dt, float pw,
     float offset) {
     float *cur = state->pending;
@@ -217,7 +218,7 @@ static void run_segment(audiodsp_oscillator_state_t *state, float *next,
 // A hard sync `t` samples before the sample being computed: every waveform
 // jumps from where it was to its value at phase 0, and the triangle and sine
 // also turn a corner.
-static void sync_reset(audiodsp_oscillator_state_t *state, float *next,
+static void AUDIODSP_GRAPH_HOT sync_reset(audiodsp_oscillator_state_t *state, float *next,
     uint8_t waves, float at, float dt, float t) {
     float *cur = state->pending;
     if (waves & AUDIODSP_OSCILLATOR_SAW) {
@@ -246,7 +247,7 @@ static void sync_reset(audiodsp_oscillator_state_t *state, float *next,
     }
 }
 
-static int16_t to_s16(float value) {
+static int16_t AUDIODSP_GRAPH_HOT to_s16(float value) {
     if (value > 32767.0f) {
         return 32767;
     }
@@ -256,7 +257,7 @@ static int16_t to_s16(float value) {
     return (int16_t)(value >= 0.0f ? value + 0.5f : value - 0.5f);
 }
 
-static float mix_waves(const float *values, uint8_t waves) {
+static float AUDIODSP_GRAPH_HOT mix_waves(const float *values, uint8_t waves) {
     float sum = 0.0f;
     if (waves & AUDIODSP_OSCILLATOR_SAW) {
         sum += values[SAW];
@@ -273,7 +274,7 @@ static float mix_waves(const float *values, uint8_t waves) {
     return sum;
 }
 
-void audiodsp_oscillator_process_s16(
+void AUDIODSP_GRAPH_HOT audiodsp_oscillator_process_s16(
     const audiodsp_oscillator_config_t *config,
     audiodsp_oscillator_state_t *state, int16_t *out, uint32_t frames,
     const int16_t *const inputs[AUDIODSP_OSCILLATOR_INPUTS],

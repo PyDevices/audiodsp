@@ -4,6 +4,7 @@
 // First, so no multiply-add here is fused on one target and not another: a
 // graph renders the same samples on every board (audiodsp_fp_contract.h).
 #include "shared/audiodsp_fp_contract.h"
+#include "shared/audiodsp_hot.h"
 
 #include "shared/audiodsp_graph.h"
 
@@ -29,7 +30,7 @@
 // audiodsp_trig.c steps round for fmod). Callers pass a finite value well
 // inside int32_t range: a sample rate in Hz, or a sample already clamped to
 // the int16 range. A NaN gives 0, as lrintf's result does once cut to int16.
-static inline int32_t round_even(float v) {
+static inline int32_t AUDIODSP_GRAPH_HOT round_even(float v) {
     if (!(v == v)) {
         return 0;
     }
@@ -719,7 +720,7 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
 
 // ------------------------------------------------------------- the run --
 
-static void derive(audiodsp_graph_t *graph, audiodsp_graph_node_t *n) {
+static void AUDIODSP_GRAPH_HOT derive(audiodsp_graph_t *graph, audiodsp_graph_node_t *n) {
     n->dirty = false;
     switch (n->kind) {
         case AUDIODSP_GRAPH_OSC: {
@@ -807,7 +808,7 @@ static void derive(audiodsp_graph_t *graph, audiodsp_graph_node_t *n) {
     }
 }
 
-static inline int16_t sat16(float v) {
+static inline int16_t AUDIODSP_GRAPH_HOT sat16(float v) {
     if (v > 32767.0f) {
         return 32767;
     }
@@ -817,7 +818,7 @@ static inline int16_t sat16(float v) {
     return (int16_t)round_even(v);
 }
 
-static void run_env(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
+static void AUDIODSP_GRAPH_HOT run_env(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
     uint32_t frames) {
     graph_env_t *d = n->data;
     const float sus = n->param[AUDIODSP_GRAPH_ENV_SUSTAIN];
@@ -877,7 +878,7 @@ static void run_env(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
 // One polynomial in one order is one function on every target, where sinf()
 // is a different one on each libm. Worst error about 6e-8, under a hundredth
 // of a count at full scale.
-static float lfo_sine(float phase) {
+static float AUDIODSP_GRAPH_HOT lfo_sine(float phase) {
     float t = phase;
     if (t >= 0.75f) {
         t -= 1.0f;
@@ -895,14 +896,14 @@ static float lfo_sine(float phase) {
     return r * x;
 }
 
-static uint32_t xorshift(uint32_t x) {
+static uint32_t AUDIODSP_GRAPH_HOT xorshift(uint32_t x) {
     x ^= x << 13;
     x ^= x >> 17;
     x ^= x << 5;
     return x;
 }
 
-static void run_lfo(audiodsp_graph_node_t *n, int16_t *out, uint32_t frames,
+static void AUDIODSP_GRAPH_HOT run_lfo(audiodsp_graph_node_t *n, int16_t *out, uint32_t frames,
     uint32_t sample_rate) {
     graph_lfo_t *d = n->data;
     const float dt = n->param[AUDIODSP_GRAPH_LFO_RATE] / (float)sample_rate;
@@ -972,7 +973,7 @@ static void run_lfo(audiodsp_graph_node_t *n, int16_t *out, uint32_t frames,
     d->shape = shape;
 }
 
-static void run_lag(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+static void AUDIODSP_GRAPH_HOT run_lag(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     graph_lag_t *d = n->data;
     const int16_t *note = n->inputs[0] == AUDIODSP_GRAPH_NONE
@@ -1064,7 +1065,7 @@ static void run_lag(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     }
 }
 
-static void run_sample_hold(const audiodsp_graph_t *graph,
+static void AUDIODSP_GRAPH_HOT run_sample_hold(const audiodsp_graph_t *graph,
     audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
     graph_sh_t *d = n->data;
     const int16_t *signal = n->inputs[0] == AUDIODSP_GRAPH_NONE
@@ -1118,7 +1119,7 @@ static void run_sample_hold(const audiodsp_graph_t *graph,
     d->out = v;
 }
 
-static void run_noise(audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
+static void AUDIODSP_GRAPH_HOT run_noise(audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
     graph_noise_t *d = n->data;
     const float amp = n->param[0];
     uint32_t x = d->rng;
@@ -1135,7 +1136,7 @@ static void run_noise(audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
 
 // One input into a mixer's sum at gain g1: ramped across the block from the
 // gain it had (*now) when that moved, skipped at a gain of 0 that did not.
-static void mix_input(float *acc, const int16_t *in, float *now, float g1,
+static void AUDIODSP_GRAPH_HOT mix_input(float *acc, const int16_t *in, float *now, float g1,
     uint32_t frames) {
     const float g0 = *now;
     *now = g1;
@@ -1156,7 +1157,7 @@ static void mix_input(float *acc, const int16_t *in, float *now, float g1,
     }
 }
 
-static void run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+static void AUDIODSP_GRAPH_HOT run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames, float *acc) {
     graph_mix_t *d = n->data;
     const float offset = n->param[AUDIODSP_GRAPH_MIX_OFFSET];
@@ -1179,7 +1180,7 @@ static void run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     }
 }
 
-static void run_pan(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+static void AUDIODSP_GRAPH_HOT run_pan(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames, float *acc) {
     graph_pan_t *d = n->data;
     float left[AUDIODSP_GRAPH_MAX_INPUTS];
@@ -1216,7 +1217,7 @@ static void run_pan(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     }
 }
 
-static void run_vca(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+static void AUDIODSP_GRAPH_HOT run_vca(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     const int16_t *audio = n->inputs[0] == AUDIODSP_GRAPH_NONE
         ? NULL : graph->bufs[n->inputs[0]];
@@ -1242,7 +1243,7 @@ static void run_vca(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     }
 }
 
-static void run_out(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+static void AUDIODSP_GRAPH_HOT run_out(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     if (out == NULL) {
         return;
@@ -1938,7 +1939,7 @@ static void run_modal(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     audiodsp_modal_process_s16(&d->config, &d->state, out, x, frames);
 }
 
-uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
+uint32_t AUDIODSP_GRAPH_HOT audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
     float acc[AUDIODSP_GRAPH_MAX_FRAMES];
@@ -2125,7 +2126,7 @@ bool audiodsp_graph_valid(const audiodsp_graph_t *graph, uint32_t node,
     return node < graph->nnodes && index < AUDIODSP_GRAPH_MAX_PARAMS;
 }
 
-static void apply(audiodsp_graph_t *graph, const audiodsp_graph_record_t *r) {
+static void AUDIODSP_GRAPH_HOT apply(audiodsp_graph_t *graph, const audiodsp_graph_record_t *r) {
     switch (r->op) {
         case AUDIODSP_GRAPH_OP_SET:
             audiodsp_graph_set(graph, r->node, r->index, r->arg.value);
@@ -2141,7 +2142,7 @@ static void apply(audiodsp_graph_t *graph, const audiodsp_graph_record_t *r) {
     }
 }
 
-uint32_t audiodsp_graph_drain(audiodsp_graph_t *graph) {
+uint32_t AUDIODSP_GRAPH_HOT audiodsp_graph_drain(audiodsp_graph_t *graph) {
     const uint32_t end = GRAPH_LOAD_ACQ(&graph->published);
     uint32_t at = graph->tail;
     const uint32_t n = end - at;
@@ -2211,7 +2212,7 @@ void audiodsp_graph_commit(audiodsp_graph_t *graph) {
     publish(graph);
 }
 
-static uint32_t render(audiodsp_graph_t *graph, int16_t *out, bool own,
+static uint32_t AUDIODSP_GRAPH_HOT render(audiodsp_graph_t *graph, int16_t *out, bool own,
     uint32_t enable) {
     if (graph->records != NULL) {
         audiodsp_graph_drain(graph);

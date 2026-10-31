@@ -48,3 +48,12 @@
 #ifndef AUDIODSP_METER_HOT
 #define AUDIODSP_METER_HOT
 #endif
+
+// The same, for audiograph's block loop and the kernels every synth voice
+// runs in it: the ladder, the oscillator, envelopes, LFOs, lags, mixes and
+// the VCA (shared/audiodsp_graph.c, audiodsp_ladder.c, audiodsp_oscillator.c).
+// Off by default; `micropython.cmake` names it on esp32 for
+// `AUDIODSP_GRAPH_IRAM=1`.
+#ifndef AUDIODSP_GRAPH_HOT
+#define AUDIODSP_GRAPH_HOT
+#endif

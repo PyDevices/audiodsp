@@ -390,4 +390,16 @@ if(AUDIODSP_METER_IRAM AND (CONFIG_IDF_TARGET_ARCH_RISCV OR CONFIG_IDF_TARGET_AR
         "AUDIODSP_METER_HOT=__attribute__((section(\".iram1.audiometer\")))")
 endif()
 
+# audiograph's block loop and the synth kernels it runs (the ladder, the
+# oscillator, envelopes, LFOs, lags, mixes, the VCA) in IRAM. -DAUDIODSP_GRAPH_IRAM=1
+# (or the environment variable of the same name) turns it on.
+if(NOT DEFINED AUDIODSP_GRAPH_IRAM AND DEFINED ENV{AUDIODSP_GRAPH_IRAM})
+    set(AUDIODSP_GRAPH_IRAM $ENV{AUDIODSP_GRAPH_IRAM})
+endif()
+if(AUDIODSP_GRAPH_IRAM AND (CONFIG_IDF_TARGET_ARCH_RISCV OR CONFIG_IDF_TARGET_ARCH_XTENSA))
+    target_compile_definitions(usermod_mpaudio INTERFACE
+        "AUDIODSP_GRAPH_HOT=__attribute__((section(\".iram1.audiograph\")))")
+    message(STATUS "audiodsp: audiograph's loop and kernels in IRAM (AUDIODSP_GRAPH_IRAM=1)")
+endif()
+
 target_link_libraries(usermod INTERFACE usermod_mpaudio)

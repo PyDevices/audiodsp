@@ -37,6 +37,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "shared/audiodsp_fp_contract.h"
+#include "shared/audiodsp_hot.h"
 
 #include "shared/audiodsp_ladder.h"
 #include "shared/audiodsp_exp2.h"
@@ -50,7 +51,7 @@
 //: four one-poles each contributing 45 degrees and 1/sqrt(2) at the cutoff.
 #define AUDIODSP_LADDER_SELF_OSCILLATION 4.0f
 
-static float clampf(float value, float low, float high) {
+static float AUDIODSP_GRAPH_HOT clampf(float value, float low, float high) {
     if (value < low) {
         return low;
     }
@@ -67,14 +68,14 @@ static float clampf(float value, float low, float high) {
 // where a tanh would be a library call per sample. Its value past the clamp
 // is 1 - 1/3, which is what the linear branch of the solver is written
 // against.
-static float ladder_saturate(float value) {
+static float AUDIODSP_GRAPH_HOT ladder_saturate(float value) {
     const float clipped = clampf(value, -1.0f, 1.0f);
     return clipped - clipped * clipped * clipped * (1.0f / 3.0f);
 }
 
 // Everything that follows from g, for the configured cutoff and for the
 // cutoff input alike, so the two run the same arithmetic.
-static void ladder_finish_coeffs(audiodsp_ladder_coeffs_t *coeffs,
+static void AUDIODSP_GRAPH_HOT ladder_finish_coeffs(audiodsp_ladder_coeffs_t *coeffs,
     float resonance, float g) {
     coeffs->g = g;
     const float squared = g * g;
@@ -110,14 +111,14 @@ static void ladder_update_coefficients(audiodsp_ladder_config_t *config) {
 // leaves the error under 1e-9 at the top of the range and relative, not
 // absolute, at the bottom, where g is small and a cancellation would cost it
 // its digits.
-static float ladder_sin(float w) {
+static float AUDIODSP_GRAPH_HOT ladder_sin(float w) {
     const float w2 = w * w;
     return w * (1.0f + w2 * (-1.0f / 6.0f + w2 * (1.0f / 120.0f
         + w2 * (-1.0f / 5040.0f + w2 * (1.0f / 362880.0f
         + w2 * (-1.0f / 39916800.0f + w2 * (1.0f / 6227020800.0f)))))));
 }
 
-static float ladder_cos(float w) {
+static float AUDIODSP_GRAPH_HOT ladder_cos(float w) {
     const float w2 = w * w;
     return 1.0f + w2 * (-0.5f + w2 * (1.0f / 24.0f + w2 * (-1.0f / 720.0f
         + w2 * (1.0f / 40320.0f + w2 * (-1.0f / 3628800.0f
@@ -126,7 +127,7 @@ static float ladder_cos(float w) {
 
 // The coefficients for one sample of the cutoff input. tan/(1 + tan) is
 // sin/(sin + cos), which is one division and no tan.
-static void ladder_cutoff_coeffs(const audiodsp_ladder_config_t *config,
+static void AUDIODSP_GRAPH_HOT ladder_cutoff_coeffs(const audiodsp_ladder_config_t *config,
     int32_t value, audiodsp_ladder_coeffs_t *coeffs) {
     const float cutoff = clampf(config->cutoff_hz *
         audiodsp_exp2_poly((float)value * config->cutoff_scale),
@@ -255,7 +256,7 @@ void audiodsp_ladder_reset(audiodsp_ladder_state_t *state) {
 
 // Solve y + a*sat(y) = c for y. See the file header for why this is a solve
 // and not a delay, and why it converges.
-static float ladder_solve(const audiodsp_ladder_coeffs_t *coeffs, float c,
+static float AUDIODSP_GRAPH_HOT ladder_solve(const audiodsp_ladder_coeffs_t *coeffs, float c,
     float seed) {
     const float saturated = coeffs->loop_gain * (2.0f / 3.0f);
     // Where the saturator is clamped the equation is linear, so these two
@@ -283,7 +284,7 @@ static float ladder_solve(const audiodsp_ladder_coeffs_t *coeffs, float c,
 // One sample through the ladder, at whatever rate the caller is running it.
 // `x` is already driven and in the +-1 domain; the return is the tapped
 // stage, before the passband compensation and the mix.
-static float ladder_step(const audiodsp_ladder_config_t *config,
+static float AUDIODSP_GRAPH_HOT ladder_step(const audiodsp_ladder_config_t *config,
     const audiodsp_ladder_coeffs_t *coeffs, audiodsp_ladder_state_t *state,
     uint32_t channel, float x) {
     float *integrator = state->integrator[channel];
@@ -335,7 +336,7 @@ static float ladder_step(const audiodsp_ladder_config_t *config,
     return outputs[config->poles - 1u];
 }
 
-static int16_t to_s16(float value) {
+static int16_t AUDIODSP_GRAPH_HOT to_s16(float value) {
     if (value > 32767.0f) {
         return 32767;
     }
@@ -347,7 +348,7 @@ static int16_t to_s16(float value) {
 
 // One frame, every channel, at the coefficients given. Inline, so the
 // unmodulated loop below compiles to what it was before the cutoff input.
-static inline void ladder_frame(const audiodsp_ladder_config_t *config,
+static inline void AUDIODSP_GRAPH_HOT ladder_frame(const audiodsp_ladder_config_t *config,
     const audiodsp_ladder_coeffs_t *coeffs, audiodsp_ladder_state_t *state,
     int16_t *out, const int16_t *in, uint32_t channels, bool doubled,
     float drive, float mix, float gain) {
@@ -379,7 +380,7 @@ static inline void ladder_frame(const audiodsp_ladder_config_t *config,
     }
 }
 
-void audiodsp_ladder_process_s16(const audiodsp_ladder_config_t *config,
+void AUDIODSP_GRAPH_HOT audiodsp_ladder_process_s16(const audiodsp_ladder_config_t *config,
     audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {
     const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
@@ -394,7 +395,7 @@ void audiodsp_ladder_process_s16(const audiodsp_ladder_config_t *config,
     }
 }
 
-void audiodsp_ladder_process_cutoff_s16(const audiodsp_ladder_config_t *config,
+void AUDIODSP_GRAPH_HOT audiodsp_ladder_process_cutoff_s16(const audiodsp_ladder_config_t *config,
     audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames, const int16_t *cutoff, uint32_t cutoff_stride) {
     if (cutoff == NULL) {
