@@ -254,9 +254,12 @@ typedef struct {
     uint32_t length;       // frames
     uint32_t loop_start;
     uint32_t loop_end;
-    uint32_t loop_mode;
-    uint32_t stage;        // audiodsp_sampler_stage_t
+    // Four bytes together, in the padding before `position`: every field
+    // here is paid twice per voice, by every sampler.
+    uint8_t loop_mode;     // audiodsp_sampler_loop_t
+    uint8_t stage;         // audiodsp_sampler_stage_t
     bool looping;          // still wrapping at loop_end
+    uint8_t mods;          // AUDIODSP_SAMPLER_MOD_*: zero on the plain path
     uint64_t position;     // Q32.32 frames
     uint64_t step;         // Q32.32 frames per output frame
     float rate_ratio;      // rate / sample_rate, so a pitch change is one multiply
@@ -276,8 +279,6 @@ typedef struct {
     float gain_run[2];
     // Frames since play(), for the LFOs. Wraps after a day at 48 kHz.
     uint32_t age;
-    // AUDIODSP_SAMPLER_MOD_*: zero for a voice on the plain path.
-    uint32_t mods;
     // Borrowed from the binding; NULL until the voice first needs it, and
     // then for good. Never nonzero `mods` without it.
     audiodsp_sampler_mod_t *mod;

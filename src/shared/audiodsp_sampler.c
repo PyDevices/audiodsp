@@ -119,7 +119,7 @@ static void enter_stage(audiodsp_sampler_voice_t *voice, uint32_t stage);
 // the one before cannot accumulate across the envelope.
 static void enter_stage(audiodsp_sampler_voice_t *voice, uint32_t stage) {
     for (;;) {
-        voice->stage = stage;
+        voice->stage = (uint8_t)stage;
         switch (stage) {
             case AUDIODSP_SAMPLER_STAGE_ATTACK:
                 voice->env = 0.0f;
@@ -383,7 +383,7 @@ static void update_mods(audiodsp_sampler_voice_t *voice) {
     }
     m->filter_gain = (mods & AUDIODSP_SAMPLER_MOD_FILTER) ?
         audiodsp_exp2_poly(-m->resonance * (0.5f * 0.16609640f)) : 1.0f;
-    voice->mods = mods;
+    voice->mods = (uint8_t)mods;
 }
 
 // The resonance as the filter's 1/Q. Q's response at the cutoff is Q itself,
@@ -522,7 +522,7 @@ bool audiodsp_sampler_play(audiodsp_sampler_t *self, uint32_t index,
     voice->length = length;
     voice->loop_start = loop_start;
     voice->loop_end = loop_end;
-    voice->loop_mode = note->loop_mode;
+    voice->loop_mode = (uint8_t)note->loop_mode;
     voice->looping = note->loop_mode != AUDIODSP_SAMPLER_LOOP_NONE;
     voice->position = 0;
     float rate = note->rate > 0.0f ? note->rate : (float)self->sample_rate;
