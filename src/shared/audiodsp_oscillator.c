@@ -286,6 +286,13 @@ void audiodsp_oscillator_process_s16(
     const uint8_t waves = config->waves;
     const float gain = config->gain;
     float phase = state->phase;
+    // 1/dt only moves when dt does, and a held note's dt is the same every
+    // sample: a division a sample was a sixth of the oscillator's time on the
+    // P4, whose divide is slow. The same dt gives the same reciprocal, so
+    // keeping it is exact.
+    float held_dt = 0.0f;
+    float inv_dt = 0.0f;
+    bool have_inv = false;
     for (uint32_t frame = 0; frame < frames; ++frame) {
         float dt = config->base_dt;
         if (pitch != NULL) {
@@ -303,7 +310,11 @@ void audiodsp_oscillator_process_s16(
             dt += (float)fm[frame * strides[1]] * config->fm_scale;
         }
         dt = clampf(dt, config->dt_min, config->dt_max);
-        const float inv_dt = 1.0f / dt;
+        if (!have_inv || dt != held_dt) {
+            held_dt = dt;
+            inv_dt = 1.0f / dt;
+            have_inv = true;
+        }
         float pw = config->pulse_width;
         if (pwm != NULL) {
             pw = clampf(pw + (float)pwm[frame * strides[2]]
