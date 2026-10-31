@@ -1,3 +1,7 @@
+## v0.6.13.dev1 (2026-10-31)
+
+- audiosampler: CircuitPython's binding tests vibrato depth without == (#357)
+
 ## v0.6.12 (2026-10-31)
 
 - audiosampler: keep the filter and LFO state out of the voice table (#355)
