@@ -286,8 +286,7 @@ static float ladder_solve(const audiodsp_ladder_coeffs_t *coeffs, float c,
 // coefficients and the other integrators again (they are all floats, so as
 // far as it knows they may be the same memory), and the stages ran through
 // arrays on the stack. The arithmetic is the same, in the same order: only
-// where the numbers live between samples moved, which on the P4 is a third
-// of the ladder's time.
+// where the numbers live between samples moved.
 typedef struct {
     float z0, z1, z2, z3;
     float last;
