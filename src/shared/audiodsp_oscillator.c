@@ -287,9 +287,8 @@ void audiodsp_oscillator_process_s16(
     const float gain = config->gain;
     float phase = state->phase;
     // 1/dt only moves when dt does, and a held note's dt is the same every
-    // sample: a division a sample was a sixth of the oscillator's time on the
-    // P4, whose divide is slow. The same dt gives the same reciprocal, so
-    // keeping it is exact.
+    // sample, so this divides once a block where it divided once a sample.
+    // The same dt gives the same reciprocal, so keeping it is exact.
     float held_dt = 0.0f;
     float inv_dt = 0.0f;
     bool have_inv = false;
