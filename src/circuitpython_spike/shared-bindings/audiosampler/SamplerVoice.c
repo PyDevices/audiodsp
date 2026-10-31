@@ -398,7 +398,7 @@ static mp_obj_t audiosampler_samplervoice_obj_set_vibrato_depth(
     audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_check_for_deinit(&self->parent->base);
     float cents = (float)mp_obj_get_float(value);
-    if (cents != 0.0f) {
+    if (cents < 0.0f || cents > 0.0f) {  // != 0; CircuitPython builds with -Werror=float-equal
         samplervoice_need_mod(self);
     }
     audiodsp_sampler_set_vibrato_depth(&self->parent->sampler, self->index,
