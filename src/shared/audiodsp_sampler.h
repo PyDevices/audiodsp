@@ -61,6 +61,11 @@
 // asks for none of them -- no cutoff below the open one, no resonance, every
 // depth zero -- takes the path above, untouched, and costs what it did
 // before any of this existed; the one addition is a counter of its age.
+// It costs no memory either: what the filter, the envelope and the LFOs keep
+// is a separate record, attached to a voice the first time it asks for any of
+// them. A voice table is every voice and every tail, so a field on the voice
+// is paid 2 x voice_count times by every sampler, and a table that grew from
+// 7 KB to 16 KB at 32 voices was the one allocation a crowded heap refused.
 //
 // A voice that asks for any of them renders in chunks of
 // AUDIODSP_SAMPLER_CONTROL frames. The modulators are worked out once a
@@ -84,8 +89,9 @@
 //
 // The pulling loop is not here, for the same reason it is not in
 // audiodsp_modal.c: each runtime reaches its audio graph differently. Nor is
-// any memory: the binding owns the voice table, the mix accumulator and the
-// sample buffers, and tells the kernel where they are.
+// any memory: the binding owns the voice table, the mix accumulator, the
+// modulation records and the sample buffers, and tells the kernel where they
+// are.
 //
 // SPDX-License-Identifier: MIT
 
@@ -204,37 +210,11 @@ typedef struct {
 #define AUDIODSP_SAMPLER_MOD_VOLUME 8u  // the LFO moves the volume
 #define AUDIODSP_SAMPLER_MOD_ENV 16u    // the modulation envelope is used
 
-//: One voice. Written by the kernel only; a binding reads `stage` to answer
-//: `playing` and to know when to let go of the buffer it handed over.
+//: What a voice needs only for the filter, the modulation envelope and the
+//: LFOs. It lives outside the voice table, one pair (the voice's and its
+//: tail's) per voice that has ever asked for any of them, so a sampler whose
+//: notes never do carries none of it. See audiodsp_sampler_attach_mod().
 typedef struct {
-    const int16_t *data;   // borrowed from the binding; NULL when idle
-    uint32_t length;       // frames
-    uint32_t loop_start;
-    uint32_t loop_end;
-    uint32_t loop_mode;
-    uint32_t stage;        // audiodsp_sampler_stage_t
-    bool looping;          // still wrapping at loop_end
-    uint64_t position;     // Q32.32 frames
-    uint64_t step;         // Q32.32 frames per output frame
-    float rate_ratio;      // rate / sample_rate, so a pitch change is one multiply
-    float pitch;
-    // The envelope: where it is, how far it moves each sample, and how many
-    // samples are left in the stage (unused in sustain).
-    float env;
-    float env_step;
-    uint32_t stage_left;
-    uint32_t attack_samples, hold_samples, decay_samples, release_samples;
-    float sustain;
-    // Where the fader is asked to be, and where the last block left it.
-    float level;
-    float pan;
-    float gain[2];
-    // Where a run of clean frames left the gains, mid-block (render only).
-    float gain_run[2];
-    // Frames since play(), for the LFOs. Wraps after a day at 48 kHz.
-    uint32_t age;
-    // AUDIODSP_SAMPLER_MOD_*: zero for a voice on the plain path.
-    uint32_t mods;
     // The step pitch alone asks for; a modulated voice scales it each chunk.
     uint64_t step_base;
     // The low-pass: its cutoff (Hz) and 1/Q, the DC gain the resonance
@@ -265,6 +245,43 @@ typedef struct {
     // The volume factor the last chunk ended on (the filter's DC gain times
     // the LFO's tremolo), so the next ramps from it.
     float mod_gain;
+} audiodsp_sampler_mod_t;
+
+//: One voice. Written by the kernel only; a binding reads `stage` to answer
+//: `playing` and to know when to let go of the buffer it handed over.
+typedef struct {
+    const int16_t *data;   // borrowed from the binding; NULL when idle
+    uint32_t length;       // frames
+    uint32_t loop_start;
+    uint32_t loop_end;
+    // Four bytes together, in the padding before `position`: every field
+    // here is paid twice per voice, by every sampler.
+    uint8_t loop_mode;     // audiodsp_sampler_loop_t
+    uint8_t stage;         // audiodsp_sampler_stage_t
+    bool looping;          // still wrapping at loop_end
+    uint8_t mods;          // AUDIODSP_SAMPLER_MOD_*: zero on the plain path
+    uint64_t position;     // Q32.32 frames
+    uint64_t step;         // Q32.32 frames per output frame
+    float rate_ratio;      // rate / sample_rate, so a pitch change is one multiply
+    float pitch;
+    // The envelope: where it is, how far it moves each sample, and how many
+    // samples are left in the stage (unused in sustain).
+    float env;
+    float env_step;
+    uint32_t stage_left;
+    uint32_t attack_samples, hold_samples, decay_samples, release_samples;
+    float sustain;
+    // Where the fader is asked to be, and where the last block left it.
+    float level;
+    float pan;
+    float gain[2];
+    // Where a run of clean frames left the gains, mid-block (render only).
+    float gain_run[2];
+    // Frames since play(), for the LFOs. Wraps after a day at 48 kHz.
+    uint32_t age;
+    // Borrowed from the binding; NULL until the voice first needs it, and
+    // then for good. Never nonzero `mods` without it.
+    audiodsp_sampler_mod_t *mod;
 } audiodsp_sampler_voice_t;
 
 typedef struct {
@@ -284,6 +301,25 @@ void audiodsp_sampler_init(audiodsp_sampler_t *self, uint32_t sample_rate,
     audiodsp_sampler_voice_t *voices, float *mix);
 
 void audiodsp_sampler_note_init(audiodsp_sampler_note_t *note);
+
+// True when a note asks for anything a voice keeps in its
+// audiodsp_sampler_mod_t: any filter, modulation-envelope or LFO setting
+// other than audiodsp_sampler_note_init's. A binding asks before play(), and
+// on true attaches the voice's pair first.
+bool audiodsp_sampler_note_modulated(const audiodsp_sampler_note_t *note);
+
+// True once voice `index` has its modulation state.
+bool audiodsp_sampler_has_mod(const audiodsp_sampler_t *self, uint32_t index);
+
+// Gives voice `index` and its tail their modulation state: `pair[0]` is the
+// voice's and `pair[1]` the tail's, borrowed until the sampler goes. Set up
+// as a note with none of it asks for, so a note already sounding renders on
+// exactly as it would have. Done once per voice; a second call is ignored.
+// Without it, play() takes no filter, envelope or LFO setting from its note,
+// and set_cutoff() and set_vibrato_depth() change nothing: a binding attaches
+// before any of those that asks for more than the defaults.
+void audiodsp_sampler_attach_mod(audiodsp_sampler_t *self, uint32_t index,
+    audiodsp_sampler_mod_t *pair);
 
 // Starts `index` on `data` (mono signed 16-bit, `length` frames). A note the
 // voice was still sounding moves to the voice's tail and fades out there,

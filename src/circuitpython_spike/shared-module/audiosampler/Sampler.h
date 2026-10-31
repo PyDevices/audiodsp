@@ -47,6 +47,10 @@ typedef struct {
     mp_obj_t pitch;
     mp_obj_t cutoff;
     mp_obj_t vibrato_depth;
+    // The voice's and its tail's filter, envelope and LFO state, allocated
+    // the first time a note or a live change asks for any of them, and held
+    // here as well as in the voice table so the GC keeps it.
+    audiodsp_sampler_mod_t *mod;
 } audiosampler_samplervoice_obj_t;
 
 void audiosampler_sampler_reset_buffer(audiosampler_sampler_obj_t *self,
