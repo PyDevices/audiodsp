@@ -2882,6 +2882,32 @@ static void sampler_state_hand(audiodsp_sampler_object_t *self, uint32_t index) 
     }
 }
 
+// Each voice's filter, envelope and LFO state, with its tail's, is a pair
+// allocated the first time a note or a live change on the voice asks for any
+// of them; the voice table holds the pointer.
+static int sampler_state_need_mod(audiodsp_sampler_object_t *self,
+    uint32_t index) {
+    if (audiodsp_sampler_has_mod(&self->sampler, index)) {
+        return 0;
+    }
+    audiodsp_sampler_mod_t *pair = PyMem_Calloc(2,
+        sizeof(audiodsp_sampler_mod_t));
+    if (pair == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    audiodsp_sampler_attach_mod(&self->sampler, index, pair);
+    return 0;
+}
+
+static void sampler_state_free_mods(audiodsp_sampler_object_t *self) {
+    for (uint32_t i = 0; self->voices != NULL &&
+         i < self->sampler.voice_count; ++i) {
+        PyMem_Free(self->voices[i].mod);
+        self->voices[i].mod = NULL;
+    }
+}
+
 static int sampler_state_init(audiodsp_sampler_object_t *self, PyObject *args,
     PyObject *kwargs) {
     static char *keywords[] = {"sample_rate", "channel_count", "frames",
@@ -2911,6 +2937,7 @@ static int sampler_state_init(audiodsp_sampler_object_t *self, PyObject *args,
         return -1;
     }
     sampler_state_drop_all(self);
+    sampler_state_free_mods(self);
     PyMem_Free(self->voices);
     PyMem_Free(self->mix);
     PyMem_Free(self->out);
@@ -2935,6 +2962,7 @@ static int sampler_state_init(audiodsp_sampler_object_t *self, PyObject *args,
 static void sampler_state_dealloc(audiodsp_sampler_object_t *self) {
     PyTypeObject *type = Py_TYPE(self);
     sampler_state_drop_all(self);
+    sampler_state_free_mods(self);
     PyMem_Free(self->voices);
     PyMem_Free(self->mix);
     PyMem_Free(self->out);
@@ -3053,6 +3081,11 @@ static PyObject *sampler_state_play(audiodsp_sampler_object_t *self,
     note.lfo_to_pitch = (float)mod[15];
     note.lfo_to_cutoff = (float)mod[16];
     note.lfo_to_volume = (float)mod[17];
+    if (audiodsp_sampler_note_modulated(&note) &&
+        sampler_state_need_mod(self, index) < 0) {
+        PyBuffer_Release(&view);
+        return NULL;
+    }
     // Let go of what this voice was reading only once the new buffer is
     // known to be good, so a refused play() leaves the voice as it was.
     // The kernel leaves the voice and its tail untouched on a refusal.
@@ -3155,6 +3188,9 @@ static PyObject *sampler_state_set_cutoff(audiodsp_sampler_object_t *self,
     if (!PyArg_ParseTuple(args, "Od:set_cutoff", &index_obj, &value)) return NULL;
     uint32_t index;
     if (sampler_state_voice(self, index_obj, &index) < 0) return NULL;
+    if ((float)value > 0.0f && sampler_state_need_mod(self, index) < 0) {
+        return NULL;
+    }
     audiodsp_sampler_set_cutoff(&self->sampler, index, (float)value);
     Py_RETURN_NONE;
 }
@@ -3168,6 +3204,9 @@ static PyObject *sampler_state_set_vibrato_depth(
     }
     uint32_t index;
     if (sampler_state_voice(self, index_obj, &index) < 0) return NULL;
+    if ((float)value != 0.0f && sampler_state_need_mod(self, index) < 0) {
+        return NULL;
+    }
     audiodsp_sampler_set_vibrato_depth(&self->sampler, index, (float)value);
     Py_RETURN_NONE;
 }

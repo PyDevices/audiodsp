@@ -21,6 +21,7 @@ mp_obj_t audiosampler_samplervoice_new(audiosampler_sampler_obj_t *parent,
     self->pitch = mp_obj_new_float(1.0);
     self->cutoff = mp_const_none;
     self->vibrato_depth = mp_obj_new_float(0.0);
+    self->mod = NULL;
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -127,6 +128,10 @@ static mp_obj_t audiosampler_samplervoice_play(size_t n_args,
     note.lfo_to_pitch = float_arg(args[ARG_lfo_to_pitch].u_obj, 0.0f);
     note.lfo_to_cutoff = float_arg(args[ARG_lfo_to_cutoff].u_obj, 0.0f);
     note.lfo_to_volume = float_arg(args[ARG_lfo_to_volume].u_obj, 0.0f);
+
+    if (audiodsp_sampler_note_modulated(&note)) {
+        samplervoice_need_mod(self);
+    }
 
     // Read and checked first, stored under the lock: a pull landing between
     // the kernel's play() and the reference store would read a buffer the
@@ -278,6 +283,20 @@ MP_PROPERTY_GETSET(audiosampler_samplervoice_pitch_obj,
     (mp_obj_t)&audiosampler_samplervoice_get_pitch_obj,
     (mp_obj_t)&audiosampler_samplervoice_set_pitch_obj);
 
+// Gives the voice its filter, envelope and LFO state the first time it needs
+// any of them, so a sampler whose notes never ask carries none. Allocated
+// outside the pump lock, since an allocation may collect.
+static void samplervoice_need_mod(audiosampler_samplervoice_obj_t *self) {
+    if (self->mod != NULL) {
+        return;
+    }
+    audiodsp_sampler_mod_t *pair = m_malloc(2 * sizeof(audiodsp_sampler_mod_t));
+    audiodsp_pump_lock_acquire();
+    audiodsp_sampler_attach_mod(&self->parent->sampler, self->index, pair);
+    self->mod = pair;
+    audiodsp_pump_lock_release();
+}
+
 // The low-pass cutoff in Hz, None for no filter. Live: a change lands
 // within 32 frames, and a filter switched on starts from rest.
 static mp_obj_t audiosampler_samplervoice_obj_get_cutoff(mp_obj_t self_in) {
@@ -293,6 +312,9 @@ static mp_obj_t audiosampler_samplervoice_obj_set_cutoff(mp_obj_t self_in,
     audiosample_check_for_deinit(&self->parent->base);
     float cutoff = value == mp_const_none ? 0.0f
         : (float)mp_obj_get_float(value);
+    if (cutoff > 0.0f) {
+        samplervoice_need_mod(self);
+    }
     audiodsp_pump_lock_acquire();
     audiodsp_sampler_set_cutoff(&self->parent->sampler, self->index, cutoff);
     self->cutoff = value;
@@ -320,6 +342,9 @@ static mp_obj_t audiosampler_samplervoice_obj_set_vibrato_depth(
     audiosampler_samplervoice_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_check_for_deinit(&self->parent->base);
     float cents = (float)mp_obj_get_float(value);
+    if (cents != 0.0f) {
+        samplervoice_need_mod(self);
+    }
     audiodsp_pump_lock_acquire();
     audiodsp_sampler_set_vibrato_depth(&self->parent->sampler, self->index,
         cents);

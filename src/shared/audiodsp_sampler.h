@@ -61,6 +61,11 @@
 // asks for none of them -- no cutoff below the open one, no resonance, every
 // depth zero -- takes the path above, untouched, and costs what it did
 // before any of this existed; the one addition is a counter of its age.
+// It costs no memory either: what the filter, the envelope and the LFOs keep
+// is a separate record, attached to a voice the first time it asks for any of
+// them. A voice table is every voice and every tail, so a field on the voice
+// is paid 2 x voice_count times by every sampler, and a table that grew from
+// 7 KB to 18 KB at 32 voices was the one allocation a crowded heap refused.
 //
 // A voice that asks for any of them renders in chunks of
 // AUDIODSP_SAMPLER_CONTROL frames. The modulators are worked out once a
@@ -84,8 +89,9 @@
 //
 // The pulling loop is not here, for the same reason it is not in
 // audiodsp_modal.c: each runtime reaches its audio graph differently. Nor is
-// any memory: the binding owns the voice table, the mix accumulator and the
-// sample buffers, and tells the kernel where they are.
+// any memory: the binding owns the voice table, the mix accumulator, the
+// modulation records and the sample buffers, and tells the kernel where they
+// are.
 //
 // SPDX-License-Identifier: MIT
 
@@ -204,6 +210,43 @@ typedef struct {
 #define AUDIODSP_SAMPLER_MOD_VOLUME 8u  // the LFO moves the volume
 #define AUDIODSP_SAMPLER_MOD_ENV 16u    // the modulation envelope is used
 
+//: What a voice needs only for the filter, the modulation envelope and the
+//: LFOs. It lives outside the voice table, one pair (the voice's and its
+//: tail's) per voice that has ever asked for any of them, so a sampler whose
+//: notes never do carries none of it. See audiodsp_sampler_attach_mod().
+typedef struct {
+    // The step pitch alone asks for; a modulated voice scales it each chunk.
+    uint64_t step_base;
+    // The low-pass: its cutoff (Hz) and 1/Q, the DC gain the resonance
+    // asks for, its two states, its coefficients, and the cutoff offset
+    // (cents) they were worked out for.
+    float cutoff;
+    float resonance;
+    float filter_k;
+    float filter_gain;
+    float ic1, ic2;
+    float fa1, fa2, fa3;
+    float filter_cents;
+    bool filter_dirty;
+    // The modulation envelope, as the amplitude one.
+    uint32_t mod_stage;
+    float mod_env;
+    float mod_step;
+    uint32_t mod_left;
+    uint32_t mod_delay_samples, mod_attack_samples, mod_hold_samples,
+             mod_decay_samples, mod_release_samples;
+    float mod_sustain;
+    float mod_to_pitch, mod_to_cutoff;
+    // The two LFOs: delay in frames, phase step per frame (Q0.32), depths.
+    uint32_t vibrato_delay, vibrato_inc;
+    float vibrato_depth;
+    uint32_t lfo_delay, lfo_inc;
+    float lfo_to_pitch, lfo_to_cutoff, lfo_to_volume;
+    // The volume factor the last chunk ended on (the filter's DC gain times
+    // the LFO's tremolo), so the next ramps from it.
+    float mod_gain;
+} audiodsp_sampler_mod_t;
+
 //: One voice. Written by the kernel only; a binding reads `stage` to answer
 //: `playing` and to know when to let go of the buffer it handed over.
 typedef struct {
@@ -235,36 +278,9 @@ typedef struct {
     uint32_t age;
     // AUDIODSP_SAMPLER_MOD_*: zero for a voice on the plain path.
     uint32_t mods;
-    // The step pitch alone asks for; a modulated voice scales it each chunk.
-    uint64_t step_base;
-    // The low-pass: its cutoff (Hz) and 1/Q, the DC gain the resonance
-    // asks for, its two states, its coefficients, and the cutoff offset
-    // (cents) they were worked out for.
-    float cutoff;
-    float resonance;
-    float filter_k;
-    float filter_gain;
-    float ic1, ic2;
-    float fa1, fa2, fa3;
-    float filter_cents;
-    bool filter_dirty;
-    // The modulation envelope, as the amplitude one.
-    uint32_t mod_stage;
-    float mod_env;
-    float mod_step;
-    uint32_t mod_left;
-    uint32_t mod_delay_samples, mod_attack_samples, mod_hold_samples,
-             mod_decay_samples, mod_release_samples;
-    float mod_sustain;
-    float mod_to_pitch, mod_to_cutoff;
-    // The two LFOs: delay in frames, phase step per frame (Q0.32), depths.
-    uint32_t vibrato_delay, vibrato_inc;
-    float vibrato_depth;
-    uint32_t lfo_delay, lfo_inc;
-    float lfo_to_pitch, lfo_to_cutoff, lfo_to_volume;
-    // The volume factor the last chunk ended on (the filter's DC gain times
-    // the LFO's tremolo), so the next ramps from it.
-    float mod_gain;
+    // Borrowed from the binding; NULL until the voice first needs it, and
+    // then for good. Never nonzero `mods` without it.
+    audiodsp_sampler_mod_t *mod;
 } audiodsp_sampler_voice_t;
 
 typedef struct {
@@ -284,6 +300,25 @@ void audiodsp_sampler_init(audiodsp_sampler_t *self, uint32_t sample_rate,
     audiodsp_sampler_voice_t *voices, float *mix);
 
 void audiodsp_sampler_note_init(audiodsp_sampler_note_t *note);
+
+// True when a note asks for anything a voice keeps in its
+// audiodsp_sampler_mod_t: any filter, modulation-envelope or LFO setting
+// other than audiodsp_sampler_note_init's. A binding asks before play(), and
+// on true attaches the voice's pair first.
+bool audiodsp_sampler_note_modulated(const audiodsp_sampler_note_t *note);
+
+// True once voice `index` has its modulation state.
+bool audiodsp_sampler_has_mod(const audiodsp_sampler_t *self, uint32_t index);
+
+// Gives voice `index` and its tail their modulation state: `pair[0]` is the
+// voice's and `pair[1]` the tail's, borrowed until the sampler goes. Set up
+// as a note with none of it asks for, so a note already sounding renders on
+// exactly as it would have. Done once per voice; a second call is ignored.
+// Without it, play() takes no filter, envelope or LFO setting from its note,
+// and set_cutoff() and set_vibrato_depth() change nothing: a binding attaches
+// before any of those that asks for more than the defaults.
+void audiodsp_sampler_attach_mod(audiodsp_sampler_t *self, uint32_t index,
+    audiodsp_sampler_mod_t *pair);
 
 // Starts `index` on `data` (mono signed 16-bit, `length` frames). A note the
 // voice was still sounding moves to the voice's tail and fades out there,
