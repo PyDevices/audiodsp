@@ -280,13 +280,56 @@ static float ladder_solve(const audiodsp_ladder_coeffs_t *coeffs, float c,
     return clampf(y, -1.0f, 1.0f);
 }
 
+// What one channel carries from sample to sample, copied out of the state for
+// a block and back at its end, so the loop keeps it in registers. Through
+// the state pointer every store to an integrator made the compiler read the
+// coefficients and the other integrators again (they are all floats, so as
+// far as it knows they may be the same memory), and the stages ran through
+// arrays on the stack. The arithmetic is the same, in the same order: only
+// where the numbers live between samples moved, which on the P4 is a third
+// of the ladder's time.
+typedef struct {
+    float z0, z1, z2, z3;
+    float last;
+    float previous_last;
+    float previous_input;
+} ladder_lane_t;
+
+#if defined(__GNUC__) || defined(__clang__)
+#define LADDER_INLINE static inline __attribute__((always_inline))
+#else
+#define LADDER_INLINE static inline
+#endif
+
+LADDER_INLINE void lane_load(ladder_lane_t *lane,
+    const audiodsp_ladder_state_t *state, uint32_t channel) {
+    const float *integrator = state->integrator[channel];
+    lane->z0 = integrator[0];
+    lane->z1 = integrator[1];
+    lane->z2 = integrator[2];
+    lane->z3 = integrator[3];
+    lane->last = state->last[channel];
+    lane->previous_last = state->previous_last[channel];
+    lane->previous_input = state->previous_input[channel];
+}
+
+LADDER_INLINE void lane_store(const ladder_lane_t *lane,
+    audiodsp_ladder_state_t *state, uint32_t channel) {
+    float *integrator = state->integrator[channel];
+    integrator[0] = lane->z0;
+    integrator[1] = lane->z1;
+    integrator[2] = lane->z2;
+    integrator[3] = lane->z3;
+    state->last[channel] = lane->last;
+    state->previous_last[channel] = lane->previous_last;
+    state->previous_input[channel] = lane->previous_input;
+}
+
 // One sample through the ladder, at whatever rate the caller is running it.
 // `x` is already driven and in the +-1 domain; the return is the tapped
 // stage, before the passband compensation and the mix.
-static float ladder_step(const audiodsp_ladder_config_t *config,
-    const audiodsp_ladder_coeffs_t *coeffs, audiodsp_ladder_state_t *state,
-    uint32_t channel, float x) {
-    float *integrator = state->integrator[channel];
+LADDER_INLINE float ladder_step(const audiodsp_ladder_coeffs_t *coeffs,
+    float resonance, uint32_t poles, ladder_lane_t *lane, float x) {
     const float g = coeffs->g;
     const float one_minus_g = 1.0f - g;
 
@@ -294,45 +337,53 @@ static float ladder_step(const audiodsp_ladder_config_t *config,
     // is kept unscaled, so this is recomputed rather than stored. It costs
     // one multiply a stage and it is what lets `cutoff_hz` move mid-block
     // without the state meaning something else afterwards.
-    float held[AUDIODSP_LADDER_STAGES];
-    for (uint32_t stage = 0; stage < AUDIODSP_LADDER_STAGES; ++stage) {
-        held[stage] = one_minus_g * integrator[stage];
-    }
+    const float held0 = one_minus_g * lane->z0;
+    const float held1 = one_minus_g * lane->z1;
+    const float held2 = one_minus_g * lane->z2;
+    const float held3 = one_minus_g * lane->z3;
 
     // c is what the fourth stage would put out this sample with the feedback
     // disconnected: the driven input through four stages of gain, plus what
     // the four states are already holding.
-    const float carried =
-        ((held[0] * g + held[1]) * g + held[2]) * g + held[3];
+    const float carried = ((held0 * g + held1) * g + held2) * g + held3;
     const float c = coeffs->g4 * x + carried;
 
     // Extrapolating the last two solved samples costs one multiply and one
     // subtract and removes most of the solver's work: at audio rates the
     // fourth stage's output is a smooth curve, and a straight line through
     // its last two points lands very close to the next.
-    const float seed =
-        2.0f * state->last[channel] - state->previous_last[channel];
+    const float seed = 2.0f * lane->last - lane->previous_last;
     const float solved = ladder_solve(coeffs, c, seed);
-    state->previous_last[channel] = state->last[channel];
-    state->last[channel] = solved;
+    lane->previous_last = lane->last;
+    lane->last = solved;
 
     // The ladder's input node. Computed from the solved output through the
     // saturator, not by rearranging the loop equation for it: at a low
     // cutoff g^4 is 1e-8 and the rearrangement is a subtraction of two
     // numbers of order 1 to get one of order 1e-8, which single precision
     // does not have the digits for.
-    float value = x - config->resonance * ladder_saturate(solved);
+    const float value = x - resonance * ladder_saturate(solved);
 
-    float outputs[AUDIODSP_LADDER_STAGES];
-    for (uint32_t stage = 0; stage < AUDIODSP_LADDER_STAGES; ++stage) {
-        const float output = g * value + held[stage];
-        // z <- 2y - z, the trapezoidal integrator's update written without a
-        // second multiply.
-        integrator[stage] = output + output - integrator[stage];
-        outputs[stage] = output;
-        value = output;
+    // Each stage: y = g*v + held, then z <- 2y - z, the trapezoidal
+    // integrator's update written without a second multiply.
+    const float out0 = g * value + held0;
+    lane->z0 = out0 + out0 - lane->z0;
+    const float out1 = g * out0 + held1;
+    lane->z1 = out1 + out1 - lane->z1;
+    const float out2 = g * out1 + held2;
+    lane->z2 = out2 + out2 - lane->z2;
+    const float out3 = g * out2 + held3;
+    lane->z3 = out3 + out3 - lane->z3;
+    switch (poles) {
+        case 1u:
+            return out0;
+        case 2u:
+            return out1;
+        case 3u:
+            return out2;
+        default:
+            return out3;
     }
-    return outputs[config->poles - 1u];
 }
 
 static int16_t to_s16(float value) {
@@ -347,11 +398,14 @@ static int16_t to_s16(float value) {
 
 // One frame, every channel, at the coefficients given. Inline, so the
 // unmodulated loop below compiles to what it was before the cutoff input.
-static inline void ladder_frame(const audiodsp_ladder_config_t *config,
-    const audiodsp_ladder_coeffs_t *coeffs, audiodsp_ladder_state_t *state,
+LADDER_INLINE void ladder_frame(const audiodsp_ladder_config_t *config,
+    const audiodsp_ladder_coeffs_t *coeffs, ladder_lane_t *lanes,
     int16_t *out, const int16_t *in, uint32_t channels, bool doubled,
     float drive, float mix, float gain) {
+    const float resonance = config->resonance;
+    const uint32_t poles = config->poles;
     for (uint32_t channel = 0; channel < channels; ++channel) {
+        ladder_lane_t *lane = &lanes[channel];
         const float dry = (float)in[channel] * (1.0f / 32768.0f);
         float wet;
         if (doubled) {
@@ -361,66 +415,73 @@ static inline void ladder_frame(const audiodsp_ladder_config_t *config,
             // it is given and the ones above the band fold back, so the
             // point is to make them above a band twice as wide and then
             // throw that half away.
-            const float middle =
-                0.5f * (state->previous_input[channel] + dry);
+            const float middle = 0.5f * (lane->previous_input + dry);
             const float first =
-                ladder_step(config, coeffs, state, channel, middle * drive);
+                ladder_step(coeffs, resonance, poles, lane, middle * drive);
             const float second =
-                ladder_step(config, coeffs, state, channel, dry * drive);
+                ladder_step(coeffs, resonance, poles, lane, dry * drive);
             wet = 0.5f * (first + second);
         } else {
-            wet = ladder_step(config, coeffs, state, channel, dry * drive);
+            wet = ladder_step(coeffs, resonance, poles, lane, dry * drive);
         }
         // Kept whether or not it was used, so turning oversampling on
         // mid-stream does not start from a stale sample.
-        state->previous_input[channel] = dry;
+        lane->previous_input = dry;
         wet *= gain;
         out[channel] = to_s16((dry + (wet - dry) * mix) * 32768.0f);
+    }
+}
+
+// The block, for a channel count the compiler can see: called with a
+// literal 1 or 2, so the mono loop has no channel loop left in it.
+LADDER_INLINE void ladder_block(const audiodsp_ladder_config_t *config,
+    audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames, const int16_t *cutoff, uint32_t cutoff_stride,
+    uint32_t channels) {
+    const bool doubled = config->oversample >= 2u;
+    const float drive = config->drive;
+    const float mix = config->mix;
+    const float gain = config->output_gain;
+    ladder_lane_t lanes[2];
+    for (uint32_t channel = 0; channel < channels; ++channel) {
+        lane_load(&lanes[channel], state, channel);
+    }
+    for (uint32_t frame = 0; frame < frames; ++frame) {
+        const audiodsp_ladder_coeffs_t *coeffs = &config->coeffs;
+        if (cutoff != NULL) {
+            const int32_t value = cutoff[frame * cutoff_stride];
+            // Zero is the filter as configured, with the configured set's
+            // own bits, so a silent input renders exactly what no input does.
+            if (value != 0) {
+                if (value != state->cutoff_last ||
+                    config->revision != state->cutoff_revision) {
+                    state->cutoff_last = value;
+                    state->cutoff_revision = config->revision;
+                    ladder_cutoff_coeffs(config, value, &state->cutoff_coeffs);
+                }
+                coeffs = &state->cutoff_coeffs;
+            }
+        }
+        ladder_frame(config, coeffs, lanes, &out[frame * channels],
+            &in[frame * channels], channels, doubled, drive, mix, gain);
+    }
+    for (uint32_t channel = 0; channel < channels; ++channel) {
+        lane_store(&lanes[channel], state, channel);
     }
 }
 
 void audiodsp_ladder_process_s16(const audiodsp_ladder_config_t *config,
     audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {
-    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
-    const bool doubled = config->oversample >= 2u;
-    const float drive = config->drive;
-    const float mix = config->mix;
-    const float gain = config->output_gain;
-    const audiodsp_ladder_coeffs_t *coeffs = &config->coeffs;
-    for (uint32_t frame = 0; frame < frames; ++frame) {
-        ladder_frame(config, coeffs, state, &out[frame * channels],
-            &in[frame * channels], channels, doubled, drive, mix, gain);
-    }
+    audiodsp_ladder_process_cutoff_s16(config, state, out, in, frames, NULL, 1);
 }
 
 void audiodsp_ladder_process_cutoff_s16(const audiodsp_ladder_config_t *config,
     audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames, const int16_t *cutoff, uint32_t cutoff_stride) {
-    if (cutoff == NULL) {
-        audiodsp_ladder_process_s16(config, state, out, in, frames);
-        return;
-    }
-    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
-    const bool doubled = config->oversample >= 2u;
-    const float drive = config->drive;
-    const float mix = config->mix;
-    const float gain = config->output_gain;
-    for (uint32_t frame = 0; frame < frames; ++frame) {
-        const int32_t value = cutoff[frame * cutoff_stride];
-        const audiodsp_ladder_coeffs_t *coeffs = &config->coeffs;
-        // Zero is the filter as configured, with the configured set's own
-        // bits, so a silent input renders exactly what no input does.
-        if (value != 0) {
-            if (value != state->cutoff_last ||
-                config->revision != state->cutoff_revision) {
-                state->cutoff_last = value;
-                state->cutoff_revision = config->revision;
-                ladder_cutoff_coeffs(config, value, &state->cutoff_coeffs);
-            }
-            coeffs = &state->cutoff_coeffs;
-        }
-        ladder_frame(config, coeffs, state, &out[frame * channels],
-            &in[frame * channels], channels, doubled, drive, mix, gain);
+    if (config->channel_count == 1u) {
+        ladder_block(config, state, out, in, frames, cutoff, cutoff_stride, 1u);
+    } else {
+        ladder_block(config, state, out, in, frames, cutoff, cutoff_stride, 2u);
     }
 }
