@@ -1,3 +1,7 @@
+## v0.6.11 (2026-10-31)
+
+- synthio.Biquad: take CircuitPython main's widened biquad (#353)
+
 ## v0.6.11.dev10 (2026-10-30)
 
 - audiograph: Graph.swap, so a graph the pump is playing trades patches with a freshly compiled one at a block boundary; carry works on a parked graph; a carry no longer copies the source's whole table list on every node (#350)
