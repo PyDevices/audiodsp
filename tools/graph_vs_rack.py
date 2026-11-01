@@ -285,6 +285,32 @@ def decay_oneshot(decay_sec, blocks=30, every=11, width=4):
     return report("DECAY oneshot %.3fs" % decay_sec, got, want)
 
 
+# --------------------------------------------------------------------- PINK --
+
+def pink(blocks=40):
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=6, nodes=3)
+    white_b, out = g.buffer(), g.buffer()
+    g.add(ag.PINK, ag.ALWAYS, (white_b,), out)
+    gen = NoiseGenerator(seed=0xBEEF)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    white_f = np.zeros(FRAMES, dtype=np.float32)
+    pink_f = np.zeros(FRAMES, dtype=np.float32)
+    rng = np.random.default_rng(7)
+    for _ in range(blocks):
+        # the rack's white is uniform in ±0.5, which is ±8192 counts
+        w = (rng.random(FRAMES, dtype=np.float64) - 0.5)
+        block = [int(round(x * UNIT)) for x in w]
+        g.write(white_b, array("h", block))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        white_f[:] = np.asarray(block, dtype=np.float32) / UNIT
+        gen.pink(white_f, pink_f)
+        want += list(wire(pink_f))
+    return report("PINK kellet", got, want)
+
+
 worst = 0
 worst = max(worst, tremolo("pan", ag.TREMOLO_PAN))
 worst = max(worst, tremolo("amplitude", ag.TREMOLO_AMPLITUDE))
@@ -309,5 +335,6 @@ worst = max(worst, burst_decay("jingle", JINGLE_SPIKES, 0.005, 0.220, tail_40db=
 # GuiroCore short: six spikes at round(i*0.016*sr), levels 0.6..1.0.
 GUIRO_SPIKES = tuple((i * 0.080 / 5.0, 0.6 + 0.4 * i / 5.0) for i in range(6))
 worst = max(worst, burst_decay("guiro", GUIRO_SPIKES, 0.0035, 0.0080))
+worst = max(worst, pink())
 
 print("worst over all: %d" % worst)

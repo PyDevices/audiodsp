@@ -99,6 +99,7 @@ rather than its last block.
 | `PICKUP` | audio | `PICKUP_MODE` (`PICKUP_ELECTROMAGNETIC`, `PICKUP_ELECTROSTATIC`), `PICKUP_DRIVE`, `PICKUP_OFFSET`, `PICKUP_LEVEL` | electromagnetic or electrostatic pickup nonlinearity with DC removal, [below](#pickup) |
 | `TREMOLO` | audio, rate CV, depth CV | `TREMOLO_RATE` Hz, `TREMOLO_DEPTH` 0..1, `TREMOLO_MODE` (`TREMOLO_PAN`, `TREMOLO_AMPLITUDE`); built with `arg` = the right side's buffer | stereo auto-pan or mono amplitude tremolo into `(output, arg)`, [below](#tremolo) |
 | `DECAY` | trigger, velocity | `DECAY_DECAY` seconds to −40 dB, `DECAY_RESTRIKE` seconds to −40 dB; `table(node, strikes)` sets up to `DECAY_STRIKES` (16) `(delay s, level)` pairs | a one-shot exponential envelope, or a burst of re-strikes, [below](#decay) |
+| `PINK` | white | `PINK_LEVEL` | pink noise: Paul Kellet's pinking filter on the white input, [below](#pink) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -360,6 +361,15 @@ The rack's burst cores start a burst at sample 0 of the block that sees a
 rising edge, wherever in the block it is. `DECAY` starts it at the rising
 sample, as `OneShotEnvelopeCore` and every other graph node do. A burst that
 must match a core exactly should strike on a block boundary.
+
+### Pink
+
+`PINK` is vrack's `NoiseGenerator.pink` (`dsp/noise.py`): Paul Kellet's
+seven-state pinking filter on its white input, scaled by `PINK_LEVEL`. The
+white input is a `NOISE` node (uniform ±0.5 of `UNIT`) or any other white
+block. `b6` in the sum is the previous sample's share, as the rack keeps it.
+The filter is the same on every target, so two interpreters running the same
+white input give the same pink.
 
 ## Output
 

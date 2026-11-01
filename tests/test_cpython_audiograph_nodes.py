@@ -2577,3 +2577,94 @@ class DecayTest(unittest.TestCase):
             self.assertLessEqual(worst(got, want), 1, frames)
 
 
+# -------------------------------------------------------------------- PINK --
+
+class PinkRef:
+    """vrack's `NoiseGenerator.pink` (`dsp/noise.py`), Paul Kellet's
+    seven-state pinking filter on a white block."""
+
+    def __init__(self):
+        self.b = [0.0] * 7
+
+    def render(self, white):
+        b0, b1, b2, b3, b4, b5, b6 = self.b
+        out = []
+        for w in white:
+            w = f32(w)
+            b0 = f32(0.99886 * b0 + w * 0.0555179)
+            b1 = f32(0.99332 * b1 + w * 0.0750759)
+            b2 = f32(0.96900 * b2 + w * 0.1538520)
+            b3 = f32(0.86650 * b3 + w * 0.3104856)
+            b4 = f32(0.55000 * b4 + w * 0.5329522)
+            b5 = f32(-0.7616 * b5 - w * 0.0168980)
+            y = f32((b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.15)
+            b6 = f32(w * 0.115926)
+            out.append(y)
+        self.b = [b0, b1, b2, b3, b4, b5, b6]
+        return out
+
+
+class PinkTest(unittest.TestCase):
+    """PINK held to `NoiseGenerator.pink`."""
+
+    def compare(self, white, level=1.0):
+        frames = len(white[0])
+        rig = Rig(frames, ag.PINK, 1)
+        rig.set(ag.PINK_LEVEL, level)
+        ref = PinkRef()
+        got, want = [], []
+        for block in white:
+            got += rig.run(block)
+            want += [sat(v * level * UNIT) for v in
+                     ref.render([x / UNIT for x in block])]
+        return got, want
+
+    def test_matches_noisegenerator_pink(self):
+        frames, blocks = 128, 40
+        white = []
+        state = 1
+        for _ in range(blocks):
+            block = []
+            for _ in range(frames):
+                state = (1103515245 * state + 12345) & 0x7FFFFFFF
+                block.append(int((state % 16384) - 8192))
+            white.append(block)
+        got, want = self.compare(white)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(max(abs(v) for v in got), 1000)
+
+    def test_the_level_scales_the_output(self):
+        frames, blocks = 128, 10
+        white = [[int(4000 * math.sin(2.0 * math.pi * i / 37.0))
+                  for i in range(frames)] for _ in range(blocks)]
+        got, want = self.compare(white, level=0.5)
+        _, full = self.compare(white, level=1.0)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(worst(got, full), 100)
+
+    def test_the_check_catches_a_wrong_pink(self):
+        frames, blocks = 128, 12
+        white = [[int(6000 * math.sin(2.0 * math.pi * (b * frames + i) / 29.0))
+                  for i in range(frames)] for b in range(blocks)]
+        got, _ = self.compare(white)
+        for name, scale in (("level doubled", 2.0), ("level halved", 0.5)):
+            wrong = PinkRef()
+            wl = []
+            for block in white:
+                wl += [sat(v * scale * UNIT)
+                       for v in wrong.render([x / UNIT for x in block])]
+            self.assertGreater(worst(got, wl), 100, name)
+
+    def test_an_open_input_is_silence(self):
+        frames = 64
+        rig = Rig(frames, ag.PINK, 1, open_=(0,))
+        self.assertEqual(set(rig.run(None)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            white = [[int(5000 * math.sin(2.0 * math.pi * i / 23.0))
+                      for i in range(frames)] for _ in range(8)]
+            got, want = self.compare(white)
+            self.assertLessEqual(worst(got, want), 1, frames)
+
+

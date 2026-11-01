@@ -208,6 +208,10 @@ typedef enum {
     // the last. vrack's dsp/drums.py OneShotEnvelopeCore, and the burst
     // envelopes of HandClapCore, JingleCore and GuiroCore.
     AUDIODSP_GRAPH_DECAY,
+    // inputs: white. params: level. Paul Kellet's pinking filter on a white
+    // block, as vrack's dsp/noise.py NoiseGenerator.pink runs it: seven states,
+    // the sum scaled by 0.15 and then by level (1 is the rack's own output).
+    AUDIODSP_GRAPH_PINK,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -417,6 +421,11 @@ enum {
 
 //: Re-strikes in one DECAY node's burst table.
 #define AUDIODSP_GRAPH_DECAY_STRIKES 16u
+
+enum {
+    // Gain on the pinking filter's output (1 is NoiseGenerator.pink's own).
+    AUDIODSP_GRAPH_PINK_LEVEL = 0,
+};
 
 enum {
     AUDIODSP_GRAPH_MIX_OFFSET = 8,

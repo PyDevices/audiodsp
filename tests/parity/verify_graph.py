@@ -53,7 +53,7 @@ ROOT = HERE.parents[1]
 PROBES = (
     ("runner", HERE / "graph_parity_probe.py", ("lsb", "late")),
     ("nodes", HERE / "graph_nodes_probe.py", ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-                                                 "modal", "struck", "pickup", "tremolo", "decay")),
+                                                 "modal", "struck", "pickup", "tremolo", "decay", "pink")),
     ("source", HERE / "graph_source_probe.py", ("drain", "split")),
     ("carry", HERE / "graph_carry_probe.py", ("offbeat",)),
 )

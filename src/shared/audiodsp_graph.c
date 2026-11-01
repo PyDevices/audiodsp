@@ -243,6 +243,11 @@ typedef struct {
     bool has_table;
 } graph_decay_t;
 
+typedef struct {
+    // Paul Kellet's seven pinking states.
+    float b0, b1, b2, b3, b4, b5, b6;
+} graph_pink_t;
+
 size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
     uint32_t sample_rate, float arg) {
     switch (kind) {
@@ -287,6 +292,8 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_tremolo_t);
         case AUDIODSP_GRAPH_DECAY:
             return sizeof(graph_decay_t);
+        case AUDIODSP_GRAPH_PINK:
+            return sizeof(graph_pink_t);
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
         case AUDIODSP_GRAPH_OVERDRIVE:
             return audiodsp_graph_overdrive_size();
@@ -567,6 +574,12 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             d->has_table = false;
             node->param[AUDIODSP_GRAPH_DECAY_DECAY] = 0.2f;
             node->param[AUDIODSP_GRAPH_DECAY_RESTRIKE] = 0.01f;
+            break;
+        }
+        case AUDIODSP_GRAPH_PINK: {
+            graph_pink_t *d = data;
+            d->b0 = d->b1 = d->b2 = d->b3 = d->b4 = d->b5 = d->b6 = 0.0f;
+            node->param[AUDIODSP_GRAPH_PINK_LEVEL] = 1.0f;
             break;
         }
         case AUDIODSP_GRAPH_NOISE: {
@@ -915,6 +928,11 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             d->sample = 0u;
             d->high = false;
             d->ringing = false;
+            break;
+        }
+        case AUDIODSP_GRAPH_PINK: {
+            graph_pink_t *d = n->data;
+            d->b0 = d->b1 = d->b2 = d->b3 = d->b4 = d->b5 = d->b6 = 0.0f;
             break;
         }
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
@@ -2744,6 +2762,49 @@ static void run_decay(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
 // vrack's dsp/noise.py NoiseGenerator.pink: Paul Kellet's seven-state
 // pinking filter on a white block, the sum scaled by 0.15.
 
+static void run_pink(const audiodsp_graph_t *graph, const audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_pink_t *d = n->data;
+    const int16_t *in = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const float level = n->param[AUDIODSP_GRAPH_PINK_LEVEL];
+    float b0 = d->b0;
+    float b1 = d->b1;
+    float b2 = d->b2;
+    float b3 = d->b3;
+    float b4 = d->b4;
+    float b5 = d->b5;
+    float b6 = d->b6;
+    const float inv = 1.0f / AUDIODSP_GRAPH_UNIT;
+    for (uint32_t i = 0; i < frames; ++i) {
+        const float w = in != NULL ? (float)in[i] * inv : 0.0f;
+        b0 = 0.99886f * b0 + w * 0.0555179f;
+        b1 = 0.99332f * b1 + w * 0.0750759f;
+        b2 = 0.96900f * b2 + w * 0.1538520f;
+        b3 = 0.86650f * b3 + w * 0.3104856f;
+        b4 = 0.55000f * b4 + w * 0.5329522f;
+        b5 = -0.7616f * b5 - w * 0.0168980f;
+        // b6 is the previous sample's share, as the rack keeps it.
+        const float y = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362f) * 0.15f;
+        b6 = w * 0.115926f;
+        out[i] = sat16(y * level * AUDIODSP_GRAPH_UNIT);
+    }
+    d->b0 = b0;
+    d->b1 = b1;
+    d->b2 = b2;
+    d->b3 = b3;
+    d->b4 = b4;
+    d->b5 = b5;
+    d->b6 = b6;
+}
+
+// --------------------------------------------------------------- CRUSH --
+//
+// The quantise in vrack's dsp/drums.py BitDepthRateCore: each sample rounded
+// half away from zero to a step of 2^(1-bits) in units of 1.0. The hold that
+// follows it is SAMPLE_HOLD's; the anti-alias filter before it is a filter
+// node's.
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -2902,6 +2963,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 }
                 break;
             }
+            case AUDIODSP_GRAPH_PINK:
+                run_pink(graph, n, dst, frames);
+                break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:
                 audiodsp_graph_overdrive_run(n->data, n->inputs[0] == AUDIODSP_GRAPH_NONE

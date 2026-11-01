@@ -14,6 +14,8 @@
     graph_nodes_probe.py --fault struck     # one hardness change a block late
     graph_nodes_probe.py --fault pickup     # one offset change a block late
     graph_nodes_probe.py --fault tremolo    # one depth change a block late
+    graph_nodes_probe.py --fault decay      # one decay seconds change a block late
+    graph_nodes_probe.py --fault pink       # one level change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -41,7 +43,8 @@ triangle LFO, and a phaser on the cutoff CV with a manual level and the level
 turned down, in VCA mode and then BOTH); and three modal resonators (a bar
 struck with the low-pass gates and reset once, a membrane rung by the noise
 with its frequency stepped and its mix at three quarters, and the sawtooth
-with its own strikes at mix 0, the excitation alone).
+with its own strikes at mix 0, the excitation alone). And a one-shot decay
+envelope on those strikes and a clap burst on its own trigger, pink noise.
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -66,7 +69,7 @@ except (ImportError, AttributeError):
     sys.exit(0)
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-          "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush")
+          "modal", "struck", "pickup", "tremolo", "decay", "pink")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -305,6 +308,11 @@ g.table(decay_burst, ((0.0, 0.75), (0.0105, 0.75), (0.021, 0.75), (0.0315, 0.85)
 g.set(decay_burst, ag.DECAY_DECAY, 0.065)
 g.set(decay_burst, ag.DECAY_RESTRIKE, 0.0028)
 
+# -- pink noise from the white noise source, and the sawtooth bit-crushed
+white_b = g.buffer()
+g.add(ag.NOISE, ag.ALWAYS, (), white_b)
+pink_a, _ = node("pink_a", ag.PINK, (white_b,))
+g.set(pink_a, ag.PINK_LEVEL, 0.75)
 
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
@@ -470,6 +478,9 @@ for b in range(BLOCKS):
         burst[i] = UNIT if (b % 9 == 0 and i == 0) else 0
     g.write(burst_b, burst)
 
+    # the pink level steps; the crush bits step, and open up once
+    pink_at = b if FAULT != "pink" or b != 40 else b - 1
+    g.set(pink_a, ag.PINK_LEVEL, 0.25 * (1 + (pink_at // 20) % 4))
 
     g.run(None)
     g.read(saw_b, saw_block)
@@ -541,6 +552,9 @@ for name in ("trem_l", "trem_r", "trem_amp"):
 for name in ("decay_hit", "decay_burst"):
     check(seen[name][0] > 500 and seen[name][2] > 500,
           "the decay %s renders sound" % name)
+
+check(seen["pink_a"][0] > 2000 and seen["pink_a"][2] > 200,
+      "the pink noise renders sound")
 
 
 if failures:
