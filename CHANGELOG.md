@@ -1,3 +1,7 @@
+## v0.6.13.dev3 (2026-11-01)
+
+- audiograph: DECAY, PINK and CRUSH nodes for the drum machines (#362)
+
 ## v0.6.13.dev2 (2026-11-01)
 
 - audiograph: STRUCK, PICKUP and TREMOLO nodes (#360)
