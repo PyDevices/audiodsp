@@ -58,6 +58,7 @@ from audioinstruments._rack.dsp.drums import (  # noqa: E402
 from audioinstruments._rack.dsp.noise import NoiseGenerator  # noqa: E402
 from audioinstruments._rack.dsp.ladder import AcidFilterCore  # noqa: E402
 from audioinstruments._rack.dsp.reverb import SpringReverbCore  # noqa: E402
+from audioinstruments._rack.dsp.envelope import EnvelopeCore  # noqa: E402
 from audioinstruments._rack.modules.rhythm78.cowbell import (  # noqa: E402
     Rhythm78Cowbell,
 )
@@ -676,6 +677,40 @@ def spring(mix, decay, damp=0.55, blocks=80):
     return max(w, report("SPRING m%.2f d%.2f right" % (mix, decay), got_r, want_r))
 
 
+# ------------------------------------------------------------------- ADSR2 --
+
+def adsr2(initial, attack_level, sustain, attack=0.01, decay=0.2, release=0.3,
+          blocks=60):
+    """ADSR2 against EnvelopeCore, remapped the way poly80 remaps its fenv."""
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=4, nodes=2)
+    gate_b, out = g.buffer(), g.buffer()
+    node = g.add(ag.ADSR2, ag.ALWAYS, (gate_b,), out)
+    g.set(node, ag.ADSR2_ATTACK, attack)
+    g.set(node, ag.ADSR2_DECAY, decay)
+    g.set(node, ag.ADSR2_SUSTAIN, sustain)
+    g.set(node, ag.ADSR2_RELEASE, release)
+    g.set(node, ag.ADSR2_INITIAL, initial)
+    g.set(node, ag.ADSR2_ATTACK_LEVEL, attack_level)
+    core = EnvelopeCore(RATE, FRAMES)
+    core.set_times(attack, decay, sustain, release)
+    span = attack_level - initial
+    dst = np.zeros(FRAMES, dtype=np.float64)
+    gate_f = np.zeros(FRAMES, dtype=np.float64)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    for b in range(blocks):
+        gate = [UNIT if (b % 10) < 4 else 0] * FRAMES
+        g.write(gate_b, array("h", gate))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        gate_f[:] = np.asarray(gate, dtype=np.float64) / UNIT
+        core.render(gate_f, dst)
+        want += list(wire(initial + dst * span))
+    return report("ADSR2 il%.2f al%.2f s%.2f" % (initial, attack_level, sustain),
+                  got, want)
+
+
 worst = 0
 worst = max(worst, tremolo("pan", ag.TREMOLO_PAN))
 worst = max(worst, tremolo("amplitude", ag.TREMOLO_AMPLITUDE))
@@ -738,4 +773,8 @@ worst = max(worst, acid(1200.0, 0.9, 0.9))
 worst = max(worst, spring(0.25, 0.75))
 worst = max(worst, spring(0.5, 0.4))
 worst = max(worst, spring(0.0, 0.9))
+worst = max(worst, adsr2(0.0, 1.0, 0.7))
+worst = max(worst, adsr2(-0.5, 0.5, 0.5))
+# poly80's own fenv: sustain level -il/(al-il) puts the output at 0
+worst = max(worst, adsr2(-0.4, 0.8, 0.4 / 1.2, attack=0.05, decay=0.3, release=0.4))
 print("worst over all: %d" % worst)

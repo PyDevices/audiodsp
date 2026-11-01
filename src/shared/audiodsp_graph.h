@@ -231,6 +231,12 @@ typedef enum {
     // wet-only and mixed against the dry signal by mix. The left tank's
     // output is the node's, the right tank's the buffer `arg` names.
     AUDIODSP_GRAPH_SPRING,
+    // inputs: gate. params: attack s, decay s, sustain 0..1, release s,
+    // initial, attack_level. ENV's contour remapped to start at initial and
+    // peak at attack_level: out = (initial + e * (attack_level - initial)) *
+    // UNIT, with e ENV's 0..1 shape. poly80's filter envelope (its IL and AL
+    // levers); ENV itself always attacks to 1.0 and rests at 0.
+    AUDIODSP_GRAPH_ADSR2,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -482,6 +488,17 @@ enum {
     AUDIODSP_GRAPH_SPRING_DECAY,
     // 0..1 Freeverb damp, 0.55 as SpringReverbCore builds it.
     AUDIODSP_GRAPH_SPRING_DAMP,
+};
+
+enum {
+    AUDIODSP_GRAPH_ADSR2_ATTACK = 0,
+    AUDIODSP_GRAPH_ADSR2_DECAY,
+    AUDIODSP_GRAPH_ADSR2_SUSTAIN,
+    AUDIODSP_GRAPH_ADSR2_RELEASE,
+    // The level the envelope rests at and returns to (poly80's IL, -1..0).
+    AUDIODSP_GRAPH_ADSR2_INITIAL,
+    // The level the attack aims at (poly80's AL, 0..1).
+    AUDIODSP_GRAPH_ADSR2_ATTACK_LEVEL,
 };
 
 enum {

@@ -103,6 +103,7 @@ rather than its last block.
 | `CRUSH` | audio | `CRUSH_BITS` 1..15 | the audio rounded to that many bits, [below](#crush) |
 | `ACID` | audio, env, accent | `ACID_CUTOFF_HZ`, `ACID_RESONANCE` 0..1, `ACID_ENVMOD` 0..1 | acid303's diode ladder with its accent circuit, [below](#acid) |
 | `SPRING` | audio | `SPRING_MIX` 0..1, `SPRING_DECAY` 0..1, `SPRING_DAMP` 0..1; built with `arg` = the right side's buffer | patch2600's two-tank spring reverb over `audiofreeverb`, wet-only into a dry/wet mix on both sides, [below](#spring) |
+| `ADSR2` | gate | `ADSR2_ATTACK`, `ADSR2_DECAY`, `ADSR2_RELEASE` in seconds, `ADSR2_SUSTAIN` 0..1, `ADSR2_INITIAL`, `ADSR2_ATTACK_LEVEL` | ENV's contour starting at `ADSR2_INITIAL` and peaking at `ADSR2_ATTACK_LEVEL`: poly80's filter envelope, [below](#adsr2) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -426,6 +427,19 @@ buffer `arg` names, as `PAN` and `TREMOLO` do. The tanks hold the freeverb
 comb and all-pass lines, so the node is the freeverb kernel rather than a
 second reverb; nothing about the spring is simulated beyond the roomsize
 offset that makes the two sides differ.
+
+### Adsr2
+
+`ADSR2` is ENV's contour with two more levels: the output starts at
+`ADSR2_INITIAL` and peaks at `ADSR2_ATTACK_LEVEL` instead of starting at 0 and
+peaking at 1.0. The times and the sustain level are ENV's, so the shape is the
+same one-pole attack, decay, sustain and release; only the write differs —
+`out = (initial + e · (attack_level − initial)) · UNIT`. That is poly80's
+filter envelope: its IL and AL levers are `ADSR2_INITIAL` (−1..0) and
+`ADSR2_ATTACK_LEVEL` (0..1), and its caller sets the sustain level to
+`clamp(−initial / (attack_level − initial), 0, 1)` so the sustain step lands
+on 0. ENV itself cannot express this: it always attacks to 1.0 and rests at 0,
+and those are not parameters.
 
 ## Output
 

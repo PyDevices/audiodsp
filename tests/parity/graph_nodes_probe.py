@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID and SPRING, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING and ADSR2, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -19,6 +19,7 @@
     graph_nodes_probe.py --fault crush      # one bits change a block late
     graph_nodes_probe.py --fault acid       # one cutoff change a block late
     graph_nodes_probe.py --fault spring     # one decay change a block late
+    graph_nodes_probe.py --fault adsr2      # one attack level a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -50,7 +51,8 @@ with its own strikes at mix 0, the excitation alone). And a one-shot decay
 envelope on those strikes and a clap burst on its own trigger, pink noise, the
 sawtooth bit-crushed with the bits stepped, and the sawtooth through the acid
 ladder on a moving envelope with accent bursts, and through the spring reverb
-with both sides printed.
+with both sides printed; and a second envelope with an initial and an attack
+level, gated by the written clock's line.
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -75,7 +77,8 @@ except (ImportError, AttributeError):
     sys.exit(0)
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-          "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush", "acid", "spring")
+          "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush", "acid", "spring",
+          "adsr2")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -341,6 +344,15 @@ g.set(spring_a, ag.SPRING_DAMP, 0.55)
 watched.append(("spring_l", spring_l))
 watched.append(("spring_r", spring_r))
 
+# -- a second envelope with initial and attack levels, gated by the clock line
+adsr2_a, _ = node("adsr2_a", ag.ADSR2, (clock_b,))
+g.set(adsr2_a, ag.ADSR2_ATTACK, 0.01)
+g.set(adsr2_a, ag.ADSR2_DECAY, 0.2)
+g.set(adsr2_a, ag.ADSR2_SUSTAIN, 0.5)
+g.set(adsr2_a, ag.ADSR2_RELEASE, 0.3)
+g.set(adsr2_a, ag.ADSR2_INITIAL, -0.5)
+g.set(adsr2_a, ag.ADSR2_ATTACK_LEVEL, 0.75)
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -524,6 +536,10 @@ for b in range(BLOCKS):
     spring_at = b if FAULT != "spring" or b != 48 else b - 1
     g.set(spring_a, ag.SPRING_DECAY, 0.25 * (1 + (spring_at // 20) % 3))
 
+    # the adsr2's attack level steps every twenty blocks
+    adsr2_at = b if FAULT != "adsr2" or b != 48 else b - 1
+    g.set(adsr2_a, ag.ADSR2_ATTACK_LEVEL, 0.25 * (1 + (adsr2_at // 20) % 4))
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -608,6 +624,9 @@ check(seen["spring_l"][0] > 500 and seen["spring_l"][2] > 200,
       "the spring reverb's left side renders sound")
 check(seen["spring_r"][0] > 500 and seen["spring_r"][2] > 200,
       "the spring reverb's right side renders sound")
+
+check(seen["adsr2_a"][0] > 500 and seen["adsr2_a"][2] > 0 and seen["adsr2_a"][1] < 0,
+      "the adsr2 swings above and below zero")
 
 if failures:
     for what in failures:

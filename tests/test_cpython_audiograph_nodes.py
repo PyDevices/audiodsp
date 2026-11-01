@@ -22,6 +22,7 @@
 | `MODAL` | vrack's `dsp/modal.py` `ModalResonatorCore`: its `Exciter` in float32, the sum cast to int16 as vrack's bridge casts it, and `audiomodal.Bank` pulled 256 frames at a time, lined up with its input: bar and membrane ratios, struck, rung by noise, mix 0, a mode turned off, the knobs moving, and 32 to 256 frames | 1 count (the strike's burst is a product where numpy takes an exp); 586 of 170240 samples measured |
 | `ACID` | vrack's `dsp/ladder.py` `AcidFilterCore`: four one-pole stages, high-passed feedback and the accent capacitor, with the cutoff, resonance and env_mod moving and accent bursts | 1 count (the graph's `tanh` polynomial against libm's) |
 | `SPRING` | vrack's `dsp/reverb.py` `SpringReverbCore` over `audiofreeverb.Freeverb` at mix 1.0, dry and wet mixed as the rack mixes them: two tanks, decay and decay + 0.05 | 0 counts |
+| `ADSR2` | vrack's `dsp/envelope.py` `EnvelopeCore` contour remapped to start at `initial` and peak at `attack_level`, as poly80's filter envelope remaps it | 0 counts |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -3440,3 +3441,194 @@ class SpringTest(unittest.TestCase):
             (gl, wl), (gr, wr) = self.compare(audio)
             self.assertLessEqual(worst(gl, wl), 0, frames)
             self.assertLessEqual(worst(gr, wr), 0, frames)
+
+
+# ------------------------------------------------------------------ ADSR2 --
+
+ATTACK_TARGET = 1.3
+DECAY_TOLERANCE = 0.001
+RELEASE_TOLERANCE = 0.0005
+
+
+class Adsr2Ref:
+    """vrack's `dsp/envelope.py` `EnvelopeCore` contour, sample by sample as
+    the runner walks it, then poly80's remap: out = il + e * (al - il).
+    `sustain` is the EnvelopeCore sustain level; poly80 sets it to
+    clamp(-il / (al - il), 0, 1) so the sustain step lands on 0."""
+
+    def __init__(self, attack, decay, sustain, release, initial, attack_level,
+                 sample_rate=RATE):
+        self.a = math.exp(-1.0 / max(1.0, attack * sample_rate * 0.35))
+        self.d = math.exp(-1.0 / max(1.0, decay * sample_rate * 0.25))
+        self.r = math.exp(-1.0 / max(1.0, release * sample_rate * 0.25))
+        self.sus = sustain
+        self.il = initial
+        self.span = attack_level - initial
+        self.stage = 0
+        self.val = 0.0
+        self.high = False
+
+    def render(self, gate):
+        out = []
+        for g0 in gate:
+            g = g0 > 0.1 * UNIT
+            if g != self.high:
+                self.high = g
+                if g:
+                    self.stage = 1
+                elif self.stage != 0:
+                    self.stage = 4
+            if self.stage == 1:
+                self.val = ATTACK_TARGET + (self.val - ATTACK_TARGET) * self.a
+                if self.val >= 1.0:
+                    self.val = 1.0
+                    self.stage = 2
+            elif self.stage == 2:
+                self.val = self.sus + (self.val - self.sus) * self.d
+                if abs(self.val - self.sus) <= DECAY_TOLERANCE:
+                    self.val = self.sus
+                    self.stage = 3
+            elif self.stage == 3:
+                self.val = self.sus
+            elif self.stage == 4:
+                self.val *= self.r
+                if self.val <= RELEASE_TOLERANCE:
+                    self.val = 0.0
+                    self.stage = 0
+            else:
+                self.val = 0.0
+            out.append(sat((self.il + self.val * self.span) * UNIT))
+        return out
+
+
+class Adsr2Test(unittest.TestCase):
+    """ADSR2 held to `EnvelopeCore`'s contour remapped by IL and AL."""
+
+    def compare(self, gate, attack=0.01, decay=0.2, sustain=0.7, release=0.3,
+                initial=0.0, attack_level=1.0):
+        frames = len(gate[0])
+        rig = Rig(frames, ag.ADSR2, 1)
+        rig.set(ag.ADSR2_ATTACK, attack)
+        rig.set(ag.ADSR2_DECAY, decay)
+        rig.set(ag.ADSR2_SUSTAIN, sustain)
+        rig.set(ag.ADSR2_RELEASE, release)
+        rig.set(ag.ADSR2_INITIAL, initial)
+        rig.set(ag.ADSR2_ATTACK_LEVEL, attack_level)
+        ref = Adsr2Ref(attack, decay, sustain, release, initial, attack_level)
+        got, want = [], []
+        for block in gate:
+            got += rig.run(block)
+            want += ref.render(block)
+        return got, want
+
+    def gate_blocks(self, frames, blocks, period=10, high=4):
+        return [[UNIT if (b % period) < high else 0 for _ in range(frames)]
+                for b in range(blocks)]
+
+    def test_matches_envelopecore(self):
+        frames, blocks = 128, 50
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, initial=-0.5, attack_level=0.5)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(max(abs(v) for v in got), 1000)
+
+    def test_poly80_filter_envelope(self):
+        """poly80's IL/AL: rest at IL, peak at AL, sustain at 0."""
+        frames, blocks = 128, 80
+        # a long hold so the envelope reaches its sustain step
+        gate = [[0] * frames]
+        gate += [[UNIT] * frames for _ in range(30)]
+        gate += [[0] * frames for _ in range(blocks - 31)]
+        il, al = -0.4, 0.8
+        span = al - il
+        sus = max(0.0, min(1.0, -il / span))
+        got, want = self.compare(gate, attack=0.002, decay=0.005, sustain=sus,
+                                 release=0.01, initial=il, attack_level=al)
+        self.assertLessEqual(worst(got, want), 1)
+        # the rest level is IL and the sustain step is 0
+        self.assertEqual(got[0], sat(il * UNIT))
+        held = got[20 * frames:28 * frames]
+        self.assertLessEqual(max(abs(v) for v in held), 1)
+
+    def test_the_initial_level_is_where_it_rests(self):
+        """Initial is a lever, 1.0 = UNIT; the rest level is initial * UNIT."""
+        frames, blocks = 128, 20
+        # the gate starts low, so the first samples are the rest level
+        gate = [[0] * frames] + self.gate_blocks(frames, blocks - 1)
+        got, want = self.compare(gate, initial=-0.5, attack_level=0.5)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertEqual(got[0], sat(-0.5 * UNIT))
+        self.assertEqual(want[0], sat(-0.5 * UNIT))
+        # a C that scaled initial wrong (counts, or doubled) fails the bar above
+        for name, bad in (("initial doubled", -1.0), ("initial as 0", 0.0)):
+            _, wl = self.compare(gate, initial=bad, attack_level=0.5)
+            self.assertGreater(worst(got, wl), 100, name)
+
+    def test_the_attack_level_is_the_peak(self):
+        """Attack_level is the peak lever; the peak is attack_level * UNIT."""
+        frames, blocks = 128, 20
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, initial=-0.5, attack_level=0.5)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(max(got), sat(0.4 * UNIT))
+        for name, bad in (("attack_level doubled", 1.0),
+                          ("attack_level as 0.25", 0.25)):
+            _, wl = self.compare(gate, initial=-0.5, attack_level=bad)
+            self.assertGreater(worst(got, wl), 100, name)
+
+    def test_the_attack_seconds_scale(self):
+        frames, blocks = 128, 20
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, attack=0.05)
+        self.assertLessEqual(worst(got, want), 1)
+        _, wl = self.compare(gate, attack=0.05 / 1000.0)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_decay_seconds_scale(self):
+        frames, blocks = 128, 30
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, decay=0.3)
+        self.assertLessEqual(worst(got, want), 1)
+        _, wl = self.compare(gate, decay=0.3 / 1000.0)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_sustain_level_scales(self):
+        frames, blocks = 128, 30
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, sustain=0.6, initial=0.0, attack_level=1.0)
+        self.assertLessEqual(worst(got, want), 1)
+        _, wl = self.compare(gate, sustain=0.3)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_release_seconds_scale(self):
+        frames, blocks = 128, 30
+        gate = self.gate_blocks(frames, blocks, period=8, high=2)
+        got, want = self.compare(gate, release=0.4)
+        self.assertLessEqual(worst(got, want), 1)
+        _, wl = self.compare(gate, release=0.4 / 1000.0)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_check_catches_a_wrong_adsr2(self):
+        frames, blocks = 128, 30
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, initial=-0.5, attack_level=0.5)
+        self.assertLessEqual(worst(got, want), 1)
+        for name, kw in (("initial as -0.25", {"initial": -0.25}),
+                         ("attack_level as 0.25", {"attack_level": 0.25}),
+                         ("attack as 0.005", {"attack": 0.005}),
+                         ("sustain as 0.4", {"sustain": 0.4})):
+            args = dict(initial=-0.5, attack_level=0.5)
+            args.update(kw)
+            _, wl = self.compare(gate, **args)
+            self.assertGreater(worst(got, wl), 50, name)
+
+    def test_an_open_input_is_silence(self):
+        frames = 64
+        rig = Rig(frames, ag.ADSR2, 1, open_=(0,))
+        self.assertEqual(set(rig.run(None)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            gate = self.gate_blocks(frames, 16)
+            got, want = self.compare(gate, initial=-0.25, attack_level=0.75)
+            self.assertLessEqual(worst(got, want), 1, frames)

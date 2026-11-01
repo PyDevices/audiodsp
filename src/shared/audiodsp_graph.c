@@ -295,6 +295,7 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_fbdelay_t) + (size_t)line_frames * 2u * sizeof(int16_t);
         }
         case AUDIODSP_GRAPH_ENV:
+        case AUDIODSP_GRAPH_ADSR2:
             return sizeof(graph_env_t);
         case AUDIODSP_GRAPH_LFO:
             return sizeof(graph_lfo_t);
@@ -500,6 +501,18 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_ENV_DECAY] = 0.2f;
             node->param[AUDIODSP_GRAPH_ENV_SUSTAIN] = 0.7f;
             node->param[AUDIODSP_GRAPH_ENV_RELEASE] = 0.3f;
+            break;
+        }
+        case AUDIODSP_GRAPH_ADSR2: {
+            graph_env_t *d = data;
+            d->stage = ENV_IDLE;
+            d->val = 0.0f;
+            node->param[AUDIODSP_GRAPH_ADSR2_ATTACK] = 0.01f;
+            node->param[AUDIODSP_GRAPH_ADSR2_DECAY] = 0.2f;
+            node->param[AUDIODSP_GRAPH_ADSR2_SUSTAIN] = 0.7f;
+            node->param[AUDIODSP_GRAPH_ADSR2_RELEASE] = 0.3f;
+            node->param[AUDIODSP_GRAPH_ADSR2_INITIAL] = 0.0f;
+            node->param[AUDIODSP_GRAPH_ADSR2_ATTACK_LEVEL] = 1.0f;
             break;
         }
         case AUDIODSP_GRAPH_LFO: {
@@ -923,7 +936,8 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             audiodsp_feedback_delay_reset(&d->state, &d->config);
             break;
         }
-        case AUDIODSP_GRAPH_ENV: {
+        case AUDIODSP_GRAPH_ENV:
+        case AUDIODSP_GRAPH_ADSR2: {
             graph_env_t *d = n->data;
             d->stage = ENV_IDLE;
             d->val = 0.0f;
@@ -1128,6 +1142,13 @@ static void derive(audiodsp_graph_t *graph, audiodsp_graph_node_t *n) {
             d->r = env_coeff(n->param[AUDIODSP_GRAPH_ENV_RELEASE], 0.25f, graph->sample_rate);
             break;
         }
+        case AUDIODSP_GRAPH_ADSR2: {
+            graph_env_t *d = n->data;
+            d->a = env_coeff(n->param[AUDIODSP_GRAPH_ADSR2_ATTACK], 0.35f, graph->sample_rate);
+            d->d = env_coeff(n->param[AUDIODSP_GRAPH_ADSR2_DECAY], 0.25f, graph->sample_rate);
+            d->r = env_coeff(n->param[AUDIODSP_GRAPH_ADSR2_RELEASE], 0.25f, graph->sample_rate);
+            break;
+        }
         default:
             break;
     }
@@ -1213,6 +1234,69 @@ static void run_env(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
                 break;
         }
         out[i] = sat16(val * AUDIODSP_GRAPH_UNIT);
+    }
+    d->stage = stage;
+    d->high = high;
+    d->val = val;
+}
+
+// ENV's contour remapped to start at initial and peak at attack_level:
+// out = (initial + e * (attack_level - initial)) * UNIT. The state machine is
+// ENV's, so the coefficients and the stage edges are the same; only the write
+// differs. poly80's filter envelope is this shape with sustain set to
+// clamp(-initial / (attack_level - initial), 0, 1), which puts the sustain
+// step at 0.
+static void run_adsr2(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
+    uint32_t frames) {
+    graph_env_t *d = n->data;
+    const float sus = n->param[AUDIODSP_GRAPH_ADSR2_SUSTAIN];
+    const float il = n->param[AUDIODSP_GRAPH_ADSR2_INITIAL];
+    const float span = n->param[AUDIODSP_GRAPH_ADSR2_ATTACK_LEVEL] - il;
+    uint8_t stage = d->stage;
+    bool high = d->high;
+    float val = d->val;
+    for (uint32_t i = 0; i < frames; ++i) {
+        if (gate != NULL) {
+            bool g = (float)gate[i] > ENV_GATE_THRESHOLD;
+            if (g != high) {
+                high = g;
+                if (g) {
+                    stage = ENV_ATTACK;
+                } else if (stage != ENV_IDLE) {
+                    stage = ENV_RELEASE;
+                }
+            }
+        }
+        switch (stage) {
+            case ENV_ATTACK:
+                val = ENV_ATTACK_TARGET + (val - ENV_ATTACK_TARGET) * d->a;
+                if (val >= 1.0f) {
+                    val = 1.0f;
+                    stage = ENV_DECAY;
+                }
+                break;
+            case ENV_DECAY:
+                val = sus + (val - sus) * d->d;
+                if (fabsf(val - sus) <= ENV_DECAY_TOLERANCE) {
+                    val = sus;
+                    stage = ENV_SUSTAIN;
+                }
+                break;
+            case ENV_SUSTAIN:
+                val = sus;
+                break;
+            case ENV_RELEASE:
+                val *= d->r;
+                if (val <= ENV_RELEASE_TOLERANCE) {
+                    val = 0.0f;
+                    stage = ENV_IDLE;
+                }
+                break;
+            default:
+                val = 0.0f;
+                break;
+        }
+        out[i] = sat16((il + val * span) * AUDIODSP_GRAPH_UNIT);
     }
     d->stage = stage;
     d->high = high;
@@ -3194,6 +3278,14 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
             }
             case AUDIODSP_GRAPH_ENV: {
                 run_env(n, in0, dst, frames);
+                if (((graph_env_t *)n->data)->stage != ENV_IDLE &&
+                    n->group != AUDIODSP_GRAPH_ALWAYS) {
+                    sounding |= 1u << n->group;
+                }
+                break;
+            }
+            case AUDIODSP_GRAPH_ADSR2: {
+                run_adsr2(n, in0, dst, frames);
                 if (((graph_env_t *)n->data)->stage != ENV_IDLE &&
                     n->group != AUDIODSP_GRAPH_ALWAYS) {
                     sounding |= 1u << n->group;
