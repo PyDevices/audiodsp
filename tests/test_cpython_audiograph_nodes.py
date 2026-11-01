@@ -2257,3 +2257,323 @@ class Tremolo(unittest.TestCase):
                 wl += l_blk
                 wr += r_blk
             self.assertGreater(max(worst(got_l, wl), worst(got_r, wr)), 100, name)
+
+# ------------------------------------------------------------------- DECAY --
+
+LN_100 = 4.60517
+
+
+def decay_coeff(seconds, rate=RATE):
+    """vrack's exp(-4.60517 / (sr * seconds)), the -40 dB time."""
+    steps = max(1.0, f32(seconds) * rate * (1.0 / LN_100))
+    return math.exp(-1.0 / steps)
+
+
+def exp_segment(start, count, coeff):
+    """`blocks.exp_segment` into a fresh list: start * coeff**(k+1)."""
+    return [start * (coeff ** (k + 1)) for k in range(count)]
+
+
+class DecayOneshotRef:
+    """vrack's `OneShotEnvelopeCore` (`dsp/drums.py`), with the hit at 1.0
+    as its `render(gate)` starts it."""
+
+    def __init__(self, decay_sec):
+        self.coeff = decay_coeff(decay_sec)
+        self.level = 0.0
+        self.high = False
+        self.ringing = False
+
+    def render(self, gate):
+        rising = -1
+        high = self.high
+        for i, v in enumerate(gate):
+            now = v > 0.1
+            if now and not high and rising < 0:
+                rising = i
+            high = now
+        self.high = high
+        if rising >= 0:
+            self.ringing = True
+        if not self.ringing and rising < 0:
+            return [0] * len(gate)
+        out = [0] * len(gate)
+        pos = 0
+        level = self.level
+        while pos < len(gate):
+            if rising == pos:
+                level = 1.0
+                self.ringing = True
+                rising = -1
+            end = rising if 0 <= rising < len(gate) else len(gate)
+            if end > pos:
+                seg = exp_segment(level, end - pos, self.coeff)
+                out[pos:end] = seg
+                level = seg[-1] if seg else level
+                pos = end
+        if level < 1e-4:
+            level = 0.0
+            self.ringing = False
+        self.level = level
+        return out
+
+
+class DecayBurstRef:
+    """The burst envelope inside vrack's `HandClapCore` / `JingleCore` /
+    `GuiroCore`: a spike at each (delay, level), a fast fall between spikes
+    and a slow one after the last."""
+
+    def __init__(self, table, burst_sec, tail_sec, tail_is_40db=False):
+        self.spikes = tuple(
+            (int(round(delay * RATE)), f32(level)) for delay, level in table)
+        self.d_burst = math.exp(-1.0 / (RATE * burst_sec))
+        self.d_tail = (
+            decay_coeff(tail_sec) if tail_is_40db
+            else math.exp(-1.0 / (RATE * tail_sec)))
+        self.level = 0.0
+        self.velocity = 1.0
+        self.high = False
+        self.ringing = False
+        self.sample = 0
+
+    def render(self, gate, velocity=1.0):
+        n = len(gate)
+        rising = -1
+        high = self.high
+        for i, v in enumerate(gate):
+            now = v > 0.1
+            if now and not high and rising < 0:
+                rising = i
+            high = now
+        self.high = high
+        out = [0] * n
+        level = self.level
+        v = self.velocity
+        sample = self.sample
+        for i in range(n):
+            if rising == i:
+                self.ringing = True
+                v = f32(velocity)
+                sample = 0
+                level = v
+                rising = -1
+            if not self.ringing:
+                continue
+            which = None
+            for s, (at, lv) in enumerate(self.spikes):
+                if at == sample:
+                    which = (s, lv)
+                    break
+            if which is not None:
+                level = v * which[1]
+                out[i] = sat(level * UNIT)
+                sample += 1
+                continue
+            past = sample > self.spikes[-1][0]
+            level *= self.d_tail if past else self.d_burst
+            out[i] = sat(level * UNIT)
+            sample += 1
+            if past and level < 1e-4:
+                level = 0.0
+                self.ringing = False
+                sample = 0
+        self.level = level
+        self.velocity = v
+        self.sample = sample
+        return out
+
+
+CLAP_TABLE = ((0.0, 0.75), (0.0105, 0.75), (0.0210, 0.75), (0.0315, 0.85))
+JINGLE_TABLE = ((0.0, 0.8), (0.016, 0.8), (0.032, 0.8), (0.048, 1.0))
+GUIRO_TABLE = tuple((i * 0.016, 0.6 + 0.4 * i / 5.0) for i in range(6))
+
+
+class DecayTest(unittest.TestCase):
+    """DECAY held to `OneShotEnvelopeCore` and the burst cores' envelopes."""
+
+    def compare_oneshot(self, decay_sec, gate):
+        frames = len(gate[0])
+        rig = Rig(frames, ag.DECAY, 2)
+        rig.set(ag.DECAY_DECAY, decay_sec)
+        ref = DecayOneshotRef(decay_sec)
+        got, want = [], []
+        for block in gate:
+            got += rig.run(block, [UNIT] * frames)
+            want += [sat(v * UNIT) for v in ref.render([x / UNIT for x in block])]
+        return got, want
+
+    def compare_burst(self, table, burst_sec, tail_sec, gate, vels,
+                      tail_is_40db=False):
+        frames = len(gate[0])
+        rig = Rig(frames, ag.DECAY, 2)
+        rig.set(ag.DECAY_DECAY, tail_sec if tail_is_40db else tail_sec * LN_100)
+        rig.set(ag.DECAY_RESTRIKE, burst_sec * LN_100)
+        rig.g.table(rig.node, table)
+        ref = DecayBurstRef(table, burst_sec, tail_sec, tail_is_40db)
+        got, want = [], []
+        for block, vel in zip(gate, vels):
+            got += rig.run(block, vel)
+            want += ref.render([x / UNIT for x in block],
+                               velocity=vel[0] / UNIT)
+        return got, want
+
+    def test_matches_oneshotenvelopecore(self):
+        frames = 128
+        for decay_sec in (0.055, 0.2, 1.2):
+            gate = []
+            for b in range(30):
+                on = (b % 11) < 4
+                start = 17 if b % 11 == 0 else 0
+                gate.append([UNIT if on and i >= start else 0
+                             for i in range(frames)])
+            got, want = self.compare_oneshot(decay_sec, gate)
+            self.assertLessEqual(worst(got, want), 1, decay_sec)
+            self.assertGreater(max(abs(v) for v in got), 8000, decay_sec)
+
+    def test_matches_handclap_jingle_and_guiro_envelopes(self):
+        frames = 128
+        for name, table, burst, tail, is40 in (
+            ("clap", CLAP_TABLE, 0.0028, 0.065, False),
+            ("clap909", CLAP_TABLE, 0.0028, 0.090, False),
+            ("jingle", JINGLE_TABLE, 0.005, 0.220, True),
+            ("guiro", GUIRO_TABLE, 0.0035, 0.0080, False),
+        ):
+            gate, vels = [], []
+            for b in range(40):
+                on = (b % 13) < 5
+                gate.append([UNIT if on else 0 for _ in range(frames)])
+                vels.append([int(UNIT * (0.4 + 0.1 * (b % 5)))] * frames)
+            got, want = self.compare_burst(table, burst, tail, gate, vels, is40)
+            self.assertLessEqual(worst(got, want), 1, name)
+            self.assertGreater(max(abs(v) for v in got), 4000, name)
+
+    def test_the_decay_seconds_scale(self):
+        """A decay read as milliseconds must not land on the same envelope."""
+        frames, blocks = 128, 20
+        gate = [[UNIT if b % 8 < 2 else 0 for _ in range(frames)]
+                for b in range(blocks)]
+        got, want = self.compare_oneshot(0.2, gate)
+        wrong = DecayOneshotRef(0.2 / 1000.0)
+        wl = []
+        for block in gate:
+            wl += [sat(v * UNIT) for v in wrong.render([x / UNIT for x in block])]
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_restrike_seconds_scale(self):
+        frames, blocks = 128, 30
+        gate, vels = [], []
+        for b in range(blocks):
+            gate.append([UNIT if b % 10 < 4 else 0 for _ in range(frames)])
+            vels.append([int(UNIT * 0.7)] * frames)
+        got, want = self.compare_burst(CLAP_TABLE, 0.0028, 0.065, gate, vels)
+        wrong = DecayBurstRef(CLAP_TABLE, 0.0028 / 1000.0, 0.065)
+        wl = []
+        for block, vel in zip(gate, vels):
+            wl += wrong.render([x / UNIT for x in block], velocity=vel[0] / UNIT)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_velocity_scales_the_hit(self):
+        frames, blocks = 128, 12
+        gate = [[UNIT if b % 6 < 2 else 0 for _ in range(frames)]
+                for b in range(blocks)]
+        vels = [[int(UNIT * 0.25)] * frames for _ in range(blocks)]
+        got, want = self.compare_burst(CLAP_TABLE, 0.0028, 0.065, gate, vels)
+        wrong_vel = [[UNIT] * frames for _ in range(blocks)]
+        _, wl = self.compare_burst(CLAP_TABLE, 0.0028, 0.065, gate, wrong_vel)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_check_catches_a_wrong_decay(self):
+        frames, blocks = 128, 20
+        gate = [[UNIT if b % 8 < 2 else 0 for _ in range(frames)]
+                for b in range(blocks)]
+        got, _ = self.compare_oneshot(0.2, gate)
+        for name, bad in (
+            ("decay halved", DecayOneshotRef(0.1)),
+            ("decay doubled", DecayOneshotRef(0.4)),
+            ("coeff as 1/e not -40 dB", DecayOneshotRef(0.2 / LN_100)),
+        ):
+            wl = []
+            for block in gate:
+                wl += [sat(v * UNIT) for v in bad.render([x / UNIT for x in block])]
+            self.assertGreater(worst(got, wl), 100, name)
+
+    def test_table_accepts_float_buffer_and_sequences_and_carries(self):
+        frames = 128
+        flat = array("f", [v for pair in CLAP_TABLE for v in pair])
+        g1 = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                      buffers=8, nodes=8)
+        t1, v1, o1 = g1.buffer(), g1.buffer(), g1.buffer()
+        n1 = g1.add(ag.DECAY, ag.ALWAYS, (t1, v1), o1)
+        g1.table(n1, flat)
+        g1.set(n1, ag.DECAY_DECAY, 0.3)
+        g1.set(n1, ag.DECAY_RESTRIKE, 0.013)
+
+        g2 = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                      buffers=8, nodes=8)
+        t2, v2, o2 = g2.buffer(), g2.buffer(), g2.buffer()
+        n2 = g2.add(ag.DECAY, ag.ALWAYS, (t2, v2), o2)
+        g2.table(n2, CLAP_TABLE)
+        g2.set(n2, ag.DECAY_DECAY, 0.3)
+        g2.set(n2, ag.DECAY_RESTRIKE, 0.013)
+
+        trig = array("h", [UNIT] * frames)
+        zero = array("h", [0] * frames)
+        b1 = array("h", bytes(2 * frames))
+        b2 = array("h", bytes(2 * frames))
+        g1.write(t1, trig)
+        g2.write(t2, trig)
+        g1.run(None)
+        g2.run(None)
+        g1.read(o1, b1)
+        g2.read(o2, b2)
+        self.assertEqual(list(b1), list(b2))
+
+        g3 = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                      buffers=8, nodes=8)
+        t3, v3, o3 = g3.buffer(), g3.buffer(), g3.buffer()
+        n3 = g3.add(ag.DECAY, ag.ALWAYS, (t3, v3), o3)
+        g3.carry(n3, g1, n1)
+        g1.write(t1, zero)
+        g3.write(t3, zero)
+        g1.run(None)
+        g3.run(None)
+        g1.read(o1, b1)
+        g3.read(o3, b2)
+        self.assertEqual(list(b1), list(b2))
+
+    def test_a_table_of_pairs_and_a_flat_run(self):
+        frames = 64
+        rig = Rig(frames, ag.DECAY, 2)
+        rig.g.table(rig.node, [(0.0, 1.0), (0.01, 0.5)])
+        rig.set(ag.DECAY_DECAY, 0.2)
+        rig.set(ag.DECAY_RESTRIKE, 0.02)
+        out = rig.run([UNIT] * frames, [UNIT] * frames)
+        self.assertGreater(max(abs(v) for v in out), 1000)
+
+    def test_unstruck_is_silence_and_reset_clears_state(self):
+        frames = 128
+        rig = Rig(frames, ag.DECAY, 2)
+        self.assertEqual(set(rig.run([0] * frames, [UNIT] * frames)), {0})
+        rig.run([UNIT] * frames, [UNIT] * frames)
+        self.assertNotEqual(set(rig.run([0] * frames, [UNIT] * frames)), {0})
+        rig.g.reset(rig.node)
+        self.assertEqual(set(rig.run([0] * frames, [UNIT] * frames)), {0})
+
+    def test_an_open_velocity_is_one(self):
+        frames = 128
+        rig = Rig(frames, ag.DECAY, 2, open_=(1,))
+        rig.set(ag.DECAY_DECAY, 0.1)
+        out = rig.run([UNIT] * frames, None)
+        self.assertGreater(max(out), 8000)
+
+    def test_other_block_sizes(self):
+        for frames in (32, 64, 256):
+            gate = [[UNIT if b % 5 < 2 else 0 for _ in range(frames)]
+                    for b in range(12)]
+            got, want = self.compare_oneshot(0.15, gate)
+            self.assertLessEqual(worst(got, want), 1, frames)
+
+

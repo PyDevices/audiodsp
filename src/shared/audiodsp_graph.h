@@ -198,6 +198,16 @@ typedef enum {
     // (`1 - 0.5 * d * (1 - sin)` on both sides), the depth gliding across
     // each block.
     AUDIODSP_GRAPH_TREMOLO,
+    // inputs: trigger, velocity. params: decay s, re-strike s. table(): up to
+    // 16 (delay s, level) re-strikes. A one-shot exponential envelope: a
+    // rising edge of the trigger above 0.1 starts it at the velocity input's
+    // value at that sample (1.0 when that input is open), falling to -40 dB
+    // over decay seconds. With a burst table it re-strikes at each (delay,
+    // level) — the level scaled by the velocity — falling to -40 dB over
+    // re-strike seconds until the next re-strike and over decay seconds after
+    // the last. vrack's dsp/drums.py OneShotEnvelopeCore, and the burst
+    // envelopes of HandClapCore, JingleCore and GuiroCore.
+    AUDIODSP_GRAPH_DECAY,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -397,6 +407,18 @@ enum {
 };
 
 enum {
+    // Seconds for the envelope to fall 40 dB after the last re-strike (and
+    // the only decay when there is no burst table); held to >= 0.001.
+    AUDIODSP_GRAPH_DECAY_DECAY = 0,
+    // Seconds for the envelope to fall 40 dB between re-strikes; held to
+    // >= 0.001. Ignored without a burst table.
+    AUDIODSP_GRAPH_DECAY_RESTRIKE,
+};
+
+//: Re-strikes in one DECAY node's burst table.
+#define AUDIODSP_GRAPH_DECAY_STRIKES 16u
+
+enum {
     AUDIODSP_GRAPH_MIX_OFFSET = 8,
 };
 
@@ -573,6 +595,11 @@ bool audiodsp_graph_set_table(audiodsp_graph_t *graph, uint32_t node,
 // AUDIODSP_GRAPH_STRUCK_MODES, copied into the node.
 bool audiodsp_graph_set_struck_table(audiodsp_graph_t *graph, uint32_t node,
     const float *table, uint32_t modes);
+
+// A DECAY node's burst table: `strikes` pairs of (delay s, level), up to
+// AUDIODSP_GRAPH_DECAY_STRIKES, copied into the node.
+bool audiodsp_graph_set_decay_table(audiodsp_graph_t *graph, uint32_t node,
+    const float *table, uint32_t strikes);
 
 // Clears a node's running state (the kernel's reset).
 bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node);

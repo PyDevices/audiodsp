@@ -98,6 +98,7 @@ rather than its last block.
 | `STRUCK` | strike, velocity | `STRUCK_FREQUENCY` Hz, `STRUCK_HARDNESS` 0..1, `STRUCK_LEVEL`, `STRUCK_SHAPE` (`STRUCK_HAMMER`, `STRUCK_PLUCK`); `table(node, modes)` sets up to `STRUCK_MODES` (24) `(ratio, decay, gain)` triples | a hammer/pluck exciter into a 24-mode struck bar bank, [below](#struck-bar) |
 | `PICKUP` | audio | `PICKUP_MODE` (`PICKUP_ELECTROMAGNETIC`, `PICKUP_ELECTROSTATIC`), `PICKUP_DRIVE`, `PICKUP_OFFSET`, `PICKUP_LEVEL` | electromagnetic or electrostatic pickup nonlinearity with DC removal, [below](#pickup) |
 | `TREMOLO` | audio, rate CV, depth CV | `TREMOLO_RATE` Hz, `TREMOLO_DEPTH` 0..1, `TREMOLO_MODE` (`TREMOLO_PAN`, `TREMOLO_AMPLITUDE`); built with `arg` = the right side's buffer | stereo auto-pan or mono amplitude tremolo into `(output, arg)`, [below](#tremolo) |
+| `DECAY` | trigger, velocity | `DECAY_DECAY` seconds to −40 dB, `DECAY_RESTRIKE` seconds to −40 dB; `table(node, strikes)` sets up to `DECAY_STRIKES` (16) `(delay s, level)` pairs | a one-shot exponential envelope, or a burst of re-strikes, [below](#decay) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -332,6 +333,33 @@ phase to 0 and drops the glide, so the next block starts at `TREMOLO_DEPTH`,
 as `TremoloCore.reset` does. The arithmetic is float32 as numpy's, the phase
 double as Python's; the sine and cosine are the LFO's polynomial, so a
 sample can land a count from the rack's.
+
+### Decay
+
+`DECAY` is the one-shot envelope inside vrack's `OneShotEnvelopeCore`
+(`dsp/drums.py`), and the burst envelopes inside its `HandClapCore`,
+`JingleCore` and `GuiroCore`. A rising edge on the trigger input (0 to above
+0.1 of `UNIT`) starts the envelope at the velocity input at that sample, or
+1.0 when the velocity input is open. Without a table the envelope falls by
+`DECAY_DECAY` seconds to −40 dB — `level · exp(−4.60517 · sample /
+(sample_rate · DECAY_DECAY))` — writing `level · coeff` at the rising sample
+and never the step itself, as `exp_segment` does. A retrigger replaces the
+envelope rather than adding to it.
+
+With a table, the node plays the bursts the three rack cores play: a spike of
+`velocity · level` at each strike's sample, a fall of `DECAY_RESTRIKE` seconds
+to −40 dB between spikes and `DECAY_DECAY` after the last. Strike times are
+`round(delay · sample_rate)` samples from the rising sample, so a clap of
+`((0, 0.75), (0.0105, 0.75), (0.021, 0.75), (0.0315, 0.85))` with
+`DECAY_RESTRIKE` 0.0028 s and `DECAY_DECAY` 0.065 s is `HandClapCore`'s clap;
+rhythm909's tail is 0.090 s. Both
+times are seconds to −40 dB so one convention covers every rack constant: the
+cores' 1/e times are that number times 4.60517.
+
+The rack's burst cores start a burst at sample 0 of the block that sees a
+rising edge, wherever in the block it is. `DECAY` starts it at the rising
+sample, as `OneShotEnvelopeCore` and every other graph node do. A burst that
+must match a core exactly should strike on a block boundary.
 
 ## Output
 

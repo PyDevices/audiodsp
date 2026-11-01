@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP and TREMOLO, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK and CRUSH, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -66,7 +66,7 @@ except (ImportError, AttributeError):
     sys.exit(0)
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-          "modal", "struck", "pickup", "tremolo")
+          "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -86,8 +86,8 @@ def check(ok, what):
         failures.append(what)
 
 
-g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=60,
-             nodes=60)
+g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=70,
+             nodes=70)
 watched = []
 
 
@@ -294,6 +294,18 @@ g.set(trem_amp, ag.TREMOLO_DEPTH, 0.5)
 g.set(trem_amp, ag.TREMOLO_MODE, ag.TREMOLO_AMPLITUDE)
 watched.append(("trem_amp", trem_amp_l))
 
+# -- decays: a one-shot envelope on the written strikes, a clap burst on a
+#    second trigger line
+decay_hit, _ = node("decay_hit", ag.DECAY, (strike_b, vel_b))
+g.set(decay_hit, ag.DECAY_DECAY, 0.055)
+g.set(decay_hit, ag.DECAY_RESTRIKE, 0.008)
+burst_b = g.buffer()
+decay_burst, _ = node("decay_burst", ag.DECAY, (burst_b, None))
+g.table(decay_burst, ((0.0, 0.75), (0.0105, 0.75), (0.021, 0.75), (0.0315, 0.85)))
+g.set(decay_burst, ag.DECAY_DECAY, 0.065)
+g.set(decay_burst, ag.DECAY_RESTRIKE, 0.0028)
+
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -309,6 +321,7 @@ last_cv = array("h", bytes(2 * FRAMES))
 strike = array("h", bytes(2 * FRAMES))
 modal_strike = array("h", bytes(2 * FRAMES))
 vel = array("h", bytes(2 * FRAMES))
+burst = array("h", bytes(2 * FRAMES))
 moved = False
 pan_sides_differ = False
 left_block = None
@@ -449,6 +462,15 @@ for b in range(BLOCKS):
     if b == 115:
         g.reset(trem_pan)
 
+    # the one-shot decay's time steps; the clap burst is struck every nine
+    # blocks on a block boundary (the burst starts at the rising sample)
+    decay_at = b if FAULT != "decay" or b != 32 else b - 1
+    g.set(decay_hit, ag.DECAY_DECAY, 0.055 * (1 + (decay_at // 16) % 3))
+    for i in range(FRAMES):
+        burst[i] = UNIT if (b % 9 == 0 and i == 0) else 0
+    g.write(burst_b, burst)
+
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -515,6 +537,11 @@ for name in ("pickup_em", "pickup_es"):
 for name in ("trem_l", "trem_r", "trem_amp"):
     check(seen[name][0] > 2000 and seen[name][2] > 500,
           "the tremolo %s renders sound" % name)
+
+for name in ("decay_hit", "decay_burst"):
+    check(seen[name][0] > 500 and seen[name][2] > 500,
+          "the decay %s renders sound" % name)
+
 
 if failures:
     for what in failures:
