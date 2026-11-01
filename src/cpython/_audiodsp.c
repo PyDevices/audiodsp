@@ -4224,8 +4224,101 @@ static PyObject *graph_set_struck_table_py(audiodsp_graph_t *graph,
     Py_RETURN_NONE;
 }
 
+static PyObject *graph_set_decay_table_py(audiodsp_graph_t *graph,
+    uint32_t node, PyObject *table) {
+    float pairs[AUDIODSP_GRAPH_DECAY_STRIKES * 2];
+    uint32_t strikes = 0;
+    Py_buffer view = {0};
+    if (PyObject_CheckBuffer(table)) {
+        if (PyObject_GetBuffer(table, &view, PyBUF_FORMAT | PyBUF_C_CONTIGUOUS) < 0) {
+            return NULL;
+        }
+        const char *fmt = view.format ? view.format : "B";
+        if (strcmp(fmt, "f") != 0 || view.itemsize != (Py_ssize_t)sizeof(float) ||
+            (view.len % (Py_ssize_t)(2 * sizeof(float))) != 0) {
+            PyBuffer_Release(&view);
+            PyErr_SetString(PyExc_TypeError,
+                "decay table must be a float array of (delay, level) pairs or a sequence of them");
+            return NULL;
+        }
+        strikes = (uint32_t)(view.len / (Py_ssize_t)(2 * sizeof(float)));
+        bool ok = strikes <= AUDIODSP_GRAPH_DECAY_STRIKES &&
+            audiodsp_graph_set_decay_table(graph, node,
+                (const float *)view.buf, strikes);
+        PyBuffer_Release(&view);
+        if (!ok) {
+            PyErr_SetString(PyExc_ValueError, "decay table has too many strikes");
+            return NULL;
+        }
+        Py_RETURN_NONE;
+    }
+    PyObject *seq = PySequence_Fast(table,
+        "decay table must be a float array or a sequence");
+    if (seq == NULL) {
+        return NULL;
+    }
+    const Py_ssize_t len = PySequence_Fast_GET_SIZE(seq);
+    PyObject **items = PySequence_Fast_ITEMS(seq);
+    if (len > 0 && (PyTuple_Check(items[0]) || PyList_Check(items[0]))) {
+        if (len > (Py_ssize_t)AUDIODSP_GRAPH_DECAY_STRIKES) {
+            Py_DECREF(seq);
+            PyErr_SetString(PyExc_ValueError, "decay table has too many strikes");
+            return NULL;
+        }
+        for (Py_ssize_t i = 0; i < len; ++i) {
+            PyObject *sub = PySequence_Fast(items[i],
+                "each strike must be (delay, level)");
+            if (sub == NULL) {
+                Py_DECREF(seq);
+                return NULL;
+            }
+            if (PySequence_Fast_GET_SIZE(sub) != 2) {
+                Py_DECREF(sub);
+                Py_DECREF(seq);
+                PyErr_SetString(PyExc_ValueError,
+                    "each strike must be (delay, level)");
+                return NULL;
+            }
+            PyObject **titems = PySequence_Fast_ITEMS(sub);
+            for (int k = 0; k < 2; ++k) {
+                double v = PyFloat_AsDouble(titems[k]);
+                if (v == -1.0 && PyErr_Occurred()) {
+                    Py_DECREF(sub);
+                    Py_DECREF(seq);
+                    return NULL;
+                }
+                pairs[i * 2 + k] = (float)v;
+            }
+            Py_DECREF(sub);
+        }
+        strikes = (uint32_t)len;
+    } else {
+        if ((len % 2) != 0 || (len / 2) > (Py_ssize_t)AUDIODSP_GRAPH_DECAY_STRIKES) {
+            Py_DECREF(seq);
+            PyErr_SetString(PyExc_ValueError,
+                "decay table must have 2 floats per strike (up to 16 strikes)");
+            return NULL;
+        }
+        for (Py_ssize_t i = 0; i < len; ++i) {
+            double v = PyFloat_AsDouble(items[i]);
+            if (v == -1.0 && PyErr_Occurred()) {
+                Py_DECREF(seq);
+                return NULL;
+            }
+            pairs[i] = (float)v;
+        }
+        strikes = (uint32_t)(len / 2);
+    }
+    Py_DECREF(seq);
+    if (!audiodsp_graph_set_decay_table(graph, node, pairs, strikes)) {
+        PyErr_SetString(PyExc_ValueError, "bad decay table");
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
 // table(node, table): a feedback delay's wow shape (int16 array, borrowed) or
-// a struck node's mode table (copied).
+// a struck node's mode table (copied) or a decay node's burst table (copied).
 static PyObject *graph_state_table(audiodsp_graph_object_t *self,
     PyObject *args) {
     long node;
@@ -4239,6 +4332,10 @@ static PyObject *graph_state_table(audiodsp_graph_object_t *self,
     if (node >= 0 && (uint32_t)node < self->graph.nnodes &&
         audiodsp_graph_node(&self->graph, (uint32_t)node)->kind == AUDIODSP_GRAPH_STRUCK) {
         return graph_set_struck_table_py(&self->graph, (uint32_t)node, table);
+    }
+    if (node >= 0 && (uint32_t)node < self->graph.nnodes &&
+        audiodsp_graph_node(&self->graph, (uint32_t)node)->kind == AUDIODSP_GRAPH_DECAY) {
+        return graph_set_decay_table_py(&self->graph, (uint32_t)node, table);
     }
     // A memoryview holds the export, so the array cannot be resized under
     // the delay while the graph keeps it.
@@ -4851,6 +4948,9 @@ static int graph_add_constants(PyObject *module) {
         {"STRUCK", AUDIODSP_GRAPH_STRUCK},
         {"PICKUP", AUDIODSP_GRAPH_PICKUP},
         {"TREMOLO", AUDIODSP_GRAPH_TREMOLO},
+        {"DECAY", AUDIODSP_GRAPH_DECAY},
+        {"PINK", AUDIODSP_GRAPH_PINK},
+        {"CRUSH", AUDIODSP_GRAPH_CRUSH},
         {"ALWAYS", AUDIODSP_GRAPH_ALWAYS},
         {"UNIT", 16384},
         {"ENV_ATTACK", AUDIODSP_GRAPH_ENV_ATTACK},
@@ -4931,6 +5031,15 @@ static int graph_add_constants(PyObject *module) {
         {"TREMOLO_MODE", AUDIODSP_GRAPH_TREMOLO_MODE},
         {"TREMOLO_PAN", AUDIODSP_GRAPH_TREMOLO_PAN},
         {"TREMOLO_AMPLITUDE", AUDIODSP_GRAPH_TREMOLO_AMPLITUDE},
+        {"DECAY_DECAY", AUDIODSP_GRAPH_DECAY_DECAY},
+        {"DECAY_RESTRIKE", AUDIODSP_GRAPH_DECAY_RESTRIKE},
+        {"DECAY_ATTACK", AUDIODSP_GRAPH_DECAY_ATTACK},
+        {"DECAY_FAST", AUDIODSP_GRAPH_DECAY_FAST},
+        {"DECAY_FAST_SEC", AUDIODSP_GRAPH_DECAY_FAST_SEC},
+        {"DECAY_RISE", AUDIODSP_GRAPH_DECAY_RISE},
+        {"DECAY_STRIKES", AUDIODSP_GRAPH_DECAY_STRIKES},
+        {"PINK_LEVEL", AUDIODSP_GRAPH_PINK_LEVEL},
+        {"CRUSH_BITS", AUDIODSP_GRAPH_CRUSH_BITS},
         {"OSC_FREQUENCY", AUDIODSP_OSCILLATOR_OPT_FREQUENCY},
         {"OSC_WAVEFORM", AUDIODSP_OSCILLATOR_OPT_WAVEFORM},
         {"OSC_PULSE_WIDTH", AUDIODSP_OSCILLATOR_OPT_PULSE_WIDTH},

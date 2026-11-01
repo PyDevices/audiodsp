@@ -1,17 +1,28 @@
 # SPDX-FileCopyrightText: 2026 Brad Barnett
 #
 # SPDX-License-Identifier: MIT
-"""Hold audiograph's STRUCK, PICKUP and TREMOLO against the rack's own Python.
+"""Hold audiograph's STRUCK, PICKUP, TREMOLO, DECAY, PINK and CRUSH against the rack.
 
     graph_vs_rack.py [--rack PATH]
 
-Imports vrack's ``StruckBarCore``, ``PickupCore`` and ``TremoloCore`` from an
-audioinstruments checkout (read only; default the sibling
-``../audioinstruments/lib``), drives each and the matching graph node with the
-same blocks, and prints the worst and rms difference in counts on the int16
-wire (16384 counts to 1.0). Needs numpy. STRUCK is compared with the rack's
-output shifted by ``StruckBarCore.LATENCY`` (the graph node has no 256-frame
-bridge), leaving out the frames before each strike that the rack mutes.
+Imports vrack's own cores from an audioinstruments checkout (read only;
+default the sibling ``../audioinstruments/lib``), drives each and the matching
+graph node with the same blocks, and prints the worst and rms difference in
+counts on the int16 wire (16384 counts to 1.0). Needs numpy. STRUCK is compared
+with the rack's output shifted by ``StruckBarCore.LATENCY`` (the graph node has
+no 256-frame bridge), leaving out the frames before each strike that the rack
+mutes.
+
+DECAY is held to ``OneShotEnvelopeCore`` with no burst table, to the burst
+envelopes inside ``HandClapCore``, ``JingleCore`` and ``GuiroCore`` (their
+``_env``, with the noise path stood aside), to ``CowbellCore`` and
+``Rhythm78Cowbell``'s two-stage ``_env``, to ``MaracasCore``'s linear-attack
+``_env``, and to ``BridgedTDrumCore`` and ``SweptOscillatorDrumCore``'s
+amp-minus-rise strike, click envelope and pitch-bend envelope. PINK is
+``NoiseGenerator.pink``. CRUSH is the quantise in
+``BitDepthRateCore._hold_numpy`` — the hold and the anti-alias filter around
+it are SAMPLE_HOLD's and a filter node's, so they are stood aside here and the
+node is compared to the quantise alone.
 """
 
 import math
@@ -33,6 +44,21 @@ sys.path.insert(0, str(RACK))
 
 from audioinstruments._rack.dsp.keys import PickupCore, StruckBarCore  # noqa: E402
 from audioinstruments._rack.dsp.tremolo import TremoloCore  # noqa: E402
+from audioinstruments._rack.dsp.drums import (  # noqa: E402
+    BitDepthRateCore,
+    BridgedTDrumCore,
+    CowbellCore,
+    GuiroCore,
+    HandClapCore,
+    JingleCore,
+    MaracasCore,
+    OneShotEnvelopeCore,
+    SweptOscillatorDrumCore,
+)
+from audioinstruments._rack.dsp.noise import NoiseGenerator  # noqa: E402
+from audioinstruments._rack.modules.rhythm78.cowbell import (  # noqa: E402
+    Rhythm78Cowbell,
+)
 
 RATE = 48000
 UNIT = ag.UNIT
@@ -173,6 +199,410 @@ def struck(name, table, f0, hardness, level, shape_name, shape, blocks=240, ever
     return report("STRUCK %s" % name, g_arr, w_arr)
 
 
+# -------------------------------------------------------------------- DECAY --
+
+# The burst cores' spike tables and their decay constants, as the rack keeps
+# them. The node's times are seconds to -40 dB, so a 1/e constant of t becomes
+# t * 4.60517 on the way in.
+LN_100 = 4.60517
+
+
+def burst_decay(name, table, burst_1e, tail_1e, tail_40db=None, blocks=40, every=13, width=5):
+    """A DECAY node with a burst table against a burst core's own envelope.
+
+    `table` is the core's spike levels at its spike times; `burst_1e` and
+    `tail_1e` are the core's exp(-1/(sr*t)) constants in seconds; a `tail_40db`
+    is already exp(-4.60517/(sr*t)) and is used as the node's decay directly.
+    """
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=6, nodes=3)
+    gate_b, vel_b, out = g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.DECAY, ag.ALWAYS, (gate_b, vel_b), out)
+    g.table(node, table)
+    restrike = burst_1e * LN_100
+    decay = tail_40db if tail_40db is not None else tail_1e * LN_100
+    g.set(node, ag.DECAY_DECAY, decay)
+    g.set(node, ag.DECAY_RESTRIKE, restrike)
+    core = {"clap": HANDCLAP, "clap909": HANDCLAP, "jingle": JINGLE,
+            "guiro": GUIRO}[name]
+    core._decay_burst = math.exp(-1.0 / (RATE * burst_1e))
+    if tail_40db is not None:
+        core._decay_tail = math.exp(-4.60517 / (RATE * tail_40db))
+    else:
+        core._decay_tail = math.exp(-1.0 / (RATE * tail_1e))
+    core.reset()
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    for b in range(blocks):
+        on = (b % every) < width
+        # The burst cores start a hit at sample 0 of the block that sees the
+        # rising edge, so the hit is put on a block boundary here. The node
+        # itself starts it at the rising sample (as OneShotEnvelopeCore does).
+        gate = [UNIT if on else 0 for _ in range(FRAMES)]
+        vel = [int(UNIT * (0.4 + 0.1 * (b % 5))) for _ in range(FRAMES)]
+        g.write(gate_b, array("h", gate))
+        g.write(vel_b, array("h", vel))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        want += list(wire(rack_burst_env(
+            name, np.asarray(gate, dtype=np.float32) / UNIT,
+            np.asarray(vel, dtype=np.float32) / UNIT)))
+    return report("DECAY %s burst" % name, got, want)
+
+
+def rack_burst_env(name, gate, vel):
+    """One burst core's envelope block, with its noise path stood aside.
+
+    ``render`` builds ``_env`` and then multiplies the filtered noise into
+    ``dst``, so a scratch ``dst`` leaves ``_env`` standing for the comparison.
+    """
+    core = {"clap": HANDCLAP, "clap909": HANDCLAP, "jingle": JINGLE,
+            "guiro": GUIRO}[name]
+    core.render(gate, _SCRATCH, velocity=float(vel[0]))
+    return core._env
+
+
+HANDCLAP = None
+JINGLE = None
+GUIRO = None
+_SCRATCH = np.zeros(FRAMES, dtype=np.float32)
+
+
+def decay_oneshot(decay_sec, blocks=30, every=11, width=4):
+    """A DECAY node with no burst table against OneShotEnvelopeCore."""
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=6, nodes=3)
+    gate_b, vel_b, out = g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.DECAY, ag.ALWAYS, (gate_b, vel_b), out)
+    g.set(node, ag.DECAY_DECAY, decay_sec)
+    core = OneShotEnvelopeCore(RATE, FRAMES)
+    core.set_times(0.001, decay_sec)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    for b in range(blocks):
+        on = (b % every) < width
+        start = 17 if (b % every) == 0 else 0
+        gate = [UNIT if on and i >= start else 0 for i in range(FRAMES)]
+        # OneShot's render(gate) starts the hit at 1.0; hold the node's
+        # velocity there so the two are the same shape.
+        vel = [UNIT] * FRAMES
+        g.write(gate_b, array("h", gate))
+        g.write(vel_b, array("h", vel))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        dst = np.zeros(FRAMES, dtype=np.float32)
+        core.render(np.asarray(gate, dtype=np.float32) / UNIT, dst)
+        want += list(wire(dst))
+    return report("DECAY oneshot %.3fs" % decay_sec, got, want)
+
+
+def decay_node(params, table=None):
+    """A DECAY node driven by a gate and a velocity wire."""
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=6, nodes=3)
+    gate_b, vel_b, out = g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.DECAY, ag.ALWAYS, (gate_b, vel_b), out)
+    if table is not None:
+        g.table(node, table)
+    for key, val in params.items():
+        g.set(node, key, val)
+    return g, gate_b, vel_b, out
+
+
+def one_hit(blocks):
+    """Gate and velocity for one strike on sample 0 of block 0, then quiet."""
+    gate = [np.zeros(FRAMES, dtype=np.float32) for _ in range(blocks)]
+    gate[0][0] = 1.0
+    vel = [np.full(FRAMES, 1.0, dtype=np.float32) for _ in range(blocks)]
+    return gate, vel
+
+
+def drive_oneshot(g, gate_b, vel_b, out, env_of, gate, vel, blocks):
+    """Run the node and `env_of(gate, vel)` over the same blocks."""
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    for b in range(blocks):
+        g.write(gate_b, array("h", (gate[b] * UNIT).astype(np.int16)))
+        g.write(vel_b, array("h", (vel[b] * UNIT).astype(np.int16)))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        want += list(wire(env_of(gate[b], vel[b])))
+    return got, want
+
+
+def rack_silent(core, gate):
+    """True when the core's next `render` will take its early return.
+
+    Those cores clear `dst` and leave `_env` (or `_amp_buf`) holding the last
+    block they wrote, so a comparison has to stand in zeros of its own.
+    """
+    return (not core.ringing) and not np.any(gate > 0.1)
+
+
+def decay_twostage_808():
+    """DECAY's two-stage path against ``CowbellCore``'s own ``_env``.
+
+    The rack's fast stage is exp(-1/(sr*0.006)) for 0.015 s, then a tail of
+    exp(-6.908/(sr*0.250)). DECAY takes seconds to -40 dB, so the fast stage is
+    0.006 * 4.60517 and the tail is 0.250 * 4.60517 / 6.908.
+    """
+    core = CowbellCore(RATE, FRAMES)
+    fast_sec = 0.006 * LN_100
+    tail_sec = 0.250 * LN_100 / 6.908
+    g, gate_b, vel_b, out = decay_node({
+        ag.DECAY_DECAY: tail_sec,
+        ag.DECAY_RESTRIKE: tail_sec,
+        ag.DECAY_FAST: fast_sec,
+        ag.DECAY_FAST_SEC: 0.015,
+    })
+    dst = np.zeros(FRAMES, dtype=np.float32)
+
+    def env_of(gate, vel):
+        early = rack_silent(core, gate)
+        core.render(gate, dst, velocity=float(vel[0]))
+        return np.zeros(FRAMES) if early else core._env
+
+    gate, vel = one_hit(100)
+    got, want = drive_oneshot(g, gate_b, vel_b, out, env_of, gate, vel, 100)
+    return report("DECAY cowbell808 two-stage", got, want)
+
+
+def decay_twostage_78():
+    """DECAY's two-stage path against ``Rhythm78Cowbell``'s own ``_env``.
+
+    The rack's fast stage is exp(-1/(sr*0.011)) for 0.012 s, then a tail of
+    exp(-4.60517/(sr*0.150)).
+    """
+    mod = Rhythm78Cowbell(sample_rate=RATE, block_size=FRAMES)
+    fast_sec = 0.011 * LN_100
+    tail_sec = 0.150
+    g, gate_b, vel_b, out = decay_node({
+        ag.DECAY_DECAY: tail_sec,
+        ag.DECAY_RESTRIKE: tail_sec,
+        ag.DECAY_FAST: fast_sec,
+        ag.DECAY_FAST_SEC: 0.012,
+    })
+
+    def env_of(gate, vel):
+        early = (not mod.ringing) and not np.any(gate > 0.1)
+        np.copyto(mod.gate_in._silent_buffer, gate)
+        np.copyto(mod.vel_in._silent_buffer, vel)
+        mod.process(FRAMES)
+        return np.zeros(FRAMES) if early else mod._env
+
+    gate, vel = one_hit(100)
+    got, want = drive_oneshot(g, gate_b, vel_b, out, env_of, gate, vel, 100)
+    return report("DECAY cowbell78 two-stage", got, want)
+
+
+def decay_maracas():
+    """DECAY's linear attack against ``MaracasCore``'s own ``_env``.
+
+    The rack ramps 0 to velocity over 0.008 s, then falls with
+    exp(-4.60517/(sr*0.045)).
+    """
+    core = MaracasCore(RATE, FRAMES)
+    g, gate_b, vel_b, out = decay_node({
+        ag.DECAY_DECAY: 0.045,
+        ag.DECAY_RESTRIKE: 0.045,
+        ag.DECAY_ATTACK: 0.008,
+    })
+    dst = np.zeros(FRAMES, dtype=np.float32)
+
+    def env_of(gate, vel):
+        early = rack_silent(core, gate)
+        core.render(gate, dst, velocity=float(vel[0]))
+        return np.zeros(FRAMES) if early else core._env
+
+    gate, vel = one_hit(60)
+    got, want = drive_oneshot(g, gate_b, vel_b, out, env_of, gate, vel, 60)
+    return report("DECAY maracas attack", got, want)
+
+
+def decay_bridged_t_rise():
+    """DECAY's rise against ``BridgedTDrumCore``'s amp-minus-rise strike.
+
+    The rack adds velocity * 0.20 to amp and to rise, then subtracts the rise
+    (a 1/e fall over min(0.001, 0.5/f0) s) from the amp (a -40 dB fall over
+    max(0.01, decay) s). One hit only: the rack adds on a retrigger and DECAY
+    replaces.
+    """
+    core = BridgedTDrumCore(RATE, FRAMES)
+    core.decay = 0.12
+    core.click_level = 0.0
+    core.noise_mix = 0.0
+    core.pitch_drop_cents = 0.0
+    f0 = max(10.0, min(RATE * 0.45, core.frequency))
+    rise_sec = min(0.001, 0.5 / f0) * LN_100
+    g, gate_b, vel_b, out = decay_node({
+        ag.DECAY_DECAY: max(0.01, core.decay),
+        ag.DECAY_RESTRIKE: max(0.01, core.decay),
+        ag.DECAY_RISE: rise_sec,
+    })
+    dst = np.zeros(FRAMES, dtype=np.float32)
+
+    def env_of(gate, vel):
+        # The rack's step is velocity * 0.20; DECAY's level is its velocity.
+        early = rack_silent(core, gate)
+        core.render(gate, dst, velocity=float(vel[0]) / 0.20)
+        return np.zeros(FRAMES) if early else core._amp_buf
+
+    gate, vel = one_hit(100)
+    got, want = drive_oneshot(g, gate_b, vel_b, out, env_of, gate, vel, 100)
+    return report("DECAY bridged-T rise", got, want)
+
+
+def decay_swept_rise():
+    """DECAY's rise against ``SweptOscillatorDrumCore``'s amp-minus-rise strike."""
+    core = SweptOscillatorDrumCore(RATE, FRAMES)
+    core.decay = 0.12
+    core.click_level = 0.0
+    core.noise_mix = 0.0
+    core.pitch_drop_cents = 0.0
+    f0 = max(10.0, min(RATE * 0.45, core.frequency))
+    rise_sec = min(0.001, 0.5 / f0) * LN_100
+    g, gate_b, vel_b, out = decay_node({
+        ag.DECAY_DECAY: max(0.01, core.decay),
+        ag.DECAY_RESTRIKE: max(0.01, core.decay),
+        ag.DECAY_RISE: rise_sec,
+    })
+    dst = np.zeros(FRAMES, dtype=np.float32)
+
+    def env_of(gate, vel):
+        early = rack_silent(core, gate)
+        core.render(gate, dst, velocity=float(vel[0]))
+        return np.zeros(FRAMES) if early else core._amp_buf
+
+    gate, vel = one_hit(100)
+    got, want = drive_oneshot(g, gate_b, vel_b, out, env_of, gate, vel, 100)
+    return report("DECAY swept-osc rise", got, want)
+
+
+def decay_click(label, core, core_velocity, click_sec):
+    """DECAY against a rack drum's click envelope.
+
+    The rack writes click_env into its ``_tmp`` scratch and then reuses that
+    scratch, so the block is caught as its own ``exp_segment`` writes it.
+    """
+    import audioinstruments._rack.dsp.drums as drums_mod
+    g, gate_b, vel_b, out = decay_node({
+        ag.DECAY_DECAY: click_sec,
+        ag.DECAY_RESTRIKE: click_sec,
+    })
+    caught = []
+    orig = drums_mod.exp_segment
+
+    def spy(dst, start, target, coeff, ramp):
+        val = orig(dst, start, target, coeff, ramp)
+        if dst is core._tmp:
+            caught.append(np.array(dst, dtype=np.float64).copy())
+        return val
+
+    drums_mod.exp_segment = spy
+    try:
+        blocks = 20
+        gate, _ = one_hit(blocks)
+        buf = array("h", bytes(2 * FRAMES))
+        got, want = [], []
+        dst = np.zeros(FRAMES, dtype=np.float32)
+        for b in range(blocks):
+            g.write(gate_b, array("h", (gate[b] * UNIT).astype(np.int16)))
+            g.write(vel_b, array("h", [UNIT] * FRAMES))
+            g.run(None)
+            g.read(out, buf)
+            got += list(buf)
+            before = len(caught)
+            core.render(gate[b], dst, velocity=core_velocity)
+            block = np.zeros(FRAMES, dtype=np.float64)
+            if len(caught) > before:
+                block[:len(caught[-1])] = caught[-1]
+            want += list(wire(block))
+    finally:
+        drums_mod.exp_segment = orig
+    if not caught:
+        raise RuntimeError("%s: no click block captured" % label)
+    return report(label, got, want)
+
+
+def decay_bend(label, core, bend_sec, which):
+    """DECAY against a rack drum's pitch-bend envelope."""
+    g, gate_b, vel_b, out = decay_node({
+        ag.DECAY_DECAY: bend_sec,
+        ag.DECAY_RESTRIKE: bend_sec,
+    })
+    blocks = 40
+    gate, vel = one_hit(blocks)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    dst = np.zeros(FRAMES, dtype=np.float32)
+    for b in range(blocks):
+        g.write(gate_b, array("h", (gate[b] * UNIT).astype(np.int16)))
+        g.write(vel_b, array("h", [UNIT] * FRAMES))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        core.render(gate[b], dst, velocity=1.0)
+        want += list(wire(np.asarray(getattr(core, which), dtype=np.float64)))
+    return report(label, got, want)
+
+
+# --------------------------------------------------------------------- PINK --
+
+def pink(blocks=40):
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=6, nodes=3)
+    white_b, out = g.buffer(), g.buffer()
+    g.add(ag.PINK, ag.ALWAYS, (white_b,), out)
+    gen = NoiseGenerator(seed=0xBEEF)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    white_f = np.zeros(FRAMES, dtype=np.float32)
+    pink_f = np.zeros(FRAMES, dtype=np.float32)
+    rng = np.random.default_rng(7)
+    for _ in range(blocks):
+        # the rack's white is uniform in ±0.5, which is ±8192 counts
+        w = (rng.random(FRAMES, dtype=np.float64) - 0.5)
+        block = [int(round(x * UNIT)) for x in w]
+        g.write(white_b, array("h", block))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        white_f[:] = np.asarray(block, dtype=np.float32) / UNIT
+        gen.pink(white_f, pink_f)
+        want += list(wire(pink_f))
+    return report("PINK kellet", got, want)
+
+
+# -------------------------------------------------------------------- CRUSH --
+
+def crush(bits, blocks=25):
+    """CRUSH against BitDepthRateCore's own quantise, hold and filter stood aside."""
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=6, nodes=3)
+    audio_b, out = g.buffer(), g.buffer()
+    node = g.add(ag.CRUSH, ag.ALWAYS, (audio_b,), out)
+    g.set(node, ag.CRUSH_BITS, bits)
+    core = BitDepthRateCore(RATE, FRAMES)
+    core.bits = bits
+    core.rate = float(RATE)
+    core._update_anti_alias()
+    # The anti-alias filter and the hold are other nodes; leave only the
+    # quantise that _hold_numpy runs on the wire.
+    core.anti_alias.process = lambda src, dst: np.copyto(dst, src)
+    core._hold = lambda src, dst: np.copyto(dst, src)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    dst = np.zeros(FRAMES, dtype=np.float32)
+    for b in range(blocks):
+        block = tone(b, 15000, 31.0 + (b % 5))
+        g.write(audio_b, array("h", block))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        src = np.asarray(block, dtype=np.float32) / UNIT
+        core.process(src, dst)
+        want += list(wire(dst))
+    return report("CRUSH %g bits" % bits, got, want)
+
+
 worst = 0
 worst = max(worst, tremolo("pan", ag.TREMOLO_PAN))
 worst = max(worst, tremolo("amplitude", ag.TREMOLO_AMPLITUDE))
@@ -181,4 +611,52 @@ worst = max(worst, pickup("electrostatic", ag.PICKUP_ELECTROSTATIC))
 worst = max(worst, struck("tine hammer", TINE, 261.6256, 0.5, 0.8, "hammer", ag.STRUCK_HAMMER))
 worst = max(worst, struck("tine hard high", TINE, 1760.0, 0.9, 0.7, "hammer", ag.STRUCK_HAMMER))
 worst = max(worst, struck("24-mode pluck", CLAVI, 330.0, 0.65, 0.85, "pluck", ag.STRUCK_PLUCK))
+
+HANDCLAP = HandClapCore(RATE, FRAMES)
+JINGLE = JingleCore(RATE, FRAMES)
+GUIRO = GuiroCore("short", RATE, FRAMES)
+worst = max(worst, decay_oneshot(0.055))
+worst = max(worst, decay_oneshot(0.2))
+worst = max(worst, decay_oneshot(1.2))
+# HandClapCore's spikes at int(0.0105*sr) and its exp(-1/(sr*t)) constants.
+CLAP_SPIKES = ((0.0, 0.75), (0.0105, 0.75), (0.0210, 0.75), (0.0315, 0.85))
+worst = max(worst, burst_decay("clap", CLAP_SPIKES, 0.0028, 0.065))
+worst = max(worst, burst_decay("clap909", CLAP_SPIKES, 0.0028, 0.090))
+JINGLE_SPIKES = ((0.0, 0.8), (0.016, 0.8), (0.032, 0.8), (0.048, 1.0))
+worst = max(worst, burst_decay("jingle", JINGLE_SPIKES, 0.005, 0.220, tail_40db=0.220))
+# GuiroCore short: six spikes at round(i*0.016*sr), levels 0.6..1.0.
+GUIRO_SPIKES = tuple((i * 0.080 / 5.0, 0.6 + 0.4 * i / 5.0) for i in range(6))
+worst = max(worst, burst_decay("guiro", GUIRO_SPIKES, 0.0035, 0.0080))
+worst = max(worst, decay_twostage_808())
+worst = max(worst, decay_twostage_78())
+worst = max(worst, decay_maracas())
+worst = max(worst, decay_bridged_t_rise())
+worst = max(worst, decay_swept_rise())
+_bridged_t = BridgedTDrumCore(RATE, FRAMES)
+_bridged_t.click_level = 0.25
+worst = max(worst, decay_click("DECAY bridged-T click", _bridged_t, 1.0,
+                               0.002 * LN_100))
+_swept = SweptOscillatorDrumCore(RATE, FRAMES)
+_swept.accent = 0.0
+_swept.click_level = 0.35
+worst = max(worst, decay_click("DECAY swept-osc click", _swept, 1.0,
+                               0.002 * LN_100))
+_bend = BridgedTDrumCore(RATE, FRAMES)
+_bend.pitch_drop_cents = 232.0
+_bend.click_level = 0.0
+_bend.noise_mix = 0.0
+worst = max(worst, decay_bend("DECAY bridged-T bend", _bend,
+                              _bend.bend_time_sec * LN_100, "_bend_buf"))
+_sweep = SweptOscillatorDrumCore(RATE, FRAMES)
+_sweep.pitch_drop_cents = 2400.0
+_sweep.click_level = 0.0
+_sweep.noise_mix = 0.0
+worst = max(worst, decay_bend("DECAY swept-osc sweep", _sweep,
+                              _sweep.sweep_time_sec * LN_100, "_sweep_buf"))
+worst = max(worst, pink())
+worst = max(worst, crush(4))
+worst = max(worst, crush(6))
+worst = max(worst, crush(8))
+worst = max(worst, crush(15))
+worst = max(worst, crush(16))
 print("worst over all: %d" % worst)

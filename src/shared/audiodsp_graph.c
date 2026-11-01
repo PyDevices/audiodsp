@@ -227,6 +227,29 @@ typedef struct {
     double depth_now;
 } graph_tremolo_t;
 
+typedef struct {
+    // The envelope's level before this block, the velocity the trigger set,
+    // and the sample in the burst it has reached (the trigger's own is 0).
+    float level;
+    float velocity;
+    uint32_t sample;
+    // The subtracted rise envelope's level (DECAY_RISE); 0 when unused.
+    float rise;
+    // The trigger was above the threshold at the end of the last block, and
+    // the envelope is still sounding.
+    bool high;
+    bool ringing;
+    // The burst table: `strikes` pairs of (delay s, level), in delay order.
+    float table[AUDIODSP_GRAPH_DECAY_STRIKES * 2];
+    uint32_t strikes;
+    bool has_table;
+} graph_decay_t;
+
+typedef struct {
+    // Paul Kellet's seven pinking states.
+    float b0, b1, b2, b3, b4, b5, b6;
+} graph_pink_t;
+
 size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
     uint32_t sample_rate, float arg) {
     switch (kind) {
@@ -269,6 +292,10 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_struck_t);
         case AUDIODSP_GRAPH_TREMOLO:
             return sizeof(graph_tremolo_t);
+        case AUDIODSP_GRAPH_DECAY:
+            return sizeof(graph_decay_t);
+        case AUDIODSP_GRAPH_PINK:
+            return sizeof(graph_pink_t);
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
         case AUDIODSP_GRAPH_OVERDRIVE:
             return audiodsp_graph_overdrive_size();
@@ -537,6 +564,36 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_TREMOLO_DEPTH] = 0.0f;
             node->param[AUDIODSP_GRAPH_TREMOLO_MODE] = (float)AUDIODSP_GRAPH_TREMOLO_PAN;
             break;
+        case AUDIODSP_GRAPH_DECAY: {
+            // OneShotEnvelopeCore's defaults: a 200 ms one-shot, no burst,
+            // no attack ramp, no fast stage and no subtracted rise.
+            graph_decay_t *d = data;
+            d->level = 0.0f;
+            d->velocity = 1.0f;
+            d->sample = 0u;
+            d->rise = 0.0f;
+            d->high = false;
+            d->ringing = false;
+            d->strikes = 0u;
+            d->has_table = false;
+            node->param[AUDIODSP_GRAPH_DECAY_DECAY] = 0.2f;
+            node->param[AUDIODSP_GRAPH_DECAY_RESTRIKE] = 0.01f;
+            node->param[AUDIODSP_GRAPH_DECAY_ATTACK] = 0.0f;
+            node->param[AUDIODSP_GRAPH_DECAY_FAST] = 0.0f;
+            node->param[AUDIODSP_GRAPH_DECAY_FAST_SEC] = 0.0f;
+            node->param[AUDIODSP_GRAPH_DECAY_RISE] = 0.0f;
+            break;
+        }
+        case AUDIODSP_GRAPH_PINK: {
+            graph_pink_t *d = data;
+            d->b0 = d->b1 = d->b2 = d->b3 = d->b4 = d->b5 = d->b6 = 0.0f;
+            node->param[AUDIODSP_GRAPH_PINK_LEVEL] = 1.0f;
+            break;
+        }
+        case AUDIODSP_GRAPH_CRUSH:
+            // BitDepthRateCore's default bit depth.
+            node->param[AUDIODSP_GRAPH_CRUSH_BITS] = 6.0f;
+            break;
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -617,6 +674,37 @@ bool audiodsp_graph_set_struck_table(audiodsp_graph_t *graph, uint32_t node,
     return true;
 }
 
+bool audiodsp_graph_set_decay_table(audiodsp_graph_t *graph, uint32_t node,
+    const float *table, uint32_t strikes) {
+    if (node >= graph->nnodes ||
+        audiodsp_graph_node(graph, node)->kind != AUDIODSP_GRAPH_DECAY ||
+        strikes > AUDIODSP_GRAPH_DECAY_STRIKES ||
+        (strikes > 0u && table == NULL)) {
+        return false;
+    }
+    graph_decay_t *d = audiodsp_graph_node(graph, node)->data;
+    if (strikes > 0u) {
+        memcpy(d->table, table, (size_t)strikes * 2u * sizeof(float));
+    }
+    // The block loop walks the strikes in delay order, as the rack's
+    // "cur in spikes" finds them in any order: sort by delay here.
+    for (uint32_t i = 1u; i < strikes; ++i) {
+        const float delay = d->table[2u * i];
+        const float level = d->table[2u * i + 1u];
+        uint32_t j = i;
+        while (j > 0u && d->table[2u * (j - 1u)] > delay) {
+            d->table[2u * j] = d->table[2u * (j - 1u)];
+            d->table[2u * j + 1u] = d->table[2u * (j - 1u) + 1u];
+            --j;
+        }
+        d->table[2u * j] = delay;
+        d->table[2u * j + 1u] = level;
+    }
+    d->strikes = strikes;
+    d->has_table = true;
+    return true;
+}
+
 // The planted faults that tests/parity/graph_carry_probe.py must catch, for a
 // build made with -DAUDIODSP_GRAPH_CARRY_FAULT=n: 1 leaves a FBDELAY's line
 // pointing at the source's, 2 drops the source's pending parameter change.
@@ -650,13 +738,16 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
         return AUDIODSP_GRAPH_CARRY_RATE;
     }
     // What stays the destination's own: a PAN's right side, a delay's wow table,
-    // or a STRUCK node's mode table when the destination installed its own.
+    // or a STRUCK or DECAY node's table when the destination installed its own.
     int16_t right = 0;
     const int16_t *wow = NULL;
     uint32_t wow_shift = 0;
     float struck_table[AUDIODSP_GRAPH_STRUCK_MODES * 3];
     uint32_t struck_modes = 0;
     bool struck_has_table = false;
+    float decay_table[AUDIODSP_GRAPH_DECAY_STRIKES * 2];
+    uint32_t decay_strikes = 0;
+    bool decay_has_table = false;
     if (kind == AUDIODSP_GRAPH_PAN) {
         right = ((const graph_pan_t *)d->data)->right;
     } else if (kind == AUDIODSP_GRAPH_TREMOLO) {
@@ -670,6 +761,13 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
         if (struck_has_table) {
             struck_modes = st->table_modes;
             memcpy(struck_table, st->table, sizeof(struck_table));
+        }
+    } else if (kind == AUDIODSP_GRAPH_DECAY) {
+        const graph_decay_t *dc = d->data;
+        decay_has_table = dc->has_table;
+        if (decay_has_table) {
+            decay_strikes = dc->strikes;
+            memcpy(decay_table, dc->table, sizeof(decay_table));
         }
     }
     if (size) {
@@ -718,6 +816,15 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
                 }
             }
             struck_bind(st);
+            break;
+        }
+        case AUDIODSP_GRAPH_DECAY: {
+            graph_decay_t *dc = d->data;
+            if (decay_has_table) {
+                memcpy(dc->table, decay_table, sizeof(decay_table));
+                dc->strikes = decay_strikes;
+                dc->has_table = true;
+            }
             break;
         }
         case AUDIODSP_GRAPH_PAN:
@@ -837,6 +944,22 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             const float depth = n->param[AUDIODSP_GRAPH_TREMOLO_DEPTH];
             d->phase = 0.0;
             d->depth_now = depth > 1.0f ? 1.0 : (depth > 0.0f ? (double)depth : 0.0);
+            break;
+        }
+        case AUDIODSP_GRAPH_DECAY: {
+            // OneShotEnvelopeCore.reset and the burst cores' reset.
+            graph_decay_t *d = n->data;
+            d->level = 0.0f;
+            d->velocity = 1.0f;
+            d->sample = 0u;
+            d->rise = 0.0f;
+            d->high = false;
+            d->ringing = false;
+            break;
+        }
+        case AUDIODSP_GRAPH_PINK: {
+            graph_pink_t *d = n->data;
+            d->b0 = d->b1 = d->b2 = d->b3 = d->b4 = d->b5 = d->b6 = 0.0f;
             break;
         }
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
@@ -2507,6 +2630,289 @@ static void run_tremolo(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     }
 }
 
+// --------------------------------------------------------------- DECAY --
+//
+// vrack's dsp/drums.py OneShotEnvelopeCore, the burst envelopes inside
+// HandClapCore, JingleCore and GuiroCore, CowbellCore's two-stage decay,
+// MaracasCore's linear attack and the amp-minus-rise strike of
+// BridgedTDrumCore and SweptOscillatorDrumCore. A rising edge of the trigger
+// starts the envelope at the velocity; a burst table re-strikes it. Only the
+// first rising edge in a block retriggers, as EdgeDetector reports one.
+
+#define DECAY_THRESHOLD (0.1f * AUDIODSP_GRAPH_UNIT)
+#define DECAY_SILENT 1e-4f
+// CowbellCore drops a two-stage envelope at 2e-4, a count above where the
+// one-shot cores stop.
+#define DECAY_SILENT_FAST 2e-4f
+
+// The rack's exp(-4.60517 / (sr * seconds)): a fall of 40 dB over `seconds`,
+// which is exp(-1 / (sr * seconds / 4.60517)).
+static float decay_coeff(float seconds, uint32_t sample_rate) {
+    float steps = seconds * (float)sample_rate * (1.0f / 4.60517f);
+    if (steps < 1.0f) {
+        steps = 1.0f;
+    }
+    return expf(-1.0f / steps);
+}
+
+// The burst's spike at `delay` seconds, as the rack counts it (nearest sample).
+static uint32_t decay_spike(float delay, uint32_t sample_rate) {
+    if (!(delay > 0.0f)) {
+        return 0u;
+    }
+    const float at = delay * (float)sample_rate + 0.5f;
+    if (!(at < 4294967295.0f)) {
+        return 0x7FFFFFFFu;
+    }
+    return (uint32_t)at;
+}
+
+static void run_decay(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_decay_t *d = n->data;
+    const int16_t *gate = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const int16_t *vel = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[1]] : NULL;
+
+    float decay_sec = n->param[AUDIODSP_GRAPH_DECAY_DECAY];
+    if (!(decay_sec >= 0.001f)) {
+        decay_sec = 0.001f;
+    }
+    float restrike_sec = n->param[AUDIODSP_GRAPH_DECAY_RESTRIKE];
+    if (!(restrike_sec >= 0.001f)) {
+        restrike_sec = 0.001f;
+    }
+    float attack_sec = n->param[AUDIODSP_GRAPH_DECAY_ATTACK];
+    if (!(attack_sec > 0.0f)) {
+        attack_sec = 0.0f;
+    }
+    float fast_sec = n->param[AUDIODSP_GRAPH_DECAY_FAST];
+    if (!(fast_sec > 0.0f)) {
+        fast_sec = 0.0f;
+    }
+    float fast_len = n->param[AUDIODSP_GRAPH_DECAY_FAST_SEC];
+    if (!(fast_len > 0.0f)) {
+        fast_len = 0.0f;
+    }
+    float rise_sec = n->param[AUDIODSP_GRAPH_DECAY_RISE];
+    if (!(rise_sec > 0.0f)) {
+        rise_sec = 0.0f;
+    }
+    const uint32_t rate = graph->sample_rate;
+    const float d_tail = decay_coeff(decay_sec, rate);
+    const float d_burst = decay_coeff(restrike_sec, rate);
+    // MaracasCore's attack_n = int(0.008 * sr); CowbellCore's fast_end is
+    // int(0.015 * sr) counted from the trigger.
+    uint32_t attack_n = 0u;
+    if (attack_sec > 0.0f) {
+        const float n_atk = attack_sec * (float)rate;
+        // Clamped before the cast: a float past UINT32_MAX (or inf) has no
+        // defined conversion.
+        attack_n = n_atk >= 4294967040.0f ? 4294967040u
+            : n_atk >= 1.0f ? (uint32_t)n_atk : 1u;
+    }
+    uint32_t fast_n = 0u;
+    float d_fast = d_tail;
+    if (fast_sec > 0.0f && fast_len > 0.0f) {
+        const float n_fast = fast_len * (float)rate;
+        fast_n = n_fast >= 4294967040.0f ? 4294967040u
+            : n_fast >= 1.0f ? (uint32_t)n_fast : 1u;
+        d_fast = decay_coeff(fast_sec, rate);
+    }
+    const bool use_rise = rise_sec > 0.0f;
+    const float d_rise = use_rise ? decay_coeff(rise_sec, rate) : 0.0f;
+    const float silent = fast_n > 0u ? DECAY_SILENT_FAST : DECAY_SILENT;
+
+    // The first rising edge of the trigger this block, as MODAL finds it.
+    int32_t rising = -1;
+    if (gate != NULL) {
+        bool high = d->high;
+        for (uint32_t i = 0; i < frames; ++i) {
+            const bool now = (float)gate[i] > DECAY_THRESHOLD;
+            if (now && !high && rising < 0) {
+                rising = (int32_t)i;
+            }
+            high = now;
+        }
+        d->high = high;
+    }
+
+    float level = d->level;
+    float rise = d->rise;
+    float velocity = d->velocity;
+    uint32_t sample = d->sample;
+    bool ringing = d->ringing;
+    const bool burst = d->has_table && d->strikes > 0u;
+    const uint32_t strikes = burst ? d->strikes : 0u;
+    // Where each spike sits, counted from the trigger's sample, and which one
+    // comes next. The table is in delay order, as the rack keeps it.
+    uint32_t spike_at[AUDIODSP_GRAPH_DECAY_STRIKES];
+    uint32_t next_spike = 0u;
+    if (burst) {
+        for (uint32_t s = 0; s < strikes; ++s) {
+            spike_at[s] = decay_spike(d->table[s * 2u], rate);
+        }
+        while (next_spike < strikes && spike_at[next_spike] < sample) {
+            ++next_spike;
+        }
+    }
+
+    for (uint32_t i = 0; i < frames; ++i) {
+        if (rising == (int32_t)i) {
+            // A new strike replaces the envelope, as trigger() does.
+            velocity = vel != NULL
+                ? (float)vel[i] * (1.0f / AUDIODSP_GRAPH_UNIT) : 1.0f;
+            sample = 0u;
+            ringing = true;
+            rise = use_rise && !burst ? velocity : 0.0f;
+            next_spike = 0u;
+            // linear_segment starts at -v/n so the first ramp sample is 0;
+            // exp_segment starts at the velocity and writes v * coeff first.
+            if (attack_n > 0u && !burst) {
+                level = -velocity / (float)attack_n;
+            } else {
+                level = velocity;
+            }
+            rising = -1;
+        }
+        if (!ringing) {
+            out[i] = 0;
+            continue;
+        }
+        float written;
+        if (burst) {
+            if (next_spike < strikes && spike_at[next_spike] == sample) {
+                // A spike this sample replaces the level and writes it.
+                level = velocity * d->table[next_spike * 2u + 1u];
+                written = level;
+                ++next_spike;
+            } else {
+                // Between spikes the level falls to -40 dB over the re-strike
+                // time; after the last spike, over the decay time.
+                const bool past = next_spike >= strikes;
+                level *= past ? d_tail : d_burst;
+                written = level;
+            }
+            ++sample;
+        } else if (attack_n > 0u && sample < attack_n) {
+            // linear_segment: start + slope * (k + 1), slope = v / attack_n.
+            level += velocity / (float)attack_n;
+            written = level;
+            ++sample;
+        } else {
+            const uint32_t decay_from = attack_n + fast_n;
+            level *= (fast_n > 0u && sample < decay_from) ? d_fast : d_tail;
+            written = level;
+            ++sample;
+        }
+        if (use_rise && !burst) {
+            rise *= d_rise;
+            written -= rise;
+        }
+        out[i] = sat16(written * AUDIODSP_GRAPH_UNIT);
+    }
+    // The rack cores check silence once per block, after the block is written
+    // (OneShotEnvelopeCore at 1e-4, CowbellCore at 2e-4 past the fast stage).
+    // Stopping mid-block would leave their last few samples off the wire.
+    if (ringing) {
+        const bool past = !burst || next_spike >= strikes;
+        const bool past_stage = burst ? past : (sample >= attack_n + fast_n);
+        if (past_stage && level < silent && (!use_rise || rise < silent)) {
+            level = 0.0f;
+            rise = 0.0f;
+            ringing = false;
+            sample = 0u;
+        }
+    }
+    d->level = level;
+    d->rise = rise;
+    d->velocity = velocity;
+    d->sample = sample;
+    d->ringing = ringing;
+}
+
+// ---------------------------------------------------------------- PINK --
+//
+// vrack's dsp/noise.py NoiseGenerator.pink: Paul Kellet's seven-state
+// pinking filter on a white block, the sum scaled by 0.15.
+
+static void run_pink(const audiodsp_graph_t *graph, const audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_pink_t *d = n->data;
+    const int16_t *in = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const float level = n->param[AUDIODSP_GRAPH_PINK_LEVEL];
+    float b0 = d->b0;
+    float b1 = d->b1;
+    float b2 = d->b2;
+    float b3 = d->b3;
+    float b4 = d->b4;
+    float b5 = d->b5;
+    float b6 = d->b6;
+    const float inv = 1.0f / AUDIODSP_GRAPH_UNIT;
+    for (uint32_t i = 0; i < frames; ++i) {
+        const float w = in != NULL ? (float)in[i] * inv : 0.0f;
+        b0 = 0.99886f * b0 + w * 0.0555179f;
+        b1 = 0.99332f * b1 + w * 0.0750759f;
+        b2 = 0.96900f * b2 + w * 0.1538520f;
+        b3 = 0.86650f * b3 + w * 0.3104856f;
+        b4 = 0.55000f * b4 + w * 0.5329522f;
+        b5 = -0.7616f * b5 - w * 0.0168980f;
+        // b6 is the previous sample's share, as the rack keeps it.
+        const float y = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362f) * 0.15f;
+        b6 = w * 0.115926f;
+        out[i] = sat16(y * level * AUDIODSP_GRAPH_UNIT);
+    }
+    d->b0 = b0;
+    d->b1 = b1;
+    d->b2 = b2;
+    d->b3 = b3;
+    d->b4 = b4;
+    d->b5 = b5;
+    d->b6 = b6;
+}
+
+// --------------------------------------------------------------- CRUSH --
+//
+// The quantise in vrack's dsp/drums.py BitDepthRateCore: each sample rounded
+// half away from zero to a step of 2^(1-bits) in units of 1.0. The hold that
+// follows it is SAMPLE_HOLD's; the anti-alias filter before it is a filter
+// node's.
+
+static void run_crush(const audiodsp_graph_t *graph,
+    const audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
+    const int16_t *in = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const float bits_f = n->param[AUDIODSP_GRAPH_CRUSH_BITS];
+    // BitDepthRateCore takes int(bits) and holds it to 1..15; 16 and up pass
+    // the audio through unquantised. A NaN bits is a pass-through too, so a
+    // bad CV cannot turn into an out-of-range shift.
+    if (!(bits_f < 16.0f)) {
+        for (uint32_t i = 0; i < frames; ++i) {
+            out[i] = in != NULL ? in[i] : 0;
+        }
+        return;
+    }
+    // Clamped in float first: -inf, or below INT32_MIN, has no defined cast.
+    int32_t bits = bits_f < 1.0f ? 1 : (int32_t)bits_f;
+    if (bits > 15) {
+        bits = 15;
+    }
+    // A step of 1 << (15 - bits) counts, which is 2^(1-bits) in units of 1.0.
+    const int32_t step = 1 << (15 - bits);
+    const int32_t half = step >> 1;
+    for (uint32_t i = 0; i < frames; ++i) {
+        const int32_t x = in != NULL ? (int32_t)in[i] : 0;
+        // Round half away from zero to a whole step, as _hold_numpy does on
+        // the rack: trunc(x / step + copysign(0.5, x)) * step. C division
+        // truncates toward zero, which is that trunc.
+        const int32_t q = x >= 0 ? (x + half) / step : (x - half) / step;
+        out[i] = sat16((float)(q * step));
+    }
+    (void)graph;
+}
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -2656,6 +3062,20 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_TREMOLO:
                 run_tremolo(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_DECAY: {
+                run_decay(graph, n, dst, frames);
+                if (((graph_decay_t *)n->data)->ringing &&
+                    n->group != AUDIODSP_GRAPH_ALWAYS) {
+                    sounding |= 1u << n->group;
+                }
+                break;
+            }
+            case AUDIODSP_GRAPH_PINK:
+                run_pink(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_CRUSH:
+                run_crush(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:

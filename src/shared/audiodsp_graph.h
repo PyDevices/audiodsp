@@ -198,6 +198,26 @@ typedef enum {
     // (`1 - 0.5 * d * (1 - sin)` on both sides), the depth gliding across
     // each block.
     AUDIODSP_GRAPH_TREMOLO,
+    // inputs: trigger, velocity. params: decay s, re-strike s. table(): up to
+    // 16 (delay s, level) re-strikes. A one-shot exponential envelope: a
+    // rising edge of the trigger above 0.1 starts it at the velocity input's
+    // value at that sample (1.0 when that input is open), falling to -40 dB
+    // over decay seconds. With a burst table it re-strikes at each (delay,
+    // level) — the level scaled by the velocity — falling to -40 dB over
+    // re-strike seconds until the next re-strike and over decay seconds after
+    // the last. vrack's dsp/drums.py OneShotEnvelopeCore, and the burst
+    // envelopes of HandClapCore, JingleCore and GuiroCore.
+    AUDIODSP_GRAPH_DECAY,
+    // inputs: white. params: level. Paul Kellet's pinking filter on a white
+    // block, as vrack's dsp/noise.py NoiseGenerator.pink runs it: seven states,
+    // the sum scaled by 0.15 and then by level (1 is the rack's own output).
+    AUDIODSP_GRAPH_PINK,
+    // inputs: audio. params: bits. Bit-depth reduction, as the quantise in
+    // vrack's dsp/drums.py BitDepthRateCore: each sample rounded half away
+    // from zero to a step of 2^(1-bits) in units of 1.0 (16384 counts to 1.0).
+    // Bits of 16 or more pass the audio through. The sample-rate hold is
+    // SAMPLE_HOLD's, and the anti-alias filter a BIQUAD or LADDER before it.
+    AUDIODSP_GRAPH_CRUSH,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -397,6 +417,42 @@ enum {
 };
 
 enum {
+    // Seconds for the envelope to fall 40 dB after the last re-strike (and
+    // the only decay when there is no burst table); held to >= 0.001.
+    AUDIODSP_GRAPH_DECAY_DECAY = 0,
+    // Seconds for the envelope to fall 40 dB between re-strikes; held to
+    // >= 0.001. Ignored without a burst table.
+    AUDIODSP_GRAPH_DECAY_RESTRIKE,
+    // Seconds of a linear ramp from 0 up to the velocity before the decay
+    // starts (MaracasCore's soft attack). 0 is no ramp.
+    AUDIODSP_GRAPH_DECAY_ATTACK,
+    // Seconds for a fast first stage to fall 40 dB (CowbellCore's knock).
+    // 0 is no fast stage.
+    AUDIODSP_GRAPH_DECAY_FAST,
+    // How long the fast stage lasts, in seconds, counted from the trigger
+    // (CowbellCore's fast_stage_samples). 0 is no fast stage.
+    AUDIODSP_GRAPH_DECAY_FAST_SEC,
+    // Seconds for a subtracted rise envelope to fall 40 dB — the soft strike
+    // BridgedTDrumCore and SweptOscillatorDrumCore build as amp minus rise.
+    // 0 is no rise. Ignored with a burst table.
+    AUDIODSP_GRAPH_DECAY_RISE,
+};
+
+//: Re-strikes in one DECAY node's burst table.
+#define AUDIODSP_GRAPH_DECAY_STRIKES 16u
+
+enum {
+    // Gain on the pinking filter's output (1 is NoiseGenerator.pink's own).
+    AUDIODSP_GRAPH_PINK_LEVEL = 0,
+};
+
+enum {
+    // Bits of quantisation, truncated to an integer and held to 1..15; 16 or
+    // more passes the audio through.
+    AUDIODSP_GRAPH_CRUSH_BITS = 0,
+};
+
+enum {
     AUDIODSP_GRAPH_MIX_OFFSET = 8,
 };
 
@@ -573,6 +629,11 @@ bool audiodsp_graph_set_table(audiodsp_graph_t *graph, uint32_t node,
 // AUDIODSP_GRAPH_STRUCK_MODES, copied into the node.
 bool audiodsp_graph_set_struck_table(audiodsp_graph_t *graph, uint32_t node,
     const float *table, uint32_t modes);
+
+// A DECAY node's burst table: `strikes` pairs of (delay s, level), up to
+// AUDIODSP_GRAPH_DECAY_STRIKES, copied into the node.
+bool audiodsp_graph_set_decay_table(audiodsp_graph_t *graph, uint32_t node,
+    const float *table, uint32_t strikes);
 
 // Clears a node's running state (the kernel's reset).
 bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node);
