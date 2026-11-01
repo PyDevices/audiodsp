@@ -1782,11 +1782,10 @@ class StruckRef:
         if self.pulse_pos >= self.pulse_len:
             self.pulse_active = False
 
-    def render(self, strike, vel, f0, hardness, level, shape, release):
+    def render(self, strike, vel, f0, hardness, level, shape):
         f0 = f32(f0)
         hardness = f32(hardness)
         level = f32(level)
-        release = f32(release)
         eff_f0 = max(20.0, f0)
         if self.tuned_f0 != eff_f0:
             self.tuned_f0 = eff_f0
@@ -1795,15 +1794,12 @@ class StruckRef:
         n = self.frames
         dst = [0.0] * n
         rising = -1
-        falling = -1
         if strike is not None:
             high = self.high
             for i in range(n):
                 now = strike[i] / UNIT > 0.1
                 if now and not high and rising < 0:
                     rising = i
-                elif not now and high and falling < 0:
-                    falling = i
                 high = now
             self.high = high
 
@@ -1818,21 +1814,7 @@ class StruckRef:
             lv = f32(level * vel_at(rising))
             if lv > 0.0:
                 self._start_pulse(hardness, lv, f0, shape)
-            rv = f32(release * vel_at(falling))
-            if falling > rising and rv > 0.0:
-                self._render_pulse(dst, rising, falling)
-                self._start_pulse(hardness, rv, f0, ag.STRUCK_PLUCK)
-                self._render_pulse(dst, falling, n)
-            else:
-                self._render_pulse(dst, rising, n)
-        elif falling >= 0:
-            rv = f32(release * vel_at(falling))
-            if rv > 0.0:
-                self._render_pulse(dst, 0, falling)
-                self._start_pulse(hardness, rv, f0, ag.STRUCK_PLUCK)
-                self._render_pulse(dst, falling, n)
-            else:
-                self._render_pulse(dst, 0, n)
+            self._render_pulse(dst, rising, n)
         else:
             self._render_pulse(dst, 0, n)
 
@@ -1850,7 +1832,7 @@ class Struck(unittest.TestCase):
 
     def compare(self, blocks, frames=128, strike=None, vel=None,
                 settings=None, table=None):
-        """`settings` per block: (f0, hardness, level, shape, release)."""
+        """`settings` per block: (f0, hardness, level, shape)."""
         rig = Rig(frames, ag.STRUCK, 2,
                   open_=((0,) if strike is None else ())
                   + ((1,) if vel is None else ()))
@@ -1859,35 +1841,34 @@ class Struck(unittest.TestCase):
             rig.g.table(rig.node, table)
         got, want = [], []
         for b in range(blocks):
-            f0, hardness, level, shape, release = settings[b]
+            f0, hardness, level, shape = settings[b]
             rig.set(ag.STRUCK_FREQUENCY, f0)
             rig.set(ag.STRUCK_HARDNESS, hardness)
             rig.set(ag.STRUCK_LEVEL, level)
             rig.set(ag.STRUCK_SHAPE, shape)
-            rig.set(ag.STRUCK_RELEASE, release)
             s = strike[b] if strike is not None else None
             v = vel[b] if vel is not None else None
             got += rig.run(s, v)
-            want += ref.render(s, v, f0, hardness, level, shape, release)
+            want += ref.render(s, v, f0, hardness, level, shape)
         return got, want
 
     def test_matches_hammerexciter_and_struckbarcore(self):
         frames, blocks = 128, 80
         strikes = modal_strikes(frames, blocks, every=25, width=6)
-        for table, f0, hardness, level, shape, release in (
-            (None, 261.6256, 0.5, 0.8, ag.STRUCK_HAMMER, 0.0),
-            (STRUCK_REED_C4, 220.0, 0.75, 0.9, ag.STRUCK_HAMMER, 0.0),
-            (STRUCK_CLAVI_C4, 330.0, 0.65, 0.85, ag.STRUCK_PLUCK, 0.25),
-            (STRUCK_TINE_C4, 1760.0, 0.2, 0.7, ag.STRUCK_HAMMER, 0.15),
+        for table, f0, hardness, level, shape in (
+            (None, 261.6256, 0.5, 0.8, ag.STRUCK_HAMMER),
+            (STRUCK_REED_C4, 220.0, 0.75, 0.9, ag.STRUCK_HAMMER),
+            (STRUCK_CLAVI_C4, 330.0, 0.65, 0.85, ag.STRUCK_PLUCK),
+            (STRUCK_TINE_C4, 1760.0, 0.2, 0.7, ag.STRUCK_HAMMER),
         ):
             got, want = self.compare(
                 blocks, frames=frames, strike=strikes, table=table,
-                settings=[(f0, hardness, level, shape, release)] * blocks,
+                settings=[(f0, hardness, level, shape)] * blocks,
             )
             self.assertLessEqual(worst(got, want), 1, (f0, hardness, shape))
             self.assertGreater(max(abs(v) for v in got), 800, (f0, hardness))
 
-    def test_velocity_and_mid_block_release_pluck(self):
+    def test_velocity_and_mid_block_strike(self):
         frames, blocks = 128, 30
         strike = [[0] * frames for _ in range(blocks)]
         # Block 1: rising at sample 12, falling at sample 96 in the same block.
@@ -1901,7 +1882,7 @@ class Struck(unittest.TestCase):
             strike[12][i] = UNIT
         vel = [[int(UNIT * (0.35 + 0.5 * ((b + i) % 5) / 4.0))
                 for i in range(frames)] for b in range(blocks)]
-        settings = [(293.66, 0.55, 0.9, ag.STRUCK_HAMMER, 0.3)] * blocks
+        settings = [(293.66, 0.55, 0.9, ag.STRUCK_HAMMER)] * blocks
         got, want = self.compare(blocks, frames=frames, strike=strike, vel=vel,
                                  settings=settings, table=STRUCK_CLAVI_C4)
         self.assertLessEqual(worst(got, want), 1)
@@ -1952,7 +1933,7 @@ class Struck(unittest.TestCase):
         frames, blocks = 128, 20
         got, _ = self.compare(
             blocks, frames=frames,
-            settings=[(440.0, 0.5, 0.8, ag.STRUCK_HAMMER, 0.0)] * blocks,
+            settings=[(440.0, 0.5, 0.8, ag.STRUCK_HAMMER)] * blocks,
         )
         self.assertEqual(set(got), {0})
         rig = Rig(frames, ag.STRUCK, 1)
@@ -1960,21 +1941,28 @@ class Struck(unittest.TestCase):
         rig.g.reset(rig.node)
         self.assertEqual(set(rig.run([0] * frames)), {0})
 
+    def test_nan_hardness_does_not_crash_or_produce_nan(self):
+        rig = Rig(128, ag.STRUCK, 1)
+        rig.set(ag.STRUCK_HARDNESS, float("nan"))
+        out = rig.run([UNIT] * 128)
+        self.assertEqual(len(out), 128)
+        self.assertTrue(all(isinstance(v, int) for v in out))
+
     def test_the_check_catches_a_wrong_struck(self):
         frames, blocks = 128, 40
         strikes = modal_strikes(frames, blocks, every=15, width=4)
-        settings = [(330.0, 0.6, 0.85, ag.STRUCK_HAMMER, 0.25)] * blocks
+        settings = [(330.0, 0.6, 0.85, ag.STRUCK_HAMMER)] * blocks
         got, _ = self.compare(blocks, frames=frames, strike=strikes,
                               settings=settings, table=STRUCK_CLAVI_C4)
         wrong = {
             "pluck instead of hammer": [
-                (330.0, 0.6, 0.85, ag.STRUCK_PLUCK, 0.25)] * blocks,
-            "missing release pluck": [
-                (330.0, 0.6, 0.85, ag.STRUCK_HAMMER, 0.0)] * blocks,
+                (330.0, 0.6, 0.85, ag.STRUCK_PLUCK)] * blocks,
+            "level off": [
+                (330.0, 0.6, 0.35, ag.STRUCK_HAMMER)] * blocks,
             "hardness off": [
-                (330.0, 0.2, 0.85, ag.STRUCK_HAMMER, 0.25)] * blocks,
+                (330.0, 0.2, 0.85, ag.STRUCK_HAMMER)] * blocks,
             "frequency off by 2%": [
-                (330.0 * 1.02, 0.6, 0.85, ag.STRUCK_HAMMER, 0.25)] * blocks,
+                (330.0 * 1.02, 0.6, 0.85, ag.STRUCK_HAMMER)] * blocks,
         }
         for name, bad_settings in wrong.items():
             ref = StruckRef(frames, table=STRUCK_CLAVI_C4)

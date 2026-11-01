@@ -177,16 +177,14 @@ typedef enum {
     // dsp/modal.py ModalResonatorCore and its Exciter, without the bridge's
     // 256 frames of latency.
     AUDIODSP_GRAPH_MODAL,
-    // inputs: strike, velocity. params: frequency, hardness, level, shape,
-    // release, clear. table(): up to 64 (ratio, decay, gain) triples (24 when
-    // built with `arg` 0). A struck bar, tine, reed or string: HammerExciter
-    // and StruckBarCore from audioinstruments' dsp/keys.py over
-    // audiomodal.Bank's kernel at a bank gain of 1/16, without the bridge's
-    // 256 frames of latency. A rising edge of the strike above 0.1 clears the
-    // bank (when clear >= 0.5) and starts a half-sine hammer or a rising-ramp
+    // inputs: strike, velocity. params: frequency, hardness, level, shape.
+    // table(): up to 24 (ratio, decay, gain) triples. A struck bar, tine, reed
+    // or string: HammerExciter and StruckBarCore from audioinstruments'
+    // dsp/keys.py over audiomodal.Bank's kernel at a bank gain of 1/16,
+    // without the bridge's 256 frames of latency. A rising edge of the strike
+    // above 0.1 clears the bank and starts a half-sine hammer or a rising-ramp
     // pluck pulse of 128 * (rate / 48000) * 0.125^hardness samples (held to
-    // half a period of the fundamental); when release > 0, a falling edge adds
-    // a pluck pulse at that level without clearing the ring.
+    // half a period of the fundamental).
     AUDIODSP_GRAPH_STRUCK,
     // inputs: audio. params: mode, drive, offset, level. vrack's dsp/keys.py
     // PickupCore: electromagnetic `x / (1 + 0.5 * x^2)` or electrostatic
@@ -358,8 +356,6 @@ enum {
     AUDIODSP_GRAPH_STRUCK_LEVEL,
     // 0 hammer (half-sine), 1 pluck (rising ramp).
     AUDIODSP_GRAPH_STRUCK_SHAPE,
-    // A release pluck's level on a falling edge of the gate; 0 for none.
-    AUDIODSP_GRAPH_STRUCK_RELEASE,
 };
 
 enum {

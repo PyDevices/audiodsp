@@ -520,7 +520,6 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_STRUCK_HARDNESS] = 0.5f;
             node->param[AUDIODSP_GRAPH_STRUCK_LEVEL] = 0.8f;
             node->param[AUDIODSP_GRAPH_STRUCK_SHAPE] = (float)AUDIODSP_GRAPH_STRUCK_HAMMER;
-            node->param[AUDIODSP_GRAPH_STRUCK_RELEASE] = 0.0f;
             struck_init(d, graph->sample_rate);
             break;
         }
@@ -2179,7 +2178,7 @@ static uint32_t struck_round_even(double x) {
 static void struck_start_pulse(graph_struck_t *d, float hardness, float level,
     float f0, uint32_t shape, uint32_t sample_rate) {
     double h = (double)hardness;
-    if (h < 0.0) {
+    if (!(h >= 0.0)) {
         h = 0.0;
     } else if (h > 1.0) {
         h = 1.0;
@@ -2276,27 +2275,28 @@ static void run_struck(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     }
 
     int32_t rising = -1;
-    int32_t falling = -1;
     if (strike != NULL) {
         bool high = d->high;
         for (uint32_t i = 0; i < frames; ++i) {
             const bool now = (float)strike[i] > MODAL_THRESHOLD;
             if (now && !high && rising < 0) {
                 rising = (int32_t)i;
-            } else if (!now && high && falling < 0) {
-                falling = (int32_t)i;
             }
             high = now;
         }
         d->high = high;
     }
 
-    const float hardness = n->param[AUDIODSP_GRAPH_STRUCK_HARDNESS];
+    float hardness = n->param[AUDIODSP_GRAPH_STRUCK_HARDNESS];
+    if (!(hardness >= 0.0f)) {
+        hardness = 0.0f;
+    } else if (hardness > 1.0f) {
+        hardness = 1.0f;
+    }
     const float level = n->param[AUDIODSP_GRAPH_STRUCK_LEVEL];
     const uint32_t shape = n->param[AUDIODSP_GRAPH_STRUCK_SHAPE] >= 0.5f
         ? (uint32_t)AUDIODSP_GRAPH_STRUCK_PLUCK
         : (uint32_t)AUDIODSP_GRAPH_STRUCK_HAMMER;
-    const float release = n->param[AUDIODSP_GRAPH_STRUCK_RELEASE];
 
     float exc[AUDIODSP_GRAPH_MAX_FRAMES];
     for (uint32_t i = 0; i < frames; ++i) {
@@ -2310,34 +2310,14 @@ static void run_struck(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         if (lv > 0.0f) {
             struck_start_pulse(d, hardness, lv, raw_f0, shape, graph->sample_rate);
         }
-        const float rv = release * struck_velocity(vel, falling);
-        if (falling > rising && rv > 0.0f) {
-            struck_render_pulse(d, exc, (uint32_t)rising, (uint32_t)falling);
-            struck_start_pulse(d, hardness, rv, raw_f0,
-                AUDIODSP_GRAPH_STRUCK_PLUCK, graph->sample_rate);
-            struck_render_pulse(d, exc, (uint32_t)falling, frames);
-        } else {
-            struck_render_pulse(d, exc, (uint32_t)rising, frames);
-        }
-    } else if (falling >= 0) {
-        const float rv = release * struck_velocity(vel, falling);
-        if (rv > 0.0f) {
-            struck_render_pulse(d, exc, 0u, (uint32_t)falling);
-            struck_start_pulse(d, hardness, rv, raw_f0,
-                AUDIODSP_GRAPH_STRUCK_PLUCK, graph->sample_rate);
-            struck_render_pulse(d, exc, (uint32_t)falling, frames);
-        } else {
-            struck_render_pulse(d, exc, 0u, frames);
-        }
+        struck_render_pulse(d, exc, (uint32_t)rising, frames);
     } else {
         struck_render_pulse(d, exc, 0u, frames);
     }
 
     int16_t x[AUDIODSP_GRAPH_MAX_FRAMES];
     for (uint32_t i = 0; i < frames; ++i) {
-        float v = exc[i] * AUDIODSP_GRAPH_UNIT;
-        v = v > 32767.0f ? 32767.0f : (v < -32768.0f ? -32768.0f : v);
-        x[i] = (int16_t)(v >= 0.0f ? v + 0.5f : v - 0.5f);
+        x[i] = sat16(exc[i] * AUDIODSP_GRAPH_UNIT);
     }
     audiodsp_modal_process_s16(&d->config, &d->state, out, x, frames);
 }

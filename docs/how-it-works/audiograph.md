@@ -95,7 +95,7 @@ rather than its last block.
 | `WAVEFOLD` | audio, fold CV | `WAVEFOLD_FOLD` 0..1, `WAVEFOLD_SYMMETRY` −1..1 | a West Coast wavefolder: three sine folds crossfaded with the input by the fold, [below](#wavefold) |
 | `LPG` | audio, control, strike | `LPG_MODE` (`LPG_VCF`, `LPG_VCA`, `LPG_BOTH`), `LPG_DECAY` seconds, `LPG_MANUAL` 0..1, `LPG_LEVEL` | a vactrol low-pass gate, [below](#low-pass-gate) |
 | `MODAL` | excitation, strike | `MODAL_FREQUENCY` Hz, `MODAL_DECAY` seconds, `MODAL_BRIGHTNESS` 0..1, `MODAL_INPUT`, `MODAL_MIX` 0..1, `MODAL_RATIO` + 0..7 | a struck bank of eight modes, [below](#modal-resonator) |
-| `STRUCK` | strike, velocity | `STRUCK_FREQUENCY` Hz, `STRUCK_HARDNESS` 0..1, `STRUCK_LEVEL`, `STRUCK_SHAPE` (`STRUCK_HAMMER`, `STRUCK_PLUCK`), `STRUCK_RELEASE`; `table(node, modes)` sets up to `STRUCK_MODES` (24) `(ratio, decay, gain)` triples | a hammer/pluck exciter into a 24-mode struck bar bank, [below](#struck-bar) |
+| `STRUCK` | strike, velocity | `STRUCK_FREQUENCY` Hz, `STRUCK_HARDNESS` 0..1, `STRUCK_LEVEL`, `STRUCK_SHAPE` (`STRUCK_HAMMER`, `STRUCK_PLUCK`); `table(node, modes)` sets up to `STRUCK_MODES` (24) `(ratio, decay, gain)` triples | a hammer/pluck exciter into a 24-mode struck bar bank, [below](#struck-bar) |
 | `PICKUP` | audio | `PICKUP_MODE` (`PICKUP_ELECTROMAGNETIC`, `PICKUP_ELECTROSTATIC`), `PICKUP_DRIVE`, `PICKUP_OFFSET`, `PICKUP_LEVEL` | electromagnetic or electrostatic pickup nonlinearity with DC removal, [below](#pickup) |
 | `TREMOLO` | audio, rate CV, depth CV | `TREMOLO_RATE` Hz, `TREMOLO_DEPTH` 0..1, `TREMOLO_MODE` (`TREMOLO_PAN`, `TREMOLO_AMPLITUDE`); built with `arg` = the right side's buffer | stereo auto-pan or mono amplitude tremolo into `(output, arg)`, [below](#tremolo) |
 
@@ -285,9 +285,8 @@ tine, reed, vibraphone and clavinet voices. A rising edge of the strike input
 past 0.1 resets the bank and starts an attack pulse of `STRUCK_SHAPE`
 (`STRUCK_HAMMER`, a half-sine, or `STRUCK_PLUCK`, a rising ramp) scaled by
 `STRUCK_LEVEL` (and by the velocity input in 0..`UNIT` at that sample when
-connected). A falling edge with `STRUCK_RELEASE` above 0 starts a release
-`STRUCK_PLUCK` pulse without resetting the bank, so a clavinet damper or
-key-off transient rings over the decaying modes.
+connected). (A clavichord or clavinet release transient is built from separate
+oscillator and envelope nodes, matching the rack's voices.)
 
 `STRUCK_HARDNESS` 0..1 shortens the pulse from 128 samples (at 48 kHz) to 16
 while keeping its area constant (`amp = level * (hard / length)`), clamped to a
