@@ -218,6 +218,12 @@ typedef enum {
     // Bits of 16 or more pass the audio through. The sample-rate hold is
     // SAMPLE_HOLD's, and the anti-alias filter a BIQUAD or LADDER before it.
     AUDIODSP_GRAPH_CRUSH,
+    // inputs: audio, env, accent. params: cutoff_hz, resonance, env_mod.
+    // vrack's dsp/ladder.py AcidFilterCore: four one-pole stages with the
+    // feedback high-passed so bass thins as resonance rises, and an accent
+    // capacitor that pushes cutoff and drive for a short burst. The cutoff
+    // coefficient is refreshed every four samples.
+    AUDIODSP_GRAPH_ACID,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -450,6 +456,15 @@ enum {
     // Bits of quantisation, truncated to an integer and held to 1..15; 16 or
     // more passes the audio through.
     AUDIODSP_GRAPH_CRUSH_BITS = 0,
+};
+
+enum {
+    // Cutoff in Hz before the envelope and accent move it (30..14000 after).
+    AUDIODSP_GRAPH_ACID_CUTOFF_HZ = 0,
+    // 0..1, times 4.2 into the high-passed feedback.
+    AUDIODSP_GRAPH_ACID_RESONANCE,
+    // 0..1, how far the env and accent open the cutoff in octaves.
+    AUDIODSP_GRAPH_ACID_ENVMOD,
 };
 
 enum {

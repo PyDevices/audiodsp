@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK and CRUSH, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH and ACID, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -17,6 +17,7 @@
     graph_nodes_probe.py --fault decay      # one decay seconds change a block late
     graph_nodes_probe.py --fault pink       # one level change a block late
     graph_nodes_probe.py --fault crush      # one bits change a block late
+    graph_nodes_probe.py --fault acid       # one cutoff change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -45,8 +46,9 @@ turned down, in VCA mode and then BOTH); and three modal resonators (a bar
 struck with the low-pass gates and reset once, a membrane rung by the noise
 with its frequency stepped and its mix at three quarters, and the sawtooth
 with its own strikes at mix 0, the excitation alone). And a one-shot decay
-envelope on those strikes and a clap burst on its own trigger, pink noise, and
-the sawtooth bit-crushed with the bits stepped.
+envelope on those strikes and a clap burst on its own trigger, pink noise, the
+sawtooth bit-crushed with the bits stepped, and the sawtooth through the acid
+ladder on a moving envelope with accent bursts.
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -71,7 +73,7 @@ except (ImportError, AttributeError):
     sys.exit(0)
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-          "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush")
+          "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush", "acid")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -318,6 +320,16 @@ g.set(pink_a, ag.PINK_LEVEL, 0.75)
 crush_a, _ = node("crush_a", ag.CRUSH, (saw_b,))
 g.set(crush_a, ag.CRUSH_BITS, 6.0)
 
+# -- the acid ladder on the sawtooth, a moving envelope and accent bursts
+acid_env_b = g.buffer()
+acid_acc_b = g.buffer()
+acid_a, _ = node("acid_a", ag.ACID, (saw_b, acid_env_b, acid_acc_b))
+g.set(acid_a, ag.ACID_CUTOFF_HZ, 400.0)
+g.set(acid_a, ag.ACID_RESONANCE, 0.7)
+g.set(acid_a, ag.ACID_ENVMOD, 0.6)
+acid_env = array("h", bytes(2 * FRAMES))
+acid_acc = array("h", bytes(2 * FRAMES))
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -488,6 +500,15 @@ for b in range(BLOCKS):
     crush_at = b if FAULT != "crush" or b != 64 else b - 1
     g.set(crush_a, ag.CRUSH_BITS, 3.0 + (crush_at // 16) % 6)
 
+    # the acid cutoff steps; its envelope walks and accent bursts every 14
+    acid_at = b if FAULT != "acid" or b != 48 else b - 1
+    g.set(acid_a, ag.ACID_CUTOFF_HZ, 200.0 * (1 + (acid_at // 20) % 4))
+    for i in range(FRAMES):
+        acid_env[i] = (UNIT * (b % 24)) // 12 if (b % 24) < 12 else UNIT - (UNIT * (b % 24 - 12)) // 12
+        acid_acc[i] = UNIT * 9 // 10 if b % 14 == 0 else 0
+    g.write(acid_env_b, acid_env)
+    g.write(acid_acc_b, acid_acc)
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -564,6 +585,9 @@ check(seen["pink_a"][0] > 2000 and seen["pink_a"][2] > 200,
 
 check(seen["crush_a"][0] > 2000 and seen["crush_a"][2] > 500,
       "the bit crush renders sound")
+
+check(seen["acid_a"][0] > 500 and seen["acid_a"][2] > 200,
+      "the acid ladder renders sound")
 
 if failures:
     for what in failures:

@@ -101,6 +101,7 @@ rather than its last block.
 | `DECAY` | trigger, velocity | `DECAY_DECAY`, `DECAY_RESTRIKE`, `DECAY_ATTACK`, `DECAY_FAST`, `DECAY_FAST_SEC`, `DECAY_RISE` in seconds; `table(node, strikes)` sets up to `DECAY_STRIKES` (16) `(delay s, level)` pairs | a one-shot exponential envelope, a burst of re-strikes, or the two-stage, soft-attack and rise shapes the rack drums use, [below](#decay) |
 | `PINK` | white | `PINK_LEVEL` | pink noise: Paul Kellet's pinking filter on the white input, [below](#pink) |
 | `CRUSH` | audio | `CRUSH_BITS` 1..15 | the audio rounded to that many bits, [below](#crush) |
+| `ACID` | audio, env, accent | `ACID_CUTOFF_HZ`, `ACID_RESONANCE` 0..1, `ACID_ENVMOD` 0..1 | acid303's diode ladder with its accent circuit, [below](#acid) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -400,6 +401,18 @@ an integer and held to 1..15; 16 and above passes the audio through. The
 quantise is memoryless and sits before the hold, so the sample-rate hold is
 `SAMPLE_HOLD`'s and the anti-alias filter is a filter node's; nothing in the
 quantise needs them.
+
+### Acid
+
+`ACID` is vrack's `dsp/ladder.py` `AcidFilterCore`, the diode ladder acid303
+plays: four one-pole stages, the feedback high-passed so bass thins as
+resonance rises, and an accent capacitor that pushes cutoff and drive for a
+short burst. `ACID_CUTOFF_HZ` is the cutoff in Hz before the envelope and
+accent open it (30 to 14000 after); `ACID_RESONANCE` 0..1 times 4.2 into the
+high-passed feedback; `ACID_ENVMOD` 0..1, how far the env and accent open the
+cutoff in octaves. The `env` input is the filter envelope and `accent` a gate
+that charges the capacitor above 0.3; both are in units of `UNIT`. The cutoff
+coefficient is refreshed every four samples, as the rack refreshes it.
 
 ## Output
 

@@ -250,6 +250,16 @@ typedef struct {
     float b0, b1, b2, b3, b4, b5, b6;
 } graph_pink_t;
 
+typedef struct {
+    // AcidFilterCore's four one-pole stages, its high-pass state and the
+    // accent capacitor.
+    float s0, s1, s2, s3;
+    float hp;
+    float accent_env;
+    // exp(-1 / (sample_rate * 0.15)), the accent's per-sample decay.
+    float accent_decay;
+} graph_acid_t;
+
 size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
     uint32_t sample_rate, float arg) {
     switch (kind) {
@@ -296,6 +306,8 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_decay_t);
         case AUDIODSP_GRAPH_PINK:
             return sizeof(graph_pink_t);
+        case AUDIODSP_GRAPH_ACID:
+            return sizeof(graph_acid_t);
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
         case AUDIODSP_GRAPH_OVERDRIVE:
             return audiodsp_graph_overdrive_size();
@@ -594,6 +606,19 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             // BitDepthRateCore's default bit depth.
             node->param[AUDIODSP_GRAPH_CRUSH_BITS] = 6.0f;
             break;
+        case AUDIODSP_GRAPH_ACID: {
+            // AcidFilterCore at rest: middle C's cutoff, no resonance, the
+            // env_mod the acid303 panel starts at.
+            graph_acid_t *d = data;
+            d->s0 = d->s1 = d->s2 = d->s3 = 0.0f;
+            d->hp = 0.0f;
+            d->accent_env = 0.0f;
+            d->accent_decay = expf(-1.0f / ((float)rate * 0.15f));
+            node->param[AUDIODSP_GRAPH_ACID_CUTOFF_HZ] = 440.0f;
+            node->param[AUDIODSP_GRAPH_ACID_RESONANCE] = 0.5f;
+            node->param[AUDIODSP_GRAPH_ACID_ENVMOD] = 0.6f;
+            break;
+        }
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -960,6 +985,13 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
         case AUDIODSP_GRAPH_PINK: {
             graph_pink_t *d = n->data;
             d->b0 = d->b1 = d->b2 = d->b3 = d->b4 = d->b5 = d->b6 = 0.0f;
+            break;
+        }
+        case AUDIODSP_GRAPH_ACID: {
+            graph_acid_t *d = n->data;
+            d->s0 = d->s1 = d->s2 = d->s3 = 0.0f;
+            d->hp = 0.0f;
+            d->accent_env = 0.0f;
             break;
         }
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
@@ -2913,6 +2945,74 @@ static void run_crush(const audiodsp_graph_t *graph,
     (void)graph;
 }
 
+// ----------------------------------------------------------------- ACID --
+//
+// vrack's dsp/ladder.py AcidFilterCore: four one-pole stages, the feedback
+// high-passed so bass thins as resonance rises, and an accent capacitor that
+// pushes cutoff and drive for a short burst. The cutoff coefficient is
+// refreshed every four samples of each run, as the rack refreshes it every
+// four samples of each render.
+
+static void run_acid(const audiodsp_graph_t *graph,
+    const audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
+    graph_acid_t *d = n->data;
+    const int16_t *in = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs[n->inputs[0]];
+    const int16_t *env = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[1]] : NULL;
+    const int16_t *acc_in = n->ninputs > 2 && n->inputs[2] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[2]] : NULL;
+    const float cutoff_hz = n->param[AUDIODSP_GRAPH_ACID_CUTOFF_HZ];
+    const float resonance = n->param[AUDIODSP_GRAPH_ACID_RESONANCE];
+    const float env_mod = n->param[AUDIODSP_GRAPH_ACID_ENVMOD];
+    const float res_gain = resonance * 4.2f;
+    const float decay = d->accent_decay;
+    const float inv_sr = 1.0f / (float)graph->sample_rate;
+    const float inv = 1.0f / AUDIODSP_GRAPH_UNIT;
+    float s0 = d->s0;
+    float s1 = d->s1;
+    float s2 = d->s2;
+    float s3 = d->s3;
+    float hp = d->hp;
+    float acc_env = d->accent_env;
+    float g = 0.5f;
+    for (uint32_t i = 0; i < frames; ++i) {
+        const float x = in != NULL ? (float)in[i] * inv : 0.0f;
+        const float e = env != NULL ? (float)env[i] * inv : 0.0f;
+        const float acc = acc_in != NULL ? (float)acc_in[i] * inv : 0.0f;
+        if (acc > 0.3f) {
+            acc_env = 1.0f;
+        } else {
+            acc_env *= decay;
+        }
+        if ((i & 3u) == 0u) {
+            const float total_env = e + acc_env * 0.4f;
+            float f = cutoff_hz * (float)graph_exp2d((double)(total_env * env_mod * 4.0f));
+            f = f < 30.0f ? 30.0f : (f > 14000.0f ? 14000.0f : f);
+            float t = tanf(3.14159265358979323846f * f * inv_sr);
+            g = t < 0.001f ? 0.001f : (t > 0.95f ? 0.95f : t);
+        }
+        const float res_hp = s3 - hp;
+        hp += 0.95f * res_hp;
+        const float u = graph_tanh(x - graph_tanh(res_hp * res_gain));
+        s0 += g * (u - s0);
+        s1 += g * (s0 - s1);
+        s2 += g * (s1 - s2);
+        s3 += g * (s2 - s3);
+        float y = s3;
+        if (acc_env > 0.01f) {
+            y = graph_tanh(y * (1.0f + acc_env * 1.5f));
+        }
+        out[i] = sat16(y * AUDIODSP_GRAPH_UNIT);
+    }
+    d->s0 = s0;
+    d->s1 = s1;
+    d->s2 = s2;
+    d->s3 = s3;
+    d->hp = hp;
+    d->accent_env = acc_env;
+}
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -3076,6 +3176,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_CRUSH:
                 run_crush(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_ACID:
+                run_acid(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:

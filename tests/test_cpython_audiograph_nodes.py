@@ -20,6 +20,7 @@
 | `WAVEFOLD` | vrack's `dsp/wavefolder.py` `WavefolderCore`, with no CV, a fold CV, the knobs moving, a hot input, an open input and the bypass at fold 0.001 | 1 count, on about 1 sample in 1000 (the sine is a polynomial) |
 | `LPG` | vrack's `dsp/lpg.py` `LowPassGateCore`, its filter `audiofilters.Filter` with a `synthio.Biquad` low-pass driven as vrack's bridge drives it: VCF, VCA and BOTH, struck, on a control, with the manual level, the knobs and level moving, a hot input and an open one | 1 count (the node's own exp and pow against libm's); 0 measured over 168192 samples |
 | `MODAL` | vrack's `dsp/modal.py` `ModalResonatorCore`: its `Exciter` in float32, the sum cast to int16 as vrack's bridge casts it, and `audiomodal.Bank` pulled 256 frames at a time, lined up with its input: bar and membrane ratios, struck, rung by noise, mix 0, a mode turned off, the knobs moving, and 32 to 256 frames | 1 count (the strike's burst is a product where numpy takes an exp); 586 of 170240 samples measured |
+| `ACID` | vrack's `dsp/ladder.py` `AcidFilterCore`: four one-pole stages, high-passed feedback and the accent capacitor, with the cutoff, resonance and env_mod moving and accent bursts | 1 count (the graph's `tanh` polynomial against libm's) |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -3116,3 +3117,169 @@ class CrushTest(unittest.TestCase):
             audio = self.tone_blocks(frames, 8)
             got, want = self.compare(6, audio)
             self.assertLessEqual(worst(got, want), 0, frames)
+
+
+# -------------------------------------------------------------------- ACID --
+
+class AcidRef:
+    """vrack's `dsp/ladder.py` `AcidFilterCore`: four one-pole stages with
+    the feedback high-passed, and an accent capacitor."""
+
+    def __init__(self, sample_rate=RATE):
+        self.sample_rate = sample_rate
+        self.inv_sr = 1.0 / sample_rate
+        self.s0 = self.s1 = self.s2 = self.s3 = 0.0
+        self.hp_state = 0.0
+        self.accent_env = 0.0
+
+    def render(self, block_size, src, dst, cutoff_hz, resonance, env_mod, env, accent):
+        decay = math.exp(-self.inv_sr / 0.15)
+        s0, s1, s2, s3 = self.s0, self.s1, self.s2, self.s3
+        hp = self.hp_state
+        acc_env = self.accent_env
+        res_gain = resonance * 4.2
+        g = 0.5
+        for i in range(block_size):
+            x = src[i] if src is not None else 0.0
+            e = env[i] if env is not None else 0.0
+            acc = accent[i] if accent is not None else 0.0
+            if acc > 0.3:
+                acc_env = 1.0
+            else:
+                acc_env *= decay
+            if (i & 3) == 0:
+                total_env = e + acc_env * 0.4
+                f = max(30.0, min(14000.0, cutoff_hz * (2.0 ** (total_env * env_mod * 4.0))))
+                g = max(0.001, min(0.95, math.tan(math.pi * f * self.inv_sr)))
+            res_hp = s3 - hp
+            hp += 0.95 * res_hp
+            u = math.tanh(x - math.tanh(res_hp * res_gain))
+            s0 += g * (u - s0)
+            s1 += g * (s0 - s1)
+            s2 += g * (s1 - s2)
+            s3 += g * (s2 - s3)
+            y = s3
+            if acc_env > 0.01:
+                y = math.tanh(y * (1.0 + acc_env * 1.5))
+            dst[i] = y
+        self.s0, self.s1, self.s2, self.s3 = s0, s1, s2, s3
+        self.hp_state = hp
+        self.accent_env = acc_env
+
+
+class AcidTest(unittest.TestCase):
+    """ACID held to `AcidFilterCore`."""
+
+    def compare(self, audio, env, accent, cutoff_hz=400.0, resonance=0.7, env_mod=0.6):
+        frames = len(audio[0])
+        rig = Rig(frames, ag.ACID, 3)
+        rig.set(ag.ACID_CUTOFF_HZ, cutoff_hz)
+        rig.set(ag.ACID_RESONANCE, resonance)
+        rig.set(ag.ACID_ENVMOD, env_mod)
+        ref = AcidRef()
+        got, want = [], []
+        for a, e, c in zip(audio, env, accent):
+            got += rig.run(a, e, c)
+            dst = [0.0] * frames
+            ref.render(frames, [x / UNIT for x in a], dst, cutoff_hz, resonance,
+                       env_mod, [x / UNIT for x in e], [x / UNIT for x in c])
+            want += [sat(v * UNIT) for v in dst]
+        return got, want
+
+    def tone_blocks(self, frames, blocks, amp=9000):
+        return [[int(amp * math.sin(2.0 * math.pi * (b * frames + i) / 47.0))
+                 for i in range(frames)] for b in range(blocks)]
+
+    def flat_blocks(self, frames, blocks, value):
+        return [[value] * frames for _ in range(blocks)]
+
+    def test_matches_acidfiltercore(self):
+        frames, blocks = 128, 40
+        audio = self.tone_blocks(frames, blocks)
+        env = []
+        accent = []
+        for b in range(blocks):
+            env.append([int(UNIT * min(1.0, (b % 30) / 15.0))] * frames)
+            accent.append([int(UNIT * (0.9 if b % 14 == 0 else 0.0))] * frames)
+        got, want = self.compare(audio, env, accent)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(max(abs(v) for v in got), 500)
+
+    def test_the_cutoff_hz_moves_the_filter(self):
+        """Cutoff is in Hz before the envelope opens it, not a 0..1 lever."""
+        frames, blocks = 128, 16
+        audio = self.tone_blocks(frames, blocks)
+        env = self.flat_blocks(frames, blocks, 0)
+        accent = self.flat_blocks(frames, blocks, 0)
+        low, _ = self.compare(audio, env, accent, cutoff_hz=180.0)
+        high, want = self.compare(audio, env, accent, cutoff_hz=1200.0)
+        self.assertLessEqual(worst(high, want), 1)
+        self.assertGreater(worst(low, high), 200)
+
+    def test_the_resonance_scales_the_feedback(self):
+        """Resonance is 0..1 into a gain of 4.2, not already that gain."""
+        frames, blocks = 128, 16
+        audio = self.tone_blocks(frames, blocks, 12000)
+        env = self.flat_blocks(frames, blocks, 0)
+        accent = self.flat_blocks(frames, blocks, 0)
+        # held to the rack at 0.85, so a C that scales 0..1 wrong fails here
+        wet, want = self.compare(audio, env, accent, resonance=0.85)
+        self.assertLessEqual(worst(wet, want), 1)
+        # and the parameter is live: turning it down changes the render
+        dry, _ = self.compare(audio, env, accent, resonance=0.0)
+        self.assertGreater(worst(dry, wet), 0)
+
+    def test_the_env_mod_scales_the_envelope(self):
+        """Env_mod is 0..1, times 4 octaves of cutoff travel."""
+        frames, blocks = 128, 24
+        audio = self.tone_blocks(frames, blocks)
+        env = [[int(UNIT * min(1.0, (b % 12) / 6.0))] * frames for b in range(blocks)]
+        accent = self.flat_blocks(frames, blocks, 0)
+        none, _ = self.compare(audio, env, accent, env_mod=0.0)
+        full, want = self.compare(audio, env, accent, env_mod=0.9)
+        self.assertLessEqual(worst(full, want), 1)
+        self.assertGreater(worst(none, full), 200)
+
+    def test_the_accent_pushes_cutoff_and_drive(self):
+        """An accent above 0.3 charges the capacitor; it then decays over 0.15 s."""
+        frames, blocks = 128, 30
+        audio = self.tone_blocks(frames, blocks)
+        env = self.flat_blocks(frames, blocks, 0)
+        quiet = self.flat_blocks(frames, blocks, 0)
+        loud = []
+        for b in range(blocks):
+            loud.append([int(UNIT * 0.9)] * frames if b == 4 else [0] * frames)
+        plain, _ = self.compare(audio, env, quiet)
+        accented, want = self.compare(audio, env, loud)
+        self.assertLessEqual(worst(accented, want), 1)
+        self.assertGreater(worst(plain, accented), 100)
+
+    def test_the_check_catches_a_wrong_acid(self):
+        frames, blocks = 128, 20
+        audio = self.tone_blocks(frames, blocks)
+        env = [[int(UNIT * min(1.0, (b % 10) / 5.0))] * frames for b in range(blocks)]
+        accent = [[int(UNIT * (0.9 if b == 3 else 0.0))] * frames for b in range(blocks)]
+        got, want = self.compare(audio, env, accent)
+        self.assertLessEqual(worst(got, want), 1)
+        for name, bad in (("cutoff doubled", 800.0), ("cutoff halved", 200.0),
+                          ("resonance as 0.35", 0.35), ("env_mod as 0.3", 0.3)):
+            if name.startswith("cutoff"):
+                _, wl = self.compare(audio, env, accent, cutoff_hz=bad)
+            elif name.startswith("resonance"):
+                _, wl = self.compare(audio, env, accent, resonance=bad)
+            else:
+                _, wl = self.compare(audio, env, accent, env_mod=bad)
+            self.assertGreater(worst(got, wl), 50, name)
+
+    def test_an_open_input_is_silence(self):
+        frames = 64
+        rig = Rig(frames, ag.ACID, 3, open_=(0,))
+        self.assertEqual(set(rig.run(None, [UNIT // 2] * frames, [0] * frames)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            audio = self.tone_blocks(frames, 12)
+            env = [[int(UNIT * min(1.0, (b % 8) / 4.0))] * frames for b in range(12)]
+            accent = [[int(UNIT * (0.9 if b == 2 else 0.0))] * frames for b in range(12)]
+            got, want = self.compare(audio, env, accent)
+            self.assertLessEqual(worst(got, want), 1, frames)

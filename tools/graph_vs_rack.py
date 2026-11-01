@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Brad Barnett
 #
 # SPDX-License-Identifier: MIT
-"""Hold audiograph's STRUCK, PICKUP, TREMOLO, DECAY, PINK and CRUSH against the rack.
+"""Hold audiograph's STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH and ACID against the rack.
 
     graph_vs_rack.py [--rack PATH]
 
@@ -56,6 +56,7 @@ from audioinstruments._rack.dsp.drums import (  # noqa: E402
     SweptOscillatorDrumCore,
 )
 from audioinstruments._rack.dsp.noise import NoiseGenerator  # noqa: E402
+from audioinstruments._rack.dsp.ladder import AcidFilterCore  # noqa: E402
 from audioinstruments._rack.modules.rhythm78.cowbell import (  # noqa: E402
     Rhythm78Cowbell,
 )
@@ -603,6 +604,41 @@ def crush(bits, blocks=25):
     return report("CRUSH %g bits" % bits, got, want)
 
 
+# --------------------------------------------------------------------- ACID --
+
+def acid(cutoff_hz, resonance, env_mod, blocks=60):
+    """ACID against AcidFilterCore, with an envelope and accent bursts."""
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=8, nodes=3)
+    audio_b, env_b, acc_b, out = g.buffer(), g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.ACID, ag.ALWAYS, (audio_b, env_b, acc_b), out)
+    g.set(node, ag.ACID_CUTOFF_HZ, cutoff_hz)
+    g.set(node, ag.ACID_RESONANCE, resonance)
+    g.set(node, ag.ACID_ENVMOD, env_mod)
+    core = AcidFilterCore(RATE)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    src = np.zeros(FRAMES, dtype=np.float64)
+    dst = np.zeros(FRAMES, dtype=np.float64)
+    env_f = np.zeros(FRAMES, dtype=np.float64)
+    acc_f = np.zeros(FRAMES, dtype=np.float64)
+    for b in range(blocks):
+        block = tone(b, 9000, 47.0)
+        env_block = [int(UNIT * min(1.0, (b % 30) / 15.0))] * FRAMES
+        acc_block = [int(UNIT * 0.9)] * FRAMES if b % 14 == 0 else [0] * FRAMES
+        g.write(audio_b, array("h", block))
+        g.write(env_b, array("h", env_block))
+        g.write(acc_b, array("h", acc_block))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        src[:] = np.asarray(block, dtype=np.float64) / UNIT
+        env_f[:] = np.asarray(env_block, dtype=np.float64) / UNIT
+        acc_f[:] = np.asarray(acc_block, dtype=np.float64) / UNIT
+        core.render(FRAMES, src, dst, cutoff_hz, resonance, env_mod, env_f, acc_f)
+        want += list(wire(dst))
+    return report("ACID %.0fHz r%.2f e%.2f" % (cutoff_hz, resonance, env_mod), got, want)
+
+
 worst = 0
 worst = max(worst, tremolo("pan", ag.TREMOLO_PAN))
 worst = max(worst, tremolo("amplitude", ag.TREMOLO_AMPLITUDE))
@@ -659,4 +695,7 @@ worst = max(worst, crush(6))
 worst = max(worst, crush(8))
 worst = max(worst, crush(15))
 worst = max(worst, crush(16))
+worst = max(worst, acid(400.0, 0.7, 0.6))
+worst = max(worst, acid(180.0, 0.0, 0.0))
+worst = max(worst, acid(1200.0, 0.9, 0.9))
 print("worst over all: %d" % worst)
