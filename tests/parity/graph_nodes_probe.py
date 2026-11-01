@@ -363,12 +363,13 @@ g.set(gliss_a, ag.GLISS_TIME, 0.03125)
 g.set(gliss_a, ag.GLISS_MODE, ag.LAG_ON)
 g.set(gliss_a, ag.GLISS_STEP, 1.0)
 
-# -- a peak follower and an RMS follower on the sawtooth
-follow_peak, _ = node("follow_peak", ag.FOLLOW, (saw_b,))
+# -- a peak follower and an RMS follower on a stepped-level sawtooth
+follow_b = g.buffer()
+follow_peak, _ = node("follow_peak", ag.FOLLOW, (follow_b,))
 g.set(follow_peak, ag.FOLLOW_ATTACK, 0.005)
 g.set(follow_peak, ag.FOLLOW_RELEASE, 0.030)
 g.set(follow_peak, ag.FOLLOW_MODE, ag.FOLLOW_PEAK)
-follow_rms, _ = node("follow_rms", ag.FOLLOW, (saw_b,))
+follow_rms, _ = node("follow_rms", ag.FOLLOW, (follow_b,))
 g.set(follow_rms, ag.FOLLOW_ATTACK, 0.005)
 g.set(follow_rms, ag.FOLLOW_RELEASE, 0.030)
 g.set(follow_rms, ag.FOLLOW_MODE, ag.FOLLOW_RMS)
@@ -389,6 +390,7 @@ strike = array("h", bytes(2 * FRAMES))
 modal_strike = array("h", bytes(2 * FRAMES))
 vel = array("h", bytes(2 * FRAMES))
 burst = array("h", bytes(2 * FRAMES))
+follow_src = array("h", bytes(2 * FRAMES))
 moved = False
 pan_sides_differ = False
 left_block = None
@@ -566,10 +568,15 @@ for b in range(BLOCKS):
     gliss_at = b if FAULT != "gliss" or b != 40 else b - 1
     g.set(gliss_a, ag.GLISS_STEP, 0.5 * (1 + (gliss_at // 20) % 4))
 
-    # the followers' release time steps every twenty blocks
+    # the followers' release time steps every twenty blocks, and the source
+    # they follow steps its level there too so the release has somewhere to go
     follow_at = b if FAULT != "follow" or b != 40 else b - 1
     g.set(follow_peak, ag.FOLLOW_RELEASE, 0.030 * (1 + (follow_at // 20) % 4))
     g.set(follow_rms, ag.FOLLOW_RELEASE, 0.030 * (1 + (follow_at // 20) % 4))
+    amp = (4000, 16000, 2000, 14000, 6000, 18000, 1000, 12000)[(follow_at // 20) % 8]
+    for i in range(FRAMES):
+        follow_src[i] = int(amp * (((b * FRAMES + i) * 440 % RATE) / RATE * 2.0 - 1.0))
+    g.write(follow_b, follow_src)
 
     g.run(None)
     g.read(saw_b, saw_block)
@@ -661,9 +668,11 @@ check(seen["adsr2_a"][0] > 500 and seen["adsr2_a"][2] > 0 and seen["adsr2_a"][1]
 
 check(seen["gliss_a"][0] > 500, "the glissando steps between notes")
 
-check(seen["follow_peak"][0] > 500 and seen["follow_peak"][2] > 1000,
+# one level a block, so the moves are block boundaries: count those, and
+# require the level to actually span the stepped source
+check(seen["follow_peak"][0] > 50 and seen["follow_peak"][2] > 4 * seen["follow_peak"][1],
       "the peak follower follows the sawtooth")
-check(seen["follow_rms"][0] > 500 and seen["follow_rms"][2] > 500,
+check(seen["follow_rms"][0] > 50 and seen["follow_rms"][2] > 4 * seen["follow_rms"][1],
       "the rms follower follows the sawtooth")
 
 if failures:
