@@ -24,6 +24,7 @@
 | `SPRING` | vrack's `dsp/reverb.py` `SpringReverbCore` over `audiofreeverb.Freeverb` at mix 1.0, dry and wet mixed as the rack mixes them: two tanks, decay and decay + 0.05 | 0 counts |
 | `ADSR2` | vrack's `dsp/envelope.py` `EnvelopeCore` contour remapped to start at `initial` and peak at `attack_level`, as poly80's filter envelope remaps it | 0 counts |
 | `GLISS` | `GlideCore`'s linear glide, then poly80's glissando: once a block the last glided sample is rounded to the step grid and written across the block | 0 counts |
+| `FOLLOW` | clavichord's auto-wah peak follower and vocoder330's band RMS follower: once a block the level is followed by a one-pole and written across the block | 0 counts |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -3775,3 +3776,184 @@ class GlissTest(unittest.TestCase):
         for frames in (32, 256):
             got, want = self.compare(phrase(frames, 24), frames=frames)
             self.assertEqual(worst(got, want), 0, frames)
+
+
+# ----------------------------------------------------------------- FOLLOW --
+
+class FollowRef:
+    """clavichord's auto-wah peak follower (output.py: the block's peak
+    absolute sample, moved toward by 0.4 up and 0.06 down) and vocoder330's
+    band follower (bank.py `_follow`: the block's RMS about its own mean,
+    moved toward by 1 - exp(-dt/t)). Once a block, that one value is written
+    across the block. The node takes times, so at a given block size the two
+    are the same one-pole: clavichord's 0.4 and 0.06 are times of
+    -dt/ln(0.6) and -dt/ln(0.94)."""
+
+    def __init__(self, attack, release, mode, sample_rate=RATE):
+        self.attack = attack
+        self.release = release
+        self.mode = mode
+        self.sample_rate = sample_rate
+        self.env = 0.0
+
+    def render(self, block):
+        n = len(block)
+        dt = n / float(self.sample_rate)
+        if self.mode == ag.FOLLOW_RMS:
+            mean = sum(block) / float(n)
+            var = sum(v * v for v in block) / float(n) - mean * mean
+            level = math.sqrt(var) if var > 0.0 else 0.0
+        else:
+            level = max(abs(v) for v in block) if n else 0.0
+        t = self.attack if level > self.env else self.release
+        coef = math.exp(-dt / t) if t > 0.0 else 0.0
+        self.env = level + (self.env - level) * coef
+        return [sat(self.env)] * n
+
+
+class ClavichordRef:
+    """clavichord's own coefficients, not times: 0.4 toward a peak, 0.06 away."""
+
+    def __init__(self):
+        self.env = 0.0
+
+    def render(self, block):
+        peak = max(abs(v) for v in block) if block else 0.0
+        if peak > self.env:
+            self.env += (peak - self.env) * 0.4
+        else:
+            self.env += (peak - self.env) * 0.06
+        return [sat(self.env)] * len(block)
+
+
+class FollowTest(unittest.TestCase):
+    """FOLLOW held to clavichord's peak follower and vocoder330's RMS one."""
+
+    def compare(self, blocks, attack=0.005, release=0.030,
+                mode=ag.FOLLOW_PEAK, frames=None):
+        if frames is None:
+            frames = len(blocks[0])
+        rig = Rig(frames, ag.FOLLOW, 1)
+        rig.set(ag.FOLLOW_ATTACK, attack)
+        rig.set(ag.FOLLOW_RELEASE, release)
+        rig.set(ag.FOLLOW_MODE, mode)
+        ref = FollowRef(attack, release, mode)
+        got, want = [], []
+        for block in blocks:
+            got += rig.run(block)
+            want += ref.render(block)
+        return got, want
+
+    def program(self, frames, blocks):
+        """A burst, a quiet stretch and another burst, in counts."""
+        out = []
+        for b in range(blocks):
+            if 5 <= b < 15 or 25 <= b < 35:
+                amp = 9000 + 2000 * (b % 5)
+            else:
+                amp = 300
+            out.append([int(amp * math.sin(2.0 * math.pi * (b * frames + i) / 37.0))
+                        for i in range(frames)])
+        return out
+
+    def test_clavichords_auto_wah_peak_follower(self):
+        """clavichord's 0.4 and 0.06 are -dt/ln(0.6) and -dt/ln(0.94) at 128."""
+        frames = 128
+        dt = frames / float(RATE)
+        attack = -dt / math.log(0.6)
+        release = -dt / math.log(0.94)
+        blocks = self.program(frames, 50)
+        got, want = self.compare(blocks, attack=attack, release=release,
+                                 mode=ag.FOLLOW_PEAK)
+        self.assertEqual(worst(got, want), 0)
+        # and against clavichord's own per-block coefficients
+        ref = ClavichordRef()
+        want2 = []
+        for block in blocks:
+            want2 += ref.render(block)
+        self.assertEqual(worst(got, want2), 0)
+        self.assertGreater(max(got), 8000)
+
+    def test_vocoder330_band_rms_follower(self):
+        """vocoder330's FOLLOW_ATTACK_S=0.005 and FOLLOW_RELEASE_S=0.030."""
+        frames = 128
+        blocks = self.program(frames, 50)
+        got, want = self.compare(blocks, attack=0.005, release=0.030,
+                                 mode=ag.FOLLOW_RMS)
+        self.assertEqual(worst(got, want), 0)
+        self.assertGreater(max(got), 4000)
+
+    def test_the_peak_and_rms_levels_differ(self):
+        frames = 128
+        blocks = self.program(frames, 40)
+        peak, _ = self.compare(blocks, mode=ag.FOLLOW_PEAK)
+        rms, _ = self.compare(blocks, mode=ag.FOLLOW_RMS)
+        self.assertNotEqual(peak, rms)
+        # a C that always took the peak would match PEAK here, not RMS
+        self.assertGreater(worst(peak, rms), 100)
+
+    def test_the_attack_seconds_scale(self):
+        frames = 128
+        blocks = self.program(frames, 40)
+        got, want = self.compare(blocks, attack=0.005, release=0.030)
+        self.assertEqual(worst(got, want), 0)
+        _, wl = self.compare(blocks, attack=0.005 / 1000.0, release=0.030)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_release_seconds_scale(self):
+        frames = 128
+        blocks = self.program(frames, 40)
+        got, want = self.compare(blocks, attack=0.005, release=0.030)
+        self.assertEqual(worst(got, want), 0)
+        _, wl = self.compare(blocks, attack=0.005, release=0.030 * 1000.0)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_check_catches_a_wrong_follow(self):
+        frames = 128
+        blocks = self.program(frames, 40)
+        got, want = self.compare(blocks, attack=0.01, release=0.04)
+        self.assertEqual(worst(got, want), 0)
+        for name, kw in (("attack as 0.001", {"attack": 0.001}),
+                         ("release as 0.4", {"release": 0.4}),
+                         ("mode as rms", {"mode": ag.FOLLOW_RMS})):
+            args = dict(attack=0.01, release=0.04)
+            args.update(kw)
+            _, wl = self.compare(blocks, **args)
+            self.assertGreater(worst(got, wl), 50, name)
+
+    def test_an_open_input_decays_to_zero(self):
+        frames = 64
+        rig = Rig(frames, ag.FOLLOW, 1, open_=(0,))
+        out = rig.run(None)
+        self.assertEqual(set(out), {0})
+        # after a burst the open input walks the level down, not to zero at once
+        rig2 = Rig(frames, ag.FOLLOW, 1)
+        rig2.set(ag.FOLLOW_ATTACK, 0.005)
+        rig2.set(ag.FOLLOW_RELEASE, 0.030)
+        loud = [12000] * frames
+        for _ in range(10):
+            rig2.run(loud)
+        self.assertGreater(rig2.run(loud)[-1], 5000)
+        quiet = [0] * frames
+        first = rig2.run(quiet)
+        self.assertGreater(first[-1], 0)
+        self.assertLess(first[-1], 12000)
+
+    def test_reset_forgets_the_level(self):
+        frames = 64
+        rig = Rig(frames, ag.FOLLOW, 1)
+        rig.set(ag.FOLLOW_ATTACK, 0.005)
+        rig.set(ag.FOLLOW_RELEASE, 0.030)
+        for _ in range(10):
+            rig.run([12000] * frames)
+        self.assertGreater(rig.run([12000] * frames)[-1], 5000)
+        rig.g.reset(rig.node)
+        self.assertEqual(rig.run([0] * frames), [0] * frames)
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            blocks = self.program(frames, 40)
+            got, want = self.compare(blocks, frames=frames)
+            # the node's level is a float32 state and the rack keeps a Python
+            # float; at 256 frames that is one count
+            self.assertLessEqual(worst(got, want), 1, frames)

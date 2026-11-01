@@ -105,6 +105,7 @@ rather than its last block.
 | `SPRING` | audio | `SPRING_MIX` 0..1, `SPRING_DECAY` 0..1, `SPRING_DAMP` 0..1; built with `arg` = the right side's buffer | patch2600's two-tank spring reverb over `audiofreeverb`, wet-only into a dry/wet mix on both sides, [below](#spring) |
 | `ADSR2` | gate | `ADSR2_ATTACK`, `ADSR2_DECAY`, `ADSR2_RELEASE` in seconds, `ADSR2_SUSTAIN` 0..1, `ADSR2_INITIAL`, `ADSR2_ATTACK_LEVEL` | ENV's contour starting at `ADSR2_INITIAL` and peaking at `ADSR2_ATTACK_LEVEL`: poly80's filter envelope, [below](#adsr2) |
 | `GLISS` | note, pitch, legato | `GLISS_TIME` s, `GLISS_MODE` (`LAG_OFF`, `LAG_ON`, `LAG_AUTO`), `GLISS_STEP` semitones | `LAG`'s linear glide stepped onto a semitone grid once a block: poly80's glissando, [below](#gliss) |
+| `FOLLOW` | audio | `FOLLOW_ATTACK`, `FOLLOW_RELEASE` in seconds, `FOLLOW_MODE` (`FOLLOW_PEAK`, `FOLLOW_RMS`) | an envelope follower, one level a block: clavichord's auto-wah peak and vocoder330's band RMS, [below](#follow) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -456,6 +457,19 @@ note steps while the wheel bends it. `LAG` plus a quantiser cannot express
 this: no node quantises a pitch CV onto a step grid (`CRUSH` quantises
 amplitude), and the quantise has to see the glide's own state, not the bent
 output.
+
+### Follow
+
+`FOLLOW` is an envelope follower, one level a block. The block's level is
+its peak absolute sample (`FOLLOW_PEAK`, clavichord's auto-wah) or its RMS
+about its own mean (`FOLLOW_RMS`, vocoder330's band follower), and the node
+moves toward that level by `exp(−dt / t)` a block — `dt` the block's length
+in seconds, `t` `FOLLOW_ATTACK` when the level is above the current one and
+`FOLLOW_RELEASE` when it is below. That one value is written across the
+block, so a CV that sweeps a filter holds still between blocks and jumps at
+the boundary, as the rack's does. clavichord's follower takes its 0.4 and
+0.06 per-block coefficients rather than times; at 128 frames those are
+`−dt/ln(0.6)` and `−dt/ln(0.94)`, about 5.2 ms and 43 ms.
 
 ## Output
 

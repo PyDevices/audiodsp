@@ -115,6 +115,11 @@ typedef struct {
 } graph_lag_t;
 
 typedef struct {
+    // The level followed so far, in counts. Written once a block.
+    float env;
+} graph_follow_t;
+
+typedef struct {
     // vrack's SampleAndHoldCore: the clock's state at the last sample, the
     // value held and the output slewing toward it.
     bool high;
@@ -310,6 +315,8 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
         case AUDIODSP_GRAPH_LAG:
         case AUDIODSP_GRAPH_GLISS:
             return sizeof(graph_lag_t);
+        case AUDIODSP_GRAPH_FOLLOW:
+            return sizeof(graph_follow_t);
         case AUDIODSP_GRAPH_SAMPLE_HOLD:
             return sizeof(graph_sh_t);
         case AUDIODSP_GRAPH_TWOPOLE:
@@ -542,6 +549,15 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_GLISS_MODE] = (float)AUDIODSP_GRAPH_LAG_ON;
             node->param[AUDIODSP_GRAPH_GLISS_STEP] = 1.0f;
             break;
+        case AUDIODSP_GRAPH_FOLLOW: {
+            graph_follow_t *d = data;
+            d->env = 0.0f;
+            // vocoder330's FOLLOW_ATTACK_S and FOLLOW_RELEASE_S.
+            node->param[AUDIODSP_GRAPH_FOLLOW_ATTACK] = 0.005f;
+            node->param[AUDIODSP_GRAPH_FOLLOW_RELEASE] = 0.030f;
+            node->param[AUDIODSP_GRAPH_FOLLOW_MODE] = (float)AUDIODSP_GRAPH_FOLLOW_PEAK;
+            break;
+        }
         case AUDIODSP_GRAPH_SAMPLE_HOLD: {
             graph_sh_t *d = data;
             audiodsp_samplehold_config_init(&d->config, 1u, 1u);
@@ -974,6 +990,9 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             d->pole = 0.0f;
             break;
         }
+        case AUDIODSP_GRAPH_FOLLOW:
+            ((graph_follow_t *)n->data)->env = 0.0f;
+            break;
         case AUDIODSP_GRAPH_SAMPLE_HOLD: {
             graph_sh_t *d = n->data;
             d->high = false;
@@ -1582,6 +1601,58 @@ static void run_gliss(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         for (uint32_t i = 0; i < frames; ++i) {
             out[i] = sat16(held);
         }
+    }
+}
+
+// Once a block the block's level is followed by a one-pole, and that one
+// value is written across the block. Peak is clavichord's auto-wah (the
+// block's peak absolute sample, moved toward by 0.4 up and 0.06 down);
+// RMS is vocoder330's band follower (about the block's own mean, moved
+// toward by 1 - exp(-dt/t)). Both are the same one-pole: the coefficient
+// here is exp(-dt/t), so clavichord's per-block 0.4 and 0.06 are times of
+// -dt/ln(0.6) and -dt/ln(0.94) at its block size.
+static void run_follow(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_follow_t *d = n->data;
+    const int16_t *in = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs[n->inputs[0]];
+    float level = 0.0f;
+    if (in != NULL && frames > 0u) {
+        if (n->param[AUDIODSP_GRAPH_FOLLOW_MODE] >= 0.5f) {
+            double sum = 0.0;
+            double sq = 0.0;
+            for (uint32_t i = 0; i < frames; ++i) {
+                double v = (double)in[i];
+                sum += v;
+                sq += v * v;
+            }
+            const double mean = sum / (double)frames;
+            const double var = sq / (double)frames - mean * mean;
+            level = var > 0.0 ? (float)sqrt(var) : 0.0f;
+        } else {
+            float peak = 0.0f;
+            for (uint32_t i = 0; i < frames; ++i) {
+                const float a = fabsf((float)in[i]);
+                if (a > peak) {
+                    peak = a;
+                }
+            }
+            level = peak;
+        }
+    }
+    const double dt = (double)frames / (double)graph->sample_rate;
+    const double t = level > d->env
+        ? (double)n->param[AUDIODSP_GRAPH_FOLLOW_ATTACK]
+        : (double)n->param[AUDIODSP_GRAPH_FOLLOW_RELEASE];
+    double coef = 0.0;
+    if (t > 0.0) {
+        // In double, as the rack's math.exp is: the coefficient vocoder330
+        // computes from its times.
+        coef = exp(-dt / t);
+    }
+    d->env = (float)((double)level + ((double)d->env - (double)level) * coef);
+    for (uint32_t i = 0; i < frames; ++i) {
+        out[i] = sat16(d->env);
     }
 }
 
@@ -3412,6 +3483,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_GLISS:
                 run_gliss(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_FOLLOW:
+                run_follow(graph, n, dst, frames);
                 break;
             case AUDIODSP_GRAPH_SAMPLE_HOLD:
                 run_sample_hold(graph, n, dst, frames);

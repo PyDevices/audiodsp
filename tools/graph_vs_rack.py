@@ -24,7 +24,10 @@ amp-minus-rise strike, click envelope and pitch-bend envelope. PINK is
 it are SAMPLE_HOLD's and a filter node's, so they are stood aside here and the
 node is compared to the quantise alone. GLISS is ``GlideCore`` plus poly80's
 once-a-block semitone step (``voice.py``'s glissando line, generalised to
-``step``).
+``step``). FOLLOW has no rack class of its own: it is held to the two call
+sites' own lines — clavichord ``output.py``'s peak follower (0.4 up, 0.06
+down, once a block) and vocoder330 ``bank.py``'s ``_follow`` RMS follower
+(``exp(-dt/t)`` from its times), the analysis filter stood aside.
 """
 
 import math
@@ -762,6 +765,62 @@ def gliss(time, step=1.0, blocks=60):
     return report("GLISS t%.4f s%.2f" % (time, step), got, want)
 
 
+# ----------------------------------------------------------------- FOLLOW --
+
+def follow(attack, release, mode, blocks=50):
+    """FOLLOW against clavichord's peak follower and vocoder330's RMS one.
+
+    There is no rack class: the reference is the call sites' own maths.
+    clavichord ``output.py`` moves 0.4 toward the block's peak absolute
+    sample and 0.06 away, once a block; vocoder330 ``bank.py``'s ``_follow``
+    moves ``1 - exp(-dt/t)`` toward the block's RMS about its own mean, with
+    ``t`` its FOLLOW_ATTACK_S / FOLLOW_RELEASE_S. The node takes times, so
+    clavichord's coefficients are ``-dt/ln(0.6)`` and ``-dt/ln(0.94)`` at
+    this block size.
+    """
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=3, nodes=2)
+    a, out = g.buffer(), g.buffer()
+    node = g.add(ag.FOLLOW, ag.ALWAYS, (a,), out)
+    g.set(node, ag.FOLLOW_ATTACK, attack)
+    g.set(node, ag.FOLLOW_RELEASE, release)
+    g.set(node, ag.FOLLOW_MODE, mode)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    env = 0.0
+    dt = FRAMES / float(RATE)
+    for b in range(blocks):
+        if 5 <= b < 15 or 25 <= b < 35:
+            amplitude = 9000 + 2000 * (b % 5)
+        else:
+            amplitude = 300
+        block = [int(amplitude * math.sin(2.0 * math.pi * (b * FRAMES + i) / 37.0))
+                 for i in range(FRAMES)]
+        g.write(a, array("h", block))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        src = np.asarray(block, dtype=np.float64) / UNIT
+        if mode == ag.FOLLOW_RMS:
+            # bank.py `_follow`, its analysis filter stood aside
+            mean = float(np.sum(src)) / FRAMES
+            sq = src * src
+            rms = math.sqrt(max(0.0, float(np.sum(sq)) / FRAMES - mean * mean))
+            coef = math.exp(-dt / (attack if rms > env else release))
+            env = rms + (env - rms) * coef
+            want += list(wire([env] * FRAMES))
+        else:
+            # output.py's auto-wah, its 0.4 and 0.06 as times at this block
+            peak = float(np.max(np.abs(src)))
+            if peak > env:
+                env += (peak - env) * (1.0 - math.exp(-dt / attack))
+            else:
+                env += (peak - env) * (1.0 - math.exp(-dt / release))
+            want += list(wire([env] * FRAMES))
+    name = "FOLLOW %s a%.4f r%.4f" % (
+        "rms" if mode == ag.FOLLOW_RMS else "peak", attack, release)
+    return report(name, got, want)
+
+
 worst = 0
 worst = max(worst, tremolo("pan", ag.TREMOLO_PAN))
 worst = max(worst, tremolo("amplitude", ag.TREMOLO_AMPLITUDE))
@@ -831,4 +890,10 @@ worst = max(worst, adsr2(-0.4, 0.8, 0.4 / 1.2, attack=0.05, decay=0.3, release=0
 worst = max(worst, gliss(0.015625, 1.0))
 worst = max(worst, gliss(0.03125, 1.0))
 worst = max(worst, gliss(0.0625, 2.0))
+# clavichord's 0.4 and 0.06 at 128 frames
+_dt = FRAMES / float(RATE)
+worst = max(worst, follow(-_dt / math.log(0.6), -_dt / math.log(0.94), ag.FOLLOW_PEAK))
+# vocoder330's FOLLOW_ATTACK_S and FOLLOW_RELEASE_S
+worst = max(worst, follow(0.005, 0.030, ag.FOLLOW_RMS))
+worst = max(worst, follow(0.005, 0.030, ag.FOLLOW_PEAK))
 print("worst over all: %d" % worst)

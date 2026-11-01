@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2 and GLISS, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2, GLISS and FOLLOW, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -21,6 +21,7 @@
     graph_nodes_probe.py --fault spring     # one decay change a block late
     graph_nodes_probe.py --fault adsr2      # one attack level a block late
     graph_nodes_probe.py --fault gliss      # one step change a block late
+    graph_nodes_probe.py --fault follow     # one release time a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -54,7 +55,8 @@ sawtooth bit-crushed with the bits stepped, and the sawtooth through the acid
 ladder on a moving envelope with accent bursts, and through the spring reverb
 with both sides printed; and a second envelope with an initial and an attack
 level, gated by the written clock's line; and a glissando on the note line,
-stepping in semitones with the bend on top.
+stepping in semitones with the bend on top; and a peak follower and an RMS
+follower on the sawtooth, each with its release time stepped.
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -80,7 +82,7 @@ except (ImportError, AttributeError):
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
           "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush", "acid", "spring",
-          "adsr2", "gliss")
+          "adsr2", "gliss", "follow")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -361,6 +363,16 @@ g.set(gliss_a, ag.GLISS_TIME, 0.03125)
 g.set(gliss_a, ag.GLISS_MODE, ag.LAG_ON)
 g.set(gliss_a, ag.GLISS_STEP, 1.0)
 
+# -- a peak follower and an RMS follower on the sawtooth
+follow_peak, _ = node("follow_peak", ag.FOLLOW, (saw_b,))
+g.set(follow_peak, ag.FOLLOW_ATTACK, 0.005)
+g.set(follow_peak, ag.FOLLOW_RELEASE, 0.030)
+g.set(follow_peak, ag.FOLLOW_MODE, ag.FOLLOW_PEAK)
+follow_rms, _ = node("follow_rms", ag.FOLLOW, (saw_b,))
+g.set(follow_rms, ag.FOLLOW_ATTACK, 0.005)
+g.set(follow_rms, ag.FOLLOW_RELEASE, 0.030)
+g.set(follow_rms, ag.FOLLOW_MODE, ag.FOLLOW_RMS)
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -554,6 +566,11 @@ for b in range(BLOCKS):
     gliss_at = b if FAULT != "gliss" or b != 40 else b - 1
     g.set(gliss_a, ag.GLISS_STEP, 0.5 * (1 + (gliss_at // 20) % 4))
 
+    # the followers' release time steps every twenty blocks
+    follow_at = b if FAULT != "follow" or b != 40 else b - 1
+    g.set(follow_peak, ag.FOLLOW_RELEASE, 0.030 * (1 + (follow_at // 20) % 4))
+    g.set(follow_rms, ag.FOLLOW_RELEASE, 0.030 * (1 + (follow_at // 20) % 4))
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -643,6 +660,11 @@ check(seen["adsr2_a"][0] > 500 and seen["adsr2_a"][2] > 0 and seen["adsr2_a"][1]
       "the adsr2 swings above and below zero")
 
 check(seen["gliss_a"][0] > 500, "the glissando steps between notes")
+
+check(seen["follow_peak"][0] > 500 and seen["follow_peak"][2] > 1000,
+      "the peak follower follows the sawtooth")
+check(seen["follow_rms"][0] > 500 and seen["follow_rms"][2] > 500,
+      "the rms follower follows the sawtooth")
 
 if failures:
     for what in failures:

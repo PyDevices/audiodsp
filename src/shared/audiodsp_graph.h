@@ -243,6 +243,12 @@ typedef enum {
     // glide's own state stays unquantised. poly80's glissando (a semitone a
     // step); the bend (pitch - note) still rides on top unslid.
     AUDIODSP_GRAPH_GLISS,
+    // inputs: audio. params: attack s, release s, mode. Once a block the
+    // block's level (its peak absolute sample, or its RMS about its own
+    // mean) is followed by a one-pole at exp(-dt/attack) or
+    // exp(-dt/release), and that one value is written across the block.
+    // clavichord's auto-wah peak follower and vocoder330's per-band RMS.
+    AUDIODSP_GRAPH_FOLLOW,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -513,6 +519,19 @@ enum {
     // The step in semitones (1 as poly80 steps it). The grid on the wire is
     // step * UNIT / 12, since a semitone is 1/12 of an octave and UNIT is one.
     AUDIODSP_GRAPH_GLISS_STEP,
+};
+
+enum {
+    AUDIODSP_GRAPH_FOLLOW_ATTACK = 0,
+    AUDIODSP_GRAPH_FOLLOW_RELEASE,
+    // 0 is the block's peak absolute sample (clavichord's auto-wah), 1 is
+    // its RMS about its own mean (vocoder330's band follower).
+    AUDIODSP_GRAPH_FOLLOW_MODE,
+};
+
+enum {
+    AUDIODSP_GRAPH_FOLLOW_PEAK = 0,
+    AUDIODSP_GRAPH_FOLLOW_RMS,
 };
 
 enum {
