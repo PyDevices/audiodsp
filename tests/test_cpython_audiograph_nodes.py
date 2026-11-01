@@ -1660,3 +1660,600 @@ class Modal(unittest.TestCase):
                                      settings=[(330.0, 1.0, 0.6, 0.05, 1.0, MODAL_BAR)]
                                      * blocks)
             self.assertLessEqual(worst(got, want), 1, frames)
+
+
+# ------------------------------------------------------------------ STRUCK --
+
+STRUCK_TINE_C4 = (
+    (1.0, 1.6, 1.0),
+    (2.0, 0.55, 0.14),
+    (4.0, 0.09, 0.20),
+    (6.27, 0.07, 0.30),
+    (10.7, 0.025, 0.12),
+    (15.8, 0.012, 0.05),
+)
+
+STRUCK_REED_C4 = (
+    (1.0, 1.4, 1.0),
+    (2.756, 0.50, 0.32),
+    (5.404, 0.18, 0.22),
+    (8.933, 0.07, 0.10),
+    (13.34, 0.030, 0.045),
+    (18.64, 0.014, 0.020),
+)
+
+STRUCK_CLAVI_C4 = (
+    (1.0, 0.90, 1.00),
+    (2.001, 0.70, 0.72),
+    (3.003, 0.52, 0.52),
+    (4.006, 0.40, 0.40),
+    (5.011, 0.30, 0.30),
+    (6.018, 0.23, 0.23),
+    (7.026, 0.17, 0.17),
+    (8.036, 0.13, 0.13),
+)
+
+
+class StruckRef:
+    """vrack's `HammerExciter` and `StruckBarCore` (`dsp/keys.py`): the hammer
+    or pluck pulse rendered in float32 as numpy runs it, cast to int16 by the
+    bridge's rounding, and processed by a 24-mode `audiomodal.Bank` (`mix=1.0`,
+    `gain=0.0625`)."""
+
+    def __init__(self, frames, table=STRUCK_TINE_C4):
+        self.frames = frames
+        self.high = False
+        self.pulse_len = 0
+        self.pulse_pos = 0
+        self.pulse_amp = 0.0
+        self.pulse_active = False
+        self.pulse_shape = ag.STRUCK_HAMMER
+        self.bank = audiomodal.Bank(sample_rate=RATE, modes=24, channel_count=1,
+                                    mix=1.0, gain=0.0625)
+        self.table = tuple((f32(r), f32(d), f32(g)) for r, d, g in table)
+        self.tuned_f0 = None
+
+    def set_table(self, table):
+        self.table = tuple((f32(r), f32(d), f32(g)) for r, d, g in table)
+        self.tuned_f0 = None
+
+    def tune(self, f0):
+        f0 = max(20.0, f32(f0))
+        nyq = RATE * 0.45
+        used = min(len(self.table), 24)
+        for i in range(used):
+            ratio, decay, gain = self.table[i]
+            freq = f0 * ratio
+            if freq >= nyq:
+                freq = nyq
+                gain = 0.0
+            self.bank.set_mode(i, freq, max(0.001, decay), gain)
+        for i in range(used, 24):
+            self.bank.set_mode(i, f0, 0.001, 0.0)
+        self.bank._state.finish()
+
+    def _start_pulse(self, hardness, level, f0, shape):
+        h = min(1.0, max(0.0, float(hardness)))
+        scale = RATE / 48000.0
+        soft = 128.0 * scale
+        hard = 16.0 * scale
+        length = soft * (2.0 ** (-3.0 * h))
+        amp = float(level) * (hard / length)
+        if f0 > 0.0:
+            limit = 0.5 * (RATE / max(1.0, float(f0)))
+            if length > limit:
+                amp *= length / limit
+                length = limit
+        n = max(4, round(length))
+        self.pulse_len = n
+        self.pulse_pos = 0
+        self.pulse_amp = f32(amp)
+        self.pulse_active = True
+        self.pulse_shape = shape
+
+    def _render_pulse(self, dst, start, end):
+        if not self.pulse_active or start >= end:
+            return
+        rem = self.pulse_len - self.pulse_pos
+        span = end - start
+        k = rem if rem < span else span
+        if k <= 0:
+            self.pulse_active = False
+            return
+        pos = self.pulse_pos
+        n = self.pulse_len
+        amp = self.pulse_amp
+        if self.pulse_shape == ag.STRUCK_PLUCK:
+            step = f32(1.0 / n)
+            for j in range(k):
+                t = f32(pos + j)
+                t = f32(t * step)
+                t = f32(t * amp)
+                dst[start + j] = f32(dst[start + j] + t)
+        else:
+            step = f32(math.pi / n)
+            for j in range(k):
+                t = f32(pos + j)
+                t = f32(t * step)
+                t = f32(math.sin(t))
+                t = f32(t * amp)
+                dst[start + j] = f32(dst[start + j] + t)
+        self.pulse_pos += k
+        if self.pulse_pos >= self.pulse_len:
+            self.pulse_active = False
+
+    def render(self, strike, vel, f0, hardness, level, shape):
+        f0 = f32(f0)
+        hardness = f32(hardness)
+        level = f32(level)
+        eff_f0 = max(20.0, f0)
+        if self.tuned_f0 != eff_f0:
+            self.tuned_f0 = eff_f0
+            self.tune(eff_f0)
+
+        n = self.frames
+        dst = [0.0] * n
+        rising = -1
+        if strike is not None:
+            high = self.high
+            for i in range(n):
+                now = strike[i] / UNIT > 0.1
+                if now and not high and rising < 0:
+                    rising = i
+                high = now
+            self.high = high
+
+        def vel_at(idx):
+            if vel is None or idx < 0:
+                return 1.0
+            return min(1.0, max(0.0, f32(vel[idx] / UNIT)))
+
+        if rising >= 0:
+            self.bank.clear()
+            self.pulse_active = False
+            lv = f32(level * vel_at(rising))
+            if lv > 0.0:
+                self._start_pulse(hardness, lv, f0, shape)
+            self._render_pulse(dst, rising, n)
+        else:
+            self._render_pulse(dst, 0, n)
+
+        exc = array("h", (
+            int(max(-32768.0, min(32767.0, v * UNIT)) + 0.5)
+            if v >= 0.0 else
+            -int(max(-32768.0, min(32767.0, -v * UNIT)) + 0.5)
+            for v in dst
+        ))
+        self.bank._state.finish()
+        return list(array("h", self.bank._state.process(bytes(exc))))
+
+
+class Struck(unittest.TestCase):
+
+    def compare(self, blocks, frames=128, strike=None, vel=None,
+                settings=None, table=None):
+        """`settings` per block: (f0, hardness, level, shape)."""
+        rig = Rig(frames, ag.STRUCK, 2,
+                  open_=((0,) if strike is None else ())
+                  + ((1,) if vel is None else ()))
+        ref = StruckRef(frames, table=table or STRUCK_TINE_C4)
+        if table is not None:
+            rig.g.table(rig.node, table)
+        got, want = [], []
+        for b in range(blocks):
+            f0, hardness, level, shape = settings[b]
+            rig.set(ag.STRUCK_FREQUENCY, f0)
+            rig.set(ag.STRUCK_HARDNESS, hardness)
+            rig.set(ag.STRUCK_LEVEL, level)
+            rig.set(ag.STRUCK_SHAPE, shape)
+            s = strike[b] if strike is not None else None
+            v = vel[b] if vel is not None else None
+            got += rig.run(s, v)
+            want += ref.render(s, v, f0, hardness, level, shape)
+        return got, want
+
+    def test_matches_hammerexciter_and_struckbarcore(self):
+        frames, blocks = 128, 80
+        strikes = modal_strikes(frames, blocks, every=25, width=6)
+        for table, f0, hardness, level, shape in (
+            (None, 261.6256, 0.5, 0.8, ag.STRUCK_HAMMER),
+            (STRUCK_REED_C4, 220.0, 0.75, 0.9, ag.STRUCK_HAMMER),
+            (STRUCK_CLAVI_C4, 330.0, 0.65, 0.85, ag.STRUCK_PLUCK),
+            (STRUCK_TINE_C4, 1760.0, 0.2, 0.7, ag.STRUCK_HAMMER),
+        ):
+            got, want = self.compare(
+                blocks, frames=frames, strike=strikes, table=table,
+                settings=[(f0, hardness, level, shape)] * blocks,
+            )
+            self.assertLessEqual(worst(got, want), 1, (f0, hardness, shape))
+            self.assertGreater(max(abs(v) for v in got), 800, (f0, hardness))
+
+    def test_velocity_and_mid_block_strike(self):
+        frames, blocks = 128, 30
+        strike = [[0] * frames for _ in range(blocks)]
+        # Block 1: rising at sample 12, falling at sample 96 in the same block.
+        for i in range(12, 96):
+            strike[1][i] = UNIT
+        # Block 10: rising at sample 20, held until block 12 sample 40.
+        for i in range(20, frames):
+            strike[10][i] = UNIT
+        strike[11] = [UNIT] * frames
+        for i in range(0, 40):
+            strike[12][i] = UNIT
+        vel = [[int(UNIT * (0.35 + 0.5 * ((b + i) % 5) / 4.0))
+                for i in range(frames)] for b in range(blocks)]
+        settings = [(293.66, 0.55, 0.9, ag.STRUCK_HAMMER)] * blocks
+        got, want = self.compare(blocks, frames=frames, strike=strike, vel=vel,
+                                 settings=settings, table=STRUCK_CLAVI_C4)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(max(abs(v) for v in got), 500)
+
+    def test_table_accepts_float_buffer_and_sequences_and_carries(self):
+        frames = 128
+        flat = array("f", [r for mode in STRUCK_REED_C4 for r in mode])
+        g1 = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                      buffers=8, nodes=8)
+        sb1, out1 = g1.buffer(), g1.buffer()
+        n1 = g1.add(ag.STRUCK, ag.ALWAYS, (sb1,), out1)
+        g1.table(n1, flat)
+
+        g2 = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                      buffers=8, nodes=8)
+        sb2, out2 = g2.buffer(), g2.buffer()
+        n2 = g2.add(ag.STRUCK, ag.ALWAYS, (sb2,), out2)
+        g2.table(n2, STRUCK_REED_C4)
+
+        trig = array("h", [UNIT] * frames)
+        zero = array("h", [0] * frames)
+        b1 = array("h", bytes(2 * frames))
+        b2 = array("h", bytes(2 * frames))
+        g1.write(sb1, trig)
+        g2.write(sb2, trig)
+        g1.run(None)
+        g2.run(None)
+        g1.read(out1, b1)
+        g2.read(out2, b2)
+        self.assertEqual(list(b1), list(b2))
+
+        # Carry into a fresh graph with no table of its own: keeps reed modes.
+        g3 = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                      buffers=8, nodes=8)
+        sb3, out3 = g3.buffer(), g3.buffer()
+        n3 = g3.add(ag.STRUCK, ag.ALWAYS, (sb3,), out3)
+        g3.carry(n3, g1, n1)
+        g1.write(sb1, zero)
+        g3.write(sb3, zero)
+        g1.run(None)
+        g3.run(None)
+        g1.read(out1, b1)
+        g3.read(out3, b2)
+        self.assertEqual(list(b1), list(b2))
+
+    def test_unstruck_is_silence_and_reset_clears_state(self):
+        frames, blocks = 128, 20
+        got, _ = self.compare(
+            blocks, frames=frames,
+            settings=[(440.0, 0.5, 0.8, ag.STRUCK_HAMMER)] * blocks,
+        )
+        self.assertEqual(set(got), {0})
+        rig = Rig(frames, ag.STRUCK, 1)
+        self.assertNotEqual(set(rig.run([UNIT] * frames)), {0})
+        rig.g.reset(rig.node)
+        self.assertEqual(set(rig.run([0] * frames)), {0})
+
+    def test_nan_hardness_does_not_crash_or_produce_nan(self):
+        rig = Rig(128, ag.STRUCK, 1)
+        rig.set(ag.STRUCK_HARDNESS, float("nan"))
+        out = rig.run([UNIT] * 128)
+        self.assertEqual(len(out), 128)
+        self.assertTrue(all(isinstance(v, int) for v in out))
+
+    def test_the_check_catches_a_wrong_struck(self):
+        frames, blocks = 128, 40
+        strikes = modal_strikes(frames, blocks, every=15, width=4)
+        settings = [(330.0, 0.6, 0.85, ag.STRUCK_HAMMER)] * blocks
+        got, _ = self.compare(blocks, frames=frames, strike=strikes,
+                              settings=settings, table=STRUCK_CLAVI_C4)
+        wrong = {
+            "pluck instead of hammer": [
+                (330.0, 0.6, 0.85, ag.STRUCK_PLUCK)] * blocks,
+            "level off": [
+                (330.0, 0.6, 0.35, ag.STRUCK_HAMMER)] * blocks,
+            "hardness off": [
+                (330.0, 0.2, 0.85, ag.STRUCK_HAMMER)] * blocks,
+            "frequency off by 2%": [
+                (330.0 * 1.02, 0.6, 0.85, ag.STRUCK_HAMMER)] * blocks,
+        }
+        for name, bad_settings in wrong.items():
+            ref = StruckRef(frames, table=STRUCK_CLAVI_C4)
+            want = []
+            for b in range(blocks):
+                want += ref.render(strikes[b], None, *bad_settings[b])
+            self.assertGreater(worst(got, want), 10, name)
+
+
+# ------------------------------------------------------------------ PICKUP --
+
+def pickup_ref(block, mode=0, drive=1.0, offset=0.0, level=1.0):
+    """vrack's `PickupCore.render` (`dsp/keys.py`), transcribed operation for
+    operation in float32."""
+    electrostatic = f32(mode) >= 0.5
+    drive = f32(drive)
+    offset = f32(offset)
+    level = f32(level)
+    inv = f32(1.0 / UNIT)
+    dc = 0.0
+    if offset != 0.0:
+        o = float(offset)
+        if electrostatic:
+            o2 = o * o
+            dc = f32(o / (o2 * o2 - o2 + 1.0))
+        else:
+            dc = f32(o / (1.0 + 0.5 * o * o))
+    out = []
+    for sample in block:
+        dst = f32(sample * inv) if sample is not None else 0.0
+        if drive != 1.0:
+            dst = f32(dst * drive)
+        if offset != 0.0:
+            dst = f32(dst + offset)
+        tmp = f32(dst * dst)
+        if electrostatic:
+            tmp = f32(tmp - 1.0)
+            tmp = f32(tmp * dst)
+            tmp = f32(tmp * dst)
+            tmp = f32(tmp + 1.0)
+            dst = f32(dst / tmp)
+        else:
+            tmp = f32(tmp * 0.5)
+            tmp = f32(tmp + 1.0)
+            dst = f32(dst / tmp)
+        if offset != 0.0:
+            dst = f32(dst - dc)
+        if level != 1.0:
+            dst = f32(dst * level)
+        out.append(sat(f32(dst * UNIT)))
+    return out
+
+
+class Pickup(unittest.TestCase):
+
+    def compare(self, settings, frames=128):
+        """`settings` per block: (mode, drive, offset, level)."""
+        rig = Rig(frames, ag.PICKUP, 1)
+        got, want = [], []
+        for b, (mode, drive, offset, level) in enumerate(settings):
+            block = [int(14000 * math.sin(2.0 * math.pi * (b * frames + i) / 53.0))
+                     for i in range(frames)]
+            rig.set(ag.PICKUP_MODE, mode)
+            rig.set(ag.PICKUP_DRIVE, drive)
+            rig.set(ag.PICKUP_OFFSET, offset)
+            rig.set(ag.PICKUP_LEVEL, level)
+            got += rig.run(block)
+            want += pickup_ref(block, mode, drive, offset, level)
+        return got, want
+
+    def test_matches_pickupcore_to_zero_counts(self):
+        settings = []
+        for b in range(60):
+            mode = ag.PICKUP_ELECTROSTATIC if (b // 15) % 2 else ag.PICKUP_ELECTROMAGNETIC
+            drive = 0.5 + 0.375 * (b % 7)
+            offset = ((b % 9) - 4) * 0.0625
+            level = 0.5 + 0.25 * (b % 5)
+            settings.append((mode, drive, offset, level))
+        got, want = self.compare(settings)
+        self.assertEqual(worst(got, want), 0)
+        self.assertGreater(max(abs(v) for v in got), 4000)
+
+    def test_zero_input_has_no_dc_with_nonzero_offset(self):
+        for mode in (ag.PICKUP_ELECTROMAGNETIC, ag.PICKUP_ELECTROSTATIC):
+            for offset in (-0.35, -0.1, 0.0, 0.15, 0.4):
+                rig = Rig(64, ag.PICKUP, 1)
+                rig.set(ag.PICKUP_MODE, mode)
+                rig.set(ag.PICKUP_DRIVE, 2.5)
+                rig.set(ag.PICKUP_OFFSET, offset)
+                rig.set(ag.PICKUP_LEVEL, 1.5)
+                self.assertEqual(rig.run([0] * 64), [0] * 64)
+                rig_open = Rig(64, ag.PICKUP, 1, open_=(0,))
+                rig_open.set(ag.PICKUP_MODE, mode)
+                rig_open.set(ag.PICKUP_OFFSET, offset)
+                self.assertEqual(rig_open.run(), [0] * 64)
+
+    def test_the_check_catches_a_wrong_pickup(self):
+        settings = [
+            (ag.PICKUP_ELECTROMAGNETIC, 2.25, 0.25, 1.125),
+            (ag.PICKUP_ELECTROSTATIC, 1.75, 0.2, 0.875),
+        ] * 10
+        got, _ = self.compare(settings)
+        wrong = {
+            "modes swapped": [
+                (1 - m, d, o, lv) for m, d, o, lv in settings],
+            "offset ignored": [
+                (m, d, 0.0, lv) for m, d, o, lv in settings],
+            "drive off by 5%": [
+                (m, d * 1.05, o, lv) for m, d, o, lv in settings],
+            "level off by 5%": [
+                (m, d, o, lv * 1.05) for m, d, o, lv in settings],
+        }
+        for name, bad in wrong.items():
+            want = []
+            for b, (m, d, o, lv) in enumerate(bad):
+                block = [int(14000 * math.sin(2.0 * math.pi * (b * 128 + i) / 53.0))
+                         for i in range(128)]
+                want += pickup_ref(block, m, d, o, lv)
+            self.assertGreater(worst(got, want), 100, name)
+
+
+# ----------------------------------------------------------------- TREMOLO --
+
+class TremoloRef:
+    """vrack's `TremoloCore` (`dsp/tremolo.py`), transcribed operation for
+    operation in float32 as numpy does it: each Python scalar rounded to
+    float32 before the vector operation, the ramp `1..n`, the phase in double.
+    The rate and depth CVs add to the knobs before `TremoloCore.set`."""
+
+    def __init__(self, frames):
+        self.frames = frames
+        self.phase = 0.0
+        self.depth = 0.0
+        self.depth_now = 0.0
+
+    def reset(self):
+        self.phase = 0.0
+        self.depth_now = self.depth
+
+    def set(self, rate=3.0, depth=0.0, rate_cv=None, depth_cv=None):
+        rate = float(f32(rate))
+        depth = float(f32(depth))
+        if rate_cv is not None:
+            rate += rate_cv[0] / UNIT
+        if depth_cv is not None:
+            depth += depth_cv[0] / UNIT
+        self.rate = max(0.01, rate)
+        self.depth = max(0.0, min(1.0, depth))
+
+    def render(self, audio, rate=3.0, depth=0.0, mode=0,
+               rate_cv=None, depth_cv=None):
+        self.set(rate, depth, rate_cv, depth_cv)
+        n = self.frames
+        d0 = self.depth_now
+        d1 = self.depth
+        self.depth_now = d1
+        d_phase = 2.0 * math.pi * self.rate / float(RATE)
+        phase = self.phase
+        self.phase = (phase + n * d_phase) % (2.0 * math.pi)
+        if d0 <= 0.0 and d1 <= 0.0:
+            return list(audio), list(audio)
+        amp_mode = f32(mode) >= 0.5
+        glide = d0 != d1
+        depth = 1.0 if glide else d1
+        left, right = [], []
+        for i in range(n):
+            ramp = float(i + 1)
+            lfo = a_(m(ramp, d_phase), phase - d_phase)
+            lfo = f32(math.sin(lfo))
+            if glide:
+                lfo = m(lfo, a_(m(ramp, (d1 - d0) / n), d0))
+            if amp_mode:
+                lfo = m(lfo, 0.5 * depth)
+                if glide:
+                    lfo = a_(lfo, a_(m(ramp, -0.5 * (d1 - d0) / n), 1.0 - 0.5 * d0))
+                else:
+                    lfo = a_(lfo, 1.0 - 0.5 * depth)
+                gl = gr = lfo
+            else:
+                lfo = m(lfo, (math.pi / 4.0) * depth)
+                c = f32(math.cos(lfo))
+                s = f32(math.sin(lfo))
+                gl = s_(c, s)
+                gr = a_(c, s)
+            x = audio[i] / UNIT
+            left.append(sat(m(x, gl) * UNIT))
+            right.append(sat(m(x, gr) * UNIT))
+        return left, right
+
+
+class Tremolo(unittest.TestCase):
+
+    def compare(self, settings, frames=128, rate_cv=None, depth_cv=None):
+        """`settings` per block: (rate, depth, mode)."""
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                     buffers=8, nodes=4)
+        in_b = g.buffer()
+        rc_b = g.buffer() if rate_cv is not None else None
+        dc_b = g.buffer() if depth_cv is not None else None
+        left_b, right_b = g.buffer(), g.buffer()
+        node = g.add(ag.TREMOLO, ag.ALWAYS, (in_b, rc_b, dc_b), left_b, right_b)
+        ref = TremoloRef(frames)
+        got_l, got_r, want_l, want_r = [], [], [], []
+        buf = array("h", bytes(2 * frames))
+        for b, (rate, depth, mode) in enumerate(settings):
+            audio = [int(12000 * math.sin(2.0 * math.pi * (b * frames + i) / 47.0))
+                     for i in range(frames)]
+            g.write(in_b, array("h", audio))
+            rc = rate_cv[b] if rate_cv is not None else None
+            dc = depth_cv[b] if depth_cv is not None else None
+            if rc_b is not None:
+                g.write(rc_b, array("h", rc))
+            if dc_b is not None:
+                g.write(dc_b, array("h", dc))
+            g.set(node, ag.TREMOLO_RATE, rate)
+            g.set(node, ag.TREMOLO_DEPTH, depth)
+            g.set(node, ag.TREMOLO_MODE, mode)
+            g.run(None)
+            g.read(left_b, buf)
+            got_l += list(buf)
+            g.read(right_b, buf)
+            got_r += list(buf)
+            wl, wr = ref.render(audio, rate, depth, mode, rc, dc)
+            want_l += wl
+            want_r += wr
+        return (got_l, got_r), (want_l, want_r)
+
+    def test_matches_tremolocore_in_pan_and_amplitude_modes(self):
+        settings = []
+        for b in range(60):
+            rate = 1.5 + 1.25 * (b % 6)
+            depth = ((b // 5) % 5) * 0.25
+            mode = ag.TREMOLO_AMPLITUDE if b >= 30 else ag.TREMOLO_PAN
+            settings.append((rate, depth, mode))
+        (got_l, got_r), (want_l, want_r) = self.compare(settings)
+        self.assertLessEqual(worst(got_l, want_l), 1)
+        self.assertLessEqual(worst(got_r, want_r), 1)
+        self.assertNotEqual(got_l[:128 * 30], got_r[:128 * 30])
+        self.assertEqual(got_l[128 * 30:], got_r[128 * 30:])
+
+    def test_rate_and_depth_cv_inputs_and_skipped_group(self):
+        frames, blocks = 64, 20
+        rate_cv = [[int(UNIT * 1.5)] * frames for _ in range(blocks)]
+        depth_cv = [[int(UNIT * 0.5)] * frames for _ in range(blocks)]
+        settings = [(2.5, 0.25, ag.TREMOLO_PAN)] * blocks
+        (got_l, got_r), (want_l, want_r) = self.compare(
+            settings, frames=frames, rate_cv=rate_cv, depth_cv=depth_cv,
+        )
+        self.assertLessEqual(worst(got_l, want_l), 1)
+        self.assertLessEqual(worst(got_r, want_r), 1)
+
+        # Group disable zeroes both left and right outputs, and arg validation
+        # refuses an invalid right buffer id.
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                     buffers=6, nodes=4)
+        a, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+        for bad in (left_b, 6.0, -1.0, 1.5):
+            with self.assertRaises(ValueError):
+                g.add(ag.TREMOLO, 2, (a,), left_b, bad)
+        n = g.add(ag.TREMOLO, 2, (a,), left_b, right_b)
+        g.set(n, ag.TREMOLO_DEPTH, 0.8)
+        g.write(a, array("h", [8000] * frames))
+        g.run(None, 0, 1 << 2)
+        buf = array("h", bytes(2 * frames))
+        g.read(right_b, buf)
+        self.assertNotEqual(set(buf), {0})
+        g.run(None, 0, 0)
+        g.read(left_b, buf)
+        self.assertEqual(list(buf), [0] * frames)
+        g.read(right_b, buf)
+        self.assertEqual(list(buf), [0] * frames)
+
+    def test_the_check_catches_a_wrong_tremolo(self):
+        settings = [(4.0, 0.75, ag.TREMOLO_PAN)] * 15 + [
+            (5.0, 0.6, ag.TREMOLO_AMPLITUDE)] * 15
+        (got_l, got_r), _ = self.compare(settings)
+        wrong = {
+            "modes swapped": [
+                (r, d, 1 - m) for r, d, m in settings],
+            "depth zeroed": [
+                (r, 0.0, m) for r, d, m in settings],
+            "rate doubled": [
+                (r * 2.0, d, m) for r, d, m in settings],
+        }
+        for name, bad in wrong.items():
+            ref = TremoloRef(128)
+            wl, wr = [], []
+            for b, (r, d, m) in enumerate(bad):
+                audio = [int(12000 * math.sin(2.0 * math.pi * (b * 128 + i) / 47.0))
+                         for i in range(128)]
+                l_blk, r_blk = ref.render(audio, r, d, m)
+                wl += l_blk
+                wr += r_blk
+            self.assertGreater(max(worst(got_l, wl), worst(got_r, wr)), 100, name)

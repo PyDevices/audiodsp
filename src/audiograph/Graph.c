@@ -242,16 +242,74 @@ static mp_obj_t audiograph_graph_get(mp_obj_t self_in, mp_obj_t node,
 static MP_DEFINE_CONST_FUN_OBJ_3(audiograph_graph_get_obj,
     audiograph_graph_get);
 
-// table(node, int16_array): a feedback delay's wow shape, borrowed.
+static void set_struck_table_from_obj(audiodsp_graph_t *graph, uint32_t node,
+    mp_obj_t table) {
+    float triples[AUDIODSP_GRAPH_STRUCK_MODES * 3];
+    uint32_t modes = 0;
+    mp_buffer_info_t info;
+    if (mp_get_buffer(table, &info, MP_BUFFER_READ)) {
+        if (info.typecode != 'f' || (info.len % (3 * sizeof(float))) != 0) {
+            mp_raise_TypeError(MP_ERROR_TEXT("struck table must be a float array of (ratio, decay, gain) triples or a sequence of them"));
+        }
+        modes = (uint32_t)(info.len / (3 * sizeof(float)));
+        if (modes > AUDIODSP_GRAPH_STRUCK_MODES ||
+            !audiodsp_graph_set_struck_table(graph, node,
+                (const float *)info.buf, modes)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("struck table has too many modes"));
+        }
+        return;
+    }
+    size_t len = 0;
+    mp_obj_t *items = NULL;
+    mp_obj_get_array(table, &len, &items);
+    if (len > 0 && (mp_obj_is_type(items[0], &mp_type_tuple) ||
+        mp_obj_is_type(items[0], &mp_type_list))) {
+        if (len > AUDIODSP_GRAPH_STRUCK_MODES) {
+            mp_raise_ValueError(MP_ERROR_TEXT("struck table has too many modes"));
+        }
+        for (size_t i = 0; i < len; ++i) {
+            size_t tlen = 0;
+            mp_obj_t *titems = NULL;
+            mp_obj_get_array(items[i], &tlen, &titems);
+            if (tlen != 3) {
+                mp_raise_ValueError(MP_ERROR_TEXT("each mode must be (ratio, decay, gain)"));
+            }
+            triples[i * 3 + 0] = (float)mp_obj_get_float(titems[0]);
+            triples[i * 3 + 1] = (float)mp_obj_get_float(titems[1]);
+            triples[i * 3 + 2] = (float)mp_obj_get_float(titems[2]);
+        }
+        modes = (uint32_t)len;
+    } else {
+        if ((len % 3) != 0 || (len / 3) > AUDIODSP_GRAPH_STRUCK_MODES) {
+            mp_raise_ValueError(MP_ERROR_TEXT("struck table must have 3 floats per mode (up to 24 modes)"));
+        }
+        for (size_t i = 0; i < len; ++i) {
+            triples[i] = (float)mp_obj_get_float(items[i]);
+        }
+        modes = (uint32_t)(len / 3);
+    }
+    if (!audiodsp_graph_set_struck_table(graph, node, triples, modes)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad struck table"));
+    }
+}
+
+// table(node, table): a feedback delay's wow shape (int16 array, borrowed) or
+// a struck node's mode table (copied).
 static mp_obj_t audiograph_graph_table(mp_obj_t self_in, mp_obj_t node,
     mp_obj_t table) {
     audiograph_graph_obj_t *self = graph_idle(self_in);
+    mp_int_t n = mp_obj_get_int(node);
+    if (n >= 0 && (uint32_t)n < self->graph.nnodes &&
+        audiodsp_graph_node(&self->graph, (uint32_t)n)->kind == AUDIODSP_GRAPH_STRUCK) {
+        set_struck_table_from_obj(&self->graph, (uint32_t)n, table);
+        return mp_const_none;
+    }
     mp_buffer_info_t info;
     mp_get_buffer_raise(table, &info, MP_BUFFER_READ);
     if (info.typecode != 'h' || info.len % 2) {
         mp_raise_TypeError(MP_ERROR_TEXT("table must be an int16 array"));
     }
-    if (!audiodsp_graph_set_table(&self->graph, (uint32_t)mp_obj_get_int(node),
+    if (n < 0 || !audiodsp_graph_set_table(&self->graph, (uint32_t)n,
             (const int16_t *)info.buf, (uint32_t)(info.len / 2))) {
         mp_raise_ValueError(MP_ERROR_TEXT("not a delay node, or a bad table length"));
     }

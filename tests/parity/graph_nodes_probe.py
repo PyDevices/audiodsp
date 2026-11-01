@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG and MODAL, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP and TREMOLO, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -11,6 +11,9 @@
     graph_nodes_probe.py --fault wavefold   # one symmetry change a block late
     graph_nodes_probe.py --fault lpg        # one strike a block late
     graph_nodes_probe.py --fault modal      # one frequency change a block late
+    graph_nodes_probe.py --fault struck     # one hardness change a block late
+    graph_nodes_probe.py --fault pickup     # one offset change a block late
+    graph_nodes_probe.py --fault tremolo    # one depth change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -63,7 +66,7 @@ except (ImportError, AttributeError):
     sys.exit(0)
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-          "modal")
+          "modal", "struck", "pickup", "tremolo")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -248,6 +251,49 @@ g.set(modal_c, ag.MODAL_MIX, 0.0)
 for m in range(8):
     g.set(modal_c, ag.MODAL_RATIO + m, 0.0)
 
+# -- struck bars: default tine hammer with velocity, 24-mode pluck
+vel_b = g.buffer()
+struck_a, _ = node("struck_a", ag.STRUCK, (strike_b, vel_b))
+g.set(struck_a, ag.STRUCK_FREQUENCY, 330.0)
+g.set(struck_a, ag.STRUCK_HARDNESS, 0.625)
+g.set(struck_a, ag.STRUCK_LEVEL, 0.75)
+struck_b, _ = node("struck_b", ag.STRUCK, (modal_strike_b,))
+g.table(struck_b, tuple(
+    (float(k), 1.0 / (1 << min(k, 4)), 1.0 / (1 << min(k, 3)))
+    for k in range(1, 25)
+))
+g.set(struck_b, ag.STRUCK_FREQUENCY, 220.0)
+g.set(struck_b, ag.STRUCK_HARDNESS, 0.375)
+g.set(struck_b, ag.STRUCK_LEVEL, 0.875)
+g.set(struck_b, ag.STRUCK_SHAPE, ag.STRUCK_PLUCK)
+
+# -- pickups: electromagnetic on struck_a, electrostatic on sawtooth
+pickup_em, _ = node("pickup_em", ag.PICKUP, (dict(watched)["struck_a"],))
+g.set(pickup_em, ag.PICKUP_MODE, ag.PICKUP_ELECTROMAGNETIC)
+g.set(pickup_em, ag.PICKUP_DRIVE, 2.5)
+g.set(pickup_em, ag.PICKUP_OFFSET, 0.25)
+g.set(pickup_em, ag.PICKUP_LEVEL, 1.25)
+pickup_es, _ = node("pickup_es", ag.PICKUP, (saw_b,))
+g.set(pickup_es, ag.PICKUP_MODE, ag.PICKUP_ELECTROSTATIC)
+g.set(pickup_es, ag.PICKUP_DRIVE, 1.75)
+g.set(pickup_es, ag.PICKUP_OFFSET, 0.125)
+g.set(pickup_es, ag.PICKUP_LEVEL, 0.875)
+
+# -- tremolos: stereo auto-pan on pickup_em, amplitude tremolo on sawtooth
+trem_l, trem_r = g.buffer(), g.buffer()
+trem_pan = g.add(ag.TREMOLO, ag.ALWAYS, (dict(watched)["pickup_em"],), trem_l, trem_r)
+g.set(trem_pan, ag.TREMOLO_RATE, 4.5)
+g.set(trem_pan, ag.TREMOLO_DEPTH, 0.75)
+g.set(trem_pan, ag.TREMOLO_MODE, ag.TREMOLO_PAN)
+watched.append(("trem_l", trem_l))
+watched.append(("trem_r", trem_r))
+trem_amp_l, trem_amp_r = g.buffer(), g.buffer()
+trem_amp = g.add(ag.TREMOLO, ag.ALWAYS, (saw_b, None, cv_b), trem_amp_l, trem_amp_r)
+g.set(trem_amp, ag.TREMOLO_RATE, 6.25)
+g.set(trem_amp, ag.TREMOLO_DEPTH, 0.5)
+g.set(trem_amp, ag.TREMOLO_MODE, ag.TREMOLO_AMPLITUDE)
+watched.append(("trem_amp", trem_amp_l))
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -262,6 +308,7 @@ cv = array("h", bytes(2 * FRAMES))
 last_cv = array("h", bytes(2 * FRAMES))
 strike = array("h", bytes(2 * FRAMES))
 modal_strike = array("h", bytes(2 * FRAMES))
+vel = array("h", bytes(2 * FRAMES))
 moved = False
 pan_sides_differ = False
 left_block = None
@@ -380,6 +427,28 @@ for b in range(BLOCKS):
         modal_strike[i] = UNIT if (b % 7 == 3 and (i // 16) % 2 == 1) else 0
     g.write(modal_strike_b, modal_strike)
 
+    # the struck bar's velocity and hardness step; one reset mid-render
+    hard_at = b if FAULT != "struck" or b != 40 else b - 1
+    g.set(struck_a, ag.STRUCK_HARDNESS, 0.25 + 0.125 * ((hard_at // 20) % 5))
+    v_val = (UNIT // 4) * (1 + (b // 20) % 4)
+    for i in range(FRAMES):
+        vel[i] = v_val
+    g.write(vel_b, vel)
+    if b == 110:
+        g.reset(struck_a)
+
+    # the pickup's offset steps; mode switches once
+    pick_at = b if FAULT != "pickup" or b != 48 else b - 1
+    g.set(pickup_em, ag.PICKUP_OFFSET, 0.125 * ((pick_at // 8) % 5))
+    if b == 95:
+        g.set(pickup_es, ag.PICKUP_DRIVE, 2.25)
+
+    # the tremolo's depth steps; one reset mid-render
+    trem_at = b if FAULT != "tremolo" or b != 64 else b - 1
+    g.set(trem_pan, ag.TREMOLO_DEPTH, 0.25 * ((trem_at // 16) % 5))
+    if b == 115:
+        g.reset(trem_pan)
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -434,6 +503,18 @@ for name in ("lpg_a", "lpg_b", "lpg_c"):
 for name in ("modal_a", "modal_b", "modal_c"):
     check(seen[name][0] > 2000 and seen[name][2] > 1000,
           "the modal resonator %s renders sound" % name)
+
+for name in ("struck_a", "struck_b"):
+    check(seen[name][0] > 2000 and seen[name][2] > 500,
+          "the struck bar %s renders sound" % name)
+
+for name in ("pickup_em", "pickup_es"):
+    check(seen[name][0] > 2000 and seen[name][2] > 500,
+          "the pickup %s renders sound" % name)
+
+for name in ("trem_l", "trem_r", "trem_amp"):
+    check(seen[name][0] > 2000 and seen[name][2] > 500,
+          "the tremolo %s renders sound" % name)
 
 if failures:
     for what in failures:

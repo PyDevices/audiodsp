@@ -179,6 +179,29 @@ static void modal_init(graph_modal_t *d, uint32_t sample_rate);
 static void modal_bind(graph_modal_t *d);
 
 typedef struct {
+    audiodsp_modal_config_t config;
+    audiodsp_modal_state_t state;
+    audiodsp_modal_mode_t modes[AUDIODSP_GRAPH_STRUCK_MODES];
+    audiodsp_modal_coeff_t coeffs[AUDIODSP_GRAPH_STRUCK_MODES];
+    float s1[AUDIODSP_GRAPH_STRUCK_MODES];
+    float s2[AUDIODSP_GRAPH_STRUCK_MODES];
+    float table[AUDIODSP_GRAPH_STRUCK_MODES * 3];
+    uint32_t table_modes;
+    bool has_table;
+    bool ready;
+    float tuned_f0;
+    bool high;
+    bool pulse_active;
+    uint32_t pulse_len;
+    uint32_t pulse_pos;
+    float pulse_amp;
+    uint32_t pulse_shape;
+} graph_struck_t;
+
+static void struck_init(graph_struck_t *d, uint32_t sample_rate);
+static void struck_bind(graph_struck_t *d);
+
+typedef struct {
     uint32_t rng;
 } graph_noise_t;
 
@@ -194,6 +217,15 @@ typedef struct {
     float left_now[AUDIODSP_GRAPH_MAX_INPUTS];
     float right_now[AUDIODSP_GRAPH_MAX_INPUTS];
 } graph_pan_t;
+
+typedef struct {
+    // The right side's buffer id (the node's output is the left side).
+    int16_t right;
+    // TremoloCore's phase in radians and its last block's depth, both in
+    // double as the Python keeps them.
+    double phase;
+    double depth_now;
+} graph_tremolo_t;
 
 size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
     uint32_t sample_rate, float arg) {
@@ -233,6 +265,10 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_lpg_t);
         case AUDIODSP_GRAPH_MODAL:
             return sizeof(graph_modal_t);
+        case AUDIODSP_GRAPH_STRUCK:
+            return sizeof(graph_struck_t);
+        case AUDIODSP_GRAPH_TREMOLO:
+            return sizeof(graph_tremolo_t);
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
         case AUDIODSP_GRAPH_OVERDRIVE:
             return audiodsp_graph_overdrive_size();
@@ -305,7 +341,8 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
     if (output == AUDIODSP_GRAPH_NONE && kind != AUDIODSP_GRAPH_OUT) {
         return -1;
     }
-    if (kind == AUDIODSP_GRAPH_PAN && (!(arg >= 0.0f && arg < (float)graph->nbufs) ||
+    if ((kind == AUDIODSP_GRAPH_PAN || kind == AUDIODSP_GRAPH_TREMOLO) &&
+        (!(arg >= 0.0f && arg < (float)graph->nbufs) ||
         arg != (float)(int16_t)arg || (int16_t)arg == output)) {
         return -1;
     }
@@ -476,6 +513,30 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             modal_init(d, graph->sample_rate);
             break;
         }
+        case AUDIODSP_GRAPH_STRUCK: {
+            // HammerExciter + StruckBarCore at middle C with the tine table.
+            graph_struck_t *d = data;
+            node->param[AUDIODSP_GRAPH_STRUCK_FREQUENCY] = 261.6256f;
+            node->param[AUDIODSP_GRAPH_STRUCK_HARDNESS] = 0.5f;
+            node->param[AUDIODSP_GRAPH_STRUCK_LEVEL] = 0.8f;
+            node->param[AUDIODSP_GRAPH_STRUCK_SHAPE] = (float)AUDIODSP_GRAPH_STRUCK_HAMMER;
+            struck_init(d, graph->sample_rate);
+            break;
+        }
+        case AUDIODSP_GRAPH_PICKUP:
+            node->param[AUDIODSP_GRAPH_PICKUP_MODE] = (float)AUDIODSP_GRAPH_PICKUP_ELECTROMAGNETIC;
+            node->param[AUDIODSP_GRAPH_PICKUP_DRIVE] = 1.0f;
+            node->param[AUDIODSP_GRAPH_PICKUP_OFFSET] = 0.0f;
+            node->param[AUDIODSP_GRAPH_PICKUP_LEVEL] = 1.0f;
+            break;
+        case AUDIODSP_GRAPH_TREMOLO:
+            ((graph_tremolo_t *)data)->right = (int16_t)arg;
+            ((graph_tremolo_t *)data)->phase = 0.0;
+            ((graph_tremolo_t *)data)->depth_now = 0.0;
+            node->param[AUDIODSP_GRAPH_TREMOLO_RATE] = 3.0f;
+            node->param[AUDIODSP_GRAPH_TREMOLO_DEPTH] = 0.0f;
+            node->param[AUDIODSP_GRAPH_TREMOLO_MODE] = (float)AUDIODSP_GRAPH_TREMOLO_PAN;
+            break;
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -538,6 +599,24 @@ bool audiodsp_graph_set_table(audiodsp_graph_t *graph, uint32_t node,
     return audiodsp_feedback_delay_set_wow_shape(&d->config, table, length);
 }
 
+bool audiodsp_graph_set_struck_table(audiodsp_graph_t *graph, uint32_t node,
+    const float *table, uint32_t modes) {
+    if (node >= graph->nnodes ||
+        audiodsp_graph_node(graph, node)->kind != AUDIODSP_GRAPH_STRUCK ||
+        modes > AUDIODSP_GRAPH_STRUCK_MODES ||
+        (modes > 0u && table == NULL)) {
+        return false;
+    }
+    graph_struck_t *d = audiodsp_graph_node(graph, node)->data;
+    if (modes > 0u) {
+        memcpy(d->table, table, (size_t)modes * 3u * sizeof(float));
+    }
+    d->table_modes = modes;
+    d->has_table = true;
+    d->ready = false;
+    return true;
+}
+
 // The planted faults that tests/parity/graph_carry_probe.py must catch, for a
 // build made with -DAUDIODSP_GRAPH_CARRY_FAULT=n: 1 leaves a FBDELAY's line
 // pointing at the source's, 2 drops the source's pending parameter change.
@@ -559,7 +638,8 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
         return AUDIODSP_GRAPH_CARRY_KIND;
     }
     const audiodsp_graph_kind_t kind = (audiodsp_graph_kind_t)d->kind;
-    if (kind != AUDIODSP_GRAPH_PAN && !(d->arg == s->arg)) {
+    if (kind != AUDIODSP_GRAPH_PAN && kind != AUDIODSP_GRAPH_TREMOLO &&
+        !(d->arg == s->arg)) {
         return AUDIODSP_GRAPH_CARRY_ARG;
     }
     const size_t size = audiodsp_graph_node_data_size(kind, dst->sample_rate, d->arg);
@@ -569,15 +649,28 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
     if (dst->sample_rate != src->sample_rate) {
         return AUDIODSP_GRAPH_CARRY_RATE;
     }
-    // What stays the destination's own: a PAN's right side, a delay's wow table.
+    // What stays the destination's own: a PAN's right side, a delay's wow table,
+    // or a STRUCK node's mode table when the destination installed its own.
     int16_t right = 0;
     const int16_t *wow = NULL;
     uint32_t wow_shift = 0;
+    float struck_table[AUDIODSP_GRAPH_STRUCK_MODES * 3];
+    uint32_t struck_modes = 0;
+    bool struck_has_table = false;
     if (kind == AUDIODSP_GRAPH_PAN) {
         right = ((const graph_pan_t *)d->data)->right;
+    } else if (kind == AUDIODSP_GRAPH_TREMOLO) {
+        right = ((const graph_tremolo_t *)d->data)->right;
     } else if (kind == AUDIODSP_GRAPH_FBDELAY) {
         wow = ((const graph_fbdelay_t *)d->data)->config.wow_shape;
         wow_shift = ((const graph_fbdelay_t *)d->data)->config.wow_shape_shift;
+    } else if (kind == AUDIODSP_GRAPH_STRUCK) {
+        const graph_struck_t *st = d->data;
+        struck_has_table = st->has_table;
+        if (struck_has_table) {
+            struck_modes = st->table_modes;
+            memcpy(struck_table, st->table, sizeof(struck_table));
+        }
     }
     if (size) {
         memcpy(d->data, s->data, size);
@@ -611,8 +704,27 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
         case AUDIODSP_GRAPH_MODAL:
             modal_bind(d->data);
             break;
+        case AUDIODSP_GRAPH_STRUCK: {
+            graph_struck_t *st = d->data;
+            if (struck_has_table) {
+                const bool same = st->table_modes == struck_modes &&
+                    memcmp(st->table, struck_table,
+                        (size_t)struck_modes * 3u * sizeof(float)) == 0;
+                memcpy(st->table, struck_table, sizeof(struck_table));
+                st->table_modes = struck_modes;
+                st->has_table = true;
+                if (!same) {
+                    st->ready = false;
+                }
+            }
+            struck_bind(st);
+            break;
+        }
         case AUDIODSP_GRAPH_PAN:
             ((graph_pan_t *)d->data)->right = right;
+            break;
+        case AUDIODSP_GRAPH_TREMOLO:
+            ((graph_tremolo_t *)d->data)->right = right;
             break;
         default:
             break;
@@ -705,6 +817,26 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             d->burst = 0.0;
             d->pending = 0;
             d->high = false;
+            break;
+        }
+        case AUDIODSP_GRAPH_STRUCK: {
+            graph_struck_t *d = n->data;
+            struck_bind(d);
+            audiodsp_modal_reset(&d->state);
+            d->high = false;
+            d->pulse_active = false;
+            d->pulse_len = 0u;
+            d->pulse_pos = 0u;
+            d->pulse_amp = 0.0f;
+            break;
+        }
+        case AUDIODSP_GRAPH_TREMOLO: {
+            // TremoloCore.reset: the phase to 0 and no depth glide, so the
+            // next block starts at the depth last set (the CV not counted).
+            graph_tremolo_t *d = n->data;
+            const float depth = n->param[AUDIODSP_GRAPH_TREMOLO_DEPTH];
+            d->phase = 0.0;
+            d->depth_now = depth > 1.0f ? 1.0 : (depth > 0.0f ? (double)depth : 0.0);
             break;
         }
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
@@ -1960,6 +2092,421 @@ static void run_modal(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     audiodsp_modal_process_s16(&d->config, &d->state, out, x, frames);
 }
 
+// ------------------------------------------------------------- STRUCK --
+//
+// vrack's dsp/keys.py: HammerExciter and StruckBarCore fused around one
+// 24-mode audiomodal.Bank kernel (mix = 1.0, gain = 1/16). A rising edge on
+// `strike` resets the bank and starts a half-sine hammer or ramp pluck pulse;
+// a falling edge with `release > 0` starts a release pluck without resetting
+// the bank.
+
+static const float struck_tine_default[6 * 3] = {
+    1.0f, 1.6f, 1.0f,
+    2.0f, 0.55f, 0.14f,
+    4.0f, 0.09f, 0.20f,
+    6.27f, 0.07f, 0.30f,
+    10.7f, 0.025f, 0.12f,
+    15.8f, 0.012f, 0.05f,
+};
+
+static void struck_bind(graph_struck_t *d) {
+    d->config.modes = d->modes;
+    d->config.coeffs = d->coeffs;
+    d->state.s1 = d->s1;
+    d->state.s2 = d->s2;
+    d->state.words = AUDIODSP_GRAPH_STRUCK_MODES;
+}
+
+static void struck_init(graph_struck_t *d, uint32_t sample_rate) {
+    audiodsp_modal_config_init(&d->config, sample_rate, 1u,
+        AUDIODSP_GRAPH_STRUCK_MODES, d->modes, d->coeffs);
+    audiodsp_modal_configure(&d->config, AUDIODSP_MODAL_OPT_MIX, 1.0f);
+    audiodsp_modal_configure(&d->config, AUDIODSP_MODAL_OPT_GAIN, 0.0625f);
+    audiodsp_modal_state_init(&d->state, &d->config, d->s1, d->s2,
+        AUDIODSP_GRAPH_STRUCK_MODES);
+    memcpy(d->table, struck_tine_default, sizeof(struck_tine_default));
+    d->table_modes = 6u;
+    d->has_table = false;
+    d->ready = false;
+    d->tuned_f0 = 0.0f;
+    d->high = false;
+    d->pulse_active = false;
+    d->pulse_len = 0u;
+    d->pulse_pos = 0u;
+    d->pulse_amp = 0.0f;
+    d->pulse_shape = AUDIODSP_GRAPH_STRUCK_HAMMER;
+}
+
+static void struck_tune(graph_struck_t *d, float f0, uint32_t sample_rate) {
+    const double nyq = (double)sample_rate * 0.45;
+    const double base = (double)f0;
+    const uint32_t used = d->table_modes <= AUDIODSP_GRAPH_STRUCK_MODES
+        ? d->table_modes : AUDIODSP_GRAPH_STRUCK_MODES;
+    for (uint32_t m = 0; m < used; ++m) {
+        const double ratio = (double)d->table[m * 3u + 0u];
+        const double decay = (double)d->table[m * 3u + 1u];
+        double gain = (double)d->table[m * 3u + 2u];
+        double freq = base * ratio;
+        if (freq >= nyq) {
+            freq = nyq;
+            gain = 0.0;
+        }
+        const double t = decay > 0.001 ? decay : 0.001;
+        audiodsp_modal_set_mode(&d->config, m, (float)freq, (float)t, (float)gain);
+    }
+    for (uint32_t m = used; m < AUDIODSP_GRAPH_STRUCK_MODES; ++m) {
+        audiodsp_modal_set_mode(&d->config, m, f0, 0.001f, 0.0f);
+    }
+    audiodsp_modal_config_finish(&d->config);
+}
+
+static uint32_t struck_round_even(double x) {
+    if (!(x >= 4.0)) {
+        return 4u;
+    }
+    if (x >= 65536.0) {
+        return 65536u;
+    }
+    uint32_t n = (uint32_t)x;
+    const double diff = x - (double)n;
+    if (diff > 0.5 || (diff == 0.5 && (n & 1u) != 0u)) {
+        n += 1u;
+    }
+    return n < 4u ? 4u : n;
+}
+
+static void struck_start_pulse(graph_struck_t *d, float hardness, float level,
+    float f0, uint32_t shape, uint32_t sample_rate) {
+    double h = (double)hardness;
+    if (!(h >= 0.0)) {
+        h = 0.0;
+    } else if (h > 1.0) {
+        h = 1.0;
+    }
+    const double sr = (double)sample_rate;
+    const double scale = sr / 48000.0;
+    const double soft = 128.0 * scale;
+    const double hard = 16.0 * scale;
+    double length = soft * graph_exp2d(-3.0 * h);
+    double amp = (double)level * (hard / length);
+    if (f0 > 0.0f) {
+        const double f = (double)f0 > 1.0 ? (double)f0 : 1.0;
+        const double limit = 0.5 * (sr / f);
+        if (length > limit) {
+            amp *= length / limit;
+            length = limit;
+        }
+    }
+    d->pulse_len = struck_round_even(length);
+    d->pulse_pos = 0u;
+    d->pulse_amp = (float)amp;
+    d->pulse_active = true;
+    d->pulse_shape = shape;
+}
+
+static void struck_render_pulse(graph_struck_t *d, float *dst, uint32_t start,
+    uint32_t end) {
+    if (!d->pulse_active || start >= end) {
+        return;
+    }
+    const uint32_t rem = d->pulse_len > d->pulse_pos
+        ? d->pulse_len - d->pulse_pos : 0u;
+    const uint32_t span = end - start;
+    const uint32_t k = rem < span ? rem : span;
+    if (k == 0u) {
+        d->pulse_active = false;
+        return;
+    }
+    const uint32_t pos = d->pulse_pos;
+    const uint32_t n = d->pulse_len;
+    const float amp = d->pulse_amp;
+    if (d->pulse_shape == AUDIODSP_GRAPH_STRUCK_PLUCK) {
+        const float step = (float)(1.0 / (double)n);
+        for (uint32_t j = 0; j < k; ++j) {
+            float t = (float)(pos + j);
+            t *= step;
+            t *= amp;
+            dst[start + j] += t;
+        }
+    } else {
+        const float step = (float)(3.14159265358979323846 / (double)n);
+        for (uint32_t j = 0; j < k; ++j) {
+            float t = (float)(pos + j);
+            t *= step;
+            t = graph_sin(t);
+            t *= amp;
+            dst[start + j] += t;
+        }
+    }
+    d->pulse_pos += k;
+    if (d->pulse_pos >= d->pulse_len) {
+        d->pulse_active = false;
+    }
+}
+
+static float struck_velocity(const int16_t *vel, int32_t idx) {
+    if (vel == NULL || idx < 0) {
+        return 1.0f;
+    }
+    float v = (float)vel[idx] * (1.0f / AUDIODSP_GRAPH_UNIT);
+    if (v < 0.0f) {
+        v = 0.0f;
+    } else if (v > 1.0f) {
+        v = 1.0f;
+    }
+    return v;
+}
+
+static void run_struck(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_struck_t *d = n->data;
+    struck_bind(d);
+    const int16_t *strike = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const int16_t *vel = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[1]] : NULL;
+
+    const float raw_f0 = n->param[AUDIODSP_GRAPH_STRUCK_FREQUENCY];
+    const float f0 = raw_f0 > 20.0f ? raw_f0 : 20.0f;
+    if (!d->ready || f0 != d->tuned_f0) {
+        d->ready = true;
+        d->tuned_f0 = f0;
+        struck_tune(d, f0, graph->sample_rate);
+    }
+
+    int32_t rising = -1;
+    if (strike != NULL) {
+        bool high = d->high;
+        for (uint32_t i = 0; i < frames; ++i) {
+            const bool now = (float)strike[i] > MODAL_THRESHOLD;
+            if (now && !high && rising < 0) {
+                rising = (int32_t)i;
+            }
+            high = now;
+        }
+        d->high = high;
+    }
+
+    float hardness = n->param[AUDIODSP_GRAPH_STRUCK_HARDNESS];
+    if (!(hardness >= 0.0f)) {
+        hardness = 0.0f;
+    } else if (hardness > 1.0f) {
+        hardness = 1.0f;
+    }
+    const float level = n->param[AUDIODSP_GRAPH_STRUCK_LEVEL];
+    const uint32_t shape = n->param[AUDIODSP_GRAPH_STRUCK_SHAPE] >= 0.5f
+        ? (uint32_t)AUDIODSP_GRAPH_STRUCK_PLUCK
+        : (uint32_t)AUDIODSP_GRAPH_STRUCK_HAMMER;
+
+    float exc[AUDIODSP_GRAPH_MAX_FRAMES];
+    for (uint32_t i = 0; i < frames; ++i) {
+        exc[i] = 0.0f;
+    }
+
+    if (rising >= 0) {
+        audiodsp_modal_reset(&d->state);
+        d->pulse_active = false;
+        const float lv = level * struck_velocity(vel, rising);
+        if (lv > 0.0f) {
+            struck_start_pulse(d, hardness, lv, raw_f0, shape, graph->sample_rate);
+        }
+        struck_render_pulse(d, exc, (uint32_t)rising, frames);
+    } else {
+        struck_render_pulse(d, exc, 0u, frames);
+    }
+
+    int16_t x[AUDIODSP_GRAPH_MAX_FRAMES];
+    for (uint32_t i = 0; i < frames; ++i) {
+        x[i] = sat16(exc[i] * AUDIODSP_GRAPH_UNIT);
+    }
+    audiodsp_modal_process_s16(&d->config, &d->state, out, x, frames);
+}
+
+// ------------------------------------------------------------- PICKUP --
+//
+// vrack's dsp/keys.py PickupCore: electromagnetic `y = x / (1 + 0.5 * x^2)`
+// or electrostatic `y = x / (1 - x^2 + x^4)` transducer nonlinearity with
+// drive, asymmetry offset and steady-state DC removal, in float32 operation
+// for operation as numpy runs it.
+
+static void run_pickup(const audiodsp_graph_t *graph,
+    const audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
+    const int16_t *in = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const bool electrostatic = n->param[AUDIODSP_GRAPH_PICKUP_MODE] >= 0.5f;
+    const float drive = n->param[AUDIODSP_GRAPH_PICKUP_DRIVE];
+    const float offset = n->param[AUDIODSP_GRAPH_PICKUP_OFFSET];
+    const float level = n->param[AUDIODSP_GRAPH_PICKUP_LEVEL];
+    const float inv = 1.0f / AUDIODSP_GRAPH_UNIT;
+    float dc = 0.0f;
+    if (offset != 0.0f) {
+        const double o = (double)offset;
+        if (electrostatic) {
+            const double o2 = o * o;
+            dc = (float)(o / (o2 * o2 - o2 + 1.0));
+        } else {
+            dc = (float)(o / (1.0 + 0.5 * o * o));
+        }
+    }
+    for (uint32_t i = 0; i < frames; ++i) {
+        float dst = in != NULL ? (float)in[i] * inv : 0.0f;
+        if (drive != 1.0f) {
+            dst *= drive;
+        }
+        if (offset != 0.0f) {
+            dst += offset;
+        }
+        float tmp = dst * dst;
+        if (electrostatic) {
+            tmp -= 1.0f;
+            tmp *= dst;
+            tmp *= dst;
+            tmp += 1.0f;
+            dst /= tmp;
+        } else {
+            tmp *= 0.5f;
+            tmp += 1.0f;
+            dst /= tmp;
+        }
+        if (offset != 0.0f) {
+            dst -= dc;
+        }
+        if (level != 1.0f) {
+            dst *= level;
+        }
+        out[i] = sat16(dst * AUDIODSP_GRAPH_UNIT);
+    }
+}
+
+// ------------------------------------------------------------ TREMOLO --
+//
+// vrack's dsp/tremolo.py TremoloCore, operation for operation in float32 as
+// numpy does it: a sine LFO lfo = sin(phase + i dphi), the depth gliding
+// from last block's to this one's across the block, then either the
+// equal-power pan theta = (pi/4) d lfo, left = cos theta - sin theta,
+// right = cos theta + sin theta (unity both sides at depth 0, sqrt 2 at a
+// hard side), or the amplitude gain 1 - d/2 (1 - lfo) on both sides. At
+// depth 0 both ends of the block the input is copied to both sides. The
+// rate and depth CVs (inputs 1 and 2, read at the block's first sample) add
+// to the knobs before TremoloCore.set's clamps.
+
+// cos(x) for |x| <= pi/2, the LFO's polynomial a quarter turn on.
+static float graph_cos(float x) {
+    return lfo_sine(x * 0.159154943091895336f + 0.25f);
+}
+
+static void run_tremolo(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *left, uint32_t frames) {
+    graph_tremolo_t *d = n->data;
+    int16_t *right = graph->bufs[d->right];
+    const int16_t *in = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const int16_t *rate_cv = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[1]] : NULL;
+    const int16_t *depth_cv = n->ninputs > 2 && n->inputs[2] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[2]] : NULL;
+
+    double rate = (double)n->param[AUDIODSP_GRAPH_TREMOLO_RATE];
+    if (rate_cv != NULL) {
+        rate += (double)rate_cv[0] * (1.0 / (double)AUDIODSP_GRAPH_UNIT);
+    }
+    // TremoloCore.set's clamps (a NaN goes where Python's max/min send it),
+    // and the rate held to the sample rate so the phase wrap stays bounded.
+    if (!(rate >= 0.01)) {
+        rate = 0.01;
+    } else if (rate > (double)graph->sample_rate) {
+        rate = (double)graph->sample_rate;
+    }
+
+    double depth = (double)n->param[AUDIODSP_GRAPH_TREMOLO_DEPTH];
+    if (depth_cv != NULL) {
+        depth += (double)depth_cv[0] * (1.0 / (double)AUDIODSP_GRAPH_UNIT);
+    }
+    if (!(depth <= 1.0)) {
+        depth = 1.0;
+    } else if (depth < 0.0) {
+        depth = 0.0;
+    }
+
+    const bool amp_mode = n->param[AUDIODSP_GRAPH_TREMOLO_MODE] >= 0.5f;
+    const double two_pi = 6.283185307179586;
+    const double d0 = d->depth_now;
+    const double d1 = depth;
+    d->depth_now = d1;
+    const double d_phase = two_pi * rate / (double)graph->sample_rate;
+    const double phase = d->phase;
+    // (phase + n dphi) % 2 pi: one subtraction is exact (Sterbenz) while a
+    // block's advance stays under a turn, rates below sample_rate / frames.
+    double next = phase + (double)frames * d_phase;
+    if (next >= two_pi) {
+        next -= two_pi;
+        if (next >= two_pi) {
+            next -= two_pi * (double)(int64_t)(next / two_pi);
+            if (!(next >= 0.0 && next < two_pi)) {
+                next = 0.0;
+            }
+        }
+    }
+    d->phase = next;
+
+    if (d0 <= 0.0 && d1 <= 0.0) {
+        for (uint32_t i = 0; i < frames; ++i) {
+            const int16_t s = in != NULL ? in[i] : 0;
+            left[i] = s;
+            right[i] = s;
+        }
+        return;
+    }
+
+    const float inv = 1.0f / AUDIODSP_GRAPH_UNIT;
+    const bool glide = d0 != d1;
+    // numpy rounds each Python scalar to float32 before the operation.
+    const float step = (float)d_phase;
+    const float base = (float)(phase - d_phase);
+    const float glide_step = (float)((d1 - d0) / (double)frames);
+    const float glide_from = (float)d0;
+    const float pan_k = (float)(0.7853981633974483 * (glide ? 1.0 : d1));
+    const float amp_k = (float)(0.5 * (glide ? 1.0 : d1));
+    const float amp_step = (float)(-0.5 * (d1 - d0) / (double)frames);
+    const float amp_from = (float)(1.0 - 0.5 * (glide ? d0 : d1));
+
+    for (uint32_t i = 0; i < frames; ++i) {
+        // lfo = ramp * dphi + (phase - dphi), the ramp 1..n.
+        const float ramp = (float)(i + 1u);
+        float lfo = ramp * step;
+        lfo += base;
+        lfo = graph_sin(lfo);
+        if (glide) {
+            float g = ramp * glide_step;
+            g += glide_from;
+            lfo *= g;
+        }
+        float gl;
+        float gr;
+        if (amp_mode) {
+            lfo *= amp_k;
+            if (glide) {
+                float g = ramp * amp_step;
+                g += amp_from;
+                lfo += g;
+            } else {
+                lfo += amp_from;
+            }
+            gl = lfo;
+            gr = lfo;
+        } else {
+            lfo *= pan_k;
+            const float c = graph_cos(lfo);
+            const float s = graph_sin(lfo);
+            gl = c - s;
+            gr = c + s;
+        }
+        const float x = in != NULL ? (float)in[i] * inv : 0.0f;
+        left[i] = sat16(x * gl * AUDIODSP_GRAPH_UNIT);
+        right[i] = sat16(x * gr * AUDIODSP_GRAPH_UNIT);
+    }
+}
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -1977,6 +2524,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 }
                 if (n->kind == AUDIODSP_GRAPH_PAN) {
                     memset(graph->bufs[((graph_pan_t *)n->data)->right], 0,
+                        frames * sizeof(int16_t));
+                } else if (n->kind == AUDIODSP_GRAPH_TREMOLO) {
+                    memset(graph->bufs[((graph_tremolo_t *)n->data)->right], 0,
                         frames * sizeof(int16_t));
                 }
             }
@@ -2097,6 +2647,15 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_MODAL:
                 run_modal(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_STRUCK:
+                run_struck(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_PICKUP:
+                run_pickup(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_TREMOLO:
+                run_tremolo(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:

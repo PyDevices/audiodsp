@@ -55,6 +55,7 @@ RULES = (
     ("scripts/test_testpypi_install.py", ("lint",)),
     ("tools/check_*.py", ("lint",)),
     ("tools/design_*.py", ("lint",)),
+    ("tools/graph_vs_rack.py", ("lint",)),
     ("tools/prefetch_android_python.py", ("lint", "unit")),
     # Probes, pump gates and CircuitPython's mixer check run on an interpreter
     # build and, for the first two, on CPython; none of them goes into a wheel.

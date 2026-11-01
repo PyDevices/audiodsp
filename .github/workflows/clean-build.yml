@@ -281,7 +281,7 @@ jobs:
           MP=$GITHUB_WORKSPACE/micropython/ports/unix/build-standard/micropython
           PY=$GITHUB_WORKSPACE/audiodsp/.ci-venv/bin/python
           cd audiodsp
-          for planted in lsb late phaser lag lfo hold twopole overdrive pan wavefold lpg modal drain split offbeat; do
+          for planted in lsb late phaser lag lfo hold twopole overdrive pan wavefold lpg modal struck pickup tremolo drain split offbeat; do
             if "$PY" tests/parity/verify_graph.py --micropython "$MP" --fault $planted > /dev/null; then
               echo "the planted fault passed, so this comparison proves nothing: $planted" >&2
               exit 1

@@ -4131,7 +4131,101 @@ static PyObject *graph_state_get(audiodsp_graph_object_t *self,
     return PyFloat_FromDouble((double)value);
 }
 
-// table(node, int16_array): a feedback delay's wow shape, borrowed.
+static PyObject *graph_set_struck_table_py(audiodsp_graph_t *graph,
+    uint32_t node, PyObject *table) {
+    float triples[AUDIODSP_GRAPH_STRUCK_MODES * 3];
+    uint32_t modes = 0;
+    Py_buffer view = {0};
+    if (PyObject_CheckBuffer(table)) {
+        if (PyObject_GetBuffer(table, &view, PyBUF_FORMAT | PyBUF_C_CONTIGUOUS) < 0) {
+            return NULL;
+        }
+        const char *fmt = view.format ? view.format : "B";
+        if (strcmp(fmt, "f") != 0 || view.itemsize != (Py_ssize_t)sizeof(float) ||
+            (view.len % (Py_ssize_t)(3 * sizeof(float))) != 0) {
+            PyBuffer_Release(&view);
+            PyErr_SetString(PyExc_TypeError,
+                "struck table must be a float array of (ratio, decay, gain) triples or a sequence of them");
+            return NULL;
+        }
+        modes = (uint32_t)(view.len / (Py_ssize_t)(3 * sizeof(float)));
+        bool ok = modes <= AUDIODSP_GRAPH_STRUCK_MODES &&
+            audiodsp_graph_set_struck_table(graph, node,
+                (const float *)view.buf, modes);
+        PyBuffer_Release(&view);
+        if (!ok) {
+            PyErr_SetString(PyExc_ValueError, "struck table has too many modes");
+            return NULL;
+        }
+        Py_RETURN_NONE;
+    }
+    PyObject *seq = PySequence_Fast(table,
+        "struck table must be a float array or a sequence");
+    if (seq == NULL) {
+        return NULL;
+    }
+    const Py_ssize_t len = PySequence_Fast_GET_SIZE(seq);
+    PyObject **items = PySequence_Fast_ITEMS(seq);
+    if (len > 0 && (PyTuple_Check(items[0]) || PyList_Check(items[0]))) {
+        if (len > (Py_ssize_t)AUDIODSP_GRAPH_STRUCK_MODES) {
+            Py_DECREF(seq);
+            PyErr_SetString(PyExc_ValueError, "struck table has too many modes");
+            return NULL;
+        }
+        for (Py_ssize_t i = 0; i < len; ++i) {
+            PyObject *sub = PySequence_Fast(items[i],
+                "each mode must be (ratio, decay, gain)");
+            if (sub == NULL) {
+                Py_DECREF(seq);
+                return NULL;
+            }
+            if (PySequence_Fast_GET_SIZE(sub) != 3) {
+                Py_DECREF(sub);
+                Py_DECREF(seq);
+                PyErr_SetString(PyExc_ValueError,
+                    "each mode must be (ratio, decay, gain)");
+                return NULL;
+            }
+            PyObject **titems = PySequence_Fast_ITEMS(sub);
+            for (int k = 0; k < 3; ++k) {
+                double v = PyFloat_AsDouble(titems[k]);
+                if (v == -1.0 && PyErr_Occurred()) {
+                    Py_DECREF(sub);
+                    Py_DECREF(seq);
+                    return NULL;
+                }
+                triples[i * 3 + k] = (float)v;
+            }
+            Py_DECREF(sub);
+        }
+        modes = (uint32_t)len;
+    } else {
+        if ((len % 3) != 0 || (len / 3) > (Py_ssize_t)AUDIODSP_GRAPH_STRUCK_MODES) {
+            Py_DECREF(seq);
+            PyErr_SetString(PyExc_ValueError,
+                "struck table must have 3 floats per mode (up to 24 modes)");
+            return NULL;
+        }
+        for (Py_ssize_t i = 0; i < len; ++i) {
+            double v = PyFloat_AsDouble(items[i]);
+            if (v == -1.0 && PyErr_Occurred()) {
+                Py_DECREF(seq);
+                return NULL;
+            }
+            triples[i] = (float)v;
+        }
+        modes = (uint32_t)(len / 3);
+    }
+    Py_DECREF(seq);
+    if (!audiodsp_graph_set_struck_table(graph, node, triples, modes)) {
+        PyErr_SetString(PyExc_ValueError, "bad struck table");
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+// table(node, table): a feedback delay's wow shape (int16 array, borrowed) or
+// a struck node's mode table (copied).
 static PyObject *graph_state_table(audiodsp_graph_object_t *self,
     PyObject *args) {
     long node;
@@ -4141,6 +4235,10 @@ static PyObject *graph_state_table(audiodsp_graph_object_t *self,
     }
     if (!graph_live(self)) {
         return NULL;
+    }
+    if (node >= 0 && (uint32_t)node < self->graph.nnodes &&
+        audiodsp_graph_node(&self->graph, (uint32_t)node)->kind == AUDIODSP_GRAPH_STRUCK) {
+        return graph_set_struck_table_py(&self->graph, (uint32_t)node, table);
     }
     // A memoryview holds the export, so the array cannot be resized under
     // the delay while the graph keeps it.
@@ -4156,7 +4254,7 @@ static PyObject *graph_state_table(audiodsp_graph_object_t *self,
         PyErr_SetString(PyExc_TypeError, "table must be an int16 array");
         return NULL;
     }
-    if (!audiodsp_graph_set_table(&self->graph, (uint32_t)node,
+    if (node < 0 || !audiodsp_graph_set_table(&self->graph, (uint32_t)node,
             (const int16_t *)info->buf, (uint32_t)(info->len / 2))) {
         Py_DECREF(view);
         PyErr_SetString(PyExc_ValueError,
@@ -4750,6 +4848,9 @@ static int graph_add_constants(PyObject *module) {
         {"WAVEFOLD", AUDIODSP_GRAPH_WAVEFOLD},
         {"LPG", AUDIODSP_GRAPH_LPG},
         {"MODAL", AUDIODSP_GRAPH_MODAL},
+        {"STRUCK", AUDIODSP_GRAPH_STRUCK},
+        {"PICKUP", AUDIODSP_GRAPH_PICKUP},
+        {"TREMOLO", AUDIODSP_GRAPH_TREMOLO},
         {"ALWAYS", AUDIODSP_GRAPH_ALWAYS},
         {"UNIT", 16384},
         {"ENV_ATTACK", AUDIODSP_GRAPH_ENV_ATTACK},
@@ -4812,6 +4913,24 @@ static int graph_add_constants(PyObject *module) {
         {"MODAL_MIX", AUDIODSP_GRAPH_MODAL_MIX},
         {"MODAL_RATIO", AUDIODSP_GRAPH_MODAL_RATIO},
         {"MODAL_MODES", AUDIODSP_GRAPH_MODAL_MODES},
+        {"STRUCK_FREQUENCY", AUDIODSP_GRAPH_STRUCK_FREQUENCY},
+        {"STRUCK_HARDNESS", AUDIODSP_GRAPH_STRUCK_HARDNESS},
+        {"STRUCK_LEVEL", AUDIODSP_GRAPH_STRUCK_LEVEL},
+        {"STRUCK_SHAPE", AUDIODSP_GRAPH_STRUCK_SHAPE},
+        {"STRUCK_HAMMER", AUDIODSP_GRAPH_STRUCK_HAMMER},
+        {"STRUCK_PLUCK", AUDIODSP_GRAPH_STRUCK_PLUCK},
+        {"STRUCK_MODES", AUDIODSP_GRAPH_STRUCK_MODES},
+        {"PICKUP_MODE", AUDIODSP_GRAPH_PICKUP_MODE},
+        {"PICKUP_DRIVE", AUDIODSP_GRAPH_PICKUP_DRIVE},
+        {"PICKUP_OFFSET", AUDIODSP_GRAPH_PICKUP_OFFSET},
+        {"PICKUP_LEVEL", AUDIODSP_GRAPH_PICKUP_LEVEL},
+        {"PICKUP_ELECTROMAGNETIC", AUDIODSP_GRAPH_PICKUP_ELECTROMAGNETIC},
+        {"PICKUP_ELECTROSTATIC", AUDIODSP_GRAPH_PICKUP_ELECTROSTATIC},
+        {"TREMOLO_RATE", AUDIODSP_GRAPH_TREMOLO_RATE},
+        {"TREMOLO_DEPTH", AUDIODSP_GRAPH_TREMOLO_DEPTH},
+        {"TREMOLO_MODE", AUDIODSP_GRAPH_TREMOLO_MODE},
+        {"TREMOLO_PAN", AUDIODSP_GRAPH_TREMOLO_PAN},
+        {"TREMOLO_AMPLITUDE", AUDIODSP_GRAPH_TREMOLO_AMPLITUDE},
         {"OSC_FREQUENCY", AUDIODSP_OSCILLATOR_OPT_FREQUENCY},
         {"OSC_WAVEFORM", AUDIODSP_OSCILLATOR_OPT_WAVEFORM},
         {"OSC_PULSE_WIDTH", AUDIODSP_OSCILLATOR_OPT_PULSE_WIDTH},

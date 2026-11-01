@@ -177,6 +177,27 @@ typedef enum {
     // dsp/modal.py ModalResonatorCore and its Exciter, without the bridge's
     // 256 frames of latency.
     AUDIODSP_GRAPH_MODAL,
+    // inputs: strike, velocity. params: frequency, hardness, level, shape.
+    // table(): up to 24 (ratio, decay, gain) triples. A struck bar, tine, reed
+    // or string: HammerExciter and StruckBarCore from audioinstruments'
+    // dsp/keys.py over audiomodal.Bank's kernel at a bank gain of 1/16,
+    // without the bridge's 256 frames of latency. A rising edge of the strike
+    // above 0.1 clears the bank and starts a half-sine hammer or a rising-ramp
+    // pluck pulse of 128 * (rate / 48000) * 0.125^hardness samples (held to
+    // half a period of the fundamental).
+    AUDIODSP_GRAPH_STRUCK,
+    // inputs: audio. params: mode, drive, offset, level. vrack's dsp/keys.py
+    // PickupCore: electromagnetic `x / (1 + 0.5 * x^2)` or electrostatic
+    // `x / (1 - x^2 + x^4)` pickup nonlinearity with drive, asymmetry offset
+    // and steady-state DC removal.
+    AUDIODSP_GRAPH_PICKUP,
+    // inputs: audio, rate CV, depth CV. params: rate, depth, mode. Built with
+    // `arg` = the right side's buffer id (output is the left side, like PAN).
+    // vrack's dsp/tremolo.py TremoloCore: stereo auto-pan (theta = pi/4 d
+    // sin, left cos - sin, right cos + sin) or mono amplitude tremolo
+    // (`1 - 0.5 * d * (1 - sin)` on both sides), the depth gliding across
+    // each block.
+    AUDIODSP_GRAPH_TREMOLO,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -323,6 +344,57 @@ enum {
 
 //: Modes in one MODAL node.
 #define AUDIODSP_GRAPH_MODAL_MODES 8u
+
+enum {
+    // Hz of the fundamental before each mode's ratio; held to >= 20 Hz, and
+    // each mode at or above 0.45 * rate is silenced.
+    AUDIODSP_GRAPH_STRUCK_FREQUENCY = 0,
+    // 0..1: hammer hardness; the pulse is 128 * (rate / 48000) * 0.125^h
+    // samples long, held to half a period of the fundamental.
+    AUDIODSP_GRAPH_STRUCK_HARDNESS,
+    // The strike's level on a rising edge of the gate, in units of 1.0.
+    AUDIODSP_GRAPH_STRUCK_LEVEL,
+    // 0 hammer (half-sine), 1 pluck (rising ramp).
+    AUDIODSP_GRAPH_STRUCK_SHAPE,
+};
+
+enum {
+    AUDIODSP_GRAPH_STRUCK_HAMMER = 0,
+    AUDIODSP_GRAPH_STRUCK_PLUCK = 1,
+};
+
+//: Modes in one STRUCK node.
+#define AUDIODSP_GRAPH_STRUCK_MODES 24u
+
+enum {
+    // 0 electromagnetic, 1 electrostatic.
+    AUDIODSP_GRAPH_PICKUP_MODE = 0,
+    // Pre-gain before the nonlinearity (1 is unity).
+    AUDIODSP_GRAPH_PICKUP_DRIVE,
+    // Asymmetry offset added before the nonlinearity, with its steady-state DC removed.
+    AUDIODSP_GRAPH_PICKUP_OFFSET,
+    // Output gain after the nonlinearity (1 is unity).
+    AUDIODSP_GRAPH_PICKUP_LEVEL,
+};
+
+enum {
+    AUDIODSP_GRAPH_PICKUP_ELECTROMAGNETIC = 0,
+    AUDIODSP_GRAPH_PICKUP_ELECTROSTATIC = 1,
+};
+
+enum {
+    // LFO rate in Hz (held to >= 0.01 Hz after adding the rate CV).
+    AUDIODSP_GRAPH_TREMOLO_RATE = 0,
+    // Modulation depth 0..1 (clamped to 0..1 after adding the depth CV).
+    AUDIODSP_GRAPH_TREMOLO_DEPTH,
+    // 0 stereo equal-power auto-pan, 1 amplitude tremolo.
+    AUDIODSP_GRAPH_TREMOLO_MODE,
+};
+
+enum {
+    AUDIODSP_GRAPH_TREMOLO_PAN = 0,
+    AUDIODSP_GRAPH_TREMOLO_AMPLITUDE = 1,
+};
 
 enum {
     AUDIODSP_GRAPH_MIX_OFFSET = 8,
@@ -496,6 +568,11 @@ bool audiodsp_graph_get(const audiodsp_graph_t *graph, uint32_t node,
 // The feedback delay's wow table; borrowed, as the kernel borrows it.
 bool audiodsp_graph_set_table(audiodsp_graph_t *graph, uint32_t node,
     const int16_t *table, uint32_t length);
+
+// A STRUCK node's mode table: `modes` triples of (ratio, decay, gain), up to
+// AUDIODSP_GRAPH_STRUCK_MODES, copied into the node.
+bool audiodsp_graph_set_struck_table(audiodsp_graph_t *graph, uint32_t node,
+    const float *table, uint32_t modes);
 
 // Clears a node's running state (the kernel's reset).
 bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node);
