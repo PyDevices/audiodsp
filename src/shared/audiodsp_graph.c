@@ -7,6 +7,7 @@
 
 #include "shared/audiodsp_graph.h"
 
+#include "shared/audiodsp_freeverb.h"
 #include "shared/audiodsp_graph_overdrive.h"
 
 #include <float.h>
@@ -260,6 +261,23 @@ typedef struct {
     float accent_decay;
 } graph_acid_t;
 
+// One mono Freeverb bank: the eight combs and four all-passes of
+// audiodsp_freeverb_process_s16 at channel_count 1.
+typedef struct {
+    int16_t comb[AUDIODSP_FREEVERB_COMB_SAMPLES];
+    uint32_t comb_index[8];
+    int16_t comb_filter[8];
+    int16_t allpass[AUDIODSP_FREEVERB_ALLPASS_SAMPLES];
+    uint32_t allpass_index[4];
+} graph_spring_tank_t;
+
+typedef struct {
+    // The right side's buffer id (the node's output is the left side).
+    int16_t right;
+    graph_spring_tank_t left;
+    graph_spring_tank_t right_tank;
+} graph_spring_t;
+
 size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
     uint32_t sample_rate, float arg) {
     switch (kind) {
@@ -308,6 +326,8 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_pink_t);
         case AUDIODSP_GRAPH_ACID:
             return sizeof(graph_acid_t);
+        case AUDIODSP_GRAPH_SPRING:
+            return sizeof(graph_spring_t);
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
         case AUDIODSP_GRAPH_OVERDRIVE:
             return audiodsp_graph_overdrive_size();
@@ -617,6 +637,18 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_ACID_CUTOFF_HZ] = 440.0f;
             node->param[AUDIODSP_GRAPH_ACID_RESONANCE] = 0.5f;
             node->param[AUDIODSP_GRAPH_ACID_ENVMOD] = 0.6f;
+            break;
+        }
+        case AUDIODSP_GRAPH_SPRING: {
+            // SpringReverbCore at patch2600's panel: the mix the spring
+            // starts at and its default decay.
+            graph_spring_t *d = data;
+            d->right = (int16_t)arg;
+            memset(&d->left, 0, sizeof(d->left));
+            memset(&d->right_tank, 0, sizeof(d->right_tank));
+            node->param[AUDIODSP_GRAPH_SPRING_MIX] = 0.25f;
+            node->param[AUDIODSP_GRAPH_SPRING_DECAY] = 0.75f;
+            node->param[AUDIODSP_GRAPH_SPRING_DAMP] = 0.55f;
             break;
         }
         case AUDIODSP_GRAPH_NOISE: {
@@ -992,6 +1024,12 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             d->s0 = d->s1 = d->s2 = d->s3 = 0.0f;
             d->hp = 0.0f;
             d->accent_env = 0.0f;
+            break;
+        }
+        case AUDIODSP_GRAPH_SPRING: {
+            graph_spring_t *d = n->data;
+            memset(&d->left, 0, sizeof(d->left));
+            memset(&d->right_tank, 0, sizeof(d->right_tank));
             break;
         }
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
@@ -3013,6 +3051,63 @@ static void run_acid(const audiodsp_graph_t *graph,
     d->accent_env = acc_env;
 }
 
+// ---------------------------------------------------------------- SPRING --
+//
+// vrack's dsp/reverb.py SpringReverbCore: two mono Freeverb tanks with
+// slightly different room sizes, mixed against the dry signal in Python.
+// The wet side is freeverb at mix 1.0 (dry 0, wet 32767), then
+// out = (1 - mix) * src + mix * wet, as the rack mixes it.
+
+static void run_spring(const audiodsp_graph_t *graph,
+    const audiodsp_graph_node_t *n, int16_t *left, uint32_t frames) {
+    graph_spring_t *d = n->data;
+    int16_t *right = graph->bufs[d->right];
+    const int16_t *in = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    float mix = n->param[AUDIODSP_GRAPH_SPRING_MIX];
+    if (!(mix >= 0.0f)) {
+        mix = 0.0f;
+    } else if (mix > 1.0f) {
+        mix = 1.0f;
+    }
+    float decay = n->param[AUDIODSP_GRAPH_SPRING_DECAY];
+    if (!(decay >= 0.0f)) {
+        decay = 0.0f;
+    } else if (decay > 1.0f) {
+        decay = 1.0f;
+    }
+    // SpringReverbCore.set's clamp, then the right tank's extra 0.05.
+    float room_l = decay < 0.1f ? 0.1f : (decay > 0.98f ? 0.98f : decay);
+    float room_r = decay + 0.05f;
+    room_r = room_r < 0.1f ? 0.1f : (room_r > 0.98f ? 0.98f : room_r);
+    float damp = n->param[AUDIODSP_GRAPH_SPRING_DAMP];
+    if (!(damp >= 0.0f)) {
+        damp = 0.0f;
+    } else if (damp > 1.0f) {
+        damp = 1.0f;
+    }
+    const float dry_g = 1.0f - mix;
+    int16_t wet[AUDIODSP_GRAPH_MAX_FRAMES];
+    if (in == NULL) {
+        memset(left, 0, frames * sizeof(int16_t));
+        memset(right, 0, frames * sizeof(int16_t));
+        return;
+    }
+    audiodsp_freeverb_process_s16(wet, in, frames, 1,
+        d->left.comb, d->left.comb_index, d->left.comb_filter,
+        d->left.allpass, d->left.allpass_index, (double)room_l, (double)damp, 1.0);
+    for (uint32_t i = 0; i < frames; ++i) {
+        left[i] = sat16((float)in[i] * dry_g + (float)wet[i] * mix);
+    }
+    audiodsp_freeverb_process_s16(wet, in, frames, 1,
+        d->right_tank.comb, d->right_tank.comb_index, d->right_tank.comb_filter,
+        d->right_tank.allpass, d->right_tank.allpass_index,
+        (double)room_r, (double)damp, 1.0);
+    for (uint32_t i = 0; i < frames; ++i) {
+        right[i] = sat16((float)in[i] * dry_g + (float)wet[i] * mix);
+    }
+}
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -3179,6 +3274,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_ACID:
                 run_acid(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_SPRING:
+                run_spring(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:

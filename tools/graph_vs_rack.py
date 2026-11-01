@@ -57,6 +57,7 @@ from audioinstruments._rack.dsp.drums import (  # noqa: E402
 )
 from audioinstruments._rack.dsp.noise import NoiseGenerator  # noqa: E402
 from audioinstruments._rack.dsp.ladder import AcidFilterCore  # noqa: E402
+from audioinstruments._rack.dsp.reverb import SpringReverbCore  # noqa: E402
 from audioinstruments._rack.modules.rhythm78.cowbell import (  # noqa: E402
     Rhythm78Cowbell,
 )
@@ -639,6 +640,42 @@ def acid(cutoff_hz, resonance, env_mod, blocks=60):
     return report("ACID %.0fHz r%.2f e%.2f" % (cutoff_hz, resonance, env_mod), got, want)
 
 
+# ------------------------------------------------------------------- SPRING --
+
+def spring(mix, decay, damp=0.55, blocks=80):
+    """SPRING against SpringReverbCore: two Freeverb tanks, dry/wet mixed."""
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=4, nodes=2)
+    a, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.SPRING, ag.ALWAYS, (a,), left_b, right_b)
+    g.set(node, ag.SPRING_MIX, mix)
+    g.set(node, ag.SPRING_DECAY, decay)
+    g.set(node, ag.SPRING_DAMP, damp)
+    core = SpringReverbCore(RATE, FRAMES)
+    core.left.set(damp=damp)
+    core.right.set(damp=damp)
+    src = np.zeros(FRAMES, dtype=np.float64)
+    out_l = np.zeros(FRAMES, dtype=np.float64)
+    out_r = np.zeros(FRAMES, dtype=np.float64)
+    buf = array("h", bytes(2 * FRAMES))
+    got_l, got_r, want_l, want_r = [], [], [], []
+    for b in range(blocks):
+        block = tone(b, 6000, 41.0)
+        if b == 0:
+            block[0] = 16000
+        g.write(a, array("h", block))
+        g.run(None)
+        g.read(left_b, buf)
+        got_l += list(buf)
+        g.read(right_b, buf)
+        got_r += list(buf)
+        src[:] = np.asarray(block, dtype=np.float64) / UNIT
+        core.render(src, out_l, out_r, mix=mix, decay=decay)
+        want_l += list(wire(out_l))
+        want_r += list(wire(out_r))
+    w = report("SPRING m%.2f d%.2f left" % (mix, decay), got_l, want_l)
+    return max(w, report("SPRING m%.2f d%.2f right" % (mix, decay), got_r, want_r))
+
+
 worst = 0
 worst = max(worst, tremolo("pan", ag.TREMOLO_PAN))
 worst = max(worst, tremolo("amplitude", ag.TREMOLO_AMPLITUDE))
@@ -698,4 +735,7 @@ worst = max(worst, crush(16))
 worst = max(worst, acid(400.0, 0.7, 0.6))
 worst = max(worst, acid(180.0, 0.0, 0.0))
 worst = max(worst, acid(1200.0, 0.9, 0.9))
+worst = max(worst, spring(0.25, 0.75))
+worst = max(worst, spring(0.5, 0.4))
+worst = max(worst, spring(0.0, 0.9))
 print("worst over all: %d" % worst)

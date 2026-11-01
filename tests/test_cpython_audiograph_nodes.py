@@ -21,6 +21,7 @@
 | `LPG` | vrack's `dsp/lpg.py` `LowPassGateCore`, its filter `audiofilters.Filter` with a `synthio.Biquad` low-pass driven as vrack's bridge drives it: VCF, VCA and BOTH, struck, on a control, with the manual level, the knobs and level moving, a hot input and an open one | 1 count (the node's own exp and pow against libm's); 0 measured over 168192 samples |
 | `MODAL` | vrack's `dsp/modal.py` `ModalResonatorCore`: its `Exciter` in float32, the sum cast to int16 as vrack's bridge casts it, and `audiomodal.Bank` pulled 256 frames at a time, lined up with its input: bar and membrane ratios, struck, rung by noise, mix 0, a mode turned off, the knobs moving, and 32 to 256 frames | 1 count (the strike's burst is a product where numpy takes an exp); 586 of 170240 samples measured |
 | `ACID` | vrack's `dsp/ladder.py` `AcidFilterCore`: four one-pole stages, high-passed feedback and the accent capacitor, with the cutoff, resonance and env_mod moving and accent bursts | 1 count (the graph's `tanh` polynomial against libm's) |
+| `SPRING` | vrack's `dsp/reverb.py` `SpringReverbCore` over `audiofreeverb.Freeverb` at mix 1.0, dry and wet mixed as the rack mixes them: two tanks, decay and decay + 0.05 | 0 counts |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -38,6 +39,7 @@ import unittest
 import audiobiquad
 import audiocore
 import audiofilters
+import audiofreeverb
 import audiograph as ag
 import audioshaper
 import synthio
@@ -3283,3 +3285,158 @@ class AcidTest(unittest.TestCase):
             accent = [[int(UNIT * (0.9 if b == 2 else 0.0))] * frames for b in range(12)]
             got, want = self.compare(audio, env, accent)
             self.assertLessEqual(worst(got, want), 1, frames)
+
+
+# ----------------------------------------------------------------- SPRING --
+
+class SpringRef:
+    """vrack's `dsp/reverb.py` `SpringReverbCore`: two mono Freeverbs at
+    roomsize decay and decay + 0.05, wet-only, mixed against the dry signal.
+    The tanks are `audiofreeverb.Freeverb` at the rack's block size."""
+
+    def __init__(self, frames, sample_rate=RATE):
+        self.frames = frames
+        self.left = self._tank(frames, sample_rate)
+        self.right = self._tank(frames, sample_rate)
+
+    def _tank(self, frames, sample_rate):
+        return audiofreeverb.Freeverb(
+            roomsize=0.5, damp=0.55, mix=1.0, buffer_size=frames * 2,
+            sample_rate=sample_rate, bits_per_sample=16, samples_signed=True,
+            channel_count=1)
+
+    def _wet(self, verb, block):
+        verb.play(audiocore.RawSample(array("h", block), sample_rate=RATE,
+                                      channel_count=1))
+        out = array("h", bytes(audiocore.get_buffer(verb)[1]))
+        if len(out) != self.frames:
+            out = array("h", bytes(audiocore.get_buffer(verb)[1]))
+        return list(out)
+
+    def render(self, block, mix, decay, damp=0.55):
+        """(left, right) on the wire, as SpringReverbCore.render leaves them."""
+        room_l = max(0.1, min(0.98, decay))
+        room_r = max(0.1, min(0.98, decay + 0.05))
+        self.left.roomsize = room_l
+        self.left.damp = damp
+        self.right.roomsize = room_r
+        self.right.damp = damp
+        wet_l = self._wet(self.left, block)
+        wet_r = self._wet(self.right, block)
+        left = [sat((1.0 - mix) * x + mix * w) for x, w in zip(block, wet_l)]
+        right = [sat((1.0 - mix) * x + mix * w) for x, w in zip(block, wet_r)]
+        return left, right
+
+
+class SpringTest(unittest.TestCase):
+    """SPRING held to `SpringReverbCore`."""
+
+    def compare(self, audio, mix=0.25, decay=0.75, damp=0.55):
+        frames = len(audio[0])
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                     buffers=8, nodes=3)
+        in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+        node = g.add(ag.SPRING, ag.ALWAYS, (in_b,), left_b, right_b)
+        g.set(node, ag.SPRING_MIX, mix)
+        g.set(node, ag.SPRING_DECAY, decay)
+        g.set(node, ag.SPRING_DAMP, damp)
+        ref = SpringRef(frames)
+        buf = array("h", bytes(2 * frames))
+        got_l, got_r, want_l, want_r = [], [], [], []
+        for block in audio:
+            g.write(in_b, array("h", block))
+            g.run(None)
+            g.read(left_b, buf)
+            got_l += list(buf)
+            g.read(right_b, buf)
+            got_r += list(buf)
+            wl, wr = ref.render(block, mix, decay, damp)
+            want_l += wl
+            want_r += wr
+        return (got_l, want_l), (got_r, want_r)
+
+    def impulse_blocks(self, frames, blocks, amp=12000):
+        out = [[0] * frames for _ in range(blocks)]
+        out[0][0] = amp
+        for b in range(1, blocks):
+            out[b] = [int(3000 * math.sin(2.0 * math.pi * (b * frames + i) / 41.0))
+                      for i in range(frames)]
+        return out
+
+    def test_matches_springreverbcore(self):
+        frames, blocks = 128, 60
+        audio = self.impulse_blocks(frames, blocks)
+        (gl, wl), (gr, wr) = self.compare(audio)
+        self.assertLessEqual(worst(gl, wl), 0)
+        self.assertLessEqual(worst(gr, wr), 0)
+        self.assertGreater(max(abs(v) for v in gl), 100)
+
+    def test_the_tanks_differ(self):
+        """The right tank is decay + 0.05, so the two sides are not the same."""
+        frames, blocks = 128, 40
+        audio = self.impulse_blocks(frames, blocks)
+        (gl, _), (gr, _) = self.compare(audio)
+        self.assertGreater(worst(gl, gr), 10)
+
+    def test_the_mix_scales_dry_against_wet(self):
+        """Mix is 0..1: 0 is dry, 1 is wet only."""
+        frames, blocks = 128, 30
+        audio = self.impulse_blocks(frames, blocks)
+        (dry, dw), _ = self.compare(audio, mix=0.0)
+        (half, hw), _ = self.compare(audio, mix=0.5)
+        (wet, ww), _ = self.compare(audio, mix=1.0)
+        self.assertLessEqual(worst(dry, dw), 0)
+        self.assertLessEqual(worst(half, hw), 0)
+        self.assertLessEqual(worst(wet, ww), 0)
+        self.assertEqual(dry, [x for block in audio for x in block])
+        self.assertGreater(worst(dry, half), 50)
+        self.assertGreater(worst(half, wet), 50)
+
+    def test_the_decay_scales_the_roomsize(self):
+        """Decay is 0..1 room size, clamped 0.1..0.98."""
+        frames, blocks = 128, 40
+        audio = self.impulse_blocks(frames, blocks)
+        (_, _), (short_r, sw) = self.compare(audio, decay=0.2)
+        (_, _), (long_r, lw) = self.compare(audio, decay=0.9)
+        self.assertLessEqual(worst(short_r, sw), 0)
+        self.assertLessEqual(worst(long_r, lw), 0)
+        self.assertGreater(worst(short_r, long_r), 50)
+
+    def test_the_damp_scales_the_tank(self):
+        """Damp is 0..1, 0.55 as SpringReverbCore builds it."""
+        frames, blocks = 128, 30
+        audio = self.impulse_blocks(frames, blocks)
+        (bright, bw), _ = self.compare(audio, damp=0.1)
+        (dark, dw), _ = self.compare(audio, damp=0.9)
+        self.assertLessEqual(worst(bright, bw), 0)
+        self.assertLessEqual(worst(dark, dw), 0)
+        self.assertGreater(worst(bright, dark), 10)
+
+    def test_the_check_catches_a_wrong_spring(self):
+        frames, blocks = 128, 30
+        audio = self.impulse_blocks(frames, blocks)
+        (gl, wl), _ = self.compare(audio)
+        self.assertLessEqual(worst(gl, wl), 0)
+        for name, kw in (("mix as 0.5", {"mix": 0.5}),
+                         ("decay as 0.4", {"decay": 0.4}),
+                         ("damp as 0.2", {"damp": 0.2})):
+            wrong = SpringRef(frames)
+            wl2 = []
+            for block in audio:
+                left, _ = wrong.render(block, mix=kw.get("mix", 0.25),
+                                       decay=kw.get("decay", 0.75),
+                                       damp=kw.get("damp", 0.55))
+                wl2 += left
+            self.assertGreater(worst(gl, wl2), 20, name)
+
+    def test_an_open_input_is_silence(self):
+        frames = 64
+        rig = Rig(frames, ag.SPRING, 1, float(1), open_=(0,))
+        self.assertEqual(set(rig.run(None)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            audio = self.impulse_blocks(frames, 20)
+            (gl, wl), (gr, wr) = self.compare(audio)
+            self.assertLessEqual(worst(gl, wl), 0, frames)
+            self.assertLessEqual(worst(gr, wr), 0, frames)

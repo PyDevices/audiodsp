@@ -224,6 +224,13 @@ typedef enum {
     // capacitor that pushes cutoff and drive for a short burst. The cutoff
     // coefficient is refreshed every four samples.
     AUDIODSP_GRAPH_ACID,
+    // inputs: audio. params: mix, decay, damp. Built with `arg` = the right
+    // side's buffer id (output is the left side, like PAN). vrack's
+    // dsp/reverb.py SpringReverbCore over audiodsp's Freeverb: two mono
+    // tanks at roomsize decay and decay + 0.05 (clamped 0.1..0.98), each
+    // wet-only and mixed against the dry signal by mix. The left tank's
+    // output is the node's, the right tank's the buffer `arg` names.
+    AUDIODSP_GRAPH_SPRING,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -465,6 +472,16 @@ enum {
     AUDIODSP_GRAPH_ACID_RESONANCE,
     // 0..1, how far the env and accent open the cutoff in octaves.
     AUDIODSP_GRAPH_ACID_ENVMOD,
+};
+
+enum {
+    // 0..1 wet amount: out = (1 - mix) * dry + mix * wet.
+    AUDIODSP_GRAPH_SPRING_MIX = 0,
+    // 0..1 room size of the left tank; the right is decay + 0.05, both
+    // clamped to 0.1..0.98 as SpringReverbCore.set clamps them.
+    AUDIODSP_GRAPH_SPRING_DECAY,
+    // 0..1 Freeverb damp, 0.55 as SpringReverbCore builds it.
+    AUDIODSP_GRAPH_SPRING_DAMP,
 };
 
 enum {

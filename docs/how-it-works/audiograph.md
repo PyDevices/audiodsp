@@ -102,6 +102,7 @@ rather than its last block.
 | `PINK` | white | `PINK_LEVEL` | pink noise: Paul Kellet's pinking filter on the white input, [below](#pink) |
 | `CRUSH` | audio | `CRUSH_BITS` 1..15 | the audio rounded to that many bits, [below](#crush) |
 | `ACID` | audio, env, accent | `ACID_CUTOFF_HZ`, `ACID_RESONANCE` 0..1, `ACID_ENVMOD` 0..1 | acid303's diode ladder with its accent circuit, [below](#acid) |
+| `SPRING` | audio | `SPRING_MIX` 0..1, `SPRING_DECAY` 0..1, `SPRING_DAMP` 0..1; built with `arg` = the right side's buffer | patch2600's two-tank spring reverb over `audiofreeverb`, wet-only into a dry/wet mix on both sides, [below](#spring) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -413,6 +414,18 @@ high-passed feedback; `ACID_ENVMOD` 0..1, how far the env and accent open the
 cutoff in octaves. The `env` input is the filter envelope and `accent` a gate
 that charges the capacitor above 0.3; both are in units of `UNIT`. The cutoff
 coefficient is refreshed every four samples, as the rack refreshes it.
+
+### Spring
+
+`SPRING` is vrack's `dsp/reverb.py` `SpringReverbCore`, the spring reverb
+patch2600 runs after its VCA: two mono `audiofreeverb` tanks at roomsize
+`SPRING_DECAY` and `SPRING_DECAY + 0.05` (each clamped to 0.1..0.98), both at
+`SPRING_DAMP`, rendered wet-only and mixed against the dry signal by
+`SPRING_MIX`. The left tank is the node's output and the right goes to the
+buffer `arg` names, as `PAN` and `TREMOLO` do. The tanks hold the freeverb
+comb and all-pass lines, so the node is the freeverb kernel rather than a
+second reverb; nothing about the spring is simulated beyond the roomsize
+offset that makes the two sides differ.
 
 ## Output
 
