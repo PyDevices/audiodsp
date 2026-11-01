@@ -2877,6 +2877,28 @@ class DecayTest(unittest.TestCase):
         out = rig.run([UNIT] * frames, [int(0.5 * UNIT)] * frames)
         self.assertEqual(out[0], sat(0.5 * 0.75 * UNIT))
 
+    def test_an_unsorted_table_fires_every_spike(self):
+        """The rack fires a spike whatever its place in the table."""
+        frames = 256
+        rows = ((0.0, 1.0), (0.004, 0.9), (0.002, 0.8))
+        outs = []
+        for table in (rows, tuple(sorted(rows))):
+            rig = Rig(frames, ag.DECAY, 2)
+            rig.set(ag.DECAY_DECAY, 0.065 * LN_100)
+            rig.set(ag.DECAY_RESTRIKE, 0.0028 * LN_100)
+            rig.g.table(rig.node, table)
+            outs.append(rig.run([UNIT] * frames, [UNIT] * frames))
+        self.assertEqual(outs[0], outs[1])
+
+    def test_an_infinite_attack_holds_the_ramp(self):
+        """An attack too long to count stays at the start of its ramp."""
+        frames = 256
+        rig = Rig(frames, ag.DECAY, 2)
+        rig.set(ag.DECAY_DECAY, 0.2)
+        rig.set(ag.DECAY_ATTACK, float("inf"))
+        out = rig.run([UNIT] * frames, [UNIT] * frames)
+        self.assertLess(max(abs(v) for v in out), UNIT // 100)
+
     def test_the_check_catches_a_missing_first_spike(self):
         """A ref that drops the spike-at-zero write must not match the node."""
         frames, blocks = 128, 4
@@ -3072,6 +3094,17 @@ class CrushTest(unittest.TestCase):
         rig = Rig(frames, ag.CRUSH, 1)
         rig.set(ag.CRUSH_BITS, float("nan"))
         self.assertEqual(rig.run(audio[0]), audio[0])
+
+    def test_minus_infinite_bits_is_one_bit(self):
+        frames = 64
+        audio = [int(9000 * math.sin(2.0 * math.pi * i / 17.0))
+                 for i in range(frames)]
+        outs = []
+        for bits in (float("-inf"), 1.0):
+            rig = Rig(frames, ag.CRUSH, 1)
+            rig.set(ag.CRUSH_BITS, bits)
+            outs.append(rig.run(audio))
+        self.assertEqual(outs[0], outs[1])
 
     def test_an_open_input_is_silence(self):
         frames = 64

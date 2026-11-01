@@ -686,6 +686,20 @@ bool audiodsp_graph_set_decay_table(audiodsp_graph_t *graph, uint32_t node,
     if (strikes > 0u) {
         memcpy(d->table, table, (size_t)strikes * 2u * sizeof(float));
     }
+    // The block loop walks the strikes in delay order, as the rack's
+    // "cur in spikes" finds them in any order: sort by delay here.
+    for (uint32_t i = 1u; i < strikes; ++i) {
+        const float delay = d->table[2u * i];
+        const float level = d->table[2u * i + 1u];
+        uint32_t j = i;
+        while (j > 0u && d->table[2u * (j - 1u)] > delay) {
+            d->table[2u * j] = d->table[2u * (j - 1u)];
+            d->table[2u * j + 1u] = d->table[2u * (j - 1u) + 1u];
+            --j;
+        }
+        d->table[2u * j] = delay;
+        d->table[2u * j + 1u] = level;
+    }
     d->strikes = strikes;
     d->has_table = true;
     return true;
@@ -2693,13 +2707,17 @@ static void run_decay(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     uint32_t attack_n = 0u;
     if (attack_sec > 0.0f) {
         const float n_atk = attack_sec * (float)rate;
-        attack_n = n_atk >= 1.0f ? (uint32_t)n_atk : 1u;
+        // Clamped before the cast: a float past UINT32_MAX (or inf) has no
+        // defined conversion.
+        attack_n = n_atk >= 4294967040.0f ? 4294967040u
+            : n_atk >= 1.0f ? (uint32_t)n_atk : 1u;
     }
     uint32_t fast_n = 0u;
     float d_fast = d_tail;
     if (fast_sec > 0.0f && fast_len > 0.0f) {
         const float n_fast = fast_len * (float)rate;
-        fast_n = n_fast >= 1.0f ? (uint32_t)n_fast : 1u;
+        fast_n = n_fast >= 4294967040.0f ? 4294967040u
+            : n_fast >= 1.0f ? (uint32_t)n_fast : 1u;
         d_fast = decay_coeff(fast_sec, rate);
     }
     const bool use_rise = rise_sec > 0.0f;
@@ -2876,10 +2894,8 @@ static void run_crush(const audiodsp_graph_t *graph,
         }
         return;
     }
-    int32_t bits = (int32_t)bits_f;
-    if (bits < 1) {
-        bits = 1;
-    }
+    // Clamped in float first: -inf, or below INT32_MIN, has no defined cast.
+    int32_t bits = bits_f < 1.0f ? 1 : (int32_t)bits_f;
     if (bits > 15) {
         bits = 15;
     }

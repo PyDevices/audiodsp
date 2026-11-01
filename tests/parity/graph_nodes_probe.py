@@ -310,10 +310,10 @@ g.table(decay_burst, ((0.0, 0.75), (0.0105, 0.75), (0.021, 0.75), (0.0315, 0.85)
 g.set(decay_burst, ag.DECAY_DECAY, 0.065)
 g.set(decay_burst, ag.DECAY_RESTRIKE, 0.0028)
 
-# -- pink noise from the white noise source, and the sawtooth bit-crushed
-white_b = g.buffer()
-g.add(ag.NOISE, ag.ALWAYS, (), white_b)
-pink_a, _ = node("pink_a", ag.PINK, (white_b,))
+# -- pink noise from the sample-and-holds' white noise (a NOISE node added
+# here would seed from its index, which differs on CircuitPython, whose probe
+# has no overdrives), and the sawtooth bit-crushed
+pink_a, _ = node("pink_a", ag.PINK, (noise_b,))
 g.set(pink_a, ag.PINK_LEVEL, 0.75)
 crush_a, _ = node("crush_a", ag.CRUSH, (saw_b,))
 g.set(crush_a, ag.CRUSH_BITS, 6.0)
