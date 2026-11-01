@@ -1,3 +1,9 @@
+## v0.6.13.dev2 (2026-11-01)
+
+- audiograph: STRUCK, PICKUP and TREMOLO nodes (#360)
+- CI: run the jobs a change can reach; a release bump and docs run nothing, a weekly run checks everything (#352)
+- audiograph: round a sample with two adds instead of a branchy helper (#359)
+
 ## v0.6.13.dev1 (2026-10-31)
 
 - audiosampler: CircuitPython's binding tests vibrato depth without == (#357)
