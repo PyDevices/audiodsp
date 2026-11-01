@@ -212,6 +212,12 @@ typedef enum {
     // block, as vrack's dsp/noise.py NoiseGenerator.pink runs it: seven states,
     // the sum scaled by 0.15 and then by level (1 is the rack's own output).
     AUDIODSP_GRAPH_PINK,
+    // inputs: audio. params: bits. Bit-depth reduction, as the quantise in
+    // vrack's dsp/drums.py BitDepthRateCore: each sample rounded half away
+    // from zero to a step of 2^(1-bits) in units of 1.0 (16384 counts to 1.0).
+    // Bits of 16 or more pass the audio through. The sample-rate hold is
+    // SAMPLE_HOLD's, and the anti-alias filter a BIQUAD or LADDER before it.
+    AUDIODSP_GRAPH_CRUSH,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -425,6 +431,12 @@ enum {
 enum {
     // Gain on the pinking filter's output (1 is NoiseGenerator.pink's own).
     AUDIODSP_GRAPH_PINK_LEVEL = 0,
+};
+
+enum {
+    // Bits of quantisation, truncated to an integer and held to 1..15; 16 or
+    // more passes the audio through.
+    AUDIODSP_GRAPH_CRUSH_BITS = 0,
 };
 
 enum {

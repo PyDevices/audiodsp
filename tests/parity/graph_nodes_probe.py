@@ -16,6 +16,7 @@
     graph_nodes_probe.py --fault tremolo    # one depth change a block late
     graph_nodes_probe.py --fault decay      # one decay seconds change a block late
     graph_nodes_probe.py --fault pink       # one level change a block late
+    graph_nodes_probe.py --fault crush      # one bits change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -44,7 +45,8 @@ turned down, in VCA mode and then BOTH); and three modal resonators (a bar
 struck with the low-pass gates and reset once, a membrane rung by the noise
 with its frequency stepped and its mix at three quarters, and the sawtooth
 with its own strikes at mix 0, the excitation alone). And a one-shot decay
-envelope on those strikes and a clap burst on its own trigger, pink noise.
+envelope on those strikes and a clap burst on its own trigger, pink noise, and
+the sawtooth bit-crushed with the bits stepped.
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -69,7 +71,7 @@ except (ImportError, AttributeError):
     sys.exit(0)
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-          "modal", "struck", "pickup", "tremolo", "decay", "pink")
+          "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -313,6 +315,8 @@ white_b = g.buffer()
 g.add(ag.NOISE, ag.ALWAYS, (), white_b)
 pink_a, _ = node("pink_a", ag.PINK, (white_b,))
 g.set(pink_a, ag.PINK_LEVEL, 0.75)
+crush_a, _ = node("crush_a", ag.CRUSH, (saw_b,))
+g.set(crush_a, ag.CRUSH_BITS, 6.0)
 
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
@@ -481,6 +485,8 @@ for b in range(BLOCKS):
     # the pink level steps; the crush bits step, and open up once
     pink_at = b if FAULT != "pink" or b != 40 else b - 1
     g.set(pink_a, ag.PINK_LEVEL, 0.25 * (1 + (pink_at // 20) % 4))
+    crush_at = b if FAULT != "crush" or b != 64 else b - 1
+    g.set(crush_a, ag.CRUSH_BITS, 3.0 + (crush_at // 16) % 6)
 
     g.run(None)
     g.read(saw_b, saw_block)
@@ -556,6 +562,8 @@ for name in ("decay_hit", "decay_burst"):
 check(seen["pink_a"][0] > 2000 and seen["pink_a"][2] > 200,
       "the pink noise renders sound")
 
+check(seen["crush_a"][0] > 2000 and seen["crush_a"][2] > 500,
+      "the bit crush renders sound")
 
 if failures:
     for what in failures:

@@ -311,6 +311,37 @@ def pink(blocks=40):
     return report("PINK kellet", got, want)
 
 
+# -------------------------------------------------------------------- CRUSH --
+
+def crush(bits, blocks=25):
+    """CRUSH against BitDepthRateCore's own quantise, hold and filter stood aside."""
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=6, nodes=3)
+    audio_b, out = g.buffer(), g.buffer()
+    node = g.add(ag.CRUSH, ag.ALWAYS, (audio_b,), out)
+    g.set(node, ag.CRUSH_BITS, bits)
+    core = BitDepthRateCore(RATE, FRAMES)
+    core.bits = bits
+    core.rate = float(RATE)
+    core._update_anti_alias()
+    # The anti-alias filter and the hold are other nodes; leave only the
+    # quantise that _hold_numpy runs on the wire.
+    core.anti_alias.process = lambda src, dst: np.copyto(dst, src)
+    core._hold = lambda src, dst: np.copyto(dst, src)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    dst = np.zeros(FRAMES, dtype=np.float32)
+    for b in range(blocks):
+        block = tone(b, 15000, 31.0 + (b % 5))
+        g.write(audio_b, array("h", block))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        src = np.asarray(block, dtype=np.float32) / UNIT
+        core.process(src, dst)
+        want += list(wire(dst))
+    return report("CRUSH %g bits" % bits, got, want)
+
+
 worst = 0
 worst = max(worst, tremolo("pan", ag.TREMOLO_PAN))
 worst = max(worst, tremolo("amplitude", ag.TREMOLO_AMPLITUDE))
@@ -336,5 +367,9 @@ worst = max(worst, burst_decay("jingle", JINGLE_SPIKES, 0.005, 0.220, tail_40db=
 GUIRO_SPIKES = tuple((i * 0.080 / 5.0, 0.6 + 0.4 * i / 5.0) for i in range(6))
 worst = max(worst, burst_decay("guiro", GUIRO_SPIKES, 0.0035, 0.0080))
 worst = max(worst, pink())
-
+worst = max(worst, crush(4))
+worst = max(worst, crush(6))
+worst = max(worst, crush(8))
+worst = max(worst, crush(15))
+worst = max(worst, crush(16))
 print("worst over all: %d" % worst)

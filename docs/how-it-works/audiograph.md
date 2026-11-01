@@ -100,6 +100,7 @@ rather than its last block.
 | `TREMOLO` | audio, rate CV, depth CV | `TREMOLO_RATE` Hz, `TREMOLO_DEPTH` 0..1, `TREMOLO_MODE` (`TREMOLO_PAN`, `TREMOLO_AMPLITUDE`); built with `arg` = the right side's buffer | stereo auto-pan or mono amplitude tremolo into `(output, arg)`, [below](#tremolo) |
 | `DECAY` | trigger, velocity | `DECAY_DECAY` seconds to −40 dB, `DECAY_RESTRIKE` seconds to −40 dB; `table(node, strikes)` sets up to `DECAY_STRIKES` (16) `(delay s, level)` pairs | a one-shot exponential envelope, or a burst of re-strikes, [below](#decay) |
 | `PINK` | white | `PINK_LEVEL` | pink noise: Paul Kellet's pinking filter on the white input, [below](#pink) |
+| `CRUSH` | audio | `CRUSH_BITS` 1..15 | the audio rounded to that many bits, [below](#crush) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -370,6 +371,17 @@ white input is a `NOISE` node (uniform ±0.5 of `UNIT`) or any other white
 block. `b6` in the sum is the previous sample's share, as the rack keeps it.
 The filter is the same on every target, so two interpreters running the same
 white input give the same pink.
+
+### Crush
+
+`CRUSH` is the quantise in vrack's `BitDepthRateCore._hold_numpy`
+(`dsp/drums.py`), the bit-depth half of rhythm909's crusher. Each sample is
+rounded half away from zero to a step of `2^(1−CRUSH_BITS)` in units of 1.0 —
+`1 << (15 − bits)` counts — and clipped to ±2.0. `CRUSH_BITS` is truncated to
+an integer and held to 1..15; 16 and above passes the audio through. The
+quantise is memoryless and sits before the hold, so the sample-rate hold is
+`SAMPLE_HOLD`'s and the anti-alias filter is a filter node's; nothing in the
+quantise needs them.
 
 ## Output
 

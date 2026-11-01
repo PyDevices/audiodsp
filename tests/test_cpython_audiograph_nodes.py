@@ -2668,3 +2668,93 @@ class PinkTest(unittest.TestCase):
             self.assertLessEqual(worst(got, want), 1, frames)
 
 
+# ------------------------------------------------------------------- CRUSH --
+
+class CrushRef:
+    """The quantise in vrack's `BitDepthRateCore._hold_numpy`
+    (`dsp/drums.py`), with the hold and the anti-alias filter stood aside."""
+
+    def __init__(self, bits):
+        self.bits = bits
+
+    def render(self, src):
+        bits = self.bits
+        if bits >= 16:
+            return [sat(v * UNIT) for v in src]
+        ibits = max(1, min(15, int(bits)))
+        step = float(1 << (15 - ibits)) / UNIT
+        out = []
+        for x in src:
+            x = f32(x)
+            q = x / step
+            q = q + (0.5 if x >= 0 else -0.5)
+            q = math.trunc(q)
+            q = q * step
+            q = max(-2.0, min(2.0, q))
+            out.append(sat(q * UNIT))
+        return out
+
+
+class CrushTest(unittest.TestCase):
+    """CRUSH held to `BitDepthRateCore`'s quantise."""
+
+    def compare(self, bits, audio):
+        frames = len(audio[0])
+        rig = Rig(frames, ag.CRUSH, 1)
+        rig.set(ag.CRUSH_BITS, bits)
+        ref = CrushRef(bits)
+        got, want = [], []
+        for block in audio:
+            got += rig.run(block)
+            want += ref.render([x / UNIT for x in block])
+        return got, want
+
+    def tone_blocks(self, frames, blocks):
+        return [[int(14000 * math.sin(2.0 * math.pi * (b * frames + i) / 41.0))
+                 for i in range(frames)] for b in range(blocks)]
+
+    def test_matches_bitdepthratecore_quantise(self):
+        frames, blocks = 128, 20
+        audio = self.tone_blocks(frames, blocks)
+        for bits in (4, 6, 8, 12, 15, 16):
+            got, want = self.compare(bits, audio)
+            self.assertLessEqual(worst(got, want), 0, bits)
+
+    def test_the_bits_scale(self):
+        """Bits is a count, not a fraction and not a step size."""
+        frames, blocks = 128, 12
+        audio = self.tone_blocks(frames, blocks)
+        got, want = self.compare(6, audio)
+        self.assertLessEqual(worst(got, want), 0)
+        for name, bad in (("5 bits", 5), ("7 bits", 7), ("8 bits", 8)):
+            _, wl = self.compare(bad, audio)
+            self.assertGreater(worst(got, wl), 20, name)
+
+    def test_the_check_catches_a_wrong_crush(self):
+        frames, blocks = 128, 12
+        audio = self.tone_blocks(frames, blocks)
+        got, want = self.compare(6, audio)
+        self.assertLessEqual(worst(got, want), 0)
+        for name, bad in (("bits minus one", 5), ("bits plus one", 7),
+                          ("bits as step 64 not 6", 10)):
+            _, wl = self.compare(bad, audio)
+            self.assertGreater(worst(got, wl), 20, name)
+
+    def test_sixteen_bits_passes_the_audio_through(self):
+        frames = 64
+        audio = [[int(9000 * math.sin(2.0 * math.pi * i / 17.0))
+                  for i in range(frames)]]
+        got, want = self.compare(16, audio)
+        self.assertEqual(got, want)
+        self.assertEqual(got, audio[0])
+
+    def test_an_open_input_is_silence(self):
+        frames = 64
+        rig = Rig(frames, ag.CRUSH, 1, open_=(0,))
+        self.assertEqual(set(rig.run(None)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            audio = self.tone_blocks(frames, 8)
+            got, want = self.compare(6, audio)
+            self.assertLessEqual(worst(got, want), 0, frames)

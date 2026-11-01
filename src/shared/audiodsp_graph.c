@@ -582,6 +582,10 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_PINK_LEVEL] = 1.0f;
             break;
         }
+        case AUDIODSP_GRAPH_CRUSH:
+            // BitDepthRateCore's default bit depth.
+            node->param[AUDIODSP_GRAPH_CRUSH_BITS] = 6.0f;
+            break;
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -2805,6 +2809,40 @@ static void run_pink(const audiodsp_graph_t *graph, const audiodsp_graph_node_t 
 // follows it is SAMPLE_HOLD's; the anti-alias filter before it is a filter
 // node's.
 
+static void run_crush(const audiodsp_graph_t *graph,
+    const audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
+    const int16_t *in = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const float bits_f = n->param[AUDIODSP_GRAPH_CRUSH_BITS];
+    // BitDepthRateCore takes int(bits) and holds it to 1..15; 16 and up pass
+    // the audio through unquantised.
+    if (bits_f >= 16.0f) {
+        for (uint32_t i = 0; i < frames; ++i) {
+            out[i] = in != NULL ? in[i] : 0;
+        }
+        return;
+    }
+    int32_t bits = (int32_t)bits_f;
+    if (bits < 1) {
+        bits = 1;
+    }
+    if (bits > 15) {
+        bits = 15;
+    }
+    // A step of 1 << (15 - bits) counts, which is 2^(1-bits) in units of 1.0.
+    const int32_t step = 1 << (15 - bits);
+    const int32_t half = step >> 1;
+    for (uint32_t i = 0; i < frames; ++i) {
+        const int32_t x = in != NULL ? (int32_t)in[i] : 0;
+        // Round half away from zero to a whole step, as _hold_numpy does on
+        // the rack: trunc(x / step + copysign(0.5, x)) * step. C division
+        // truncates toward zero, which is that trunc.
+        const int32_t q = x >= 0 ? (x + half) / step : (x - half) / step;
+        out[i] = sat16((float)(q * step));
+    }
+    (void)graph;
+}
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -2965,6 +3003,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
             }
             case AUDIODSP_GRAPH_PINK:
                 run_pink(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_CRUSH:
+                run_crush(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:

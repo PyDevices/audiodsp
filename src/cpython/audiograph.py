@@ -63,6 +63,7 @@ PICKUP = _K["PICKUP"]
 TREMOLO = _K["TREMOLO"]
 DECAY = _K["DECAY"]
 PINK = _K["PINK"]
+CRUSH = _K["CRUSH"]
 ALWAYS = _K["ALWAYS"]
 UNIT = _K["UNIT"]
 
@@ -149,6 +150,7 @@ DECAY_DECAY = _K["DECAY_DECAY"]
 DECAY_RESTRIKE = _K["DECAY_RESTRIKE"]
 DECAY_STRIKES = _K["DECAY_STRIKES"]
 PINK_LEVEL = _K["PINK_LEVEL"]
+CRUSH_BITS = _K["CRUSH_BITS"]
 
 # the kernels' option numbers, so a caller needs no other module
 OSC_FREQUENCY = _K["OSC_FREQUENCY"]
