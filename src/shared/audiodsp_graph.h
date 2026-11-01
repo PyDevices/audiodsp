@@ -193,6 +193,13 @@ typedef enum {
     // `x / (1 - x^2 + x^4)` pickup nonlinearity with drive, asymmetry offset
     // and steady-state DC removal.
     AUDIODSP_GRAPH_PICKUP,
+    // inputs: audio, rate CV, depth CV. params: rate, depth, mode. Built with
+    // `arg` = the right side's buffer id (output is the left side, like PAN).
+    // vrack's dsp/tremolo.py TremoloCore: stereo auto-pan (theta = pi/4 d
+    // sin, left cos - sin, right cos + sin) or mono amplitude tremolo
+    // (`1 - 0.5 * d * (1 - sin)` on both sides), the depth gliding across
+    // each block.
+    AUDIODSP_GRAPH_TREMOLO,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -377,6 +384,20 @@ enum {
 enum {
     AUDIODSP_GRAPH_PICKUP_ELECTROMAGNETIC = 0,
     AUDIODSP_GRAPH_PICKUP_ELECTROSTATIC = 1,
+};
+
+enum {
+    // LFO rate in Hz (held to >= 0.01 Hz after adding the rate CV).
+    AUDIODSP_GRAPH_TREMOLO_RATE = 0,
+    // Modulation depth 0..1 (clamped to 0..1 after adding the depth CV).
+    AUDIODSP_GRAPH_TREMOLO_DEPTH,
+    // 0 stereo equal-power auto-pan, 1 amplitude tremolo.
+    AUDIODSP_GRAPH_TREMOLO_MODE,
+};
+
+enum {
+    AUDIODSP_GRAPH_TREMOLO_PAN = 0,
+    AUDIODSP_GRAPH_TREMOLO_AMPLITUDE = 1,
 };
 
 enum {

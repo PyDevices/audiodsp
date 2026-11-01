@@ -218,6 +218,15 @@ typedef struct {
     float right_now[AUDIODSP_GRAPH_MAX_INPUTS];
 } graph_pan_t;
 
+typedef struct {
+    // The right side's buffer id (the node's output is the left side).
+    int16_t right;
+    // TremoloCore's phase in radians and its last block's depth, both in
+    // double as the Python keeps them.
+    double phase;
+    double depth_now;
+} graph_tremolo_t;
+
 size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
     uint32_t sample_rate, float arg) {
     switch (kind) {
@@ -258,6 +267,8 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_modal_t);
         case AUDIODSP_GRAPH_STRUCK:
             return sizeof(graph_struck_t);
+        case AUDIODSP_GRAPH_TREMOLO:
+            return sizeof(graph_tremolo_t);
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
         case AUDIODSP_GRAPH_OVERDRIVE:
             return audiodsp_graph_overdrive_size();
@@ -330,7 +341,8 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
     if (output == AUDIODSP_GRAPH_NONE && kind != AUDIODSP_GRAPH_OUT) {
         return -1;
     }
-    if (kind == AUDIODSP_GRAPH_PAN && (!(arg >= 0.0f && arg < (float)graph->nbufs) ||
+    if ((kind == AUDIODSP_GRAPH_PAN || kind == AUDIODSP_GRAPH_TREMOLO) &&
+        (!(arg >= 0.0f && arg < (float)graph->nbufs) ||
         arg != (float)(int16_t)arg || (int16_t)arg == output)) {
         return -1;
     }
@@ -518,6 +530,14 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_PICKUP_OFFSET] = 0.0f;
             node->param[AUDIODSP_GRAPH_PICKUP_LEVEL] = 1.0f;
             break;
+        case AUDIODSP_GRAPH_TREMOLO:
+            ((graph_tremolo_t *)data)->right = (int16_t)arg;
+            ((graph_tremolo_t *)data)->phase = 0.0;
+            ((graph_tremolo_t *)data)->depth_now = 0.0;
+            node->param[AUDIODSP_GRAPH_TREMOLO_RATE] = 3.0f;
+            node->param[AUDIODSP_GRAPH_TREMOLO_DEPTH] = 0.0f;
+            node->param[AUDIODSP_GRAPH_TREMOLO_MODE] = (float)AUDIODSP_GRAPH_TREMOLO_PAN;
+            break;
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -619,7 +639,8 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
         return AUDIODSP_GRAPH_CARRY_KIND;
     }
     const audiodsp_graph_kind_t kind = (audiodsp_graph_kind_t)d->kind;
-    if (kind != AUDIODSP_GRAPH_PAN && !(d->arg == s->arg)) {
+    if (kind != AUDIODSP_GRAPH_PAN && kind != AUDIODSP_GRAPH_TREMOLO &&
+        !(d->arg == s->arg)) {
         return AUDIODSP_GRAPH_CARRY_ARG;
     }
     const size_t size = audiodsp_graph_node_data_size(kind, dst->sample_rate, d->arg);
@@ -639,6 +660,8 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
     bool struck_has_table = false;
     if (kind == AUDIODSP_GRAPH_PAN) {
         right = ((const graph_pan_t *)d->data)->right;
+    } else if (kind == AUDIODSP_GRAPH_TREMOLO) {
+        right = ((const graph_tremolo_t *)d->data)->right;
     } else if (kind == AUDIODSP_GRAPH_FBDELAY) {
         wow = ((const graph_fbdelay_t *)d->data)->config.wow_shape;
         wow_shift = ((const graph_fbdelay_t *)d->data)->config.wow_shape_shift;
@@ -700,6 +723,9 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
         }
         case AUDIODSP_GRAPH_PAN:
             ((graph_pan_t *)d->data)->right = right;
+            break;
+        case AUDIODSP_GRAPH_TREMOLO:
+            ((graph_tremolo_t *)d->data)->right = right;
             break;
         default:
             break;
@@ -803,6 +829,15 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             d->pulse_len = 0u;
             d->pulse_pos = 0u;
             d->pulse_amp = 0.0f;
+            break;
+        }
+        case AUDIODSP_GRAPH_TREMOLO: {
+            // TremoloCore.reset: the phase to 0 and no depth glide, so the
+            // next block starts at the depth last set (the CV not counted).
+            graph_tremolo_t *d = n->data;
+            const float depth = n->param[AUDIODSP_GRAPH_TREMOLO_DEPTH];
+            d->phase = 0.0;
+            d->depth_now = depth > 1.0f ? 1.0 : (depth > 0.0f ? (double)depth : 0.0);
             break;
         }
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
@@ -2363,6 +2398,135 @@ static void run_pickup(const audiodsp_graph_t *graph,
     }
 }
 
+// ------------------------------------------------------------ TREMOLO --
+//
+// vrack's dsp/tremolo.py TremoloCore, operation for operation in float32 as
+// numpy does it: a sine LFO lfo = sin(phase + i dphi), the depth gliding
+// from last block's to this one's across the block, then either the
+// equal-power pan theta = (pi/4) d lfo, left = cos theta - sin theta,
+// right = cos theta + sin theta (unity both sides at depth 0, sqrt 2 at a
+// hard side), or the amplitude gain 1 - d/2 (1 - lfo) on both sides. At
+// depth 0 both ends of the block the input is copied to both sides. The
+// rate and depth CVs (inputs 1 and 2, read at the block's first sample) add
+// to the knobs before TremoloCore.set's clamps.
+
+// cos(x) for |x| <= pi/2, the LFO's polynomial a quarter turn on.
+static float graph_cos(float x) {
+    return lfo_sine(x * 0.159154943091895336f + 0.25f);
+}
+
+static void run_tremolo(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *left, uint32_t frames) {
+    graph_tremolo_t *d = n->data;
+    int16_t *right = graph->bufs[d->right];
+    const int16_t *in = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const int16_t *rate_cv = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[1]] : NULL;
+    const int16_t *depth_cv = n->ninputs > 2 && n->inputs[2] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[2]] : NULL;
+
+    double rate = (double)n->param[AUDIODSP_GRAPH_TREMOLO_RATE];
+    if (rate_cv != NULL) {
+        rate += (double)rate_cv[0] * (1.0 / (double)AUDIODSP_GRAPH_UNIT);
+    }
+    // TremoloCore.set's clamps (a NaN goes where Python's max/min send it),
+    // and the rate held to the sample rate so the phase wrap stays bounded.
+    if (!(rate >= 0.01)) {
+        rate = 0.01;
+    } else if (rate > (double)graph->sample_rate) {
+        rate = (double)graph->sample_rate;
+    }
+
+    double depth = (double)n->param[AUDIODSP_GRAPH_TREMOLO_DEPTH];
+    if (depth_cv != NULL) {
+        depth += (double)depth_cv[0] * (1.0 / (double)AUDIODSP_GRAPH_UNIT);
+    }
+    if (!(depth <= 1.0)) {
+        depth = 1.0;
+    } else if (depth < 0.0) {
+        depth = 0.0;
+    }
+
+    const bool amp_mode = n->param[AUDIODSP_GRAPH_TREMOLO_MODE] >= 0.5f;
+    const double two_pi = 6.283185307179586;
+    const double d0 = d->depth_now;
+    const double d1 = depth;
+    d->depth_now = d1;
+    const double d_phase = two_pi * rate / (double)graph->sample_rate;
+    const double phase = d->phase;
+    // (phase + n dphi) % 2 pi: one subtraction is exact (Sterbenz) while a
+    // block's advance stays under a turn, rates below sample_rate / frames.
+    double next = phase + (double)frames * d_phase;
+    if (next >= two_pi) {
+        next -= two_pi;
+        if (next >= two_pi) {
+            next -= two_pi * (double)(int64_t)(next / two_pi);
+            if (!(next >= 0.0 && next < two_pi)) {
+                next = 0.0;
+            }
+        }
+    }
+    d->phase = next;
+
+    if (d0 <= 0.0 && d1 <= 0.0) {
+        for (uint32_t i = 0; i < frames; ++i) {
+            const int16_t s = in != NULL ? in[i] : 0;
+            left[i] = s;
+            right[i] = s;
+        }
+        return;
+    }
+
+    const float inv = 1.0f / AUDIODSP_GRAPH_UNIT;
+    const bool glide = d0 != d1;
+    // numpy rounds each Python scalar to float32 before the operation.
+    const float step = (float)d_phase;
+    const float base = (float)(phase - d_phase);
+    const float glide_step = (float)((d1 - d0) / (double)frames);
+    const float glide_from = (float)d0;
+    const float pan_k = (float)(0.7853981633974483 * (glide ? 1.0 : d1));
+    const float amp_k = (float)(0.5 * (glide ? 1.0 : d1));
+    const float amp_step = (float)(-0.5 * (d1 - d0) / (double)frames);
+    const float amp_from = (float)(1.0 - 0.5 * (glide ? d0 : d1));
+
+    for (uint32_t i = 0; i < frames; ++i) {
+        // lfo = ramp * dphi + (phase - dphi), the ramp 1..n.
+        const float ramp = (float)(i + 1u);
+        float lfo = ramp * step;
+        lfo += base;
+        lfo = graph_sin(lfo);
+        if (glide) {
+            float g = ramp * glide_step;
+            g += glide_from;
+            lfo *= g;
+        }
+        float gl;
+        float gr;
+        if (amp_mode) {
+            lfo *= amp_k;
+            if (glide) {
+                float g = ramp * amp_step;
+                g += amp_from;
+                lfo += g;
+            } else {
+                lfo += amp_from;
+            }
+            gl = lfo;
+            gr = lfo;
+        } else {
+            lfo *= pan_k;
+            const float c = graph_cos(lfo);
+            const float s = graph_sin(lfo);
+            gl = c - s;
+            gr = c + s;
+        }
+        const float x = in != NULL ? (float)in[i] * inv : 0.0f;
+        left[i] = sat16(x * gl * AUDIODSP_GRAPH_UNIT);
+        right[i] = sat16(x * gr * AUDIODSP_GRAPH_UNIT);
+    }
+}
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -2380,6 +2544,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 }
                 if (n->kind == AUDIODSP_GRAPH_PAN) {
                     memset(graph->bufs[((graph_pan_t *)n->data)->right], 0,
+                        frames * sizeof(int16_t));
+                } else if (n->kind == AUDIODSP_GRAPH_TREMOLO) {
+                    memset(graph->bufs[((graph_tremolo_t *)n->data)->right], 0,
                         frames * sizeof(int16_t));
                 }
             }
@@ -2506,6 +2673,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_PICKUP:
                 run_pickup(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_TREMOLO:
+                run_tremolo(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:

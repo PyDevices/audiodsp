@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK and PICKUP, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP and TREMOLO, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -13,6 +13,7 @@
     graph_nodes_probe.py --fault modal      # one frequency change a block late
     graph_nodes_probe.py --fault struck     # one hardness change a block late
     graph_nodes_probe.py --fault pickup     # one offset change a block late
+    graph_nodes_probe.py --fault tremolo    # one depth change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -65,7 +66,7 @@ except (ImportError, AttributeError):
     sys.exit(0)
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-          "modal", "struck", "pickup")
+          "modal", "struck", "pickup", "tremolo")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -281,6 +282,21 @@ g.set(pickup_es, ag.PICKUP_DRIVE, 1.75)
 g.set(pickup_es, ag.PICKUP_OFFSET, 0.125)
 g.set(pickup_es, ag.PICKUP_LEVEL, 0.875)
 
+# -- tremolos: stereo auto-pan on pickup_em, amplitude tremolo on sawtooth
+trem_l, trem_r = g.buffer(), g.buffer()
+trem_pan = g.add(ag.TREMOLO, ag.ALWAYS, (dict(watched)["pickup_em"],), trem_l, trem_r)
+g.set(trem_pan, ag.TREMOLO_RATE, 4.5)
+g.set(trem_pan, ag.TREMOLO_DEPTH, 0.75)
+g.set(trem_pan, ag.TREMOLO_MODE, ag.TREMOLO_PAN)
+watched.append(("trem_l", trem_l))
+watched.append(("trem_r", trem_r))
+trem_amp_l, trem_amp_r = g.buffer(), g.buffer()
+trem_amp = g.add(ag.TREMOLO, ag.ALWAYS, (saw_b, None, cv_b), trem_amp_l, trem_amp_r)
+g.set(trem_amp, ag.TREMOLO_RATE, 6.25)
+g.set(trem_amp, ag.TREMOLO_DEPTH, 0.5)
+g.set(trem_amp, ag.TREMOLO_MODE, ag.TREMOLO_AMPLITUDE)
+watched.append(("trem_amp", trem_amp_l))
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -425,10 +441,16 @@ for b in range(BLOCKS):
         g.reset(struck_a)
 
     # the pickup's offset steps; mode switches once
-    pick_at = b if FAULT != "pickup" or b != 52 else b - 1
+    pick_at = b if FAULT != "pickup" or b != 48 else b - 1
     g.set(pickup_em, ag.PICKUP_OFFSET, 0.125 * ((pick_at // 8) % 5))
     if b == 95:
         g.set(pickup_es, ag.PICKUP_DRIVE, 2.25)
+
+    # the tremolo's depth steps; one reset mid-render
+    trem_at = b if FAULT != "tremolo" or b != 64 else b - 1
+    g.set(trem_pan, ag.TREMOLO_DEPTH, 0.25 * ((trem_at // 16) % 5))
+    if b == 115:
+        g.reset(trem_pan)
 
     g.run(None)
     g.read(saw_b, saw_block)
@@ -492,6 +514,10 @@ for name in ("struck_a", "struck_b"):
 for name in ("pickup_em", "pickup_es"):
     check(seen[name][0] > 2000 and seen[name][2] > 500,
           "the pickup %s renders sound" % name)
+
+for name in ("trem_l", "trem_r", "trem_amp"):
+    check(seen[name][0] > 2000 and seen[name][2] > 500,
+          "the tremolo %s renders sound" % name)
 
 if failures:
     for what in failures:

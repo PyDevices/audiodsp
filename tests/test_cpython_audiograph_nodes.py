@@ -2094,3 +2094,178 @@ class Pickup(unittest.TestCase):
                          for i in range(128)]
                 want += pickup_ref(block, m, d, o, lv)
             self.assertGreater(worst(got, want), 100, name)
+
+
+# ----------------------------------------------------------------- TREMOLO --
+
+class TremoloRef:
+    """vrack's `TremoloCore` (`dsp/tremolo.py`), transcribed operation for
+    operation in float32 as numpy does it: each Python scalar rounded to
+    float32 before the vector operation, the ramp `1..n`, the phase in double.
+    The rate and depth CVs add to the knobs before `TremoloCore.set`."""
+
+    def __init__(self, frames):
+        self.frames = frames
+        self.phase = 0.0
+        self.depth = 0.0
+        self.depth_now = 0.0
+
+    def reset(self):
+        self.phase = 0.0
+        self.depth_now = self.depth
+
+    def set(self, rate=3.0, depth=0.0, rate_cv=None, depth_cv=None):
+        rate = float(f32(rate))
+        depth = float(f32(depth))
+        if rate_cv is not None:
+            rate += rate_cv[0] / UNIT
+        if depth_cv is not None:
+            depth += depth_cv[0] / UNIT
+        self.rate = max(0.01, rate)
+        self.depth = max(0.0, min(1.0, depth))
+
+    def render(self, audio, rate=3.0, depth=0.0, mode=0,
+               rate_cv=None, depth_cv=None):
+        self.set(rate, depth, rate_cv, depth_cv)
+        n = self.frames
+        d0 = self.depth_now
+        d1 = self.depth
+        self.depth_now = d1
+        d_phase = 2.0 * math.pi * self.rate / float(RATE)
+        phase = self.phase
+        self.phase = (phase + n * d_phase) % (2.0 * math.pi)
+        if d0 <= 0.0 and d1 <= 0.0:
+            return list(audio), list(audio)
+        amp_mode = f32(mode) >= 0.5
+        glide = d0 != d1
+        depth = 1.0 if glide else d1
+        left, right = [], []
+        for i in range(n):
+            ramp = float(i + 1)
+            lfo = a_(m(ramp, d_phase), phase - d_phase)
+            lfo = f32(math.sin(lfo))
+            if glide:
+                lfo = m(lfo, a_(m(ramp, (d1 - d0) / n), d0))
+            if amp_mode:
+                lfo = m(lfo, 0.5 * depth)
+                if glide:
+                    lfo = a_(lfo, a_(m(ramp, -0.5 * (d1 - d0) / n), 1.0 - 0.5 * d0))
+                else:
+                    lfo = a_(lfo, 1.0 - 0.5 * depth)
+                gl = gr = lfo
+            else:
+                lfo = m(lfo, (math.pi / 4.0) * depth)
+                c = f32(math.cos(lfo))
+                s = f32(math.sin(lfo))
+                gl = s_(c, s)
+                gr = a_(c, s)
+            x = audio[i] / UNIT
+            left.append(sat(m(x, gl) * UNIT))
+            right.append(sat(m(x, gr) * UNIT))
+        return left, right
+
+
+class Tremolo(unittest.TestCase):
+
+    def compare(self, settings, frames=128, rate_cv=None, depth_cv=None):
+        """`settings` per block: (rate, depth, mode)."""
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                     buffers=8, nodes=4)
+        in_b = g.buffer()
+        rc_b = g.buffer() if rate_cv is not None else None
+        dc_b = g.buffer() if depth_cv is not None else None
+        left_b, right_b = g.buffer(), g.buffer()
+        node = g.add(ag.TREMOLO, ag.ALWAYS, (in_b, rc_b, dc_b), left_b, right_b)
+        ref = TremoloRef(frames)
+        got_l, got_r, want_l, want_r = [], [], [], []
+        buf = array("h", bytes(2 * frames))
+        for b, (rate, depth, mode) in enumerate(settings):
+            audio = [int(12000 * math.sin(2.0 * math.pi * (b * frames + i) / 47.0))
+                     for i in range(frames)]
+            g.write(in_b, array("h", audio))
+            rc = rate_cv[b] if rate_cv is not None else None
+            dc = depth_cv[b] if depth_cv is not None else None
+            if rc_b is not None:
+                g.write(rc_b, array("h", rc))
+            if dc_b is not None:
+                g.write(dc_b, array("h", dc))
+            g.set(node, ag.TREMOLO_RATE, rate)
+            g.set(node, ag.TREMOLO_DEPTH, depth)
+            g.set(node, ag.TREMOLO_MODE, mode)
+            g.run(None)
+            g.read(left_b, buf)
+            got_l += list(buf)
+            g.read(right_b, buf)
+            got_r += list(buf)
+            wl, wr = ref.render(audio, rate, depth, mode, rc, dc)
+            want_l += wl
+            want_r += wr
+        return (got_l, got_r), (want_l, want_r)
+
+    def test_matches_tremolocore_in_pan_and_amplitude_modes(self):
+        settings = []
+        for b in range(60):
+            rate = 1.5 + 1.25 * (b % 6)
+            depth = ((b // 5) % 5) * 0.25
+            mode = ag.TREMOLO_AMPLITUDE if b >= 30 else ag.TREMOLO_PAN
+            settings.append((rate, depth, mode))
+        (got_l, got_r), (want_l, want_r) = self.compare(settings)
+        self.assertLessEqual(worst(got_l, want_l), 1)
+        self.assertLessEqual(worst(got_r, want_r), 1)
+        self.assertNotEqual(got_l[:128 * 30], got_r[:128 * 30])
+        self.assertEqual(got_l[128 * 30:], got_r[128 * 30:])
+
+    def test_rate_and_depth_cv_inputs_and_skipped_group(self):
+        frames, blocks = 64, 20
+        rate_cv = [[int(UNIT * 1.5)] * frames for _ in range(blocks)]
+        depth_cv = [[int(UNIT * 0.5)] * frames for _ in range(blocks)]
+        settings = [(2.5, 0.25, ag.TREMOLO_PAN)] * blocks
+        (got_l, got_r), (want_l, want_r) = self.compare(
+            settings, frames=frames, rate_cv=rate_cv, depth_cv=depth_cv,
+        )
+        self.assertLessEqual(worst(got_l, want_l), 1)
+        self.assertLessEqual(worst(got_r, want_r), 1)
+
+        # Group disable zeroes both left and right outputs, and arg validation
+        # refuses an invalid right buffer id.
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                     buffers=6, nodes=4)
+        a, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+        for bad in (left_b, 6.0, -1.0, 1.5):
+            with self.assertRaises(ValueError):
+                g.add(ag.TREMOLO, 2, (a,), left_b, bad)
+        n = g.add(ag.TREMOLO, 2, (a,), left_b, right_b)
+        g.set(n, ag.TREMOLO_DEPTH, 0.8)
+        g.write(a, array("h", [8000] * frames))
+        g.run(None, 0, 1 << 2)
+        buf = array("h", bytes(2 * frames))
+        g.read(right_b, buf)
+        self.assertNotEqual(set(buf), {0})
+        g.run(None, 0, 0)
+        g.read(left_b, buf)
+        self.assertEqual(list(buf), [0] * frames)
+        g.read(right_b, buf)
+        self.assertEqual(list(buf), [0] * frames)
+
+    def test_the_check_catches_a_wrong_tremolo(self):
+        settings = [(4.0, 0.75, ag.TREMOLO_PAN)] * 15 + [
+            (5.0, 0.6, ag.TREMOLO_AMPLITUDE)] * 15
+        (got_l, got_r), _ = self.compare(settings)
+        wrong = {
+            "modes swapped": [
+                (r, d, 1 - m) for r, d, m in settings],
+            "depth zeroed": [
+                (r, 0.0, m) for r, d, m in settings],
+            "rate doubled": [
+                (r * 2.0, d, m) for r, d, m in settings],
+        }
+        for name, bad in wrong.items():
+            ref = TremoloRef(128)
+            wl, wr = [], []
+            for b, (r, d, m) in enumerate(bad):
+                audio = [int(12000 * math.sin(2.0 * math.pi * (b * 128 + i) / 47.0))
+                         for i in range(128)]
+                l_blk, r_blk = ref.render(audio, r, d, m)
+                wl += l_blk
+                wr += r_blk
+            self.assertGreater(max(worst(got_l, wl), worst(got_r, wr)), 100, name)
