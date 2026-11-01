@@ -96,6 +96,7 @@ rather than its last block.
 | `LPG` | audio, control, strike | `LPG_MODE` (`LPG_VCF`, `LPG_VCA`, `LPG_BOTH`), `LPG_DECAY` seconds, `LPG_MANUAL` 0..1, `LPG_LEVEL` | a vactrol low-pass gate, [below](#low-pass-gate) |
 | `MODAL` | excitation, strike | `MODAL_FREQUENCY` Hz, `MODAL_DECAY` seconds, `MODAL_BRIGHTNESS` 0..1, `MODAL_INPUT`, `MODAL_MIX` 0..1, `MODAL_RATIO` + 0..7 | a struck bank of eight modes, [below](#modal-resonator) |
 | `STRUCK` | strike, velocity | `STRUCK_FREQUENCY` Hz, `STRUCK_HARDNESS` 0..1, `STRUCK_LEVEL`, `STRUCK_SHAPE` (`STRUCK_HAMMER`, `STRUCK_PLUCK`), `STRUCK_RELEASE`; `table(node, modes)` sets up to `STRUCK_MODES` (24) `(ratio, decay, gain)` triples | a hammer/pluck exciter into a 24-mode struck bar bank, [below](#struck-bar) |
+| `PICKUP` | audio | `PICKUP_MODE` (`PICKUP_ELECTROMAGNETIC`, `PICKUP_ELECTROSTATIC`), `PICKUP_DRIVE`, `PICKUP_OFFSET`, `PICKUP_LEVEL` | electromagnetic or electrostatic pickup nonlinearity with DC removal, [below](#pickup) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -294,6 +295,19 @@ half-period of `STRUCK_FREQUENCY` with the same energy compensation. On
 replaces it with up to `STRUCK_MODES` (24) `(ratio, decay, gain)` triples (or a
 flat float array of `3 * m` floats), silencing any mode whose frequency reaches
 0.45 of the sample rate.
+
+### Pickup
+
+`PICKUP` is vrack's `PickupCore` (`dsp/keys.py`), the asymmetric transducer
+nonlinearity of an electric piano pickup. The input (in units of `UNIT`) is
+scaled by `PICKUP_DRIVE`, shifted by `PICKUP_OFFSET`, passed through
+`x / (1 + 0.5·x²)` (`PICKUP_ELECTROMAGNETIC`, the default, for a Rhodes coil)
+or `x / (1 − x² + x⁴)` (`PICKUP_ELECTROSTATIC`, for a Wurlitzer reed plate),
+stripped of the steady-state DC offset that `PICKUP_OFFSET` alone produces, and
+scaled by `PICKUP_LEVEL`. With `PICKUP_OFFSET` above 0, second-harmonic bark
+grows as the bar swings closer to the pickup on one half-cycle. The arithmetic
+is float32 with no transcendental calls, matching `PickupCore.render` to 0
+counts on every target.
 
 ## Output
 

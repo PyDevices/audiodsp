@@ -188,6 +188,11 @@ typedef enum {
     // half a period of the fundamental); when release > 0, a falling edge adds
     // a pluck pulse at that level without clearing the ring.
     AUDIODSP_GRAPH_STRUCK,
+    // inputs: audio. params: mode, drive, offset, level. vrack's dsp/keys.py
+    // PickupCore: electromagnetic `x / (1 + 0.5 * x^2)` or electrostatic
+    // `x / (1 - x^2 + x^4)` pickup nonlinearity with drive, asymmetry offset
+    // and steady-state DC removal.
+    AUDIODSP_GRAPH_PICKUP,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -357,6 +362,22 @@ enum {
 
 //: Modes in one STRUCK node.
 #define AUDIODSP_GRAPH_STRUCK_MODES 24u
+
+enum {
+    // 0 electromagnetic, 1 electrostatic.
+    AUDIODSP_GRAPH_PICKUP_MODE = 0,
+    // Pre-gain before the nonlinearity (1 is unity).
+    AUDIODSP_GRAPH_PICKUP_DRIVE,
+    // Asymmetry offset added before the nonlinearity, with its steady-state DC removed.
+    AUDIODSP_GRAPH_PICKUP_OFFSET,
+    // Output gain after the nonlinearity (1 is unity).
+    AUDIODSP_GRAPH_PICKUP_LEVEL,
+};
+
+enum {
+    AUDIODSP_GRAPH_PICKUP_ELECTROMAGNETIC = 0,
+    AUDIODSP_GRAPH_PICKUP_ELECTROSTATIC = 1,
+};
 
 enum {
     AUDIODSP_GRAPH_MIX_OFFSET = 8,

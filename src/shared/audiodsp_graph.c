@@ -512,6 +512,12 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             struck_init(d, graph->sample_rate);
             break;
         }
+        case AUDIODSP_GRAPH_PICKUP:
+            node->param[AUDIODSP_GRAPH_PICKUP_MODE] = (float)AUDIODSP_GRAPH_PICKUP_ELECTROMAGNETIC;
+            node->param[AUDIODSP_GRAPH_PICKUP_DRIVE] = 1.0f;
+            node->param[AUDIODSP_GRAPH_PICKUP_OFFSET] = 0.0f;
+            node->param[AUDIODSP_GRAPH_PICKUP_LEVEL] = 1.0f;
+            break;
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -2301,6 +2307,62 @@ static void run_struck(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     audiodsp_modal_process_s16(&d->config, &d->state, out, x, frames);
 }
 
+// ------------------------------------------------------------- PICKUP --
+//
+// vrack's dsp/keys.py PickupCore: electromagnetic `y = x / (1 + 0.5 * x^2)`
+// or electrostatic `y = x / (1 - x^2 + x^4)` transducer nonlinearity with
+// drive, asymmetry offset and steady-state DC removal, in float32 operation
+// for operation as numpy runs it.
+
+static void run_pickup(const audiodsp_graph_t *graph,
+    const audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
+    const int16_t *in = n->ninputs > 0 && n->inputs[0] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[0]] : NULL;
+    const bool electrostatic = n->param[AUDIODSP_GRAPH_PICKUP_MODE] >= 0.5f;
+    const float drive = n->param[AUDIODSP_GRAPH_PICKUP_DRIVE];
+    const float offset = n->param[AUDIODSP_GRAPH_PICKUP_OFFSET];
+    const float level = n->param[AUDIODSP_GRAPH_PICKUP_LEVEL];
+    const float inv = 1.0f / AUDIODSP_GRAPH_UNIT;
+    float dc = 0.0f;
+    if (offset != 0.0f) {
+        const double o = (double)offset;
+        if (electrostatic) {
+            const double o2 = o * o;
+            dc = (float)(o / (o2 * o2 - o2 + 1.0));
+        } else {
+            dc = (float)(o / (1.0 + 0.5 * o * o));
+        }
+    }
+    for (uint32_t i = 0; i < frames; ++i) {
+        float dst = in != NULL ? (float)in[i] * inv : 0.0f;
+        if (drive != 1.0f) {
+            dst *= drive;
+        }
+        if (offset != 0.0f) {
+            dst += offset;
+        }
+        float tmp = dst * dst;
+        if (electrostatic) {
+            tmp -= 1.0f;
+            tmp *= dst;
+            tmp *= dst;
+            tmp += 1.0f;
+            dst /= tmp;
+        } else {
+            tmp *= 0.5f;
+            tmp += 1.0f;
+            dst /= tmp;
+        }
+        if (offset != 0.0f) {
+            dst -= dc;
+        }
+        if (level != 1.0f) {
+            dst *= level;
+        }
+        out[i] = sat16(dst * AUDIODSP_GRAPH_UNIT);
+    }
+}
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -2441,6 +2503,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_STRUCK:
                 run_struck(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_PICKUP:
+                run_pickup(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:

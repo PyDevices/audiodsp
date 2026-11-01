@@ -1982,3 +1982,115 @@ class Struck(unittest.TestCase):
             for b in range(blocks):
                 want += ref.render(strikes[b], None, *bad_settings[b])
             self.assertGreater(worst(got, want), 10, name)
+
+
+# ------------------------------------------------------------------ PICKUP --
+
+def pickup_ref(block, mode=0, drive=1.0, offset=0.0, level=1.0):
+    """vrack's `PickupCore.render` (`dsp/keys.py`), transcribed operation for
+    operation in float32."""
+    electrostatic = f32(mode) >= 0.5
+    drive = f32(drive)
+    offset = f32(offset)
+    level = f32(level)
+    inv = f32(1.0 / UNIT)
+    dc = 0.0
+    if offset != 0.0:
+        o = float(offset)
+        if electrostatic:
+            o2 = o * o
+            dc = f32(o / (o2 * o2 - o2 + 1.0))
+        else:
+            dc = f32(o / (1.0 + 0.5 * o * o))
+    out = []
+    for sample in block:
+        dst = f32(sample * inv) if sample is not None else 0.0
+        if drive != 1.0:
+            dst = f32(dst * drive)
+        if offset != 0.0:
+            dst = f32(dst + offset)
+        tmp = f32(dst * dst)
+        if electrostatic:
+            tmp = f32(tmp - 1.0)
+            tmp = f32(tmp * dst)
+            tmp = f32(tmp * dst)
+            tmp = f32(tmp + 1.0)
+            dst = f32(dst / tmp)
+        else:
+            tmp = f32(tmp * 0.5)
+            tmp = f32(tmp + 1.0)
+            dst = f32(dst / tmp)
+        if offset != 0.0:
+            dst = f32(dst - dc)
+        if level != 1.0:
+            dst = f32(dst * level)
+        out.append(sat(f32(dst * UNIT)))
+    return out
+
+
+class Pickup(unittest.TestCase):
+
+    def compare(self, settings, frames=128):
+        """`settings` per block: (mode, drive, offset, level)."""
+        rig = Rig(frames, ag.PICKUP, 1)
+        got, want = [], []
+        for b, (mode, drive, offset, level) in enumerate(settings):
+            block = [int(14000 * math.sin(2.0 * math.pi * (b * frames + i) / 53.0))
+                     for i in range(frames)]
+            rig.set(ag.PICKUP_MODE, mode)
+            rig.set(ag.PICKUP_DRIVE, drive)
+            rig.set(ag.PICKUP_OFFSET, offset)
+            rig.set(ag.PICKUP_LEVEL, level)
+            got += rig.run(block)
+            want += pickup_ref(block, mode, drive, offset, level)
+        return got, want
+
+    def test_matches_pickupcore_to_zero_counts(self):
+        settings = []
+        for b in range(60):
+            mode = ag.PICKUP_ELECTROSTATIC if (b // 15) % 2 else ag.PICKUP_ELECTROMAGNETIC
+            drive = 0.5 + 0.375 * (b % 7)
+            offset = ((b % 9) - 4) * 0.0625
+            level = 0.5 + 0.25 * (b % 5)
+            settings.append((mode, drive, offset, level))
+        got, want = self.compare(settings)
+        self.assertEqual(worst(got, want), 0)
+        self.assertGreater(max(abs(v) for v in got), 4000)
+
+    def test_zero_input_has_no_dc_with_nonzero_offset(self):
+        for mode in (ag.PICKUP_ELECTROMAGNETIC, ag.PICKUP_ELECTROSTATIC):
+            for offset in (-0.35, -0.1, 0.0, 0.15, 0.4):
+                rig = Rig(64, ag.PICKUP, 1)
+                rig.set(ag.PICKUP_MODE, mode)
+                rig.set(ag.PICKUP_DRIVE, 2.5)
+                rig.set(ag.PICKUP_OFFSET, offset)
+                rig.set(ag.PICKUP_LEVEL, 1.5)
+                self.assertEqual(rig.run([0] * 64), [0] * 64)
+                rig_open = Rig(64, ag.PICKUP, 1, open_=(0,))
+                rig_open.set(ag.PICKUP_MODE, mode)
+                rig_open.set(ag.PICKUP_OFFSET, offset)
+                self.assertEqual(rig_open.run(), [0] * 64)
+
+    def test_the_check_catches_a_wrong_pickup(self):
+        settings = [
+            (ag.PICKUP_ELECTROMAGNETIC, 2.25, 0.25, 1.125),
+            (ag.PICKUP_ELECTROSTATIC, 1.75, 0.2, 0.875),
+        ] * 10
+        got, _ = self.compare(settings)
+        wrong = {
+            "modes swapped": [
+                (1 - m, d, o, lv) for m, d, o, lv in settings],
+            "offset ignored": [
+                (m, d, 0.0, lv) for m, d, o, lv in settings],
+            "drive off by 5%": [
+                (m, d * 1.05, o, lv) for m, d, o, lv in settings],
+            "level off by 5%": [
+                (m, d, o, lv * 1.05) for m, d, o, lv in settings],
+        }
+        for name, bad in wrong.items():
+            want = []
+            for b, (m, d, o, lv) in enumerate(bad):
+                block = [int(14000 * math.sin(2.0 * math.pi * (b * 128 + i) / 53.0))
+                         for i in range(128)]
+                want += pickup_ref(block, m, d, o, lv)
+            self.assertGreater(worst(got, want), 100, name)

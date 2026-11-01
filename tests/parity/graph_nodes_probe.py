@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL and STRUCK, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK and PICKUP, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -12,6 +12,7 @@
     graph_nodes_probe.py --fault lpg        # one strike a block late
     graph_nodes_probe.py --fault modal      # one frequency change a block late
     graph_nodes_probe.py --fault struck     # one hardness change a block late
+    graph_nodes_probe.py --fault pickup     # one offset change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -64,7 +65,7 @@ except (ImportError, AttributeError):
     sys.exit(0)
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-          "modal", "struck")
+          "modal", "struck", "pickup")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -268,6 +269,18 @@ g.set(struck_b, ag.STRUCK_LEVEL, 0.875)
 g.set(struck_b, ag.STRUCK_SHAPE, ag.STRUCK_PLUCK)
 g.set(struck_b, ag.STRUCK_RELEASE, 0.25)
 
+# -- pickups: electromagnetic on struck_a, electrostatic on sawtooth
+pickup_em, _ = node("pickup_em", ag.PICKUP, (dict(watched)["struck_a"],))
+g.set(pickup_em, ag.PICKUP_MODE, ag.PICKUP_ELECTROMAGNETIC)
+g.set(pickup_em, ag.PICKUP_DRIVE, 2.5)
+g.set(pickup_em, ag.PICKUP_OFFSET, 0.25)
+g.set(pickup_em, ag.PICKUP_LEVEL, 1.25)
+pickup_es, _ = node("pickup_es", ag.PICKUP, (saw_b,))
+g.set(pickup_es, ag.PICKUP_MODE, ag.PICKUP_ELECTROSTATIC)
+g.set(pickup_es, ag.PICKUP_DRIVE, 1.75)
+g.set(pickup_es, ag.PICKUP_OFFSET, 0.125)
+g.set(pickup_es, ag.PICKUP_LEVEL, 0.875)
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -411,6 +424,12 @@ for b in range(BLOCKS):
     if b == 110:
         g.reset(struck_a)
 
+    # the pickup's offset steps; mode switches once
+    pick_at = b if FAULT != "pickup" or b != 52 else b - 1
+    g.set(pickup_em, ag.PICKUP_OFFSET, 0.125 * ((pick_at // 8) % 5))
+    if b == 95:
+        g.set(pickup_es, ag.PICKUP_DRIVE, 2.25)
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -469,6 +488,10 @@ for name in ("modal_a", "modal_b", "modal_c"):
 for name in ("struck_a", "struck_b"):
     check(seen[name][0] > 2000 and seen[name][2] > 500,
           "the struck bar %s renders sound" % name)
+
+for name in ("pickup_em", "pickup_es"):
+    check(seen[name][0] > 2000 and seen[name][2] > 500,
+          "the pickup %s renders sound" % name)
 
 if failures:
     for what in failures:
