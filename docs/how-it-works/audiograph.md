@@ -95,6 +95,7 @@ rather than its last block.
 | `WAVEFOLD` | audio, fold CV | `WAVEFOLD_FOLD` 0..1, `WAVEFOLD_SYMMETRY` −1..1 | a West Coast wavefolder: three sine folds crossfaded with the input by the fold, [below](#wavefold) |
 | `LPG` | audio, control, strike | `LPG_MODE` (`LPG_VCF`, `LPG_VCA`, `LPG_BOTH`), `LPG_DECAY` seconds, `LPG_MANUAL` 0..1, `LPG_LEVEL` | a vactrol low-pass gate, [below](#low-pass-gate) |
 | `MODAL` | excitation, strike | `MODAL_FREQUENCY` Hz, `MODAL_DECAY` seconds, `MODAL_BRIGHTNESS` 0..1, `MODAL_INPUT`, `MODAL_MIX` 0..1, `MODAL_RATIO` + 0..7 | a struck bank of eight modes, [below](#modal-resonator) |
+| `STRUCK` | strike, velocity | `STRUCK_FREQUENCY` Hz, `STRUCK_HARDNESS` 0..1, `STRUCK_LEVEL`, `STRUCK_SHAPE` (`STRUCK_HAMMER`, `STRUCK_PLUCK`), `STRUCK_RELEASE`; `table(node, modes)` sets up to `STRUCK_MODES` (24) `(ratio, decay, gain)` triples | a hammer/pluck exciter into a 24-mode struck bar bank, [below](#struck-bar) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -273,6 +274,26 @@ a delay.
 The bank is `audiomodal.Bank`'s own kernel, called on each block, so its modes
 match `audiomodal.Bank` sample for sample. The node retunes only when the
 frequency, decay, brightness or a ratio moves.
+
+### Struck bar
+
+`STRUCK` fuses vrack's `HammerExciter` and `StruckBarCore` (`dsp/keys.py`)
+around a 24-mode `audiomodal.Bank` kernel (`mix = 1.0`, `gain = 1/16`), for
+tine, reed, vibraphone and clavinet voices. A rising edge of the strike input
+past 0.1 resets the bank and starts an attack pulse of `STRUCK_SHAPE`
+(`STRUCK_HAMMER`, a half-sine, or `STRUCK_PLUCK`, a rising ramp) scaled by
+`STRUCK_LEVEL` (and by the velocity input in 0..`UNIT` at that sample when
+connected). A falling edge with `STRUCK_RELEASE` above 0 starts a release
+`STRUCK_PLUCK` pulse without resetting the bank, so a clavinet damper or
+key-off transient rings over the decaying modes.
+
+`STRUCK_HARDNESS` 0..1 shortens the pulse from 128 samples (at 48 kHz) to 16
+while keeping its area constant (`amp = level * (hard / length)`), clamped to a
+half-period of `STRUCK_FREQUENCY` with the same energy compensation. On
+`add()`, the node holds the 6-mode tine table at middle C; `table(node, modes)`
+replaces it with up to `STRUCK_MODES` (24) `(ratio, decay, gain)` triples (or a
+flat float array of `3 * m` floats), silencing any mode whose frequency reaches
+0.45 of the sample rate.
 
 ## Output
 

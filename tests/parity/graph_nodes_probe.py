@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG and MODAL, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL and STRUCK, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -11,6 +11,7 @@
     graph_nodes_probe.py --fault wavefold   # one symmetry change a block late
     graph_nodes_probe.py --fault lpg        # one strike a block late
     graph_nodes_probe.py --fault modal      # one frequency change a block late
+    graph_nodes_probe.py --fault struck     # one hardness change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -63,7 +64,7 @@ except (ImportError, AttributeError):
     sys.exit(0)
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-          "modal")
+          "modal", "struck")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -248,6 +249,25 @@ g.set(modal_c, ag.MODAL_MIX, 0.0)
 for m in range(8):
     g.set(modal_c, ag.MODAL_RATIO + m, 0.0)
 
+# -- struck bars: default tine hammer with velocity, reed table with release pluck
+vel_b = g.buffer()
+struck_a, _ = node("struck_a", ag.STRUCK, (strike_b, vel_b))
+g.set(struck_a, ag.STRUCK_FREQUENCY, 330.0)
+g.set(struck_a, ag.STRUCK_HARDNESS, 0.625)
+g.set(struck_a, ag.STRUCK_LEVEL, 0.75)
+struck_b, _ = node("struck_b", ag.STRUCK, (modal_strike_b,))
+g.table(struck_b, (
+    (1.0, 1.25, 1.0),
+    (2.75, 0.5, 0.375),
+    (5.375, 0.125, 0.25),
+    (8.5, 0.0625, 0.125),
+))
+g.set(struck_b, ag.STRUCK_FREQUENCY, 220.0)
+g.set(struck_b, ag.STRUCK_HARDNESS, 0.375)
+g.set(struck_b, ag.STRUCK_LEVEL, 0.875)
+g.set(struck_b, ag.STRUCK_SHAPE, ag.STRUCK_PLUCK)
+g.set(struck_b, ag.STRUCK_RELEASE, 0.25)
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -262,6 +282,7 @@ cv = array("h", bytes(2 * FRAMES))
 last_cv = array("h", bytes(2 * FRAMES))
 strike = array("h", bytes(2 * FRAMES))
 modal_strike = array("h", bytes(2 * FRAMES))
+vel = array("h", bytes(2 * FRAMES))
 moved = False
 pan_sides_differ = False
 left_block = None
@@ -380,6 +401,16 @@ for b in range(BLOCKS):
         modal_strike[i] = UNIT if (b % 7 == 3 and (i // 16) % 2 == 1) else 0
     g.write(modal_strike_b, modal_strike)
 
+    # the struck bar's velocity and hardness step; one reset mid-render
+    hard_at = b if FAULT != "struck" or b != 40 else b - 1
+    g.set(struck_a, ag.STRUCK_HARDNESS, 0.25 + 0.125 * ((hard_at // 20) % 5))
+    v_val = (UNIT // 4) * (1 + (b // 20) % 4)
+    for i in range(FRAMES):
+        vel[i] = v_val
+    g.write(vel_b, vel)
+    if b == 110:
+        g.reset(struck_a)
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -434,6 +465,10 @@ for name in ("lpg_a", "lpg_b", "lpg_c"):
 for name in ("modal_a", "modal_b", "modal_c"):
     check(seen[name][0] > 2000 and seen[name][2] > 1000,
           "the modal resonator %s renders sound" % name)
+
+for name in ("struck_a", "struck_b"):
+    check(seen[name][0] > 2000 and seen[name][2] > 500,
+          "the struck bar %s renders sound" % name)
 
 if failures:
     for what in failures:

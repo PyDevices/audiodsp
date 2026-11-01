@@ -1660,3 +1660,325 @@ class Modal(unittest.TestCase):
                                      settings=[(330.0, 1.0, 0.6, 0.05, 1.0, MODAL_BAR)]
                                      * blocks)
             self.assertLessEqual(worst(got, want), 1, frames)
+
+
+# ------------------------------------------------------------------ STRUCK --
+
+STRUCK_TINE_C4 = (
+    (1.0, 1.6, 1.0),
+    (2.0, 0.55, 0.14),
+    (4.0, 0.09, 0.20),
+    (6.27, 0.07, 0.30),
+    (10.7, 0.025, 0.12),
+    (15.8, 0.012, 0.05),
+)
+
+STRUCK_REED_C4 = (
+    (1.0, 1.4, 1.0),
+    (2.756, 0.50, 0.32),
+    (5.404, 0.18, 0.22),
+    (8.933, 0.07, 0.10),
+    (13.34, 0.030, 0.045),
+    (18.64, 0.014, 0.020),
+)
+
+STRUCK_CLAVI_C4 = (
+    (1.0, 0.90, 1.00),
+    (2.001, 0.70, 0.72),
+    (3.003, 0.52, 0.52),
+    (4.006, 0.40, 0.40),
+    (5.011, 0.30, 0.30),
+    (6.018, 0.23, 0.23),
+    (7.026, 0.17, 0.17),
+    (8.036, 0.13, 0.13),
+)
+
+
+class StruckRef:
+    """vrack's `HammerExciter` and `StruckBarCore` (`dsp/keys.py`): the hammer
+    or pluck pulse rendered in float32 as numpy runs it, cast to int16 by the
+    bridge's rounding, and processed by a 24-mode `audiomodal.Bank` (`mix=1.0`,
+    `gain=0.0625`)."""
+
+    def __init__(self, frames, table=STRUCK_TINE_C4):
+        self.frames = frames
+        self.high = False
+        self.pulse_len = 0
+        self.pulse_pos = 0
+        self.pulse_amp = 0.0
+        self.pulse_active = False
+        self.pulse_shape = ag.STRUCK_HAMMER
+        self.bank = audiomodal.Bank(sample_rate=RATE, modes=24, channel_count=1,
+                                    mix=1.0, gain=0.0625)
+        self.table = tuple((f32(r), f32(d), f32(g)) for r, d, g in table)
+        self.tuned_f0 = None
+
+    def set_table(self, table):
+        self.table = tuple((f32(r), f32(d), f32(g)) for r, d, g in table)
+        self.tuned_f0 = None
+
+    def tune(self, f0):
+        f0 = max(20.0, f32(f0))
+        nyq = RATE * 0.45
+        used = min(len(self.table), 24)
+        for i in range(used):
+            ratio, decay, gain = self.table[i]
+            freq = f0 * ratio
+            if freq >= nyq:
+                freq = nyq
+                gain = 0.0
+            self.bank.set_mode(i, freq, max(0.001, decay), gain)
+        for i in range(used, 24):
+            self.bank.set_mode(i, f0, 0.001, 0.0)
+        self.bank._state.finish()
+
+    def _start_pulse(self, hardness, level, f0, shape):
+        h = min(1.0, max(0.0, float(hardness)))
+        scale = RATE / 48000.0
+        soft = 128.0 * scale
+        hard = 16.0 * scale
+        length = soft * (2.0 ** (-3.0 * h))
+        amp = float(level) * (hard / length)
+        if f0 > 0.0:
+            limit = 0.5 * (RATE / max(1.0, float(f0)))
+            if length > limit:
+                amp *= length / limit
+                length = limit
+        n = max(4, round(length))
+        self.pulse_len = n
+        self.pulse_pos = 0
+        self.pulse_amp = f32(amp)
+        self.pulse_active = True
+        self.pulse_shape = shape
+
+    def _render_pulse(self, dst, start, end):
+        if not self.pulse_active or start >= end:
+            return
+        rem = self.pulse_len - self.pulse_pos
+        span = end - start
+        k = rem if rem < span else span
+        if k <= 0:
+            self.pulse_active = False
+            return
+        pos = self.pulse_pos
+        n = self.pulse_len
+        amp = self.pulse_amp
+        if self.pulse_shape == ag.STRUCK_PLUCK:
+            step = f32(1.0 / n)
+            for j in range(k):
+                t = f32(pos + j)
+                t = f32(t * step)
+                t = f32(t * amp)
+                dst[start + j] = f32(dst[start + j] + t)
+        else:
+            step = f32(math.pi / n)
+            for j in range(k):
+                t = f32(pos + j)
+                t = f32(t * step)
+                t = f32(math.sin(t))
+                t = f32(t * amp)
+                dst[start + j] = f32(dst[start + j] + t)
+        self.pulse_pos += k
+        if self.pulse_pos >= self.pulse_len:
+            self.pulse_active = False
+
+    def render(self, strike, vel, f0, hardness, level, shape, release):
+        f0 = f32(f0)
+        hardness = f32(hardness)
+        level = f32(level)
+        release = f32(release)
+        eff_f0 = max(20.0, f0)
+        if self.tuned_f0 != eff_f0:
+            self.tuned_f0 = eff_f0
+            self.tune(eff_f0)
+
+        n = self.frames
+        dst = [0.0] * n
+        rising = -1
+        falling = -1
+        if strike is not None:
+            high = self.high
+            for i in range(n):
+                now = strike[i] / UNIT > 0.1
+                if now and not high and rising < 0:
+                    rising = i
+                elif not now and high and falling < 0:
+                    falling = i
+                high = now
+            self.high = high
+
+        def vel_at(idx):
+            if vel is None or idx < 0:
+                return 1.0
+            return min(1.0, max(0.0, f32(vel[idx] / UNIT)))
+
+        if rising >= 0:
+            self.bank.clear()
+            self.pulse_active = False
+            lv = f32(level * vel_at(rising))
+            if lv > 0.0:
+                self._start_pulse(hardness, lv, f0, shape)
+            rv = f32(release * vel_at(falling))
+            if falling > rising and rv > 0.0:
+                self._render_pulse(dst, rising, falling)
+                self._start_pulse(hardness, rv, f0, ag.STRUCK_PLUCK)
+                self._render_pulse(dst, falling, n)
+            else:
+                self._render_pulse(dst, rising, n)
+        elif falling >= 0:
+            rv = f32(release * vel_at(falling))
+            if rv > 0.0:
+                self._render_pulse(dst, 0, falling)
+                self._start_pulse(hardness, rv, f0, ag.STRUCK_PLUCK)
+                self._render_pulse(dst, falling, n)
+            else:
+                self._render_pulse(dst, 0, n)
+        else:
+            self._render_pulse(dst, 0, n)
+
+        exc = array("h", (
+            int(max(-32768.0, min(32767.0, v * UNIT)) + 0.5)
+            if v >= 0.0 else
+            -int(max(-32768.0, min(32767.0, -v * UNIT)) + 0.5)
+            for v in dst
+        ))
+        self.bank._state.finish()
+        return list(array("h", self.bank._state.process(bytes(exc))))
+
+
+class Struck(unittest.TestCase):
+
+    def compare(self, blocks, frames=128, strike=None, vel=None,
+                settings=None, table=None):
+        """`settings` per block: (f0, hardness, level, shape, release)."""
+        rig = Rig(frames, ag.STRUCK, 2,
+                  open_=((0,) if strike is None else ())
+                  + ((1,) if vel is None else ()))
+        ref = StruckRef(frames, table=table or STRUCK_TINE_C4)
+        if table is not None:
+            rig.g.table(rig.node, table)
+        got, want = [], []
+        for b in range(blocks):
+            f0, hardness, level, shape, release = settings[b]
+            rig.set(ag.STRUCK_FREQUENCY, f0)
+            rig.set(ag.STRUCK_HARDNESS, hardness)
+            rig.set(ag.STRUCK_LEVEL, level)
+            rig.set(ag.STRUCK_SHAPE, shape)
+            rig.set(ag.STRUCK_RELEASE, release)
+            s = strike[b] if strike is not None else None
+            v = vel[b] if vel is not None else None
+            got += rig.run(s, v)
+            want += ref.render(s, v, f0, hardness, level, shape, release)
+        return got, want
+
+    def test_matches_hammerexciter_and_struckbarcore(self):
+        frames, blocks = 128, 80
+        strikes = modal_strikes(frames, blocks, every=25, width=6)
+        for table, f0, hardness, level, shape, release in (
+            (None, 261.6256, 0.5, 0.8, ag.STRUCK_HAMMER, 0.0),
+            (STRUCK_REED_C4, 220.0, 0.75, 0.9, ag.STRUCK_HAMMER, 0.0),
+            (STRUCK_CLAVI_C4, 330.0, 0.65, 0.85, ag.STRUCK_PLUCK, 0.25),
+            (STRUCK_TINE_C4, 1760.0, 0.2, 0.7, ag.STRUCK_HAMMER, 0.15),
+        ):
+            got, want = self.compare(
+                blocks, frames=frames, strike=strikes, table=table,
+                settings=[(f0, hardness, level, shape, release)] * blocks,
+            )
+            self.assertLessEqual(worst(got, want), 1, (f0, hardness, shape))
+            self.assertGreater(max(abs(v) for v in got), 800, (f0, hardness))
+
+    def test_velocity_and_mid_block_release_pluck(self):
+        frames, blocks = 128, 30
+        strike = [[0] * frames for _ in range(blocks)]
+        # Block 1: rising at sample 12, falling at sample 96 in the same block.
+        for i in range(12, 96):
+            strike[1][i] = UNIT
+        # Block 10: rising at sample 20, held until block 12 sample 40.
+        for i in range(20, frames):
+            strike[10][i] = UNIT
+        strike[11] = [UNIT] * frames
+        for i in range(0, 40):
+            strike[12][i] = UNIT
+        vel = [[int(UNIT * (0.35 + 0.5 * ((b + i) % 5) / 4.0))
+                for i in range(frames)] for b in range(blocks)]
+        settings = [(293.66, 0.55, 0.9, ag.STRUCK_HAMMER, 0.3)] * blocks
+        got, want = self.compare(blocks, frames=frames, strike=strike, vel=vel,
+                                 settings=settings, table=STRUCK_CLAVI_C4)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(max(abs(v) for v in got), 500)
+
+    def test_table_accepts_float_buffer_and_sequences_and_carries(self):
+        frames = 128
+        flat = array("f", [r for mode in STRUCK_REED_C4 for r in mode])
+        g1 = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                      buffers=8, nodes=8)
+        sb1, out1 = g1.buffer(), g1.buffer()
+        n1 = g1.add(ag.STRUCK, ag.ALWAYS, (sb1,), out1)
+        g1.table(n1, flat)
+
+        g2 = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                      buffers=8, nodes=8)
+        sb2, out2 = g2.buffer(), g2.buffer()
+        n2 = g2.add(ag.STRUCK, ag.ALWAYS, (sb2,), out2)
+        g2.table(n2, STRUCK_REED_C4)
+
+        trig = array("h", [UNIT] * frames)
+        zero = array("h", [0] * frames)
+        b1 = array("h", bytes(2 * frames))
+        b2 = array("h", bytes(2 * frames))
+        g1.write(sb1, trig)
+        g2.write(sb2, trig)
+        g1.run(None)
+        g2.run(None)
+        g1.read(out1, b1)
+        g2.read(out2, b2)
+        self.assertEqual(list(b1), list(b2))
+
+        # Carry into a fresh graph with no table of its own: keeps reed modes.
+        g3 = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                      buffers=8, nodes=8)
+        sb3, out3 = g3.buffer(), g3.buffer()
+        n3 = g3.add(ag.STRUCK, ag.ALWAYS, (sb3,), out3)
+        g3.carry(n3, g1, n1)
+        g1.write(sb1, zero)
+        g3.write(sb3, zero)
+        g1.run(None)
+        g3.run(None)
+        g1.read(out1, b1)
+        g3.read(out3, b2)
+        self.assertEqual(list(b1), list(b2))
+
+    def test_unstruck_is_silence_and_reset_clears_state(self):
+        frames, blocks = 128, 20
+        got, _ = self.compare(
+            blocks, frames=frames,
+            settings=[(440.0, 0.5, 0.8, ag.STRUCK_HAMMER, 0.0)] * blocks,
+        )
+        self.assertEqual(set(got), {0})
+        rig = Rig(frames, ag.STRUCK, 1)
+        self.assertNotEqual(set(rig.run([UNIT] * frames)), {0})
+        rig.g.reset(rig.node)
+        self.assertEqual(set(rig.run([0] * frames)), {0})
+
+    def test_the_check_catches_a_wrong_struck(self):
+        frames, blocks = 128, 40
+        strikes = modal_strikes(frames, blocks, every=15, width=4)
+        settings = [(330.0, 0.6, 0.85, ag.STRUCK_HAMMER, 0.25)] * blocks
+        got, _ = self.compare(blocks, frames=frames, strike=strikes,
+                              settings=settings, table=STRUCK_CLAVI_C4)
+        wrong = {
+            "pluck instead of hammer": [
+                (330.0, 0.6, 0.85, ag.STRUCK_PLUCK, 0.25)] * blocks,
+            "missing release pluck": [
+                (330.0, 0.6, 0.85, ag.STRUCK_HAMMER, 0.0)] * blocks,
+            "hardness off": [
+                (330.0, 0.2, 0.85, ag.STRUCK_HAMMER, 0.25)] * blocks,
+            "frequency off by 2%": [
+                (330.0 * 1.02, 0.6, 0.85, ag.STRUCK_HAMMER, 0.25)] * blocks,
+        }
+        for name, bad_settings in wrong.items():
+            ref = StruckRef(frames, table=STRUCK_CLAVI_C4)
+            want = []
+            for b in range(blocks):
+                want += ref.render(strikes[b], None, *bad_settings[b])
+            self.assertGreater(worst(got, want), 10, name)

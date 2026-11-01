@@ -177,6 +177,17 @@ typedef enum {
     // dsp/modal.py ModalResonatorCore and its Exciter, without the bridge's
     // 256 frames of latency.
     AUDIODSP_GRAPH_MODAL,
+    // inputs: strike, velocity. params: frequency, hardness, level, shape,
+    // release, clear. table(): up to 64 (ratio, decay, gain) triples (24 when
+    // built with `arg` 0). A struck bar, tine, reed or string: HammerExciter
+    // and StruckBarCore from audioinstruments' dsp/keys.py over
+    // audiomodal.Bank's kernel at a bank gain of 1/16, without the bridge's
+    // 256 frames of latency. A rising edge of the strike above 0.1 clears the
+    // bank (when clear >= 0.5) and starts a half-sine hammer or a rising-ramp
+    // pluck pulse of 128 * (rate / 48000) * 0.125^hardness samples (held to
+    // half a period of the fundamental); when release > 0, a falling edge adds
+    // a pluck pulse at that level without clearing the ring.
+    AUDIODSP_GRAPH_STRUCK,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -323,6 +334,29 @@ enum {
 
 //: Modes in one MODAL node.
 #define AUDIODSP_GRAPH_MODAL_MODES 8u
+
+enum {
+    // Hz of the fundamental before each mode's ratio; held to >= 20 Hz, and
+    // each mode at or above 0.45 * rate is silenced.
+    AUDIODSP_GRAPH_STRUCK_FREQUENCY = 0,
+    // 0..1: hammer hardness; the pulse is 128 * (rate / 48000) * 0.125^h
+    // samples long, held to half a period of the fundamental.
+    AUDIODSP_GRAPH_STRUCK_HARDNESS,
+    // The strike's level on a rising edge of the gate, in units of 1.0.
+    AUDIODSP_GRAPH_STRUCK_LEVEL,
+    // 0 hammer (half-sine), 1 pluck (rising ramp).
+    AUDIODSP_GRAPH_STRUCK_SHAPE,
+    // A release pluck's level on a falling edge of the gate; 0 for none.
+    AUDIODSP_GRAPH_STRUCK_RELEASE,
+};
+
+enum {
+    AUDIODSP_GRAPH_STRUCK_HAMMER = 0,
+    AUDIODSP_GRAPH_STRUCK_PLUCK = 1,
+};
+
+//: Modes in one STRUCK node.
+#define AUDIODSP_GRAPH_STRUCK_MODES 24u
 
 enum {
     AUDIODSP_GRAPH_MIX_OFFSET = 8,
@@ -496,6 +530,11 @@ bool audiodsp_graph_get(const audiodsp_graph_t *graph, uint32_t node,
 // The feedback delay's wow table; borrowed, as the kernel borrows it.
 bool audiodsp_graph_set_table(audiodsp_graph_t *graph, uint32_t node,
     const int16_t *table, uint32_t length);
+
+// A STRUCK node's mode table: `modes` triples of (ratio, decay, gain), up to
+// AUDIODSP_GRAPH_STRUCK_MODES, copied into the node.
+bool audiodsp_graph_set_struck_table(audiodsp_graph_t *graph, uint32_t node,
+    const float *table, uint32_t modes);
 
 // Clears a node's running state (the kernel's reset).
 bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node);
