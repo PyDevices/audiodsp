@@ -251,24 +251,21 @@ g.set(modal_c, ag.MODAL_MIX, 0.0)
 for m in range(8):
     g.set(modal_c, ag.MODAL_RATIO + m, 0.0)
 
-# -- struck bars: default tine hammer with velocity, reed table with release pluck
+# -- struck bars: default tine hammer with velocity, 24-mode pluck
 vel_b = g.buffer()
 struck_a, _ = node("struck_a", ag.STRUCK, (strike_b, vel_b))
 g.set(struck_a, ag.STRUCK_FREQUENCY, 330.0)
 g.set(struck_a, ag.STRUCK_HARDNESS, 0.625)
 g.set(struck_a, ag.STRUCK_LEVEL, 0.75)
 struck_b, _ = node("struck_b", ag.STRUCK, (modal_strike_b,))
-g.table(struck_b, (
-    (1.0, 1.25, 1.0),
-    (2.75, 0.5, 0.375),
-    (5.375, 0.125, 0.25),
-    (8.5, 0.0625, 0.125),
+g.table(struck_b, tuple(
+    (float(k), 1.0 / (1 << min(k, 4)), 1.0 / (1 << min(k, 3)))
+    for k in range(1, 25)
 ))
 g.set(struck_b, ag.STRUCK_FREQUENCY, 220.0)
 g.set(struck_b, ag.STRUCK_HARDNESS, 0.375)
 g.set(struck_b, ag.STRUCK_LEVEL, 0.875)
 g.set(struck_b, ag.STRUCK_SHAPE, ag.STRUCK_PLUCK)
-g.set(struck_b, ag.STRUCK_RELEASE, 0.25)
 
 # -- pickups: electromagnetic on struck_a, electrostatic on sawtooth
 pickup_em, _ = node("pickup_em", ag.PICKUP, (dict(watched)["struck_a"],))
