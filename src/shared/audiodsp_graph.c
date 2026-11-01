@@ -233,11 +233,13 @@ typedef struct {
     float level;
     float velocity;
     uint32_t sample;
+    // The subtracted rise envelope's level (DECAY_RISE); 0 when unused.
+    float rise;
     // The trigger was above the threshold at the end of the last block, and
     // the envelope is still sounding.
     bool high;
     bool ringing;
-    // The burst table: `strikes` pairs of (delay s, level).
+    // The burst table: `strikes` pairs of (delay s, level), in delay order.
     float table[AUDIODSP_GRAPH_DECAY_STRIKES * 2];
     uint32_t strikes;
     bool has_table;
@@ -563,17 +565,23 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_TREMOLO_MODE] = (float)AUDIODSP_GRAPH_TREMOLO_PAN;
             break;
         case AUDIODSP_GRAPH_DECAY: {
-            // OneShotEnvelopeCore's defaults: a 200 ms one-shot, no burst.
+            // OneShotEnvelopeCore's defaults: a 200 ms one-shot, no burst,
+            // no attack ramp, no fast stage and no subtracted rise.
             graph_decay_t *d = data;
             d->level = 0.0f;
             d->velocity = 1.0f;
             d->sample = 0u;
+            d->rise = 0.0f;
             d->high = false;
             d->ringing = false;
             d->strikes = 0u;
             d->has_table = false;
             node->param[AUDIODSP_GRAPH_DECAY_DECAY] = 0.2f;
             node->param[AUDIODSP_GRAPH_DECAY_RESTRIKE] = 0.01f;
+            node->param[AUDIODSP_GRAPH_DECAY_ATTACK] = 0.0f;
+            node->param[AUDIODSP_GRAPH_DECAY_FAST] = 0.0f;
+            node->param[AUDIODSP_GRAPH_DECAY_FAST_SEC] = 0.0f;
+            node->param[AUDIODSP_GRAPH_DECAY_RISE] = 0.0f;
             break;
         }
         case AUDIODSP_GRAPH_PINK: {
@@ -930,6 +938,7 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             d->level = 0.0f;
             d->velocity = 1.0f;
             d->sample = 0u;
+            d->rise = 0.0f;
             d->high = false;
             d->ringing = false;
             break;
@@ -2609,12 +2618,18 @@ static void run_tremolo(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
 
 // --------------------------------------------------------------- DECAY --
 //
-// vrack's dsp/drums.py OneShotEnvelopeCore, and the burst envelopes inside
-// HandClapCore, JingleCore and GuiroCore. A rising edge of the trigger starts
-// a one-shot exponential decay at the velocity; a burst table re-strikes it.
+// vrack's dsp/drums.py OneShotEnvelopeCore, the burst envelopes inside
+// HandClapCore, JingleCore and GuiroCore, CowbellCore's two-stage decay,
+// MaracasCore's linear attack and the amp-minus-rise strike of
+// BridgedTDrumCore and SweptOscillatorDrumCore. A rising edge of the trigger
+// starts the envelope at the velocity; a burst table re-strikes it. Only the
+// first rising edge in a block retriggers, as EdgeDetector reports one.
 
 #define DECAY_THRESHOLD (0.1f * AUDIODSP_GRAPH_UNIT)
 #define DECAY_SILENT 1e-4f
+// CowbellCore drops a two-stage envelope at 2e-4, a count above where the
+// one-shot cores stop.
+#define DECAY_SILENT_FAST 2e-4f
 
 // The rack's exp(-4.60517 / (sr * seconds)): a fall of 40 dB over `seconds`,
 // which is exp(-1 / (sr * seconds / 4.60517)).
@@ -2654,9 +2669,42 @@ static void run_decay(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     if (!(restrike_sec >= 0.001f)) {
         restrike_sec = 0.001f;
     }
+    float attack_sec = n->param[AUDIODSP_GRAPH_DECAY_ATTACK];
+    if (!(attack_sec > 0.0f)) {
+        attack_sec = 0.0f;
+    }
+    float fast_sec = n->param[AUDIODSP_GRAPH_DECAY_FAST];
+    if (!(fast_sec > 0.0f)) {
+        fast_sec = 0.0f;
+    }
+    float fast_len = n->param[AUDIODSP_GRAPH_DECAY_FAST_SEC];
+    if (!(fast_len > 0.0f)) {
+        fast_len = 0.0f;
+    }
+    float rise_sec = n->param[AUDIODSP_GRAPH_DECAY_RISE];
+    if (!(rise_sec > 0.0f)) {
+        rise_sec = 0.0f;
+    }
     const uint32_t rate = graph->sample_rate;
     const float d_tail = decay_coeff(decay_sec, rate);
     const float d_burst = decay_coeff(restrike_sec, rate);
+    // MaracasCore's attack_n = int(0.008 * sr); CowbellCore's fast_end is
+    // int(0.015 * sr) counted from the trigger.
+    uint32_t attack_n = 0u;
+    if (attack_sec > 0.0f) {
+        const float n_atk = attack_sec * (float)rate;
+        attack_n = n_atk >= 1.0f ? (uint32_t)n_atk : 1u;
+    }
+    uint32_t fast_n = 0u;
+    float d_fast = d_tail;
+    if (fast_sec > 0.0f && fast_len > 0.0f) {
+        const float n_fast = fast_len * (float)rate;
+        fast_n = n_fast >= 1.0f ? (uint32_t)n_fast : 1u;
+        d_fast = decay_coeff(fast_sec, rate);
+    }
+    const bool use_rise = rise_sec > 0.0f;
+    const float d_rise = use_rise ? decay_coeff(rise_sec, rate) : 0.0f;
+    const float silent = fast_n > 0u ? DECAY_SILENT_FAST : DECAY_SILENT;
 
     // The first rising edge of the trigger this block, as MODAL finds it.
     int32_t rising = -1;
@@ -2673,16 +2721,22 @@ static void run_decay(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     }
 
     float level = d->level;
+    float rise = d->rise;
     float velocity = d->velocity;
     uint32_t sample = d->sample;
     bool ringing = d->ringing;
     const bool burst = d->has_table && d->strikes > 0u;
     const uint32_t strikes = burst ? d->strikes : 0u;
-    // Where each spike sits, counted from the trigger's sample.
+    // Where each spike sits, counted from the trigger's sample, and which one
+    // comes next. The table is in delay order, as the rack keeps it.
     uint32_t spike_at[AUDIODSP_GRAPH_DECAY_STRIKES];
+    uint32_t next_spike = 0u;
     if (burst) {
         for (uint32_t s = 0; s < strikes; ++s) {
             spike_at[s] = decay_spike(d->table[s * 2u], rate);
+        }
+        while (next_spike < strikes && spike_at[next_spike] < sample) {
+            ++next_spike;
         }
     }
 
@@ -2693,69 +2747,68 @@ static void run_decay(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
                 ? (float)vel[i] * (1.0f / AUDIODSP_GRAPH_UNIT) : 1.0f;
             sample = 0u;
             ringing = true;
-            level = velocity;
-            rising = -1;
-            if (burst) {
-                // The first spike's level, when it sits on the trigger's own
-                // sample, as HandClapCore writes it; otherwise the trigger's
-                // level decays until the first spike.
-                if (spike_at[0] == 0u) {
-                    level = velocity * d->table[1];
-                    out[i] = sat16(level * AUDIODSP_GRAPH_UNIT);
-                    sample = 1u;
-                    continue;
-                }
+            rise = use_rise && !burst ? velocity : 0.0f;
+            next_spike = 0u;
+            // linear_segment starts at -v/n so the first ramp sample is 0;
+            // exp_segment starts at the velocity and writes v * coeff first.
+            if (attack_n > 0u && !burst) {
+                level = -velocity / (float)attack_n;
             } else {
-                // OneShotEnvelopeCore's exp_segment writes start * coeff first,
-                // never the trigger level itself.
-                level *= d_tail;
-                out[i] = sat16(level * AUDIODSP_GRAPH_UNIT);
-                sample = 1u;
-                continue;
+                level = velocity;
             }
+            rising = -1;
         }
         if (!ringing) {
             out[i] = 0;
             continue;
         }
+        float written;
         if (burst) {
-            // A spike this sample replaces the level and writes it.
-            uint32_t which = strikes;
-            for (uint32_t s = 0; s < strikes; ++s) {
-                if (spike_at[s] == sample) {
-                    which = s;
-                    break;
-                }
+            if (next_spike < strikes && spike_at[next_spike] == sample) {
+                // A spike this sample replaces the level and writes it.
+                level = velocity * d->table[next_spike * 2u + 1u];
+                written = level;
+                ++next_spike;
+            } else {
+                // Between spikes the level falls to -40 dB over the re-strike
+                // time; after the last spike, over the decay time.
+                const bool past = next_spike >= strikes;
+                level *= past ? d_tail : d_burst;
+                written = level;
             }
-            if (which < strikes) {
-                level = velocity * d->table[which * 2u + 1u];
-                out[i] = sat16(level * AUDIODSP_GRAPH_UNIT);
-                ++sample;
-                continue;
-            }
-            // Between spikes the level falls to -40 dB over the re-strike
-            // time; after the last spike, over the decay time.
-            const bool past = strikes == 0u || sample > spike_at[strikes - 1u];
-            level *= past ? d_tail : d_burst;
-            out[i] = sat16(level * AUDIODSP_GRAPH_UNIT);
             ++sample;
-            if (past && level < DECAY_SILENT) {
-                level = 0.0f;
-                ringing = false;
-                sample = 0u;
-            }
+        } else if (attack_n > 0u && sample < attack_n) {
+            // linear_segment: start + slope * (k + 1), slope = v / attack_n.
+            level += velocity / (float)attack_n;
+            written = level;
+            ++sample;
         } else {
-            level *= d_tail;
-            out[i] = sat16(level * AUDIODSP_GRAPH_UNIT);
+            const uint32_t decay_from = attack_n + fast_n;
+            level *= (fast_n > 0u && sample < decay_from) ? d_fast : d_tail;
+            written = level;
             ++sample;
-            if (level < DECAY_SILENT) {
-                level = 0.0f;
-                ringing = false;
-                sample = 0u;
-            }
+        }
+        if (use_rise && !burst) {
+            rise *= d_rise;
+            written -= rise;
+        }
+        out[i] = sat16(written * AUDIODSP_GRAPH_UNIT);
+    }
+    // The rack cores check silence once per block, after the block is written
+    // (OneShotEnvelopeCore at 1e-4, CowbellCore at 2e-4 past the fast stage).
+    // Stopping mid-block would leave their last few samples off the wire.
+    if (ringing) {
+        const bool past = !burst || next_spike >= strikes;
+        const bool past_stage = burst ? past : (sample >= attack_n + fast_n);
+        if (past_stage && level < silent && (!use_rise || rise < silent)) {
+            level = 0.0f;
+            rise = 0.0f;
+            ringing = false;
+            sample = 0u;
         }
     }
     d->level = level;
+    d->rise = rise;
     d->velocity = velocity;
     d->sample = sample;
     d->ringing = ringing;
@@ -2815,8 +2868,9 @@ static void run_crush(const audiodsp_graph_t *graph,
         ? graph->bufs[n->inputs[0]] : NULL;
     const float bits_f = n->param[AUDIODSP_GRAPH_CRUSH_BITS];
     // BitDepthRateCore takes int(bits) and holds it to 1..15; 16 and up pass
-    // the audio through unquantised.
-    if (bits_f >= 16.0f) {
+    // the audio through unquantised. A NaN bits is a pass-through too, so a
+    // bad CV cannot turn into an out-of-range shift.
+    if (!(bits_f < 16.0f)) {
         for (uint32_t i = 0; i < frames; ++i) {
             out[i] = in != NULL ? in[i] : 0;
         }

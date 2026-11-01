@@ -98,7 +98,7 @@ rather than its last block.
 | `STRUCK` | strike, velocity | `STRUCK_FREQUENCY` Hz, `STRUCK_HARDNESS` 0..1, `STRUCK_LEVEL`, `STRUCK_SHAPE` (`STRUCK_HAMMER`, `STRUCK_PLUCK`); `table(node, modes)` sets up to `STRUCK_MODES` (24) `(ratio, decay, gain)` triples | a hammer/pluck exciter into a 24-mode struck bar bank, [below](#struck-bar) |
 | `PICKUP` | audio | `PICKUP_MODE` (`PICKUP_ELECTROMAGNETIC`, `PICKUP_ELECTROSTATIC`), `PICKUP_DRIVE`, `PICKUP_OFFSET`, `PICKUP_LEVEL` | electromagnetic or electrostatic pickup nonlinearity with DC removal, [below](#pickup) |
 | `TREMOLO` | audio, rate CV, depth CV | `TREMOLO_RATE` Hz, `TREMOLO_DEPTH` 0..1, `TREMOLO_MODE` (`TREMOLO_PAN`, `TREMOLO_AMPLITUDE`); built with `arg` = the right side's buffer | stereo auto-pan or mono amplitude tremolo into `(output, arg)`, [below](#tremolo) |
-| `DECAY` | trigger, velocity | `DECAY_DECAY` seconds to −40 dB, `DECAY_RESTRIKE` seconds to −40 dB; `table(node, strikes)` sets up to `DECAY_STRIKES` (16) `(delay s, level)` pairs | a one-shot exponential envelope, or a burst of re-strikes, [below](#decay) |
+| `DECAY` | trigger, velocity | `DECAY_DECAY`, `DECAY_RESTRIKE`, `DECAY_ATTACK`, `DECAY_FAST`, `DECAY_FAST_SEC`, `DECAY_RISE` in seconds; `table(node, strikes)` sets up to `DECAY_STRIKES` (16) `(delay s, level)` pairs | a one-shot exponential envelope, a burst of re-strikes, or the two-stage, soft-attack and rise shapes the rack drums use, [below](#decay) |
 | `PINK` | white | `PINK_LEVEL` | pink noise: Paul Kellet's pinking filter on the white input, [below](#pink) |
 | `CRUSH` | audio | `CRUSH_BITS` 1..15 | the audio rounded to that many bits, [below](#crush) |
 
@@ -339,14 +339,31 @@ sample can land a count from the rack's.
 ### Decay
 
 `DECAY` is the one-shot envelope inside vrack's `OneShotEnvelopeCore`
-(`dsp/drums.py`), and the burst envelopes inside its `HandClapCore`,
-`JingleCore` and `GuiroCore`. A rising edge on the trigger input (0 to above
-0.1 of `UNIT`) starts the envelope at the velocity input at that sample, or
-1.0 when the velocity input is open. Without a table the envelope falls by
-`DECAY_DECAY` seconds to −40 dB — `level · exp(−4.60517 · sample /
-(sample_rate · DECAY_DECAY))` — writing `level · coeff` at the rising sample
-and never the step itself, as `exp_segment` does. A retrigger replaces the
-envelope rather than adding to it.
+(`dsp/drums.py`), the burst envelopes inside its `HandClapCore`, `JingleCore`
+and `GuiroCore`, and the two-stage, soft-attack and rise shapes inside its
+`CowbellCore`, `MaracasCore`, `BridgedTDrumCore` and
+`SweptOscillatorDrumCore`. A rising edge on the trigger input (0 to above 0.1
+of `UNIT`) starts the envelope at the velocity input at that sample, or 1.0
+when the velocity input is open. Only the first rising edge in a block
+retriggers, as `EdgeDetector` reports one; a second pulse in the same block is
+folded away. A retrigger replaces the envelope rather than adding to it.
+
+Without a table the envelope falls by `DECAY_DECAY` seconds to −40 dB —
+`level · exp(−4.60517 · sample / (sample_rate · DECAY_DECAY))` — writing
+`level · coeff` at the rising sample and never the step itself, as
+`exp_segment` does. Three optional stages reshape that fall:
+
+- `DECAY_ATTACK` seconds of linear ramp from 0 up to the velocity before the
+  fall begins, as `MaracasCore` softens its strike. The ramp writes
+  `velocity · sample / attack_n`, so the first sample is 0.
+- `DECAY_FAST` seconds to −40 dB for the first `DECAY_FAST_SEC` seconds after
+  the trigger, then `DECAY_DECAY` for the rest, as `CowbellCore` knocks and
+  then rings. Silence is then taken at 2e-4, where the core takes it.
+- `DECAY_RISE` seconds to −40 dB of a second envelope starting at the velocity
+  and subtracted from the first, as `BridgedTDrumCore` and
+  `SweptOscillatorDrumCore` let a 1 ms rise bite into the strike. The two
+  share the velocity, so the first sample is
+  `velocity · (d_decay − d_rise)`.
 
 With a table, the node plays the bursts the three rack cores play: a spike of
 `velocity · level` at each strike's sample, a fall of `DECAY_RESTRIKE` seconds
@@ -354,9 +371,10 @@ to −40 dB between spikes and `DECAY_DECAY` after the last. Strike times are
 `round(delay · sample_rate)` samples from the rising sample, so a clap of
 `((0, 0.75), (0.0105, 0.75), (0.021, 0.75), (0.0315, 0.85))` with
 `DECAY_RESTRIKE` 0.0028 s and `DECAY_DECAY` 0.065 s is `HandClapCore`'s clap;
-rhythm909's tail is 0.090 s. Both
-times are seconds to −40 dB so one convention covers every rack constant: the
-cores' 1/e times are that number times 4.60517.
+rhythm909's tail is 0.090 s. Both times are seconds to −40 dB so one
+convention covers every rack constant: the cores' 1/e times are that number
+times 4.60517, and `CowbellCore`'s `exp(−6.908 / (sr · 0.250))` tail is
+0.250 · 4.60517 / 6.908.
 
 The rack's burst cores start a burst at sample 0 of the block that sees a
 rising edge, wherever in the block it is. `DECAY` starts it at the rising

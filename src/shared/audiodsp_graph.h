@@ -423,6 +423,19 @@ enum {
     // Seconds for the envelope to fall 40 dB between re-strikes; held to
     // >= 0.001. Ignored without a burst table.
     AUDIODSP_GRAPH_DECAY_RESTRIKE,
+    // Seconds of a linear ramp from 0 up to the velocity before the decay
+    // starts (MaracasCore's soft attack). 0 is no ramp.
+    AUDIODSP_GRAPH_DECAY_ATTACK,
+    // Seconds for a fast first stage to fall 40 dB (CowbellCore's knock).
+    // 0 is no fast stage.
+    AUDIODSP_GRAPH_DECAY_FAST,
+    // How long the fast stage lasts, in seconds, counted from the trigger
+    // (CowbellCore's fast_stage_samples). 0 is no fast stage.
+    AUDIODSP_GRAPH_DECAY_FAST_SEC,
+    // Seconds for a subtracted rise envelope to fall 40 dB — the soft strike
+    // BridgedTDrumCore and SweptOscillatorDrumCore build as amp minus rise.
+    // 0 is no rise. Ignored with a burst table.
+    AUDIODSP_GRAPH_DECAY_RISE,
 };
 
 //: Re-strikes in one DECAY node's burst table.
