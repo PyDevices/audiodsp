@@ -23,6 +23,7 @@
 | `ACID` | vrack's `dsp/ladder.py` `AcidFilterCore`: four one-pole stages, high-passed feedback and the accent capacitor, with the cutoff, resonance and env_mod moving and accent bursts | 1 count (the graph's `tanh` polynomial against libm's) |
 | `SPRING` | vrack's `dsp/reverb.py` `SpringReverbCore` over `audiofreeverb.Freeverb` at mix 1.0, dry and wet mixed as the rack mixes them: two tanks, decay and decay + 0.05 | 0 counts |
 | `ADSR2` | vrack's `dsp/envelope.py` `EnvelopeCore` contour remapped to start at `initial` and peak at `attack_level`, as poly80's filter envelope remaps it | 0 counts |
+| `GLISS` | `GlideCore`'s linear glide, then poly80's glissando: once a block the last glided sample is rounded to the step grid and written across the block | 0 counts |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -3632,3 +3633,145 @@ class Adsr2Test(unittest.TestCase):
             gate = self.gate_blocks(frames, 16)
             got, want = self.compare(gate, initial=-0.25, attack_level=0.75)
             self.assertLessEqual(worst(got, want), 1, frames)
+
+
+# ------------------------------------------------------------------- GLISS --
+
+class GlissRef:
+    """`GlideCore`'s linear glide (dsp/glide.py) then poly80's glissando:
+    once a block the last glided sample is rounded to the step grid and that
+    one value is written across the block. The glide's own state stays
+    unquantised, so the next block starts from where the sweep really was.
+    A semitone is UNIT/12 on the wire, so the grid is step * UNIT / 12."""
+
+    def __init__(self, mode, time, step):
+        self.glide = GlideLinear(mode, time)
+        self.grid = step * UNIT / 12.0
+
+    def process(self, note, pitch=None, legato=0.0):
+        glided = self.glide.process(note, None, legato)
+        held = round(glided[-1] / self.grid) * self.grid
+        if pitch is not None:
+            return [sat(held + p - m) for p, m in zip(pitch, note)]
+        return [sat(held)] * len(note)
+
+
+class GlissTest(unittest.TestCase):
+    """GLISS held to `GlideCore` plus poly80's once-a-block semitone step."""
+
+    def compare(self, phrase_blocks, mode=ag.LAG_ON, time=0.015625, step=1.0,
+                bend=True, frames=None):
+        if frames is None:
+            frames = len(phrase_blocks[0][0])
+        rig = Rig(frames, ag.GLISS, 3)
+        rig.set(ag.GLISS_MODE, mode)
+        rig.set(ag.GLISS_TIME, time)
+        rig.set(ag.GLISS_STEP, step)
+        ref = GlissRef(mode, time, step)
+        got, want = [], []
+        for note, pitch, legato in phrase_blocks:
+            got += rig.run(note, pitch if bend else note, legato)
+            want += ref.process(note, pitch if bend else None, legato[0] / UNIT)
+        return got, want
+
+    def test_matches_glidecore_and_poly80_glissando(self):
+        frames, blocks = 128, 60
+        got, want = self.compare(phrase(frames, blocks))
+        self.assertEqual(worst(got, want), 0)
+        # without a bend it really steps: whole semitones and nothing else
+        flat, _ = self.compare(phrase(frames, blocks), bend=False)
+        grid = UNIT / 12.0
+        for v in flat:
+            self.assertEqual(v, sat(round(v / grid) * grid))
+
+    def test_poly80_steps_in_semitones(self):
+        """poly80's glissando is one semitone a step: step 1, grid UNIT/12."""
+        frames, blocks = 128, 40
+        got, want = self.compare(phrase(frames, blocks), step=1.0)
+        self.assertEqual(worst(got, want), 0)
+        self.assertEqual(GlissRef(ag.LAG_ON, 0.015625, 1.0).grid, UNIT / 12.0)
+        # a C that took the step as octaves (12) or as half a semitone fails
+        for name, bad in (("step as octaves", 12.0), ("step as half", 0.5)):
+            _, wl = self.compare(phrase(frames, blocks), step=bad)
+            self.assertGreater(worst(got, wl), 100, name)
+
+    def test_the_time_seconds_scale(self):
+        frames, blocks = 128, 40
+        got, want = self.compare(phrase(frames, blocks), time=0.03125)
+        self.assertEqual(worst(got, want), 0)
+        _, wl = self.compare(phrase(frames, blocks), time=0.03125 / 1000.0)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_mode_selects_when_it_glides(self):
+        frames, blocks = 128, 40
+        phrase_blocks = phrase(frames, blocks)
+        on, _ = self.compare(phrase_blocks, mode=ag.LAG_ON, time=0.03125)
+        off, _ = self.compare(phrase_blocks, mode=ag.LAG_OFF, time=0.03125)
+        auto, _ = self.compare(phrase_blocks, mode=ag.LAG_AUTO, time=0.03125)
+        self.assertNotEqual(on, off)
+        self.assertNotEqual(on, auto)
+        # AUTO glides only on a held note: with no legato it is OFF
+        no_legato = [(n, p, [0] * frames) for n, p, _ in phrase_blocks]
+        auto_free, _ = self.compare(no_legato, mode=ag.LAG_AUTO, time=0.03125)
+        off_free, _ = self.compare(no_legato, mode=ag.LAG_OFF, time=0.03125)
+        self.assertEqual(auto_free, off_free)
+        # a C that always glided would match ON here, not OFF
+        self.assertNotEqual(auto_free, on)
+
+    def test_the_step_scales_the_grid(self):
+        frames, blocks = 128, 40
+        one, _ = self.compare(phrase(frames, blocks), step=1.0, bend=False)
+        two, _ = self.compare(phrase(frames, blocks), step=2.0, bend=False)
+        self.assertNotEqual(one, two)
+        grid_one, grid_two = UNIT / 12.0, UNIT / 6.0
+        for v in two:
+            self.assertEqual(v, sat(round(v / grid_two) * grid_two))
+        for v in one:
+            self.assertEqual(v, sat(round(v / grid_one) * grid_one))
+
+    def test_the_bend_rides_on_top(self):
+        """The step is the note; the bend moves every sample on top of it."""
+        frames, blocks = 128, 30
+        got, want = self.compare(phrase(frames, blocks), bend=True)
+        self.assertEqual(worst(got, want), 0)
+        flat, _ = self.compare(phrase(frames, blocks), bend=False)
+        self.assertNotEqual(got, flat)
+        # with a bend the output is not on the grid, but the note under it is
+        grid = UNIT / 12.0
+        self.assertGreater(sum(1 for v in got if v != sat(round(v / grid) * grid)),
+                           100)
+
+    def test_the_check_catches_a_wrong_gliss(self):
+        frames, blocks = 128, 40
+        got, want = self.compare(phrase(frames, blocks), time=0.03125, step=1.0)
+        self.assertEqual(worst(got, want), 0)
+        for name, kw in (("time as 0.003", {"time": 0.003125}),
+                         ("step as 2", {"step": 2.0}),
+                         ("mode off", {"mode": ag.LAG_OFF})):
+            args = dict(time=0.03125, step=1.0)
+            args.update(kw)
+            _, wl = self.compare(phrase(frames, blocks), **args)
+            self.assertGreater(worst(got, wl), 50, name)
+
+    def test_reset_forgets_the_pitch(self):
+        frames = 128
+        rig = Rig(frames, ag.GLISS, 3)
+        rig.set(ag.GLISS_TIME, 0.5)
+        rig.set(ag.GLISS_STEP, 1.0)
+        note, pitch, legato = [0] * frames, [0] * frames, [0] * frames
+        rig.run(note, pitch, legato)
+        note = [8192] * frames
+        pitch = [8192] * frames
+        self.assertNotEqual(rig.run(note, pitch, legato)[-1], 8192)
+        rig.g.reset(rig.node)
+        self.assertEqual(rig.run(note, pitch, legato), [8192] * frames)
+
+    def test_an_open_note_is_zero(self):
+        frames = 64
+        rig = Rig(frames, ag.GLISS, 3, open_=(0,))
+        self.assertEqual(set(rig.run(None, [0] * frames, [0] * frames)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            got, want = self.compare(phrase(frames, 24), frames=frames)
+            self.assertEqual(worst(got, want), 0, frames)

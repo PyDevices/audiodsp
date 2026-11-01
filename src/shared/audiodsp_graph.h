@@ -237,6 +237,12 @@ typedef enum {
     // UNIT, with e ENV's 0..1 shape. poly80's filter envelope (its IL and AL
     // levers); ENV itself always attacks to 1.0 and rests at 0.
     AUDIODSP_GRAPH_ADSR2,
+    // inputs: note, pitch, legato. params: time s, mode, step (semitones).
+    // LAG's linear glide, then once a block the last glided sample is rounded
+    // to the step grid and that one value is written across the block; the
+    // glide's own state stays unquantised. poly80's glissando (a semitone a
+    // step); the bend (pitch - note) still rides on top unslid.
+    AUDIODSP_GRAPH_GLISS,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -499,6 +505,14 @@ enum {
     AUDIODSP_GRAPH_ADSR2_INITIAL,
     // The level the attack aims at (poly80's AL, 0..1).
     AUDIODSP_GRAPH_ADSR2_ATTACK_LEVEL,
+};
+
+enum {
+    AUDIODSP_GRAPH_GLISS_TIME = 0,
+    AUDIODSP_GRAPH_GLISS_MODE,
+    // The step in semitones (1 as poly80 steps it). The grid on the wire is
+    // step * UNIT / 12, since a semitone is 1/12 of an octave and UNIT is one.
+    AUDIODSP_GRAPH_GLISS_STEP,
 };
 
 enum {

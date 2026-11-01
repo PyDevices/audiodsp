@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Brad Barnett
 #
 # SPDX-License-Identifier: MIT
-"""Hold audiograph's STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH and ACID against the rack.
+"""Hold audiograph's STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2 and GLISS against the rack.
 
     graph_vs_rack.py [--rack PATH]
 
@@ -22,7 +22,9 @@ amp-minus-rise strike, click envelope and pitch-bend envelope. PINK is
 ``NoiseGenerator.pink``. CRUSH is the quantise in
 ``BitDepthRateCore._hold_numpy`` — the hold and the anti-alias filter around
 it are SAMPLE_HOLD's and a filter node's, so they are stood aside here and the
-node is compared to the quantise alone.
+node is compared to the quantise alone. GLISS is ``GlideCore`` plus poly80's
+once-a-block semitone step (``voice.py``'s glissando line, generalised to
+``step``).
 """
 
 import math
@@ -59,6 +61,7 @@ from audioinstruments._rack.dsp.noise import NoiseGenerator  # noqa: E402
 from audioinstruments._rack.dsp.ladder import AcidFilterCore  # noqa: E402
 from audioinstruments._rack.dsp.reverb import SpringReverbCore  # noqa: E402
 from audioinstruments._rack.dsp.envelope import EnvelopeCore  # noqa: E402
+from audioinstruments._rack.dsp.glide import GlideCore  # noqa: E402
 from audioinstruments._rack.modules.rhythm78.cowbell import (  # noqa: E402
     Rhythm78Cowbell,
 )
@@ -711,6 +714,54 @@ def adsr2(initial, attack_level, sustain, attack=0.01, decay=0.2, release=0.3,
                   got, want)
 
 
+# ------------------------------------------------------------------- GLISS --
+
+def gliss(time, step=1.0, blocks=60):
+    """GLISS against GlideCore plus poly80's once-a-block semitone step.
+
+    GlideCore runs in octaves (the graph's own pitch unit, UNIT counts to
+    one). poly80 quantises `round(glided[-1] * 120.0) / 120.0` in its CV,
+    where a unit is 120 semitones; in octaves that is a grid of `step / 12`,
+    which at one semitone a step is voice.py's own line. The bend rides on
+    top unslid, as GlideCore documents.
+    """
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=5, nodes=2)
+    note_b, pitch_b, legato_b, out = g.buffer(), g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.GLISS, ag.ALWAYS, (note_b, pitch_b, legato_b), out)
+    g.set(node, ag.GLISS_TIME, time)
+    g.set(node, ag.GLISS_MODE, ag.LAG_ON)
+    g.set(node, ag.GLISS_STEP, step)
+    core = GlideCore(RATE, FRAMES)
+    core.mode = GlideCore.ON
+    core.time = time
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    notes = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 6827, 6827, 6827, -8192)
+    grid = step / 12.0
+    dst = np.zeros(FRAMES, dtype=np.float32)
+    note_f = np.zeros(FRAMES, dtype=np.float32)
+    pitch_f = np.zeros(FRAMES, dtype=np.float32)
+    for b in range(blocks):
+        n = notes[(b // 3) % len(notes)]
+        note = [n] * FRAMES
+        bend = [((b * FRAMES + i) * 7) % 801 - 400 for i in range(FRAMES)]
+        pitch = [v + d for v, d in zip(note, bend)]
+        legato = [UNIT if b % 3 else 0] * FRAMES
+        g.write(note_b, array("h", note))
+        g.write(pitch_b, array("h", pitch))
+        g.write(legato_b, array("h", legato))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        note_f[:] = np.asarray(note, dtype=np.float32) / UNIT
+        pitch_f[:] = np.asarray(pitch, dtype=np.float32) / UNIT
+        core.process(dst, note_f, legato=float(legato[0]) / UNIT)
+        # poly80's glissando at one semitone a step, generalised to `step`
+        held = round(float(dst[-1]) / grid) * grid
+        want += list(wire(held + pitch_f - note_f))
+    return report("GLISS t%.4f s%.2f" % (time, step), got, want)
+
+
 worst = 0
 worst = max(worst, tremolo("pan", ag.TREMOLO_PAN))
 worst = max(worst, tremolo("amplitude", ag.TREMOLO_AMPLITUDE))
@@ -777,4 +828,7 @@ worst = max(worst, adsr2(0.0, 1.0, 0.7))
 worst = max(worst, adsr2(-0.5, 0.5, 0.5))
 # poly80's own fenv: sustain level -il/(al-il) puts the output at 0
 worst = max(worst, adsr2(-0.4, 0.8, 0.4 / 1.2, attack=0.05, decay=0.3, release=0.4))
+worst = max(worst, gliss(0.015625, 1.0))
+worst = max(worst, gliss(0.03125, 1.0))
+worst = max(worst, gliss(0.0625, 2.0))
 print("worst over all: %d" % worst)

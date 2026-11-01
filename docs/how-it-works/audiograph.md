@@ -104,6 +104,7 @@ rather than its last block.
 | `ACID` | audio, env, accent | `ACID_CUTOFF_HZ`, `ACID_RESONANCE` 0..1, `ACID_ENVMOD` 0..1 | acid303's diode ladder with its accent circuit, [below](#acid) |
 | `SPRING` | audio | `SPRING_MIX` 0..1, `SPRING_DECAY` 0..1, `SPRING_DAMP` 0..1; built with `arg` = the right side's buffer | patch2600's two-tank spring reverb over `audiofreeverb`, wet-only into a dry/wet mix on both sides, [below](#spring) |
 | `ADSR2` | gate | `ADSR2_ATTACK`, `ADSR2_DECAY`, `ADSR2_RELEASE` in seconds, `ADSR2_SUSTAIN` 0..1, `ADSR2_INITIAL`, `ADSR2_ATTACK_LEVEL` | ENV's contour starting at `ADSR2_INITIAL` and peaking at `ADSR2_ATTACK_LEVEL`: poly80's filter envelope, [below](#adsr2) |
+| `GLISS` | note, pitch, legato | `GLISS_TIME` s, `GLISS_MODE` (`LAG_OFF`, `LAG_ON`, `LAG_AUTO`), `GLISS_STEP` semitones | `LAG`'s linear glide stepped onto a semitone grid once a block: poly80's glissando, [below](#gliss) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -440,6 +441,21 @@ filter envelope: its IL and AL levers are `ADSR2_INITIAL` (−1..0) and
 `clamp(−initial / (attack_level − initial), 0, 1)` so the sustain step lands
 on 0. ENV itself cannot express this: it always attacks to 1.0 and rests at 0,
 and those are not parameters.
+
+### Gliss
+
+`GLISS` is `LAG`'s linear glide with one more step at the end of each block:
+the last glided sample is rounded onto a grid of `GLISS_STEP` semitones (a
+semitone is `UNIT/12`, since pitch is in octaves and `UNIT` is one) and that
+one value is written across the block. The glide's own state is left
+unquantised, so the next block starts from where the sweep really was and
+steps again. That is poly80's glissando — a semitone a step — where the
+portamento is a smooth sweep and the glissando is a staircase of one step per
+block. The bend (`pitch − note`) still rides on top unslid, so a glissando
+note steps while the wheel bends it. `LAG` plus a quantiser cannot express
+this: no node quantises a pitch CV onto a step grid (`CRUSH` quantises
+amplitude), and the quantise has to see the glide's own state, not the bent
+output.
 
 ## Output
 

@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING and ADSR2, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2 and GLISS, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -20,6 +20,7 @@
     graph_nodes_probe.py --fault acid       # one cutoff change a block late
     graph_nodes_probe.py --fault spring     # one decay change a block late
     graph_nodes_probe.py --fault adsr2      # one attack level a block late
+    graph_nodes_probe.py --fault gliss      # one step change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -52,7 +53,8 @@ envelope on those strikes and a clap burst on its own trigger, pink noise, the
 sawtooth bit-crushed with the bits stepped, and the sawtooth through the acid
 ladder on a moving envelope with accent bursts, and through the spring reverb
 with both sides printed; and a second envelope with an initial and an attack
-level, gated by the written clock's line.
+level, gated by the written clock's line; and a glissando on the note line,
+stepping in semitones with the bend on top.
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -78,7 +80,7 @@ except (ImportError, AttributeError):
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
           "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush", "acid", "spring",
-          "adsr2")
+          "adsr2", "gliss")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -98,8 +100,8 @@ def check(ok, what):
         failures.append(what)
 
 
-g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=70,
-             nodes=70)
+g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=80,
+             nodes=80)
 watched = []
 
 
@@ -353,6 +355,12 @@ g.set(adsr2_a, ag.ADSR2_RELEASE, 0.3)
 g.set(adsr2_a, ag.ADSR2_INITIAL, -0.5)
 g.set(adsr2_a, ag.ADSR2_ATTACK_LEVEL, 0.75)
 
+# -- a glissando on the same note line: semitone steps, the bend on top
+gliss_a, _ = node("gliss_a", ag.GLISS, (note_b, pitch_b, legato_b))
+g.set(gliss_a, ag.GLISS_TIME, 0.03125)
+g.set(gliss_a, ag.GLISS_MODE, ag.LAG_ON)
+g.set(gliss_a, ag.GLISS_STEP, 1.0)
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -536,9 +544,15 @@ for b in range(BLOCKS):
     spring_at = b if FAULT != "spring" or b != 48 else b - 1
     g.set(spring_a, ag.SPRING_DECAY, 0.25 * (1 + (spring_at // 20) % 3))
 
-    # the adsr2's attack level steps every twenty blocks
-    adsr2_at = b if FAULT != "adsr2" or b != 48 else b - 1
+    # the adsr2's attack level steps every twenty blocks (block 40 is a
+    # boundary, so a block-late change there is visible)
+    adsr2_at = b if FAULT != "adsr2" or b != 40 else b - 1
     g.set(adsr2_a, ag.ADSR2_ATTACK_LEVEL, 0.25 * (1 + (adsr2_at // 20) % 4))
+
+    # the glissando's step steps every twenty blocks (block 40 is a boundary,
+    # so a block-late change there is visible)
+    gliss_at = b if FAULT != "gliss" or b != 40 else b - 1
+    g.set(gliss_a, ag.GLISS_STEP, 0.5 * (1 + (gliss_at // 20) % 4))
 
     g.run(None)
     g.read(saw_b, saw_block)
@@ -627,6 +641,8 @@ check(seen["spring_r"][0] > 500 and seen["spring_r"][2] > 200,
 
 check(seen["adsr2_a"][0] > 500 and seen["adsr2_a"][2] > 0 and seen["adsr2_a"][1] < 0,
       "the adsr2 swings above and below zero")
+
+check(seen["gliss_a"][0] > 500, "the glissando steps between notes")
 
 if failures:
     for what in failures:

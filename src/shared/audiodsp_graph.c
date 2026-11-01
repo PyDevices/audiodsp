@@ -308,6 +308,7 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
         case AUDIODSP_GRAPH_PHASER:
             return sizeof(graph_phaser_t) + (size_t)phaser_stages(arg) * sizeof(float);
         case AUDIODSP_GRAPH_LAG:
+        case AUDIODSP_GRAPH_GLISS:
             return sizeof(graph_lag_t);
         case AUDIODSP_GRAPH_SAMPLE_HOLD:
             return sizeof(graph_sh_t);
@@ -536,6 +537,10 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
         }
         case AUDIODSP_GRAPH_LAG:
             node->param[AUDIODSP_GRAPH_LAG_MODE] = (float)AUDIODSP_GRAPH_LAG_ON;
+            break;
+        case AUDIODSP_GRAPH_GLISS:
+            node->param[AUDIODSP_GRAPH_GLISS_MODE] = (float)AUDIODSP_GRAPH_LAG_ON;
+            node->param[AUDIODSP_GRAPH_GLISS_STEP] = 1.0f;
             break;
         case AUDIODSP_GRAPH_SAMPLE_HOLD: {
             graph_sh_t *d = data;
@@ -960,7 +965,8 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
         case AUDIODSP_GRAPH_PHASER:
             audiodsp_allpass_f32_reset(&((graph_phaser_t *)n->data)->state);
             break;
-        case AUDIODSP_GRAPH_LAG: {
+        case AUDIODSP_GRAPH_LAG:
+        case AUDIODSP_GRAPH_GLISS: {
             graph_lag_t *d = n->data;
             d->primed = false;
             d->left = 0;
@@ -1491,6 +1497,90 @@ static void run_lag(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     } else {
         for (uint32_t i = 0; i < frames; ++i) {
             out[i] = sat16(acc[i]);
+        }
+    }
+}
+
+// LAG's linear glide, then once a block the last glided sample is rounded to
+// the step grid and that one value is written across the block. poly80's
+// glissando: the glide itself stays unquantised, so the next block starts from
+// where the sweep really was and steps again. A semitone is UNIT/12, so the
+// grid is step * UNIT / 12 counts. The bend still rides on top unslid.
+static void run_gliss(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_lag_t *d = n->data;
+    const int16_t *note = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs[n->inputs[0]];
+    const int16_t *pitch = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[1]] : NULL;
+    const int16_t *legato = n->ninputs > 2 && n->inputs[2] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[2]] : NULL;
+    const float time = n->param[AUDIODSP_GRAPH_GLISS_TIME];
+    const float target = note != NULL ? (float)note[0] : 0.0f;
+    float acc[AUDIODSP_GRAPH_MAX_FRAMES];
+    if (!d->primed) {
+        d->value = d->target = target;
+        d->primed = true;
+    }
+    if (target != d->target) {
+        d->target = target;
+        const float mode = n->param[AUDIODSP_GRAPH_GLISS_MODE];
+        const bool on = mode >= 0.5f && mode < 1.5f;
+        const bool aut = mode >= 1.5f;
+        const bool held = legato != NULL &&
+            (float)legato[0] > 0.5f * AUDIODSP_GRAPH_UNIT;
+        const double span = (double)time * (double)graph->sample_rate;
+        const uint32_t steps = span >= 1.0 && span < 4294967295.0
+            ? (uint32_t)span : (span >= 1.0 ? 4294967295u : 0u);
+        if (steps >= 1u && (on || (aut && held))) {
+            d->left = steps;
+            // In double, rounded once: the slope GlideCore computes.
+            d->slope = (float)(((double)target - (double)d->value) / (double)steps);
+        } else {
+            d->left = 0;
+            d->value = target;
+        }
+    }
+    if (d->left > 0u) {
+        const uint32_t k = d->left > frames ? frames : d->left;
+        const float start = d->value;
+        const float slope = d->slope;
+        float last = start;
+        for (uint32_t i = 0; i < k; ++i) {
+            last = (float)(i + 1u) * slope + start;
+            acc[i] = last;
+        }
+        d->left -= k;
+        if (d->left == 0u) {
+            last = target;
+            acc[k - 1u] = target;
+        }
+        d->value = last;
+        for (uint32_t i = k; i < frames; ++i) {
+            acc[i] = target;
+        }
+    } else {
+        for (uint32_t i = 0; i < frames; ++i) {
+            acc[i] = d->value;
+        }
+    }
+    // Once a block: round the last glided sample onto the step grid and write
+    // that one value across the block. The glide state above is untouched.
+    const float step = n->param[AUDIODSP_GRAPH_GLISS_STEP];
+    float held = acc[frames - 1u];
+    if (step > 0.0f) {
+        const float grid = step * AUDIODSP_GRAPH_UNIT / 12.0f;
+        held = (float)round_even(held / grid) * grid;
+    }
+    if (pitch != NULL) {
+        // The bend rides on top unslid: + pitch - note, in that order.
+        for (uint32_t i = 0; i < frames; ++i) {
+            float v = held + (float)pitch[i];
+            out[i] = sat16(v - (note != NULL ? (float)note[i] : 0.0f));
+        }
+    } else {
+        for (uint32_t i = 0; i < frames; ++i) {
+            out[i] = sat16(held);
         }
     }
 }
@@ -3319,6 +3409,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
             }
             case AUDIODSP_GRAPH_LAG:
                 run_lag(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_GLISS:
+                run_gliss(graph, n, dst, frames);
                 break;
             case AUDIODSP_GRAPH_SAMPLE_HOLD:
                 run_sample_hold(graph, n, dst, frames);
