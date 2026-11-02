@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2, GLISS and FOLLOW, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2, GLISS, FOLLOW, WAVETABLE and ROTARY, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -22,6 +22,8 @@
     graph_nodes_probe.py --fault adsr2      # one attack level a block late
     graph_nodes_probe.py --fault gliss      # one step change a block late
     graph_nodes_probe.py --fault follow     # one release time a block late
+    graph_nodes_probe.py --fault wavetable  # one frequency change a block late
+    graph_nodes_probe.py --fault rotary     # one speed change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -56,7 +58,11 @@ ladder on a moving envelope with accent bursts, and through the spring reverb
 with both sides printed; and a second envelope with an initial and an attack
 level, gated by the written clock's line; and a glissando on the note line,
 stepping in semitones with the bend on top; and a peak follower and an RMS
-follower on the sawtooth, each with its release time stepped.
+follower on the sawtooth, each with its release time stepped. And two
+drawbar voices: one on a written pitch, gate and percussion line, its key
+coming down again while the last note still sounds, and one with no gate and
+its frequency stepped; and two rotary speakers, the sawtooth driven through
+slow, fast and stop and the noise clean and fast, both sides printed.
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -82,7 +88,7 @@ except (ImportError, AttributeError):
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
           "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush", "acid", "spring",
-          "adsr2", "gliss", "follow")
+          "adsr2", "gliss", "follow", "wavetable", "rotary")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -374,6 +380,37 @@ g.set(follow_rms, ag.FOLLOW_ATTACK, 0.00390625)
 g.set(follow_rms, ag.FOLLOW_RELEASE, 0.03125)
 g.set(follow_rms, ag.FOLLOW_MODE, ag.FOLLOW_RMS)
 
+# -- two drawbar voices on a table of whole numbers: one on a written pitch,
+# gate and percussion line, one with no gate and its frequency stepped
+wt_table = array("h", [((i * 181) % 256 - 128) * 40 + (2400 if (i // 32) % 2 else -2400)
+                       for i in range(256)])
+wt_long = array("h", [((i * 7) % 512 - 256) * 50 for i in range(512)])
+wt_pitch_b, wt_gate_b, wt_extra_b = g.buffer(), g.buffer(), g.buffer()
+wt_a, _ = node("wavetable_a", ag.WAVETABLE, (wt_pitch_b, wt_gate_b, wt_extra_b))
+g.table(wt_a, wt_table)
+g.set(wt_a, ag.WAVETABLE_FREQUENCY, 130.8125)
+wt_b, _ = node("wavetable_b", ag.WAVETABLE, (None,), 512.0)
+g.table(wt_b, wt_long)
+wt_pitch = array("h", bytes(2 * FRAMES))
+wt_gate = array("h", bytes(2 * FRAMES))
+wt_extra = array("h", bytes(2 * FRAMES))
+
+# -- two rotary speakers, both sides printed: the sawtooth driven, the noise
+# clean
+rot_l, rot_r = g.buffer(), g.buffer()
+rot_a = g.add(ag.ROTARY, ag.ALWAYS, (saw_b,), rot_l, rot_r)
+g.set(rot_a, ag.ROTARY_DRIVE, 2.0)
+g.set(rot_a, ag.ROTARY_VOLUME, 7.0)
+watched.append(("rotary_l", rot_l))
+watched.append(("rotary_r", rot_r))
+rot_bl, rot_br = g.buffer(), g.buffer()
+rot_b = g.add(ag.ROTARY, ag.ALWAYS, (noise_b,), rot_bl, rot_br)
+g.set(rot_b, ag.ROTARY_SPEED, ag.ROTARY_FAST)
+g.set(rot_b, ag.ROTARY_DRIVE, 0.0)
+g.set(rot_b, ag.ROTARY_VOLUME, 5.0)
+watched.append(("rotary_bl", rot_bl))
+watched.append(("rotary_br", rot_br))
+
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
          9557, -8192, -8192, 683, 683)
 note = array("h", bytes(2 * FRAMES))
@@ -582,6 +619,31 @@ for b in range(BLOCKS):
         follow_src[i] = amp * (2 * ((b * FRAMES + i) * 440 % RATE) - RATE) // RATE
     g.write(follow_b, follow_src)
 
+    # the drawbar voice: a key every eight blocks, held five, let go for
+    # three, but down again after one at block 61 while the note still
+    # sounds; a percussion burst on each key's first block
+    key = b % 8 < 5 or b == 62
+    for i in range(FRAMES):
+        wt_pitch[i] = ((b // 8) * 5 % 23 - 11) * 1365 // 10
+        wt_gate[i] = UNIT if key else 0
+        wt_extra[i] = ((i * 97) % 2001 - 1000) * 3 if b % 8 == 0 else 0
+    g.write(wt_pitch_b, wt_pitch)
+    g.write(wt_gate_b, wt_gate)
+    g.write(wt_extra_b, wt_extra)
+    # the gateless voice's frequency steps every twenty blocks (block 40 is a
+    # boundary, so a block-late change there is visible)
+    wt_at = b if FAULT != "wavetable" or b != 40 else b - 1
+    g.set(wt_b, ag.WAVETABLE_FREQUENCY, 110.0 * (1 + (wt_at // 20) % 4))
+
+    # the driven rotary goes slow, fast, stop, fast every twenty blocks
+    # (block 40 is a boundary), and its drive and volume turn up at 100
+    rot_at = b if FAULT != "rotary" or b != 40 else b - 1
+    g.set(rot_a, ag.ROTARY_SPEED, (ag.ROTARY_SLOW, ag.ROTARY_FAST, ag.ROTARY_STOP,
+                                   ag.ROTARY_FAST)[(rot_at // 20) % 4])
+    if b == 100:
+        g.set(rot_a, ag.ROTARY_DRIVE, 4.5)
+        g.set(rot_a, ag.ROTARY_VOLUME, 8.5)
+
     g.run(None)
     g.read(saw_b, saw_block)
     for name, buffer in watched:
@@ -678,6 +740,14 @@ check(seen["follow_peak"][0] > 50 and seen["follow_peak"][2] > 4 * seen["follow_
       "the peak follower follows the sawtooth")
 check(seen["follow_rms"][0] > 50 and seen["follow_rms"][2] > 4 * seen["follow_rms"][1],
       "the rms follower follows the sawtooth")
+
+check(seen["wavetable_a"][0] > 5000 and seen["wavetable_a"][2] > 2000,
+      "the drawbar voice plays its keys")
+check(seen["wavetable_b"][0] > 5000 and seen["wavetable_b"][2] > 2000,
+      "the gateless drawbar voice plays")
+for name in ("rotary_l", "rotary_r", "rotary_bl", "rotary_br"):
+    check(seen[name][0] > 5000 and seen[name][2] > 1000,
+          "the rotary speaker's %s renders sound" % name)
 
 if failures:
     for what in failures:

@@ -353,8 +353,27 @@ static void set_decay_table_from_obj(audiodsp_graph_t *graph, uint32_t node,
     }
 }
 
+// A WAVETABLE node's cycle: an int16 array, copied under the pump lock so an
+// organ's drawbars can move while it plays.
+static void set_wavetable_from_obj(audiodsp_graph_t *graph, uint32_t node,
+    mp_obj_t table) {
+    mp_buffer_info_t info;
+    mp_get_buffer_raise(table, &info, MP_BUFFER_READ);
+    if (info.typecode != 'h' || info.len % 2) {
+        mp_raise_TypeError(MP_ERROR_TEXT("table must be an int16 array"));
+    }
+    audiodsp_pump_lock_acquire();
+    bool ok = audiodsp_graph_set_wavetable(graph, node,
+        (const int16_t *)info.buf, (uint32_t)(info.len / 2));
+    audiodsp_pump_lock_release();
+    if (!ok) {
+        mp_raise_ValueError(MP_ERROR_TEXT("wavetable must hold 2 samples up to the node's arg"));
+    }
+}
+
 // table(node, table): a feedback delay's wow shape (int16 array, borrowed) or
-// a struck node's mode table (copied) or a decay node's burst table (copied).
+// a struck node's mode table (copied) or a decay node's burst table (copied)
+// or a wavetable node's cycle (copied).
 // A copied table may change while the pump plays: an instrument re-tunes a
 // struck node on every note. A borrowed one may not.
 static mp_obj_t audiograph_graph_table(mp_obj_t self_in, mp_obj_t node,
@@ -369,6 +388,11 @@ static mp_obj_t audiograph_graph_table(mp_obj_t self_in, mp_obj_t node,
     if (n >= 0 && (uint32_t)n < self->graph.nnodes &&
         audiodsp_graph_node(&self->graph, (uint32_t)n)->kind == AUDIODSP_GRAPH_DECAY) {
         set_decay_table_from_obj(&self->graph, (uint32_t)n, table);
+        return mp_const_none;
+    }
+    if (n >= 0 && (uint32_t)n < self->graph.nnodes &&
+        audiodsp_graph_node(&self->graph, (uint32_t)n)->kind == AUDIODSP_GRAPH_WAVETABLE) {
+        set_wavetable_from_obj(&self->graph, (uint32_t)n, table);
         return mp_const_none;
     }
     graph_idle(self_in);

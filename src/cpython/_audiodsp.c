@@ -4337,6 +4337,29 @@ static PyObject *graph_state_table(audiodsp_graph_object_t *self,
         audiodsp_graph_node(&self->graph, (uint32_t)node)->kind == AUDIODSP_GRAPH_DECAY) {
         return graph_set_decay_table_py(&self->graph, (uint32_t)node, table);
     }
+    if (node >= 0 && (uint32_t)node < self->graph.nnodes &&
+        audiodsp_graph_node(&self->graph, (uint32_t)node)->kind == AUDIODSP_GRAPH_WAVETABLE) {
+        // Copied, so it may change while the graph plays.
+        Py_buffer info;
+        if (PyObject_GetBuffer(table, &info, PyBUF_FORMAT | PyBUF_C_CONTIGUOUS) < 0) {
+            return NULL;
+        }
+        const char *format = info.format ? info.format : "B";
+        if (strcmp(format, "h") != 0 || info.itemsize != 2) {
+            PyBuffer_Release(&info);
+            PyErr_SetString(PyExc_TypeError, "table must be an int16 array");
+            return NULL;
+        }
+        bool ok = audiodsp_graph_set_wavetable(&self->graph, (uint32_t)node,
+            (const int16_t *)info.buf, (uint32_t)(info.len / 2));
+        PyBuffer_Release(&info);
+        if (!ok) {
+            PyErr_SetString(PyExc_ValueError,
+                "wavetable must hold 2 samples up to the node's arg");
+            return NULL;
+        }
+        Py_RETURN_NONE;
+    }
     // A memoryview holds the export, so the array cannot be resized under
     // the delay while the graph keeps it.
     PyObject *view = PyMemoryView_FromObject(table);
@@ -4956,6 +4979,8 @@ static int graph_add_constants(PyObject *module) {
         {"ADSR2", AUDIODSP_GRAPH_ADSR2},
         {"GLISS", AUDIODSP_GRAPH_GLISS},
         {"FOLLOW", AUDIODSP_GRAPH_FOLLOW},
+        {"WAVETABLE", AUDIODSP_GRAPH_WAVETABLE},
+        {"ROTARY", AUDIODSP_GRAPH_ROTARY},
         {"ALWAYS", AUDIODSP_GRAPH_ALWAYS},
         {"UNIT", 16384},
         {"ENV_ATTACK", AUDIODSP_GRAPH_ENV_ATTACK},
@@ -5065,6 +5090,13 @@ static int graph_add_constants(PyObject *module) {
         {"FOLLOW_MODE", AUDIODSP_GRAPH_FOLLOW_MODE},
         {"FOLLOW_PEAK", AUDIODSP_GRAPH_FOLLOW_PEAK},
         {"FOLLOW_RMS", AUDIODSP_GRAPH_FOLLOW_RMS},
+        {"WAVETABLE_FREQUENCY", AUDIODSP_GRAPH_WAVETABLE_FREQUENCY},
+        {"ROTARY_SPEED", AUDIODSP_GRAPH_ROTARY_SPEED},
+        {"ROTARY_DRIVE", AUDIODSP_GRAPH_ROTARY_DRIVE},
+        {"ROTARY_VOLUME", AUDIODSP_GRAPH_ROTARY_VOLUME},
+        {"ROTARY_STOP", AUDIODSP_GRAPH_ROTARY_STOP},
+        {"ROTARY_SLOW", AUDIODSP_GRAPH_ROTARY_SLOW},
+        {"ROTARY_FAST", AUDIODSP_GRAPH_ROTARY_FAST},
         {"OSC_FREQUENCY", AUDIODSP_OSCILLATOR_OPT_FREQUENCY},
         {"OSC_WAVEFORM", AUDIODSP_OSCILLATOR_OPT_WAVEFORM},
         {"OSC_PULSE_WIDTH", AUDIODSP_OSCILLATOR_OPT_PULSE_WIDTH},

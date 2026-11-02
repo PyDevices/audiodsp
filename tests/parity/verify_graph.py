@@ -7,6 +7,7 @@
     verify_graph.py --micropython PATH --fault phaser  # must FAIL (and lag, lfo, hold)
     verify_graph.py --micropython PATH --fault twopole # must FAIL (and overdrive, pan, wavefold, lpg, modal)
     verify_graph.py --micropython PATH --fault decay    # must FAIL (and pink, crush, acid, spring, adsr2, gliss, follow)
+    verify_graph.py --micropython PATH --fault wavetable # must FAIL (and rotary)
     verify_graph.py --micropython PATH --fault drain   # must FAIL (and split)
     verify_graph.py --micropython PATH --fault offbeat # must FAIL
 
@@ -53,7 +54,8 @@ ROOT = HERE.parents[1]
 PROBES = (
     ("runner", HERE / "graph_parity_probe.py", ("lsb", "late")),
     ("nodes", HERE / "graph_nodes_probe.py", ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
-                                                 "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush", "acid", "spring", "adsr2", "gliss", "follow")),
+                                                 "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush", "acid", "spring", "adsr2", "gliss", "follow",
+                                                 "wavetable", "rotary")),
     ("source", HERE / "graph_source_probe.py", ("drain", "split")),
     ("carry", HERE / "graph_carry_probe.py", ("offbeat",)),
 )

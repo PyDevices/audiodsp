@@ -25,6 +25,8 @@
 | `ADSR2` | vrack's `dsp/envelope.py` `EnvelopeCore` contour remapped to start at `initial` and peak at `attack_level`, as poly80's filter envelope remaps it | 0 counts |
 | `GLISS` | `GlideCore`'s linear glide, then poly80's glissando: once a block the last glided sample is rounded to the step grid and written across the block | 0 counts |
 | `FOLLOW` | clavichord's auto-wah peak follower and vocoder330's band RMS follower: once a block the level is followed by a one-pole and written across the block | 0 counts |
+| `WAVETABLE` | audioinstruments' `dsp/organ.py` `DrawbarToneCore` without its bridge's 256 frames: a `synthio.Note` playing the table, then the contacts' 3 ms ramp and the cut when a key comes down while the last note sounds, at 64 to 256 frames, every key of a manual, with percussion added, past Nyquist, with no gate and the knobs past their ends | 0 counts (one sample after a note past Nyquist comes back, which synthio's loudness holds for a zero crossing) |
+| `ROTARY` | audioinstruments' `dsp/rotary.py` `RotarySpeakerCore`: the drive in float32, the crossover `audiofilters.Filter` with a `synthio.Biquad` low-pass at 800 Hz driven as vrack's bridge drives it, and the rotors' loop as written, through stop, slow and fast with the drive and volume moving, at 32 to 256 frames | 1 count (the node works a block's angles and delays in float), on about 1 sample in 500 |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -4098,3 +4100,550 @@ class FollowTest(unittest.TestCase):
             # the node's level is a float32 state and the rack keeps a Python
             # float; at 256 frames that is one count
             self.assertLessEqual(worst(got, want), 1, frames)
+
+# --------------------------------------------------------------- WAVETABLE --
+
+CONTACT_STEP = 1.0 / max(1, int(0.003 * RATE))
+
+
+def organ_table(seed=0, length=256):
+    """One cycle of a few drawbars' sines, as integers."""
+    return array("h", [int(7000 * math.sin(2.0 * math.pi * i / length)
+                           + (2500 + 300 * seed) * math.sin(2.0 * math.pi * 3 * i / length)
+                           + 1500 * math.sin(2.0 * math.pi * (4 + seed) * i / length))
+                       for i in range(length)])
+
+
+def wavetable_hz(base, count):
+    """The frequency as vrack's pitch jack works it out, in float32: the
+    base times 2^(10 * pitch), each product rounded to float32."""
+    return f32(f32(base) * f32(2.0 ** f32(f32(count / UNIT) * 10.0)))
+
+
+class WavetableRef:
+    """`DrawbarToneCore.render` without its bridge's 256 frames: a
+    `synthio.Note` playing the table on a `synthio.Synthesizer`, pulled 256
+    frames at a time, then the contacts in double as the rack keeps them,
+    a 3 ms ramp that follows the gate's first sample and is cut to nothing
+    by a key coming down while the last note still sounds. The rack's bridge
+    pulls once when it is built, which takes synthio's start of a note out of
+    what is heard; the phase that pull ran on is set back to the start."""
+
+    def __init__(self, table, frequency, sample_rate=RATE, cut=True, step=None):
+        self.synth = synthio.Synthesizer(sample_rate=sample_rate, channel_count=1)
+        self.note = synthio.Note(frequency, waveform=table)
+        self.synth.press(self.note)
+        audiocore.get_buffer(self.synth)
+        self.note._accum = 0
+        self.chunk = []
+        self.ramp = 0.0
+        self.last = False
+        self.cut = cut
+        self.step = step if step is not None else 1.0 / max(1, int(0.003 * sample_rate))
+
+    def tone(self, frames, frequency):
+        """The next `frames` of the note; `frequency` moves at a chunk."""
+        if not self.chunk:
+            self.note.frequency = frequency
+            self.chunk = list(array("h", bytes(audiocore.get_buffer(self.synth)[1])))
+        out, self.chunk = self.chunk[:frames], self.chunk[frames:]
+        return out
+
+    def render(self, frames, frequency, gate=None, extra=None):
+        tone = self.tone(frames, frequency)
+        if extra is not None:
+            tone = [t + e for t, e in zip(tone, extra)]
+        late, g = True, 1.0
+        if gate is not None:
+            late = gate[0] > 0
+            if self.cut and late and not self.last and self.ramp > 0.0:
+                self.ramp = 0.0
+            self.last = late
+            g = self.ramp
+        if not late and g <= 0.0:
+            return [0] * frames
+        if late and g >= 1.0:
+            return [sat(t) for t in tone]
+        out = []
+        for t in tone:
+            g = min(1.0, g + self.step) if late else max(0.0, g - self.step)
+            out.append(sat(m(t, g)))
+        self.ramp = g
+        return out
+
+
+def organ_keys(frames, chunks):
+    """(pitch count, gate) a block, moving at 256-frame chunks: a key held
+    four chunks then let go for two, a new pitch every six."""
+    per = 256 // frames
+    keys = []
+    for c in range(chunks):
+        count = ((c // 6) * 7 % 37 - 18) * UNIT // 120
+        gate = (c % 6) < 4
+        keys += [(count, gate)] * per
+    return keys
+
+
+def percussion(frames, blocks):
+    return [[((b * frames + i) * 97 % 2001 - 1000) * (b % 3) for i in range(frames)]
+            for b in range(blocks)]
+
+
+class WavetableTest(unittest.TestCase):
+    """WAVETABLE held to a synthio Note through DrawbarToneCore's contacts."""
+
+    BASE = f32(130.812783)
+
+    def compare(self, keys, frames=256, table=None, extras=None, ref=None,
+                rate=RATE, base=None, gate=True):
+        base = self.BASE if base is None else base
+        table = organ_table() if table is None else table
+        g = ag.Graph(sample_rate=rate, frames=frames, channel_count=1,
+                     buffers=6, nodes=2)
+        pitch_b, gate_b, extra_b, out = g.buffer(), g.buffer(), g.buffer(), g.buffer()
+        node = g.add(ag.WAVETABLE, ag.ALWAYS,
+                     (pitch_b, gate_b if gate else None,
+                      extra_b if extras is not None else None), out)
+        g.table(node, table)
+        g.set(node, ag.WAVETABLE_FREQUENCY, base)
+        if ref is None:
+            ref = WavetableRef(table, wavetable_hz(base, keys[0][0]), sample_rate=rate)
+        buf = array("h", bytes(2 * frames))
+        got, want = [], []
+        for b, (count, down) in enumerate(keys):
+            gate_block = [UNIT if down else 0] * frames
+            g.write(pitch_b, array("h", [count] * frames))
+            g.write(gate_b, array("h", gate_block))
+            extra = extras[b] if extras is not None else None
+            if extra is not None:
+                g.write(extra_b, array("h", extra))
+            g.run(None)
+            g.read(out, buf)
+            got += list(buf)
+            want += ref.render(frames, wavetable_hz(base, count),
+                               gate_block if gate else None, extra)
+        return got, want
+
+    def test_matches_a_synthio_note_through_the_contacts(self):
+        for frames in (256, 128, 64):
+            keys = organ_keys(frames, 40)
+            got, want = self.compare(keys, frames, extras=percussion(frames, len(keys)))
+            self.assertGreater(max(got), 5000, frames)
+            self.assertEqual(worst(got, want), 0, frames)
+
+    def test_every_key_of_a_manual(self):
+        keys = []
+        for note in range(36, 97):
+            count = round((note - 60) / 120.0 * UNIT)
+            keys += [(count, True)] * 3 + [(count, False)] * 2
+        got, want = self.compare(keys)
+        self.assertEqual(worst(got, want), 0)
+
+    def test_a_key_down_while_the_note_sounds_cuts_it(self):
+        # up for one 64-frame block: the contacts are part open when the key
+        # comes down again, and start again from nothing
+        frames = 64
+        keys = [(0, True)] * 8 + [(0, False)] + [(0, True)] * 8
+        got, want = self.compare(keys, frames)
+        self.assertEqual(worst(got, want), 0)
+        self.assertLess(abs(got[9 * frames]), 200)
+        # without the cut the contacts would close from where they were
+        _, uncut = self.compare(keys, frames, ref=WavetableRef(
+            organ_table(), wavetable_hz(self.BASE, 0), cut=False))
+        self.assertGreater(worst(got, uncut), 1000)
+
+    def test_with_no_gate_the_contacts_are_closed(self):
+        got, want = self.compare([(0, True)] * 10, gate=False)
+        self.assertEqual(worst(got, want), 0)
+        self.assertGreater(max(got[:256]), 3000)
+
+    def test_past_nyquist_the_note_is_silent(self):
+        # at 22050 Hz a note held to 16000 Hz is past the table's Nyquist:
+        # synthio does not play it, and neither does the node
+        keys = [(UNIT // 2, True)] * 4 + [(0, True)] * 4
+        got, want = self.compare(keys, rate=22050, base=f32(8000.0))
+        self.assertEqual(got[:4 * 256], [0] * (4 * 256))
+        self.assertGreater(max(got[4 * 256:]), 1000)
+        # synthio's loudness then waits for a zero crossing, which holds its
+        # first sample back; the node plays it. No organ key is past Nyquist
+        # at 32000 Hz or more, where the frequency's 16000 Hz cap keeps it in.
+        self.assertEqual(want[4 * 256], 0)
+        self.assertEqual(worst(got[4 * 256 + 1:], want[4 * 256 + 1:]), 0)
+
+    def test_frequency_guards(self):
+        # a NaN plays at 10 Hz, and past 16000 Hz is held there
+        for asked, heard in ((float("nan"), 10.0), (1.0e9, 16000.0), (1.0, 10.0)):
+            rig = Rig(256, ag.WAVETABLE, 1, open_=(0,))
+            rig.g.table(rig.node, organ_table())
+            rig.set(ag.WAVETABLE_FREQUENCY, asked)
+            ref = WavetableRef(organ_table(), f32(heard))
+            for _ in range(4):
+                self.assertEqual(rig.run(None), ref.render(256, f32(heard)), asked)
+
+    def test_no_table_is_silence_and_the_table_is_checked(self):
+        rig = Rig(64, ag.WAVETABLE, 1, open_=(0,))
+        self.assertEqual(rig.run(None), [0] * 64)
+        for bad in (array("h", [5]), array("h", [0] * 257), array("f", [0.0] * 8)):
+            with self.assertRaises((ValueError, TypeError)):
+                rig.g.table(rig.node, bad)
+        long = Rig(64, ag.WAVETABLE, 1, arg=1024.0, open_=(0,))
+        long.g.table(long.node, organ_table(length=1024))
+        self.assertNotEqual(long.run(None), [0] * 64)
+        with self.assertRaises(ValueError):
+            long.g.table(long.node, array("h", [0] * 1025))
+
+    def test_the_gate_marks_the_group_sounding(self):
+        frames = 256
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1, buffers=4, nodes=2)
+        gate_b, out = g.buffer(), g.buffer()
+        g.add(ag.WAVETABLE, 2, (None, gate_b), out)
+        g.write(gate_b, array("h", [UNIT] * frames))
+        self.assertEqual(g.run(None, 0, 1 << 2), 1 << 2)
+        g.write(gate_b, array("h", [0] * frames))
+        self.assertEqual(g.run(None, 0, 1 << 2), 0)  # 144 frames, then shut
+
+    def test_reset_and_carry_keep_the_table(self):
+        frames = 128
+        keys = organ_keys(frames, 6)
+        rig = Rig(frames, ag.WAVETABLE, 2)
+        rig.g.table(rig.node, organ_table())
+        rig.set(ag.WAVETABLE_FREQUENCY, self.BASE)
+
+        def play():
+            return [rig.run([c] * frames, [UNIT if d else 0] * frames) for c, d in keys]
+
+        first = play()
+        rig.g.reset(rig.node)
+        self.assertEqual(play(), first)
+        # A carried node goes on where the source was: the phase and the
+        # contacts come over, and a table the destination installed stays.
+        rig.g.reset(rig.node)
+        play()
+        same = Rig(frames, ag.WAVETABLE, 2)
+        same.g.table(same.node, organ_table())
+        same.set(ag.WAVETABLE_FREQUENCY, self.BASE)
+        bare = Rig(frames, ag.WAVETABLE, 2)
+        bare.set(ag.WAVETABLE_FREQUENCY, self.BASE)
+        other = Rig(frames, ag.WAVETABLE, 2)
+        other.g.table(other.node, organ_table(seed=1))
+        other.set(ag.WAVETABLE_FREQUENCY, self.BASE)
+        for dst in (same, bare, other):
+            dst.g.carry(dst.node, rig.g, rig.node)
+        for c, d in keys[:4]:
+            block = ([c] * frames, [UNIT if d else 0] * frames)
+            mine = rig.run(*block)
+            self.assertEqual(same.run(*block), mine)
+            self.assertEqual(bare.run(*block), mine)
+            self.assertGreater(worst(other.run(*block), mine), 200)
+
+    def test_the_check_catches_a_wrong_wavetable(self):
+        frames = 128
+        keys = organ_keys(frames, 12)
+        got, _ = self.compare(keys, frames)
+        table = organ_table()
+        wrong = {
+            "an octave up": WavetableRef(table, wavetable_hz(self.BASE * 2, keys[0][0])),
+            "a slow ramp": WavetableRef(table, wavetable_hz(self.BASE, keys[0][0]),
+                                        step=CONTACT_STEP / 2),
+            "another table": WavetableRef(organ_table(seed=2),
+                                          wavetable_hz(self.BASE, keys[0][0])),
+        }
+        for name, ref in wrong.items():
+            base = self.BASE * 2 if name == "an octave up" else self.BASE
+            want = []
+            for count, down in keys:
+                want += ref.render(frames, wavetable_hz(base, count),
+                                   [UNIT if down else 0] * frames)
+            self.assertGreater(worst(got, want), 500, name)
+
+
+# ------------------------------------------------------------------ ROTARY --
+
+ROTARY_SPEEDS = ((0.0, 0.0), (0.8, 0.7), (6.8, 5.9))
+
+
+def bridge_cast(value):
+    """A float onto the int16 wire as vrack's bridge casts it: clamped at
+    the rails and rounded half away from zero."""
+    v = value * UNIT
+    v = max(-32768.0, min(32767.0, v))
+    return int(v + (0.5 if v >= 0 else -0.5))
+
+
+class RotaryRef:
+    """vrack's `RotarySpeakerCore` (`dsp/rotary.py`), transcribed: the drive
+    in float32 as numpy does it (each `tanh` the exact value rounded to
+    float32), the crossover `audiofilters.Filter` with a `synthio.Biquad`
+    low-pass at 800 Hz pulled as vrack's bridge pulls it, and the per-sample
+    loop as written, its angles, delays and amplitudes Python floats and its
+    rings float32."""
+
+    TWO_PI = 2.0 * math.pi
+
+    def __init__(self, frames, drive_on=True, xover=True):
+        self.frames = frames
+        self.drive_on = drive_on
+        self.xover = xover
+        self.horn_speed, self.drum_speed = ROTARY_SPEEDS[1]
+        self.horn_phase = self.drum_phase = 0.0
+        self.horn_ring = [0.0] * 512
+        self.drum_ring = [0.0] * 512
+        self.w_pos = 0
+        dt = frames / RATE
+        self.alpha_horn = 1.0 - math.exp(-dt / 0.35)
+        self.alpha_drum = 1.0 - math.exp(-dt / 1.35)
+        self.input = array("h", bytes(2 * frames))
+        source = audiocore.RawSample(self.input, channel_count=1, sample_rate=RATE)
+        kwargs = {"buffer_size": frames * 2, "sample_rate": RATE, "bits_per_sample": 16,
+                  "samples_signed": True, "channel_count": 1}
+        lpf = audiofilters.Filter(
+            filter=synthio.Biquad(synthio.FilterMode.LOW_PASS, 800.0, Q=0.7071), **kwargs)
+        through = audiofilters.Filter(filter=None, **kwargs)
+        through.play(source, loop=True)
+        lpf.play(through)
+        self.tail = lpf
+        audiocore.get_buffer(self.tail)  # the bridge's throwaway first pull
+
+    def render(self, block, mode=1, drive=2.0, volume=7.0):
+        n = self.frames
+        drive, volume = f32(drive), f32(volume)
+        target_h, target_d = ROTARY_SPEEDS[mode]
+        self.horn_speed += (target_h - self.horn_speed) * self.alpha_horn
+        self.drum_speed += (target_d - self.drum_speed) * self.alpha_drum
+
+        src = [v / UNIT for v in block]
+        d = max(0.0, min(10.0, drive))
+        if d <= 0.01 or not self.drive_on:
+            driven = src
+        else:
+            gain = 1.0 + (d / 10.0) * 4.0
+            norm = 1.0 / math.tanh(gain * 0.5)
+            driven = [m(f32(math.tanh(m(x, gain))), norm * 0.5) for x in src]
+
+        if self.xover:
+            self.input[:] = array("h", [bridge_cast(x) for x in driven])
+            drum = [v / UNIT for v in array("h", bytes(audiocore.get_buffer(self.tail)[1]))]
+        else:
+            drum = [0.0] * n
+        horn = [s_(x, y) for x, y in zip(driven, drum)]
+
+        d_th_h = self.TWO_PI * self.horn_speed * (1.0 / RATE)
+        d_th_d = -self.TWO_PI * self.drum_speed * (1.0 / RATE)
+        th_h, th_d = self.horn_phase, self.drum_phase
+        base_d = 0.5 * 0.001 * RATE
+        h_dop = 0.40 * 0.001 * RATE
+        d_dop = 0.15 * 0.001 * RATE
+        vol = (max(0.0, min(10.0, volume)) / 10.0) * 2.0
+        hr, dr = self.horn_ring, self.drum_ring
+
+        def read(ring, idx, delay, amp):
+            whole = int(delay)
+            frac = delay - whole
+            r0 = (idx - whole) & 511
+            r1 = (r0 - 1) & 511
+            return m(a_(m(ring[r0], 1.0 - frac), m(ring[r1], frac)), amp)
+
+        left, right = [], []
+        for i in range(n):
+            idx = (self.w_pos + i) & 511
+            hr[idx] = horn[i]
+            dr[idx] = drum[i]
+            cos_h = math.cos(th_h)
+            cos_d = math.cos(th_d)
+            h_l = read(hr, idx, base_d - h_dop * cos_h, 0.60 + 0.40 * cos_h)
+            h_r = read(hr, idx, base_d + h_dop * cos_h, 0.60 - 0.40 * cos_h)
+            d_l = read(dr, idx, base_d - d_dop * cos_d, 0.75 + 0.25 * cos_d)
+            d_r = read(dr, idx, base_d + d_dop * cos_d, 0.75 - 0.25 * cos_d)
+            left.append(sat(m(a_(h_l, d_l), vol) * UNIT))
+            right.append(sat(m(a_(h_r, d_r), vol) * UNIT))
+            th_h = (th_h + d_th_h) % self.TWO_PI
+            th_d = (th_d + d_th_d) % self.TWO_PI
+        self.w_pos = (self.w_pos + n) & 511
+        self.horn_phase, self.drum_phase = th_h, th_d
+        return left, right
+
+
+def rotary_program(frames, blocks):
+    """Three tones as integers, about half scale."""
+    return [[(((b * frames + i) * 113) % 4096 - 2048) * 3
+             + (2048 if ((b * frames + i) // 29) % 2 else -2048)
+             + (((b * frames + i) * 1741) % 1024 - 512) * 2
+             for i in range(frames)] for b in range(blocks)]
+
+
+class RotaryTest(unittest.TestCase):
+    """ROTARY held to `RotarySpeakerCore`."""
+
+    def compare(self, settings, frames=128, ref=None, program=None):
+        """`settings` per block: (speed, drive, volume)."""
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                     buffers=4, nodes=2)
+        in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+        node = g.add(ag.ROTARY, ag.ALWAYS, (in_b,), left_b, right_b)
+        ref = RotaryRef(frames) if ref is None else ref
+        program = rotary_program(frames, len(settings)) if program is None else program
+        buf = array("h", bytes(2 * frames))
+        got_l, got_r, want_l, want_r = [], [], [], []
+        for block, (speed, drive, volume) in zip(program, settings):
+            g.write(in_b, array("h", block))
+            g.set(node, ag.ROTARY_SPEED, speed)
+            g.set(node, ag.ROTARY_DRIVE, drive)
+            g.set(node, ag.ROTARY_VOLUME, volume)
+            g.run(None)
+            g.read(left_b, buf)
+            got_l += list(buf)
+            g.read(right_b, buf)
+            got_r += list(buf)
+            mode = ag.ROTARY_STOP if math.isnan(speed) else int(speed) % 3
+            wl, wr = ref.render(block, mode, drive, volume)
+            want_l += wl
+            want_r += wr
+        return (got_l, got_r), (want_l, want_r)
+
+    @staticmethod
+    def rms(one, two):
+        return math.sqrt(sum((a - b) ** 2 for a, b in zip(one, two)) / len(one))
+
+    def test_matches_rotaryspeakercore_through_its_speeds(self):
+        # slow, fast, stop and fast again, the drive and the volume moving
+        settings = []
+        for b in range(320):
+            speed = (ag.ROTARY_SLOW, ag.ROTARY_FAST, ag.ROTARY_STOP,
+                     ag.ROTARY_FAST)[b // 80]
+            drive = 0.5 * (b % 9)
+            volume = 4.0 + 0.25 * (b % 13)
+            settings.append((speed, drive, volume))
+        (got_l, got_r), (want_l, want_r) = self.compare(settings)
+        self.assertGreater(max(got_l), 8000)
+        # the node steps its angles and delays through a block in float where
+        # the rack works them in double: 1 count on about 1 sample in 500
+        self.assertLessEqual(worst(got_l, want_l), 1)
+        self.assertLessEqual(worst(got_r, want_r), 1)
+        self.assertLess(self.rms(got_l, want_l), 0.1)
+        self.assertLess(self.rms(got_r, want_r), 0.1)
+        self.assertNotEqual(got_l, got_r)
+
+    def test_clean_and_other_block_sizes(self):
+        for frames, drive in ((64, 0.0), (256, 9.0), (32, 3.0)):
+            blocks = 12000 // frames
+            settings = [(ag.ROTARY_FAST, drive, 6.5)] * blocks
+            (got_l, got_r), (want_l, want_r) = self.compare(settings, frames)
+            self.assertLessEqual(worst(got_l, want_l), 1, frames)
+            self.assertLessEqual(worst(got_r, want_r), 1, frames)
+
+    def test_knob_guards(self):
+        frames = 64
+        nan = float("nan")
+        program = rotary_program(frames, 20)
+        # a NaN drive plays clean, a NaN speed stops the rotors, a NaN volume
+        # is silence; past the ends the knobs are held
+        for asked, heard in (((ag.ROTARY_SLOW, nan, 7.0), (ag.ROTARY_SLOW, 0.0, 7.0)),
+                             ((nan, 2.0, 7.0), (ag.ROTARY_STOP, 2.0, 7.0)),
+                             ((ag.ROTARY_SLOW, 2.0, nan), (ag.ROTARY_SLOW, 2.0, 0.0)),
+                             ((ag.ROTARY_FAST, 40.0, -3.0), (ag.ROTARY_FAST, 10.0, 0.0)),
+                             ((ag.ROTARY_FAST + 3, -1.0, 99.0), (ag.ROTARY_FAST, 0.0, 10.0))):
+            got, _ = self.compare([asked] * 20, frames, program=program)
+            want, _ = self.compare([heard] * 20, frames, program=program)
+            self.assertEqual(got, want, asked)
+        silent, _ = self.compare([(ag.ROTARY_SLOW, 2.0, nan)] * 4, frames)
+        self.assertEqual(set(silent[0]) | set(silent[1]), {0})
+
+    def test_the_right_side_and_a_skipped_group(self):
+        frames = 64
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1, buffers=4, nodes=2)
+        in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+        for bad in (left_b, 4.0, -1.0, 1.5):
+            with self.assertRaises(ValueError):
+                g.add(ag.ROTARY, 3, (in_b,), left_b, bad)
+        g.add(ag.ROTARY, 3, (in_b,), left_b, right_b)
+        g.write(in_b, array("h", [8000] * frames))
+        buf = array("h", bytes(2 * frames))
+        g.run(None, 0, 1 << 3)
+        g.read(right_b, buf)
+        self.assertNotEqual(set(buf), {0})
+        g.run(None, 0, 0)
+        g.read(left_b, buf)
+        self.assertEqual(set(buf), {0})
+        g.read(right_b, buf)
+        self.assertEqual(set(buf), {0})
+
+    def test_reset_and_carry(self):
+        frames = 128
+        program = rotary_program(frames, 30)
+        def build(spare):
+            g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                         buffers=8, nodes=2)
+            for _ in range(spare):
+                g.buffer()
+            in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+            return g, g.add(ag.ROTARY, ag.ALWAYS, (in_b,), left_b, right_b), in_b, left_b, right_b
+
+        src, src_n, src_in, src_l, src_r = build(0)
+        buf = array("h", bytes(2 * frames))
+
+        def play(g, in_b, left_b, right_b, blocks):
+            out = []
+            for block in blocks:
+                g.write(in_b, array("h", block))
+                g.run(None)
+                g.read(left_b, buf)
+                left = list(buf)
+                g.read(right_b, buf)
+                out.append((left, list(buf)))
+            return out
+
+        # at slow from the start the rotors are already at speed, so a reset
+        # (rings, angles and the crossover cleared) plays the same again
+        first = play(src, src_in, src_l, src_r, program[:10])
+        src.reset(src_n)
+        self.assertEqual(play(src, src_in, src_l, src_r, program[:10]), first)
+        # a carried node goes on where the source was, on its own right side
+        dst, dst_n, dst_in, dst_l, dst_r = build(2)
+        src.set(src_n, ag.ROTARY_SPEED, ag.ROTARY_FAST)
+        dst.set(dst_n, ag.ROTARY_SPEED, ag.ROTARY_FAST)
+        play(src, src_in, src_l, src_r, program[10:20])
+        dst.carry(dst_n, src, src_n)
+        self.assertEqual(play(dst, dst_in, dst_l, dst_r, program[20:]),
+                         play(src, src_in, src_l, src_r, program[20:]))
+
+    def test_low_sample_rates_stay_bounded(self):
+        # At 1 kHz and 400 Hz a 256-frame block turns the rotors by several
+        # turns; the angle is wrapped, so the output is the same signal as at
+        # any rate, not a pinned one.
+        frames = 256
+        for rate in (1000, 400):
+            g = ag.Graph(sample_rate=rate, frames=frames, channel_count=1,
+                         buffers=4, nodes=2)
+            in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+            node = g.add(ag.ROTARY, ag.ALWAYS, (in_b,), left_b, right_b)
+            g.set(node, ag.ROTARY_SPEED, ag.ROTARY_FAST)
+            g.set(node, ag.ROTARY_DRIVE, 2.0)
+            g.set(node, ag.ROTARY_VOLUME, 7.0)
+            buf = array("h", bytes(2 * frames))
+            peak = 0
+            for block in rotary_program(frames, 30):
+                g.write(in_b, array("h", [v // 4 for v in block]))
+                g.run(None)
+                for b in (left_b, right_b):
+                    g.read(b, buf)
+                    peak = max(peak, max(abs(v) for v in buf))
+            self.assertGreater(peak, 100, rate)
+            self.assertLess(peak, 20000, rate)
+
+    def test_the_check_catches_a_wrong_rotary(self):
+        frames = 128
+        settings = [(ag.ROTARY_FAST, 6.0, 7.0)] * 60
+        (got_l, got_r), _ = self.compare(settings, frames)
+        program = rotary_program(frames, 60)
+        wrong = {
+            "slow, not fast": (RotaryRef(frames), ag.ROTARY_SLOW),
+            "no drive": (RotaryRef(frames, drive_on=False), ag.ROTARY_FAST),
+            "no crossover": (RotaryRef(frames, xover=False), ag.ROTARY_FAST),
+        }
+        for name, (ref, speed) in wrong.items():
+            wl, wr = [], []
+            for block in program:
+                left, right = ref.render(block, speed, 6.0, 7.0)
+                wl += left
+                wr += right
+            self.assertGreater(max(worst(got_l, wl), worst(got_r, wr)), 200, name)

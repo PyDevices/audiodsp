@@ -249,6 +249,25 @@ typedef enum {
     // exp(-dt/release), and that one value is written across the block.
     // clavichord's auto-wah peak follower and vocoder330's per-band RMS.
     AUDIODSP_GRAPH_FOLLOW,
+    // inputs: pitch, gate, extra. params: frequency. table(): one cycle of
+    // int16 samples, copied into the node, up to `arg` of them (0 takes 256).
+    // A drawbar organ's voice: audioinstruments' dsp/organ.py DrawbarToneCore
+    // without the bridge's 256 frames of latency. The table plays as a
+    // synthio.Note plays it, at frequency * 2^(10 * pitch / UNIT) Hz (vrack's
+    // 0.1 an octave) held to 10..16000 and taken at the block's first sample,
+    // its dds, its loudness and its silence past Nyquist included. The extra
+    // input (the percussion) is added to the tone, and the sum goes through
+    // the contacts: a 3 ms linear ramp that follows the gate's first sample,
+    // cut to nothing when a key comes down while the last note still sounds.
+    AUDIODSP_GRAPH_WAVETABLE,
+    // inputs: audio. params: speed, drive, volume. Built with `arg` = the
+    // right side's buffer id (output is the left side, like PAN).
+    // audioinstruments' dsp/rotary.py RotarySpeakerCore: a tube overdrive, an
+    // 800 Hz crossover (synthio.Biquad in audiofilters.Filter, to the count),
+    // and a horn and a drum rotor whose speeds glide to stop, slow or fast,
+    // each read through a swept delay with its amplitude swirl by two
+    // microphones on opposite sides.
+    AUDIODSP_GRAPH_ROTARY,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -532,6 +551,29 @@ enum {
 enum {
     AUDIODSP_GRAPH_FOLLOW_PEAK = 0,
     AUDIODSP_GRAPH_FOLLOW_RMS,
+    // Hz the table plays at with the pitch at 0 (or open): DrawbarToneCore's
+    // base_ratio times the key's pitch, so C4 * 0.5 for a tonewheel's 16'.
+    AUDIODSP_GRAPH_WAVETABLE_FREQUENCY = 0,
+};
+
+//: The table a WAVETABLE node holds when it is built with an `arg` of 0, and
+//: the most any may.
+#define AUDIODSP_GRAPH_WAVETABLE_DEFAULT 256u
+#define AUDIODSP_GRAPH_WAVETABLE_MAX 16384u
+
+enum {
+    // 0 stop, 1 slow (chorale), 2 fast (tremolo): the nearest, modulo 3.
+    AUDIODSP_GRAPH_ROTARY_SPEED = 0,
+    // 0..10: the tube amplifier's drive; 0.01 and under is clean.
+    AUDIODSP_GRAPH_ROTARY_DRIVE,
+    // 0..10: 10 is a gain of 2 on the microphones' sum.
+    AUDIODSP_GRAPH_ROTARY_VOLUME,
+};
+
+enum {
+    AUDIODSP_GRAPH_ROTARY_STOP = 0,
+    AUDIODSP_GRAPH_ROTARY_SLOW,
+    AUDIODSP_GRAPH_ROTARY_FAST,
 };
 
 enum {
@@ -744,6 +786,11 @@ bool audiodsp_graph_set_struck_table_prepared(audiodsp_graph_t *graph,
 // AUDIODSP_GRAPH_DECAY_STRIKES, copied into the node.
 bool audiodsp_graph_set_decay_table(audiodsp_graph_t *graph, uint32_t node,
     const float *table, uint32_t strikes);
+
+// A WAVETABLE node's cycle: `length` int16 samples, 2 up to the `arg` it was
+// built with, copied into the node. It plays from the next block on.
+bool audiodsp_graph_set_wavetable(audiodsp_graph_t *graph, uint32_t node,
+    const int16_t *table, uint32_t length);
 
 // Clears a node's running state (the kernel's reset).
 bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node);
