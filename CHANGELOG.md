@@ -1,3 +1,7 @@
+## v0.6.13.dev7 (2026-11-02)
+
+- ladder: keep a channel's state in locals for the block (#375)
+
 ## v0.6.13.dev6 (2026-11-02)
 
 - audiomodal: skip idle modes per block and run ringing ones four at a time (#373)
