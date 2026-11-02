@@ -23,7 +23,12 @@
 // differ in the last place, and this port's rule is that one hash of one
 // probe matches on all three.
 
+// NaN fails both comparisons, so it is taken as zero first: a NaN gain would
+// otherwise reach the filter and the silent-mode shortcuts would skip it.
 static float clampf(float value, float low, float high) {
+    if (value != value) {
+        value = 0.0f;
+    }
     if (value < low) {
         return low;
     }
