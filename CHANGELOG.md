@@ -1,3 +1,8 @@
+## v0.6.13.dev5 (2026-11-02)
+
+- audiograph: WAVETABLE and ROTARY nodes (#369)
+- audiograph: retune a STRUCK bank in table(), not in the block that strikes (#368)
+
 ## v0.6.13.dev4 (2026-11-02)
 
 - audiograph: ACID, SPRING, ADSR2, GLISS and FOLLOW nodes (#365)
