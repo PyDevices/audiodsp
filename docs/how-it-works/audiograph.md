@@ -106,6 +106,8 @@ rather than its last block.
 | `ADSR2` | gate | `ADSR2_ATTACK`, `ADSR2_DECAY`, `ADSR2_RELEASE` in seconds, `ADSR2_SUSTAIN` 0..1, `ADSR2_INITIAL`, `ADSR2_ATTACK_LEVEL` | ENV's contour starting at `ADSR2_INITIAL` and peaking at `ADSR2_ATTACK_LEVEL`: poly80's filter envelope, [below](#adsr2) |
 | `GLISS` | note, pitch, legato | `GLISS_TIME` s, `GLISS_MODE` (`LAG_OFF`, `LAG_ON`, `LAG_AUTO`), `GLISS_STEP` semitones | `LAG`'s linear glide stepped onto a semitone grid once a block: poly80's glissando, [below](#gliss) |
 | `FOLLOW` | audio | `FOLLOW_ATTACK`, `FOLLOW_RELEASE` in seconds, `FOLLOW_MODE` (`FOLLOW_PEAK`, `FOLLOW_RMS`) | an envelope follower, one level a block: clavichord's auto-wah peak and vocoder330's band RMS, [below](#follow) |
+| `WAVETABLE` | audio | `WAVETABLE_FREQUENCY` in Hz; inputs pitch, gate and an extra signal added before the contacts; `table()` holds one cycle | a drawbar organ's voice, DrawbarToneCore without its latency, [below](#wavetable) |
+| `ROTARY` | audio | `ROTARY_SPEED` (`ROTARY_STOP`, `ROTARY_SLOW`, `ROTARY_FAST`), `ROTARY_DRIVE` and `ROTARY_VOLUME` 0 to 10; `arg` is the right side's buffer | a rotary speaker, RotarySpeakerCore, stereo like `PAN`, [below](#rotary) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -478,6 +480,39 @@ block, so a CV that sweeps a filter holds still between blocks and jumps at
 the boundary, as the rack's does. clavichord's follower takes its 0.4 and
 0.06 per-block coefficients rather than times; at 128 frames those are
 `−dt/ln(0.6)` and `−dt/ln(0.94)`, about 5.2 ms and 43 ms.
+
+### Wavetable
+
+`WAVETABLE` plays one cycle of int16 samples as a `synthio.Note` plays it:
+the same phase accumulator, the same loudness and the same silence once the
+frequency passes Nyquist. Hand it the cycle with `table(node, samples)`, up
+to the `arg` the node was built with (0 means 256, and no node takes more
+than 16384); the node copies it. It plays at `WAVETABLE_FREQUENCY` times
+`2^(10 * pitch / UNIT)` Hz, vrack's 0.1 V an octave, taken at the block's
+first sample and held to 10 to 16000 Hz, so a NaN frequency plays at 10 Hz.
+
+The extra input, an organ's percussion, is added to the tone, and the sum
+goes through the contacts: a 3 ms linear ramp that follows the gate's first
+sample in the block. A key that comes down while the last note still sounds
+cuts the ramp to nothing first, as DrawbarToneCore's steal does. The node is
+DrawbarToneCore without the bridge's 256 frames of latency, so it matches the
+rack to the count everywhere except the block a steal lands in, where the
+rack still plays the old note's tail and the node does not.
+
+### Rotary
+
+`ROTARY` is RotarySpeakerCore: a tube overdrive, an 800 Hz crossover, and a
+horn and a drum whose rotor speeds glide toward `ROTARY_STOP`, `ROTARY_SLOW`
+or `ROTARY_FAST`, each read through a swept delay and picked up by two
+microphones on opposite sides. Build it with `arg` set to the right side's
+buffer, as `PAN` is; the node's own output is the left. `ROTARY_DRIVE` runs 0
+to 10, and 0.01 and under is clean; `ROTARY_VOLUME` 10 is a gain of 2 on the
+microphones' sum. A NaN speed stops the rotors, a NaN drive plays clean and a
+NaN volume is silence.
+
+The crossover is `synthio.Biquad` in `audiofilters.Filter`, to the count.
+Against the rack the node stays within 2 counts. `reset()` clears the
+crossover's state too, where the rack's filter keeps ringing.
 
 ## Output
 
