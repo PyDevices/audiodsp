@@ -535,8 +535,8 @@ enum {
 enum {
     AUDIODSP_GRAPH_GLISS_TIME = 0,
     AUDIODSP_GRAPH_GLISS_MODE,
-    // The step in semitones (1 as poly80 steps it). The grid on the wire is
-    // step * UNIT / 12, since a semitone is 1/12 of an octave and UNIT is one.
+    // The grid on the wire is step * UNIT / 12. UNIT is +10 V, so at
+    // 1 V/octave a semitone is a step of 0.1, as poly80 steps it.
     AUDIODSP_GRAPH_GLISS_STEP,
 };
 
