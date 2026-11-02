@@ -1413,6 +1413,28 @@ static void run_env(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
     uint8_t stage = d->stage;
     bool high = d->high;
     float val = d->val;
+    if ((stage == ENV_SUSTAIN || stage == ENV_IDLE) && frames > 0u) {
+        // A held or finished envelope whose gate does not move this block
+        // writes the same value every frame, as the loop below would.
+        bool moves = false;
+        if (gate != NULL) {
+            for (uint32_t i = 0; i < frames; ++i) {
+                if (((float)gate[i] > ENV_GATE_THRESHOLD) != high) {
+                    moves = true;
+                    break;
+                }
+            }
+        }
+        if (!moves) {
+            val = stage == ENV_SUSTAIN ? sus : 0.0f;
+            const int16_t v = sat16(val * AUDIODSP_GRAPH_UNIT);
+            for (uint32_t i = 0; i < frames; ++i) {
+                out[i] = v;
+            }
+            d->val = val;
+            return;
+        }
+    }
     for (uint32_t i = 0; i < frames; ++i) {
         if (gate != NULL) {
             bool g = (float)gate[i] > ENV_GATE_THRESHOLD;

@@ -49,12 +49,29 @@ static int16_t to_s16(float value) {
 // |x|, inline on every target (no libm), and a hint that a branch is rare.
 #if defined(__GNUC__) || defined(__clang__)
 #define MODAL_FABS(x) __builtin_fabsf(x)
+#define MODAL_COPYSIGN(x, y) __builtin_copysignf(x, y)
+#define MODAL_FMIN(x, y) __builtin_fminf(x, y)
 #define MODAL_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#define MODAL_LIKELY(x) __builtin_expect(!!(x), 1)
 #else
 #include <math.h>
 #define MODAL_FABS(x) fabsf(x)
+#define MODAL_COPYSIGN(x, y) copysignf(x, y)
+#define MODAL_FMIN(x, y) fminf(x, y)
 #define MODAL_UNLIKELY(x) (x)
+#define MODAL_LIKELY(x) (x)
 #endif
+
+// to_s16() without its branches, for a value already known to be in range:
+// value + copysign(0.5, value) is the same addition to_s16() makes (adding
+// -0.5 is subtracting 0.5), and -0.0f comes out 0 either way.
+static inline int in_s16(float value) {
+    return (value <= 32767.0f) & (value >= -32768.0f);
+}
+
+static inline int16_t round_s16(float value) {
+    return (int16_t)(value + MODAL_COPYSIGN(0.5f, value));
+}
 
 // What makes a decaying float recursion actually arrive at zero, and here also
 // what makes "this mode has finished" an exact test.
@@ -76,13 +93,150 @@ static int16_t to_s16(float value) {
 // Zeroing the pair together cannot do that: the only state it can produce is
 // the one where the whole mode is off.
 //
-// Non-zero when both words are small enough to be nothing: |s| < FLUSH, so
-// -FLUSH and FLUSH themselves are not, and neither is a NaN. The two tests
-// are joined with & rather than &&, so the caller pays one branch, and that
-// one is almost never taken.
-static inline int tiny_pair(float s1, float s2) {
-    return (MODAL_FABS(s1) < AUDIODSP_MODAL_FLUSH)
-           & (MODAL_FABS(s2) < AUDIODSP_MODAL_FLUSH);
+// A word is nothing when |s| < FLUSH, so -FLUSH and FLUSH themselves are
+// not, and neither is a NaN. The process loop tests s2 alone on every sample,
+// one compare on one branch that a ringing mode never takes, and only when
+// that passes does flush_pair() look at both.
+static inline int maybe_tiny(float s) {
+    return MODAL_FABS(s) < AUDIODSP_MODAL_FLUSH;
+}
+
+// tiny() is the same comparison as maybe_tiny(), written apart so that the
+// compiler does not keep the fast path's |s| alive for it.
+static inline bool tiny(float value) {
+    return value > -AUDIODSP_MODAL_FLUSH && value < AUDIODSP_MODAL_FLUSH;
+}
+
+static inline void flush_pair(float *s1, float *s2) {
+    if (tiny(*s1) && tiny(*s2)) {
+        *s1 = 0.0f;
+        *s2 = 0.0f;
+    }
+}
+
+// Four silent modes across one stretch: the sustained note's case, so it is
+// the one with the most of its own. Four recursions to interleave hide the
+// FPU's latency, and acc[j] is loaded and stored once for all four, taking
+// their y0 in ascending order.
+//
+// Two samples a pass, with no branch between them: the second is worked out
+// from the first as if neither flushed, and one test of the smallest |s2| of
+// the eight says whether either could have (fminf() passes over a NaN, which
+// can never flush, so a NaN only ever sends the pass down the slow path). On
+// the slow path the second sample is worked out again from the first one's
+// flushed state, exactly as one sample at a time would.
+static void ring4(const audiodsp_modal_config_t *config,
+    audiodsp_modal_state_t *state, uint32_t channels, uint32_t channel,
+    const uint8_t *modes, float *acc, uint32_t n) {
+    const audiodsp_modal_coeff_t *c = config->coeffs;
+    const uint32_t wa = modes[0] * channels + channel;
+    const uint32_t wb = modes[1] * channels + channel;
+    const uint32_t wc = modes[2] * channels + channel;
+    const uint32_t wd = modes[3] * channels + channel;
+    const float na1a = -c[modes[0]].a1;
+    const float na2a = -c[modes[0]].a2;
+    const float na1b = -c[modes[1]].a1;
+    const float na2b = -c[modes[1]].a2;
+    const float na1c = -c[modes[2]].a1;
+    const float na2c = -c[modes[2]].a2;
+    const float na1d = -c[modes[3]].a1;
+    const float na2d = -c[modes[3]].a2;
+    float s1a = state->s1[wa];
+    float s2a = state->s2[wa];
+    float s1b = state->s1[wb];
+    float s2b = state->s2[wb];
+    float s1c = state->s1[wc];
+    float s2c = state->s2[wc];
+    float s1d = state->s1[wd];
+    float s2d = state->s2[wd];
+    uint32_t j = 0;
+    for (; j + 2u <= n; j += 2u) {
+        // First sample: y0 is s1.
+        float sum0 = acc[j];
+        sum0 += s1a;
+        sum0 += s1b;
+        sum0 += s1c;
+        sum0 += s1d;
+        float t1a = na1a * s1a + s2a;
+        float t2a = na2a * s1a;
+        float t1b = na1b * s1b + s2b;
+        float t2b = na2b * s1b;
+        float t1c = na1c * s1c + s2c;
+        float t2c = na2c * s1c;
+        float t1d = na1d * s1d + s2d;
+        float t2d = na2d * s1d;
+        // Second sample, from the first's state as if nothing flushed.
+        s1a = na1a * t1a + t2a;
+        s2a = na2a * t1a;
+        s1b = na1b * t1b + t2b;
+        s2b = na2b * t1b;
+        s1c = na1c * t1c + t2c;
+        s2c = na2c * t1c;
+        s1d = na1d * t1d + t2d;
+        s2d = na2d * t1d;
+        const float low = MODAL_FMIN(
+            MODAL_FMIN(MODAL_FMIN(MODAL_FABS(t2a), MODAL_FABS(t2b)),
+                MODAL_FMIN(MODAL_FABS(t2c), MODAL_FABS(t2d))),
+            MODAL_FMIN(MODAL_FMIN(MODAL_FABS(s2a), MODAL_FABS(s2b)),
+                MODAL_FMIN(MODAL_FABS(s2c), MODAL_FABS(s2d))));
+        if (MODAL_UNLIKELY(low < AUDIODSP_MODAL_FLUSH)) {
+            flush_pair(&t1a, &t2a);
+            flush_pair(&t1b, &t2b);
+            flush_pair(&t1c, &t2c);
+            flush_pair(&t1d, &t2d);
+            s1a = na1a * t1a + t2a;
+            s2a = na2a * t1a;
+            s1b = na1b * t1b + t2b;
+            s2b = na2b * t1b;
+            s1c = na1c * t1c + t2c;
+            s2c = na2c * t1c;
+            s1d = na1d * t1d + t2d;
+            s2d = na2d * t1d;
+            flush_pair(&s1a, &s2a);
+            flush_pair(&s1b, &s2b);
+            flush_pair(&s1c, &s2c);
+            flush_pair(&s1d, &s2d);
+        }
+        float sum1 = acc[j + 1u];
+        sum1 += t1a;
+        sum1 += t1b;
+        sum1 += t1c;
+        sum1 += t1d;
+        acc[j] = sum0;
+        acc[j + 1u] = sum1;
+    }
+    if (j < n) {
+        float sum = acc[j];
+        sum += s1a;
+        sum += s1b;
+        sum += s1c;
+        sum += s1d;
+        acc[j] = sum;
+        const float ya = s1a;
+        const float yb = s1b;
+        const float yc = s1c;
+        const float yd = s1d;
+        s1a = na1a * ya + s2a;
+        s2a = na2a * ya;
+        s1b = na1b * yb + s2b;
+        s2b = na2b * yb;
+        s1c = na1c * yc + s2c;
+        s2c = na2c * yc;
+        s1d = na1d * yd + s2d;
+        s2d = na2d * yd;
+        flush_pair(&s1a, &s2a);
+        flush_pair(&s1b, &s2b);
+        flush_pair(&s1c, &s2c);
+        flush_pair(&s1d, &s2d);
+    }
+    state->s1[wa] = s1a;
+    state->s2[wa] = s2a;
+    state->s1[wb] = s1b;
+    state->s2[wb] = s2b;
+    state->s1[wc] = s1c;
+    state->s2[wc] = s2c;
+    state->s1[wd] = s1d;
+    state->s2[wd] = s2d;
 }
 
 // exp(-x) for x >= 0, in a fixed order on every platform.
@@ -385,8 +539,7 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
     //   exactly whenever s1 is not zero, and a zero when it is. The silent
     //   stretch, every sustained note between strikes, skips that multiply
     //   and add, which are half the recursion's latency.
-    // - tiny_pair() is the flush the per-sample loop made, and both modes'
-    //   tests share one branch.
+    // - The flush is the per-sample loop's, tested s2 first (flush_pair()).
     float xs[AUDIODSP_MODAL_STRETCH];
     float acc[AUDIODSP_MODAL_STRETCH];
     uint8_t act[AUDIODSP_MODAL_MAX_MODES];
@@ -419,6 +572,11 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
                 act[count++] = (uint8_t)m;
             }
             uint32_t k = 0;
+            if (silent) {
+                for (; k + 3u < count; k += 4u) {
+                    ring4(config, state, channels, channel, &act[k], acc, n);
+                }
+            }
             for (; k + 1u < count; k += 2u) {
                 const audiodsp_modal_coeff_t ca = config->coeffs[act[k]];
                 const audiodsp_modal_coeff_t cb = config->coeffs[act[k + 1u]];
@@ -428,6 +586,8 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
                 const float na2a = -ca.a2;
                 const float na1b = -cb.a1;
                 const float na2b = -cb.a2;
+                const float b0a = ca.b0;
+                const float b0b = cb.b0;
                 float s1a = state->s1[wa];
                 float s2a = state->s2[wa];
                 float s1b = state->s1[wb];
@@ -444,26 +604,15 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
                         sum += ya;
                         sum += yb;
                         acc[j] = sum;
-                        const int ta = tiny_pair(s1a, s2a);
-                        const int tb = tiny_pair(s1b, s2b);
-                        if (MODAL_UNLIKELY(ta | tb)) {
-                            if (ta) {
-                                s1a = 0.0f;
-                                s2a = 0.0f;
-                            }
-                            if (tb) {
-                                s1b = 0.0f;
-                                s2b = 0.0f;
-                            }
+                        if (MODAL_UNLIKELY(maybe_tiny(s2a) | maybe_tiny(s2b))) {
+                            flush_pair(&s1a, &s2a);
+                            flush_pair(&s1b, &s2b);
                         }
                     }
                 } else {
-                    const float b0a = ca.b0;
-                    const float b0b = cb.b0;
                     for (uint32_t j = 0; j < n; ++j) {
-                        const float x0 = xs[j];
-                        const float ya = b0a * x0 + s1a;
-                        const float yb = b0b * x0 + s1b;
+                        const float ya = b0a * xs[j] + s1a;
+                        const float yb = b0b * xs[j] + s1b;
                         s1a = na1a * ya + s2a;
                         s2a = na2a * ya;
                         s1b = na1b * yb + s2b;
@@ -472,17 +621,9 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
                         sum += ya;
                         sum += yb;
                         acc[j] = sum;
-                        const int ta = tiny_pair(s1a, s2a);
-                        const int tb = tiny_pair(s1b, s2b);
-                        if (MODAL_UNLIKELY(ta | tb)) {
-                            if (ta) {
-                                s1a = 0.0f;
-                                s2a = 0.0f;
-                            }
-                            if (tb) {
-                                s1b = 0.0f;
-                                s2b = 0.0f;
-                            }
+                        if (MODAL_UNLIKELY(maybe_tiny(s2a) | maybe_tiny(s2b))) {
+                            flush_pair(&s1a, &s2a);
+                            flush_pair(&s1b, &s2b);
                         }
                     }
                 }
@@ -504,9 +645,8 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
                     s1 = na1 * y0 + s2;
                     s2 = na2 * y0;
                     acc[j] += y0;
-                    if (MODAL_UNLIKELY(tiny_pair(s1, s2))) {
-                        s1 = 0.0f;
-                        s2 = 0.0f;
+                    if (MODAL_UNLIKELY(maybe_tiny(s2))) {
+                        flush_pair(&s1, &s2);
                     }
                 }
                 state->s1[w] = s1;
@@ -518,7 +658,30 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
             // only its sign, which to_s16() rounds to 0 regardless.
             int16_t *dst = out + (size_t)start * channels + channel;
             if (silent || dry == 0.0f) {
-                for (uint32_t j = 0; j < n; ++j) {
+                // Four at a time, so the core has four conversions to
+                // overlap: when all four are in range (a NaN is not), each
+                // rounds as to_s16() does, and otherwise to_s16() does it.
+                uint32_t j = 0;
+                for (; j + 4u <= n; j += 4u) {
+                    const float v0 = gain * acc[j];
+                    const float v1 = gain * acc[j + 1u];
+                    const float v2 = gain * acc[j + 2u];
+                    const float v3 = gain * acc[j + 3u];
+                    int16_t *d = dst + (size_t)j * channels;
+                    if (MODAL_LIKELY(in_s16(v0) & in_s16(v1)
+                                     & in_s16(v2) & in_s16(v3))) {
+                        d[0] = round_s16(v0);
+                        d[channels] = round_s16(v1);
+                        d[2u * channels] = round_s16(v2);
+                        d[3u * channels] = round_s16(v3);
+                    } else {
+                        d[0] = to_s16(v0);
+                        d[channels] = to_s16(v1);
+                        d[2u * channels] = to_s16(v2);
+                        d[3u * channels] = to_s16(v3);
+                    }
+                }
+                for (; j < n; ++j) {
                     dst[(size_t)j * channels] = to_s16(gain * acc[j]);
                 }
             } else {

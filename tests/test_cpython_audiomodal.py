@@ -246,19 +246,24 @@ class ModalTraits(unittest.TestCase):
         self.assertEqual(set(samples[last_loud + 1:]), {0})
 
     def test_m7_ringing_is_false_only_once_the_tail_has_arrived(self):
-        bank = build(((220.0, 0.125, 1.0),))
-        self.assertFalse(bank.ringing)
-        bank.play(impulse())
-        render(bank, 1)
-        self.assertTrue(bank.ringing)
-        bank.stop()
-        for _ in range(400):
-            render(bank, 1)
-            if not bank.ringing:
-                break
-        self.assertFalse(bank.ringing)
-        # Once it says silent it must BE silent: one more block, all zero.
-        self.assertEqual(set(render(bank, 1)), {0})
+        # One mode, and five: a silent bank of four or more modes takes its
+        # own pass, and that pass must flush its tails too.
+        for table in (((220.0, 0.125, 1.0),),
+                      tuple((220.0 * k, 0.125, 1.0) for k in range(1, 6))):
+            with self.subTest(modes=len(table)):
+                bank = build(table)
+                self.assertFalse(bank.ringing)
+                bank.play(impulse())
+                render(bank, 1)
+                self.assertTrue(bank.ringing)
+                bank.stop()
+                for _ in range(400):
+                    render(bank, 1)
+                    if not bank.ringing:
+                        break
+                self.assertFalse(bank.ringing)
+                # Once it says silent it must BE silent: one more block, all zero.
+                self.assertEqual(set(render(bank, 1)), {0})
 
     def test_m8_modes_sum_linearly(self):
         alone = []
