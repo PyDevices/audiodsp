@@ -545,8 +545,10 @@ for b in range(BLOCKS):
     crush_at = b if FAULT != "crush" or b != 64 else b - 1
     g.set(crush_a, ag.CRUSH_BITS, 3.0 + (crush_at // 16) % 6)
 
-    # the acid cutoff steps; its envelope walks and accent bursts every 14
-    acid_at = b if FAULT != "acid" or b != 48 else b - 1
+    # the acid cutoff steps every twenty blocks (block 40 is a boundary, so a
+    # block-late change there is visible); its envelope walks and accent
+    # bursts every 14
+    acid_at = b if FAULT != "acid" or b != 40 else b - 1
     g.set(acid_a, ag.ACID_CUTOFF_HZ, 200.0 * (1 + (acid_at // 20) % 4))
     for i in range(FRAMES):
         acid_env[i] = (UNIT * (b % 24)) // 12 if (b % 24) < 12 else UNIT - (UNIT * (b % 24 - 12)) // 12
@@ -554,8 +556,8 @@ for b in range(BLOCKS):
     g.write(acid_env_b, acid_env)
     g.write(acid_acc_b, acid_acc)
 
-    # the spring's decay steps every twenty blocks
-    spring_at = b if FAULT != "spring" or b != 48 else b - 1
+    # the spring's decay steps every twenty blocks (block 40 is a boundary)
+    spring_at = b if FAULT != "spring" or b != 40 else b - 1
     g.set(spring_a, ag.SPRING_DECAY, 0.25 * (1 + (spring_at // 20) % 3))
 
     # the adsr2's attack level steps every twenty blocks (block 40 is a
