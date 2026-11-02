@@ -3289,6 +3289,34 @@ class AcidTest(unittest.TestCase):
             got, want = self.compare(audio, env, accent)
             self.assertLessEqual(worst(got, want), 1, frames)
 
+    def test_a_knob_past_its_range_plays_as_its_end(self):
+        # resonance and env_mod are held to 0..1 and a NaN cutoff takes the
+        # 30 Hz floor: an infinite gain times a still stage would be a NaN
+        # the stages kept until a reset.
+        frames, blocks = 128, 12
+        audio = self.tone_blocks(frames, blocks)
+        env = [[int(UNIT * min(1.0, (b % 8) / 4.0))] * frames for b in range(blocks)]
+        accent = [[int(UNIT * (0.9 if b == 2 else 0.0))] * frames for b in range(blocks)]
+
+        def render(cutoff_hz=400.0, resonance=0.7, env_mod=0.6):
+            rig = Rig(frames, ag.ACID, 3)
+            rig.set(ag.ACID_CUTOFF_HZ, cutoff_hz)
+            rig.set(ag.ACID_RESONANCE, resonance)
+            rig.set(ag.ACID_ENVMOD, env_mod)
+            out = []
+            for a, e, c in zip(audio, env, accent):
+                out += rig.run(a, e, c)
+            return out
+
+        inf, nan = float("inf"), float("nan")
+        self.assertEqual(worst(render(resonance=inf), render(resonance=1.0)), 0)
+        self.assertEqual(worst(render(resonance=nan), render(resonance=0.0)), 0)
+        self.assertEqual(worst(render(resonance=-inf), render(resonance=0.0)), 0)
+        self.assertEqual(worst(render(env_mod=inf), render(env_mod=1.0)), 0)
+        self.assertEqual(worst(render(env_mod=nan), render(env_mod=0.0)), 0)
+        self.assertEqual(worst(render(cutoff_hz=nan), render(cutoff_hz=0.0)), 0)
+        self.assertGreater(max(abs(v) for v in render(resonance=inf)), 500)
+
 
 # ----------------------------------------------------------------- SPRING --
 
@@ -3443,6 +3471,65 @@ class SpringTest(unittest.TestCase):
             (gl, wl), (gr, wr) = self.compare(audio)
             self.assertLessEqual(worst(gl, wl), 0, frames)
             self.assertLessEqual(worst(gr, wr), 0, frames)
+
+    def test_the_right_side_must_be_a_buffer_of_its_own(self):
+        g = ag.Graph(sample_rate=RATE, frames=64, channel_count=1, buffers=4, nodes=4)
+        a, b = g.buffer(), g.buffer()
+        for right in (a, 4.0, -1.0, 1.5, 40000.0):
+            with self.assertRaises(ValueError, msg=right):
+                g.add(ag.SPRING, ag.ALWAYS, (b,), a, right)
+        g.add(ag.SPRING, ag.ALWAYS, (b,), a, 2)
+
+    def test_a_skipped_group_silences_both_sides(self):
+        frames = 64
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1, buffers=4, nodes=2)
+        in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+        g.add(ag.SPRING, 3, (in_b,), left_b, right_b)
+        g.write(in_b, array("h", [8000] * frames))
+        buf = array("h", bytes(2 * frames))
+        g.run(None, 0, 1 << 3)
+        g.read(right_b, buf)
+        self.assertEqual(buf[0], 6000)
+        g.run(None, 0, 0)
+        g.read(left_b, buf)
+        self.assertEqual(set(buf), {0})
+        g.read(right_b, buf)
+        self.assertEqual(set(buf), {0})
+
+    def test_a_carried_tank_keeps_its_own_right_side(self):
+        # A recompiled patch may put the right side on another buffer id; the
+        # tanks carry over and each graph keeps writing its own right side.
+        frames = 64
+
+        def build(spare):
+            g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                         buffers=8, nodes=2)
+            for _ in range(spare):
+                g.buffer()
+            in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+            return g, g.add(ag.SPRING, ag.ALWAYS, (in_b,), left_b, right_b), in_b, left_b, right_b
+
+        src, src_n, src_in, src_l, src_r = build(0)
+        dst, dst_n, dst_in, dst_l, dst_r = build(2)
+        for block in self.impulse_blocks(frames, 30):
+            src.write(src_in, array("h", block))
+            src.run(None)
+        dst.carry(dst_n, src, src_n)
+        buf = array("h", bytes(2 * frames))
+        tails = []
+        for _ in range(4):
+            sides = []
+            for g, in_b, left_b, right_b in ((src, src_in, src_l, src_r),
+                                             (dst, dst_in, dst_l, dst_r)):
+                g.write(in_b, array("h", bytes(2 * frames)))
+                g.run(None)
+                g.read(left_b, buf)
+                left = list(buf)
+                g.read(right_b, buf)
+                sides.append((left, list(buf)))
+            self.assertEqual(sides[1], sides[0])
+            tails += sides[0][1]
+        self.assertGreater(max(abs(v) for v in tails), 50)
 
 
 # ------------------------------------------------------------------ ADSR2 --
@@ -3635,6 +3722,35 @@ class Adsr2Test(unittest.TestCase):
             got, want = self.compare(gate, initial=-0.25, attack_level=0.75)
             self.assertLessEqual(worst(got, want), 1, frames)
 
+    def test_a_nan_knob_plays_as_the_end_it_is_past(self):
+        # A NaN time is one sample and a NaN sustain is 0: a NaN level never
+        # reaches the release's floor, so the voice would never go idle.
+        frames, blocks = 128, 24
+        gate = self.gate_blocks(frames, blocks, period=8, high=3)
+
+        def render(**kw):
+            rig = Rig(frames, ag.ADSR2, 1)
+            knobs = dict(attack=0.01, decay=0.05, sustain=0.6, release=0.005)
+            knobs.update(kw)
+            rig.set(ag.ADSR2_ATTACK, knobs["attack"])
+            rig.set(ag.ADSR2_DECAY, knobs["decay"])
+            rig.set(ag.ADSR2_SUSTAIN, knobs["sustain"])
+            rig.set(ag.ADSR2_RELEASE, knobs["release"])
+            rig.set(ag.ADSR2_INITIAL, -0.5)
+            rig.set(ag.ADSR2_ATTACK_LEVEL, 0.5)
+            out = []
+            for block in gate:
+                out += rig.run(block)
+            return out
+
+        nan = float("nan")
+        self.assertEqual(worst(render(sustain=nan), render(sustain=0.0)), 0)
+        self.assertEqual(worst(render(sustain=-float("inf")), render(sustain=0.0)), 0)
+        for name in ("attack", "decay", "release"):
+            self.assertEqual(worst(render(**{name: nan}), render(**{name: 0.0})), 0, name)
+        # after the last release it rests at the initial level again
+        self.assertEqual(render(sustain=nan)[-1], -UNIT // 2)
+
 
 # ------------------------------------------------------------------- GLISS --
 
@@ -3708,9 +3824,12 @@ class GlissTest(unittest.TestCase):
         phrase_blocks = phrase(frames, blocks)
         on, _ = self.compare(phrase_blocks, mode=ag.LAG_ON, time=0.03125)
         off, _ = self.compare(phrase_blocks, mode=ag.LAG_OFF, time=0.03125)
-        auto, _ = self.compare(phrase_blocks, mode=ag.LAG_AUTO, time=0.03125)
+        auto, auto_want = self.compare(phrase_blocks, mode=ag.LAG_AUTO, time=0.03125)
         self.assertNotEqual(on, off)
         self.assertNotEqual(on, auto)
+        # AUTO with legato held glides as GlideCore does, so it is not OFF
+        self.assertEqual(worst(auto, auto_want), 0)
+        self.assertNotEqual(auto, off)
         # AUTO glides only on a held note: with no legato it is OFF
         no_legato = [(n, p, [0] * frames) for n, p, _ in phrase_blocks]
         auto_free, _ = self.compare(no_legato, mode=ag.LAG_AUTO, time=0.03125)
@@ -3776,6 +3895,28 @@ class GlissTest(unittest.TestCase):
         for frames in (32, 256):
             got, want = self.compare(phrase(frames, 24), frames=frames)
             self.assertEqual(worst(got, want), 0, frames)
+
+    def test_a_step_past_its_range_leaves_the_glide_unstepped(self):
+        # An infinite step would round to inf * 0, and a tiny one to a
+        # quotient past an int32: both play the glide as it is, unstepped.
+        frames, blocks = 128, 30
+
+        def render(step):
+            rig = Rig(frames, ag.GLISS, 3)
+            rig.set(ag.GLISS_MODE, ag.LAG_ON)
+            rig.set(ag.GLISS_TIME, 0.0625)
+            rig.set(ag.GLISS_STEP, step)
+            out = []
+            for note, _pitch, legato in phrase(frames, blocks):
+                out += rig.run(note, note, legato)
+            return out
+
+        plain = render(0.0)
+        self.assertEqual(worst(render(float("inf")), plain), 0)
+        self.assertEqual(worst(render(1e-30), plain), 0)
+        self.assertEqual(worst(render(float("nan")), plain), 0)
+        self.assertGreater(max(abs(v) for v in plain), 1000)
+        self.assertNotEqual(render(1.0), plain)
 
 
 # ----------------------------------------------------------------- FOLLOW --

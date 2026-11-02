@@ -409,7 +409,8 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
     if (output == AUDIODSP_GRAPH_NONE && kind != AUDIODSP_GRAPH_OUT) {
         return -1;
     }
-    if ((kind == AUDIODSP_GRAPH_PAN || kind == AUDIODSP_GRAPH_TREMOLO) &&
+    if ((kind == AUDIODSP_GRAPH_PAN || kind == AUDIODSP_GRAPH_TREMOLO ||
+        kind == AUDIODSP_GRAPH_SPRING) &&
         (!(arg >= 0.0f && arg < (float)graph->nbufs) ||
         arg != (float)(int16_t)arg || (int16_t)arg == output)) {
         return -1;
@@ -818,7 +819,7 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
     }
     const audiodsp_graph_kind_t kind = (audiodsp_graph_kind_t)d->kind;
     if (kind != AUDIODSP_GRAPH_PAN && kind != AUDIODSP_GRAPH_TREMOLO &&
-        !(d->arg == s->arg)) {
+        kind != AUDIODSP_GRAPH_SPRING && !(d->arg == s->arg)) {
         return AUDIODSP_GRAPH_CARRY_ARG;
     }
     const size_t size = audiodsp_graph_node_data_size(kind, dst->sample_rate, d->arg);
@@ -843,6 +844,8 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
         right = ((const graph_pan_t *)d->data)->right;
     } else if (kind == AUDIODSP_GRAPH_TREMOLO) {
         right = ((const graph_tremolo_t *)d->data)->right;
+    } else if (kind == AUDIODSP_GRAPH_SPRING) {
+        right = ((const graph_spring_t *)d->data)->right;
     } else if (kind == AUDIODSP_GRAPH_FBDELAY) {
         wow = ((const graph_fbdelay_t *)d->data)->config.wow_shape;
         wow_shift = ((const graph_fbdelay_t *)d->data)->config.wow_shape_shift;
@@ -923,6 +926,9 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
             break;
         case AUDIODSP_GRAPH_TREMOLO:
             ((graph_tremolo_t *)d->data)->right = right;
+            break;
+        case AUDIODSP_GRAPH_SPRING:
+            ((graph_spring_t *)d->data)->right = right;
             break;
         default:
             break;
@@ -1169,9 +1175,19 @@ static void derive(audiodsp_graph_t *graph, audiodsp_graph_node_t *n) {
         }
         case AUDIODSP_GRAPH_ADSR2: {
             graph_env_t *d = n->data;
-            d->a = env_coeff(n->param[AUDIODSP_GRAPH_ADSR2_ATTACK], 0.35f, graph->sample_rate);
-            d->d = env_coeff(n->param[AUDIODSP_GRAPH_ADSR2_DECAY], 0.25f, graph->sample_rate);
-            d->r = env_coeff(n->param[AUDIODSP_GRAPH_ADSR2_RELEASE], 0.25f, graph->sample_rate);
+            // A NaN time is 0 (one sample): a NaN coefficient would hold the
+            // stage forever.
+            float t[3] = {
+                n->param[AUDIODSP_GRAPH_ADSR2_ATTACK],
+                n->param[AUDIODSP_GRAPH_ADSR2_DECAY],
+                n->param[AUDIODSP_GRAPH_ADSR2_RELEASE],
+            };
+            for (uint32_t k = 0; k < 3u; ++k) {
+                t[k] = t[k] == t[k] ? t[k] : 0.0f;
+            }
+            d->a = env_coeff(t[0], 0.35f, graph->sample_rate);
+            d->d = env_coeff(t[1], 0.25f, graph->sample_rate);
+            d->r = env_coeff(t[2], 0.25f, graph->sample_rate);
             break;
         }
         default:
@@ -1274,7 +1290,10 @@ static void run_env(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
 static void run_adsr2(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
     uint32_t frames) {
     graph_env_t *d = n->data;
-    const float sus = n->param[AUDIODSP_GRAPH_ADSR2_SUSTAIN];
+    // Held to 0..1, a NaN to 0: a NaN level never reaches the release's
+    // floor, so the voice would never go idle.
+    float sus = n->param[AUDIODSP_GRAPH_ADSR2_SUSTAIN];
+    sus = !(sus >= 0.0f) ? 0.0f : (sus > 1.0f ? 1.0f : sus);
     const float il = n->param[AUDIODSP_GRAPH_ADSR2_INITIAL];
     const float span = n->param[AUDIODSP_GRAPH_ADSR2_ATTACK_LEVEL] - il;
     uint8_t stage = d->stage;
@@ -1587,9 +1606,15 @@ static void run_gliss(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     // that one value across the block. The glide state above is untouched.
     const float step = n->param[AUDIODSP_GRAPH_GLISS_STEP];
     float held = acc[frames - 1u];
-    if (step > 0.0f) {
+    if (step > 0.0f && step <= 1.0e6f) {
+        // An infinite step would make the grid inf and the value NaN, and a
+        // tiny one a quotient past int32_t. From 2^23 a float quotient is
+        // already whole, so it needs no rounding.
         const float grid = step * AUDIODSP_GRAPH_UNIT / 12.0f;
-        held = (float)round_even(held / grid) * grid;
+        const float q = held / grid;
+        if (q > -8388608.0f && q < 8388608.0f) {
+            held = (float)round_even(q) * grid;
+        }
     }
     if (pitch != NULL) {
         // The bend rides on top unslid: + pitch - note, in that order.
@@ -1611,6 +1636,8 @@ static void run_gliss(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
 // toward by 1 - exp(-dt/t)). Both are the same one-pole: the coefficient
 // here is exp(-dt/t), so clavichord's per-block 0.4 and 0.06 are times of
 // -dt/ln(0.6) and -dt/ln(0.94) at its block size.
+static double graph_exp2d(double y);
+
 static void run_follow(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     graph_follow_t *d = n->data;
@@ -1647,8 +1674,9 @@ static void run_follow(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     double coef = 0.0;
     if (t > 0.0) {
         // In double, as the rack's math.exp is: the coefficient vocoder330
-        // computes from its times.
-        coef = exp(-dt / t);
+        // computes from its times. Through graph_exp2d, not libm's exp,
+        // so every target computes the same coefficient.
+        coef = graph_exp2d(-dt / t * 1.44269504088896340736);
     }
     d->env = (float)((double)level + ((double)d->env - (double)level) * coef);
     for (uint32_t i = 0; i < frames; ++i) {
@@ -3246,11 +3274,14 @@ static void run_acid(const audiodsp_graph_t *graph,
     const int16_t *acc_in = n->ninputs > 2 && n->inputs[2] != AUDIODSP_GRAPH_NONE
         ? graph->bufs[n->inputs[2]] : NULL;
     const float cutoff_hz = n->param[AUDIODSP_GRAPH_ACID_CUTOFF_HZ];
-    const float resonance = n->param[AUDIODSP_GRAPH_ACID_RESONANCE];
-    const float env_mod = n->param[AUDIODSP_GRAPH_ACID_ENVMOD];
+    // Held to 0..1, a NaN to 0: an infinite resonance or env_mod times a
+    // zero state is NaN, which the stages would keep until a reset.
+    float resonance = n->param[AUDIODSP_GRAPH_ACID_RESONANCE];
+    resonance = !(resonance >= 0.0f) ? 0.0f : (resonance > 1.0f ? 1.0f : resonance);
+    float env_mod = n->param[AUDIODSP_GRAPH_ACID_ENVMOD];
+    env_mod = !(env_mod >= 0.0f) ? 0.0f : (env_mod > 1.0f ? 1.0f : env_mod);
     const float res_gain = resonance * 4.2f;
     const float decay = d->accent_decay;
-    const float inv_sr = 1.0f / (float)graph->sample_rate;
     const float inv = 1.0f / AUDIODSP_GRAPH_UNIT;
     float s0 = d->s0;
     float s1 = d->s1;
@@ -3271,9 +3302,13 @@ static void run_acid(const audiodsp_graph_t *graph,
         if ((i & 3u) == 0u) {
             const float total_env = e + acc_env * 0.4f;
             float f = cutoff_hz * (float)graph_exp2d((double)(total_env * env_mod * 4.0f));
-            f = f < 30.0f ? 30.0f : (f > 14000.0f ? 14000.0f : f);
-            float t = tanf(3.14159265358979323846f * f * inv_sr);
-            g = t < 0.001f ? 0.001f : (t > 0.95f ? 0.95f : t);
+            // A NaN cutoff takes the floor.
+            f = !(f >= 30.0f) ? 30.0f : (f > 14000.0f ? 14000.0f : f);
+            // math.tan in double, as the rack has it, from the series every
+            // target computes alike (libm's tanf differs in the last place).
+            float t = (float)graph_tan_clamped(
+                3.14159265358979323846 * (double)f * (1.0 / (double)graph->sample_rate));
+            g = t < 0.001f ? 0.001f : t;
         }
         const float res_hp = s3 - hp;
         hp += 0.95f * res_hp;
@@ -3373,6 +3408,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                         frames * sizeof(int16_t));
                 } else if (n->kind == AUDIODSP_GRAPH_TREMOLO) {
                     memset(graph->bufs[((graph_tremolo_t *)n->data)->right], 0,
+                        frames * sizeof(int16_t));
+                } else if (n->kind == AUDIODSP_GRAPH_SPRING) {
+                    memset(graph->bufs[((graph_spring_t *)n->data)->right], 0,
                         frames * sizeof(int16_t));
                 }
             }
