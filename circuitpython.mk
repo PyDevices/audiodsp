@@ -60,6 +60,8 @@ AUDIODSP_CP_SOURCES += $(addprefix $(AUDIODSP_CP_SRC)/shared/, \
 	audiodsp_vorbis.c \
 	audiodsp_port.c \
 	audiodsp_graph.c \
+	audiodsp_freeverb.c \
+	audiodsp_synth_dsp.c \
 	audiodsp_drift.c \
 	)
 
