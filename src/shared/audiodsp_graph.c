@@ -281,11 +281,56 @@ typedef struct {
 } graph_spring_tank_t;
 
 typedef struct {
+    // The contacts' ramp, in double as DrawbarToneCore keeps it, and the
+    // gate's last block (1 high).
+    double ramp;
+    bool last_gate;
+    // synthio's phase accumulator: the table index in its top 16 bits.
+    uint32_t accum;
+    // Samples in the table (0 before one is set: silence) and room for them.
+    uint32_t length;
+    uint32_t capacity;
+    int16_t table[];
+} graph_wavetable_t;
+
+#define ROTARY_RING 512u
+#define ROTARY_MASK (ROTARY_RING - 1u)
+
+typedef struct {
     // The right side's buffer id (the node's output is the left side).
     int16_t right;
     graph_spring_tank_t left;
     graph_spring_tank_t right_tank;
 } graph_spring_t;
+
+typedef struct {
+    // The right side's buffer id (the node's output is the left side).
+    int16_t right;
+    // Where the next block's first sample goes in the rings.
+    uint32_t w_pos;
+    // The rotors' speeds in Hz and their angles in radians, in double as
+    // RotarySpeakerCore keeps them.
+    double horn_speed;
+    double drum_speed;
+    double horn_phase;
+    double drum_phase;
+    // The crossover: synthio.Biquad's low-pass at 800 Hz, as LPG runs it.
+    graph_lpg_t xover;
+    // The horn's and the drum's bands, in counts, for the swept delays.
+    float horn_ring[ROTARY_RING];
+    float drum_ring[ROTARY_RING];
+} graph_rotary_t;
+
+// A WAVETABLE's capacity for its `arg`: 0 takes the default.
+static uint32_t wavetable_capacity(float arg) {
+    if (!(arg >= 1.0f)) {
+        return AUDIODSP_GRAPH_WAVETABLE_DEFAULT;
+    }
+    if (arg > (float)AUDIODSP_GRAPH_WAVETABLE_MAX) {
+        return AUDIODSP_GRAPH_WAVETABLE_MAX;
+    }
+    return (uint32_t)arg;
+}
 
 size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
     uint32_t sample_rate, float arg) {
@@ -341,6 +386,11 @@ size_t audiodsp_graph_node_data_size(audiodsp_graph_kind_t kind,
             return sizeof(graph_acid_t);
         case AUDIODSP_GRAPH_SPRING:
             return sizeof(graph_spring_t);
+        case AUDIODSP_GRAPH_WAVETABLE:
+            return sizeof(graph_wavetable_t)
+                   + (size_t)wavetable_capacity(arg) * sizeof(int16_t);
+        case AUDIODSP_GRAPH_ROTARY:
+            return sizeof(graph_rotary_t);
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
         case AUDIODSP_GRAPH_OVERDRIVE:
             return audiodsp_graph_overdrive_size();
@@ -414,7 +464,7 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
         return -1;
     }
     if ((kind == AUDIODSP_GRAPH_PAN || kind == AUDIODSP_GRAPH_TREMOLO ||
-        kind == AUDIODSP_GRAPH_SPRING) &&
+        kind == AUDIODSP_GRAPH_SPRING || kind == AUDIODSP_GRAPH_ROTARY) &&
         (!(arg >= 0.0f && arg < (float)graph->nbufs) ||
         arg != (float)(int16_t)arg || (int16_t)arg == output)) {
         return -1;
@@ -690,6 +740,33 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_GRAPH_SPRING_DAMP] = 0.55f;
             break;
         }
+        case AUDIODSP_GRAPH_WAVETABLE: {
+            // No table yet, the contacts open, and middle C's 16'.
+            graph_wavetable_t *d = data;
+            d->ramp = 0.0;
+            d->last_gate = false;
+            d->accum = 0u;
+            d->length = 0u;
+            d->capacity = wavetable_capacity(arg);
+            node->param[AUDIODSP_GRAPH_WAVETABLE_FREQUENCY] = 130.812783f;
+            break;
+        }
+        case AUDIODSP_GRAPH_ROTARY: {
+            // RotarySpeakerCore's start: slow, its rotors already at speed,
+            // and the rotary speaker module's drive and volume.
+            graph_rotary_t *d = data;
+            d->right = (int16_t)arg;
+            d->w_pos = 0u;
+            d->horn_speed = 0.8;
+            d->drum_speed = 0.7;
+            d->horn_phase = 0.0;
+            d->drum_phase = 0.0;
+            d->xover.cutoff = 0.0;
+            node->param[AUDIODSP_GRAPH_ROTARY_SPEED] = (float)AUDIODSP_GRAPH_ROTARY_SLOW;
+            node->param[AUDIODSP_GRAPH_ROTARY_DRIVE] = 2.0f;
+            node->param[AUDIODSP_GRAPH_ROTARY_VOLUME] = 7.0f;
+            break;
+        }
         case AUDIODSP_GRAPH_NOISE: {
             graph_noise_t *d = data;
             d->rng = 0x5EED1234u ^ (graph->nnodes * 0x9E3779B9u);
@@ -841,6 +918,22 @@ bool audiodsp_graph_set_decay_table(audiodsp_graph_t *graph, uint32_t node,
     return true;
 }
 
+bool audiodsp_graph_set_wavetable(audiodsp_graph_t *graph, uint32_t node,
+    const int16_t *table, uint32_t length) {
+    if (node >= graph->nnodes ||
+        audiodsp_graph_node(graph, node)->kind != AUDIODSP_GRAPH_WAVETABLE ||
+        table == NULL || length < 2u) {
+        return false;
+    }
+    graph_wavetable_t *d = audiodsp_graph_node(graph, node)->data;
+    if (length > d->capacity) {
+        return false;
+    }
+    memcpy(d->table, table, (size_t)length * sizeof(int16_t));
+    d->length = length;
+    return true;
+}
+
 // The planted faults that tests/parity/graph_carry_probe.py must catch, for a
 // build made with -DAUDIODSP_GRAPH_CARRY_FAULT=n: 1 leaves a FBDELAY's line
 // pointing at the source's, 2 drops the source's pending parameter change.
@@ -863,7 +956,8 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
     }
     const audiodsp_graph_kind_t kind = (audiodsp_graph_kind_t)d->kind;
     if (kind != AUDIODSP_GRAPH_PAN && kind != AUDIODSP_GRAPH_TREMOLO &&
-        kind != AUDIODSP_GRAPH_SPRING && !(d->arg == s->arg)) {
+        kind != AUDIODSP_GRAPH_SPRING && kind != AUDIODSP_GRAPH_ROTARY &&
+        !(d->arg == s->arg)) {
         return AUDIODSP_GRAPH_CARRY_ARG;
     }
     const size_t size = audiodsp_graph_node_data_size(kind, dst->sample_rate, d->arg);
@@ -873,8 +967,9 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
     if (dst->sample_rate != src->sample_rate) {
         return AUDIODSP_GRAPH_CARRY_RATE;
     }
-    // What stays the destination's own: a PAN's right side, a delay's wow table,
-    // or a STRUCK or DECAY node's table when the destination installed its own.
+    // What stays the destination's own: a PAN's or ROTARY's right side, a
+    // delay's wow table, or a STRUCK, DECAY or WAVETABLE node's table when the
+    // destination installed its own.
     int16_t right = 0;
     const int16_t *wow = NULL;
     uint32_t wow_shift = 0;
@@ -892,6 +987,8 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
         right = ((const graph_tremolo_t *)d->data)->right;
     } else if (kind == AUDIODSP_GRAPH_SPRING) {
         right = ((const graph_spring_t *)d->data)->right;
+    } else if (kind == AUDIODSP_GRAPH_ROTARY) {
+        right = ((const graph_rotary_t *)d->data)->right;
     } else if (kind == AUDIODSP_GRAPH_FBDELAY) {
         wow = ((const graph_fbdelay_t *)d->data)->config.wow_shape;
         wow_shift = ((const graph_fbdelay_t *)d->data)->config.wow_shape_shift;
@@ -911,7 +1008,16 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
             memcpy(decay_table, dc->table, sizeof(decay_table));
         }
     }
-    if (size) {
+    // A WAVETABLE keeps its own table: the source's running state comes over
+    // without it, the accumulator rewrapped by the table it now reads.
+    if (kind == AUDIODSP_GRAPH_WAVETABLE &&
+        ((const graph_wavetable_t *)d->data)->length > 0u) {
+        graph_wavetable_t *wd = d->data;
+        const graph_wavetable_t *ws = s->data;
+        wd->ramp = ws->ramp;
+        wd->last_gate = ws->last_gate;
+        wd->accum = ws->accum;
+    } else if (size) {
         memcpy(d->data, s->data, size);
     }
     switch (kind) {
@@ -978,6 +1084,9 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
             break;
         case AUDIODSP_GRAPH_SPRING:
             ((graph_spring_t *)d->data)->right = right;
+            break;
+        case AUDIODSP_GRAPH_ROTARY:
+            ((graph_rotary_t *)d->data)->right = right;
             break;
         default:
             break;
@@ -1124,6 +1233,28 @@ bool audiodsp_graph_reset(audiodsp_graph_t *graph, uint32_t node) {
             graph_spring_t *d = n->data;
             memset(&d->left, 0, sizeof(d->left));
             memset(&d->right_tank, 0, sizeof(d->right_tank));
+            break;
+        }
+        case AUDIODSP_GRAPH_WAVETABLE: {
+            // The contacts open and the phase at the table's start; the
+            // table stays.
+            graph_wavetable_t *d = n->data;
+            d->ramp = 0.0;
+            d->last_gate = false;
+            d->accum = 0u;
+            break;
+        }
+        case AUDIODSP_GRAPH_ROTARY: {
+            // RotarySpeakerCore.reset: the rings, the write position and the
+            // angles; the rotors keep their speed. The crossover's state is
+            // cleared too, where the rack's bridge leaves its biquad ringing.
+            graph_rotary_t *d = n->data;
+            memset(d->horn_ring, 0, sizeof(d->horn_ring));
+            memset(d->drum_ring, 0, sizeof(d->drum_ring));
+            d->w_pos = 0u;
+            d->horn_phase = 0.0;
+            d->drum_phase = 0.0;
+            d->xover.x0 = d->xover.x1 = d->xover.y0 = d->xover.y1 = 0;
             break;
         }
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
@@ -3451,6 +3582,288 @@ static void run_spring(const audiodsp_graph_t *graph,
     }
 }
 
+// ----------------------------------------------------------- WAVETABLE --
+
+// synthio's loudness for a Note at amplitude 1, panning 0 and no envelope:
+// the full envelope level 32767 times the left pan (32767 * 32767) >> 15,
+// shifted down by 15.
+#define WAVETABLE_LOUDNESS 32765
+
+// DrawbarToneCore.render, without its bridge's 256 frames: the tone and the
+// contacts that follow the gate both start this block. The frequency is
+// worked out in float32, as the rack works it out from a float32 pitch jack
+// (numpy keeps a float32 scalar's products in float32): the frequency param
+// times 2^(10 * pitch), then synthio's int(f * 65536 + 0.5) with f a float32.
+// The tone is the synthio oscillator (the accumulator advanced before each
+// read, the index its top 16 bits) at synthio's loudness, rounded down as
+// audiodsp_sat16 rounds it; the mixdown that follows is the identity at the
+// levels a single note reaches. Returns true while the contacts are closed or
+// still opening, with a gate connected.
+static bool run_wavetable(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_wavetable_t *d = n->data;
+    const int16_t *pitch = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs[n->inputs[0]];
+    const int16_t *gate = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[1]] : NULL;
+    const int16_t *extra = n->ninputs > 2 && n->inputs[2] != AUDIODSP_GRAPH_NONE
+        ? graph->bufs[n->inputs[2]] : NULL;
+    const uint32_t sr = graph->sample_rate;
+
+    float f = n->param[AUDIODSP_GRAPH_WAVETABLE_FREQUENCY];
+    if (pitch != NULL) {
+        const float octaves = (float)pitch[0] * (1.0f / AUDIODSP_GRAPH_UNIT) * 10.0f;
+        f *= (float)graph_exp2d((double)octaves);
+    }
+    // Held to 10..16000, a NaN to 10.
+    f = !(f >= 10.0f) ? 10.0f : (f > 16000.0f ? 16000.0f : f);
+    const float scaled = f * 65536.0f + 0.5f;
+    const uint64_t frequency_scaled = (uint64_t)scaled;
+
+    // The tone, in out[] for now.
+    const uint32_t length = d->length;
+    bool played = false;
+    if (length >= 2u) {
+        const uint32_t span = length << 16;
+        const uint64_t rate = ((uint64_t)(sr / 2u) + frequency_scaled * length) / sr;
+        // Past Nyquist for the table the note is not played, and its
+        // accumulator stands still.
+        if (rate <= (uint64_t)(span / 2u)) {
+            const uint32_t dds = (uint32_t)rate;
+            uint32_t accum = d->accum;
+            if (accum >= span) {
+                accum %= span;
+            }
+            for (uint32_t i = 0; i < frames; ++i) {
+                accum += dds;
+                if (accum >= span) {
+                    accum -= span;
+                }
+                int32_t v = (int32_t)d->table[accum >> 16] * WAVETABLE_LOUDNESS;
+                if (v < 0) {
+                    v += 0xFFFF;
+                }
+                out[i] = (int16_t)(v >> 16);
+            }
+            d->accum = accum;
+            played = true;
+        }
+    }
+    if (!played) {
+        memset(out, 0, frames * sizeof(int16_t));
+    }
+
+    // The contacts. With no gate they are closed.
+    bool late = true;
+    double g = 1.0;
+    if (gate != NULL) {
+        late = gate[0] > 0;
+        // A key down while the last note still sounds cuts what is left of it.
+        if (late && !d->last_gate && d->ramp > 0.0) {
+            d->ramp = 0.0;
+        }
+        d->last_gate = late;
+        g = d->ramp;
+    }
+    if (!late && g <= 0.0) {
+        memset(out, 0, frames * sizeof(int16_t));
+        return false;
+    }
+    if (late && g >= 1.0) {
+        if (extra != NULL) {
+            for (uint32_t i = 0; i < frames; ++i) {
+                out[i] = sat16((float)out[i] + (float)extra[i]);
+            }
+        }
+        return gate != NULL;
+    }
+    int32_t ramp_samples = (int32_t)(0.003 * (double)sr);
+    const double step = 1.0 / (double)(ramp_samples > 1 ? ramp_samples : 1);
+    for (uint32_t i = 0; i < frames; ++i) {
+        if (late) {
+            g = g + step < 1.0 ? g + step : 1.0;
+        } else {
+            g = g - step > 0.0 ? g - step : 0.0;
+        }
+        const float x = (float)out[i] + (extra != NULL ? (float)extra[i] : 0.0f);
+        out[i] = sat16(x * (float)g);
+    }
+    d->ramp = g;
+    return late || g > 0.0;
+}
+
+// -------------------------------------------------------------- ROTARY --
+
+// tanh(x) in double without libm, for the drive's normalisation:
+// (1 - e^-2x) / (1 + e^-2x) for x >= 0, x being 0.5..2.5 here.
+static double rotary_tanhd(double x) {
+    const double e = graph_exp2d(-2.0 * x * LPG_LOG2E);
+    return (1.0 - e) / (1.0 + e);
+}
+
+// One microphone's read of a ring: the delay's two samples, interpolated, at
+// the swirl's amplitude, in float32 as numpy multiplies a float32 sample.
+static inline float rotary_read(const float *ring, uint32_t idx, float delay,
+    float amp) {
+    const int32_t whole = (int32_t)delay;
+    const float frac = delay - (float)whole;
+    const uint32_t r0 = (idx - (uint32_t)whole) & ROTARY_MASK;
+    const uint32_t r1 = (r0 - 1u) & ROTARY_MASK;
+    return (ring[r0] * (1.0f - frac) + ring[r1] * frac) * amp;
+}
+
+// cos of the angle `turns` + 0.25 of a turn on from it, `turns` in [-1, 2).
+static inline float rotary_cos(float turns) {
+    if (turns >= 1.0f) {
+        turns -= 1.0f;
+    } else if (turns < 0.0f) {
+        turns += 1.0f;
+    }
+    return lfo_sine(turns >= 1.0f ? 0.0f : turns);
+}
+
+// The fraction of a turn an angle in radians makes, in [0, 1), a quarter
+// turn on: where cos(angle) is the LFO's sine.
+static double rotary_turns(double angle) {
+    double t = angle * (1.0 / (2.0 * LPG_PI)) + 0.25;
+    const double whole = (double)(int32_t)t;
+    t -= whole > t ? whole - 1.0 : whole;
+    return t >= 1.0 ? 0.0 : t;
+}
+
+// RotarySpeakerCore.render, the block steps in double as the rack has them
+// and the samples in float32 as numpy has them. The rotors glide toward the
+// speed's targets once a block; the drive is a float32 tanh scaled back by
+// 0.5 / tanh(gain / 2); the crossover runs on the wire as the rack's bridge
+// rounds onto it; and each rotor's angle is stepped through the block in
+// float from the block's start, where the rack adds it up sample by sample in
+// double (a few 1e-7 of a radian apart, hundredths of a count).
+static void run_rotary(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
+    int16_t *out, uint32_t frames) {
+    graph_rotary_t *d = n->data;
+    int16_t *right = graph->bufs[d->right];
+    const int16_t *in = n->inputs[0] == AUDIODSP_GRAPH_NONE
+        ? NULL : graph->bufs[n->inputs[0]];
+    const double sr = (double)graph->sample_rate;
+
+    // 1. The rotors glide toward the mode's speeds.
+    float pick = n->param[AUDIODSP_GRAPH_ROTARY_SPEED];
+    pick = !(pick == pick) ? 0.0f : (pick > 1.0e6f ? 1.0e6f : (pick < -1.0e6f ? -1.0e6f : pick));
+    const int32_t mode = ((round_even(pick) % 3) + 3) % 3;
+    static const double horn_targets[3] = {0.0, 0.8, 6.8};
+    static const double drum_targets[3] = {0.0, 0.7, 5.9};
+    const double block_dt = (double)frames / sr;
+    const double alpha_horn = 1.0 - graph_exp2d(-block_dt / 0.35 * LPG_LOG2E);
+    const double alpha_drum = 1.0 - graph_exp2d(-block_dt / 1.35 * LPG_LOG2E);
+    d->horn_speed += (horn_targets[mode] - d->horn_speed) * alpha_horn;
+    d->drum_speed += (drum_targets[mode] - d->drum_speed) * alpha_drum;
+
+    // 2. The drive, held to 0..10 (a NaN to 0).
+    double drive = (double)n->param[AUDIODSP_GRAPH_ROTARY_DRIVE];
+    drive = !(drive >= 0.0) ? 0.0 : (drive > 10.0 ? 10.0 : drive);
+    const bool clean = drive <= 0.01;
+    float gain_f = 1.0f;
+    float norm_f = 1.0f;
+    if (!clean) {
+        const double gain = 1.0 + (drive / 10.0) * 4.0;
+        gain_f = (float)gain;
+        norm_f = (float)(1.0 / rotary_tanhd(gain * 0.5) * 0.5);
+    }
+    double volume = (double)n->param[AUDIODSP_GRAPH_ROTARY_VOLUME];
+    volume = !(volume >= 0.0) ? 0.0 : (volume > 10.0 ? 10.0 : volume);
+    const float vol = (float)((volume / 10.0) * 2.0);
+
+    // 3. The crossover's coefficients, once.
+    if (d->xover.cutoff != 800.0) {
+        lpg_configure(&d->xover, 800.0, graph->sample_rate);
+    }
+
+    // 4. The delays and the angles' steps.
+    const float base_d = (float)(0.5 * 0.001 * sr);
+    const float h_dop = (float)(0.40 * 0.001 * sr);
+    const float d_dop = (float)(0.15 * 0.001 * sr);
+    const double two_pi = 2.0 * LPG_PI;
+    const double d_th_horn = two_pi * d->horn_speed * (1.0 / sr);
+    const double d_th_drum = -two_pi * d->drum_speed * (1.0 / sr);
+    const float horn_turn = (float)rotary_turns(d->horn_phase);
+    const float drum_turn = (float)rotary_turns(d->drum_phase);
+    const float horn_step = (float)(d_th_horn * (1.0 / two_pi));
+    const float drum_step = (float)(d_th_drum * (1.0 / two_pi));
+
+    const int32_t knee = 0x0fffffff / (32768 * 2 - 28000);
+    int32_t x0 = d->xover.x0, x1 = d->xover.x1, y0 = d->xover.y0, y1 = d->xover.y1;
+    const uint32_t w_pos = d->w_pos;
+    for (uint32_t i = 0; i < frames; ++i) {
+        // The tube amplifier, in counts (the wire's scale is a power of two,
+        // so a float32 product rounds as it does in units of 1.0).
+        const float x = in != NULL ? (float)in[i] : 0.0f;
+        float driven = x;
+        if (!clean) {
+            driven = graph_tanh(x * (1.0f / AUDIODSP_GRAPH_UNIT) * gain_f) * norm_f
+                * AUDIODSP_GRAPH_UNIT;
+        }
+        // Onto the wire as the bridge casts it: clamped, half away from zero.
+        float clamped = driven > 32767.0f ? 32767.0f : (driven < -32768.0f ? -32768.0f : driven);
+        clamped = !(clamped == clamped) ? 0.0f : clamped;
+        const int32_t sample = (int32_t)(clamped + (clamped < 0.0f ? -0.5f : 0.5f));
+        const int32_t y = lpg_filter(&d->xover, sample, x0, x1, y0, y1);
+        x1 = x0;
+        x0 = sample;
+        y1 = y0;
+        y0 = y;
+        int32_t w = (y + (1 << (LPG_STATE_SHIFT - 1))) >> LPG_STATE_SHIFT;
+        if (w < -28000) {
+            w = (((w + 28000) * knee) >> 16) - 28000;
+        } else if (w > 28000) {
+            w = (((w - 28000) * knee) >> 16) + 28000;
+        }
+        const float drum_in = (float)w;
+        const float horn_in = driven - drum_in;
+
+        const uint32_t idx = (w_pos + i) & ROTARY_MASK;
+        d->horn_ring[idx] = horn_in;
+        d->drum_ring[idx] = drum_in;
+
+        const float cos_h = rotary_cos(horn_turn + (float)i * horn_step);
+        const float cos_d = rotary_cos(drum_turn + (float)i * drum_step);
+
+        const float h_l = rotary_read(d->horn_ring, idx, base_d - h_dop * cos_h,
+            0.60f + 0.40f * cos_h);
+        const float h_r = rotary_read(d->horn_ring, idx, base_d + h_dop * cos_h,
+            0.60f - 0.40f * cos_h);
+        const float d_l = rotary_read(d->drum_ring, idx, base_d - d_dop * cos_d,
+            0.75f + 0.25f * cos_d);
+        const float d_r = rotary_read(d->drum_ring, idx, base_d + d_dop * cos_d,
+            0.75f - 0.25f * cos_d);
+        out[i] = sat16((h_l + d_l) * vol);
+        right[i] = sat16((h_r + d_r) * vol);
+    }
+    d->xover.x0 = x0;
+    d->xover.x1 = x1;
+    d->xover.y0 = y0;
+    d->xover.y1 = y1;
+    d->w_pos = (w_pos + frames) & ROTARY_MASK;
+
+    // The angles move on by the block, held to [0, 2 pi) as Python's % holds
+    // them.
+    double th_h = d->horn_phase + (double)frames * d_th_horn;
+    double th_d = d->drum_phase + (double)frames * d_th_drum;
+    while (th_h >= two_pi) {
+        th_h -= two_pi;
+    }
+    while (th_h < 0.0) {
+        th_h += two_pi;
+    }
+    while (th_d >= two_pi) {
+        th_d -= two_pi;
+    }
+    while (th_d < 0.0) {
+        th_d += two_pi;
+    }
+    d->horn_phase = th_h;
+    d->drum_phase = th_d;
+}
+
 uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
     uint32_t enable) {
     const uint32_t frames = graph->frames;
@@ -3474,6 +3887,9 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                         frames * sizeof(int16_t));
                 } else if (n->kind == AUDIODSP_GRAPH_SPRING) {
                     memset(graph->bufs[((graph_spring_t *)n->data)->right], 0,
+                        frames * sizeof(int16_t));
+                } else if (n->kind == AUDIODSP_GRAPH_ROTARY) {
+                    memset(graph->bufs[((graph_rotary_t *)n->data)->right], 0,
                         frames * sizeof(int16_t));
                 }
             }
@@ -3637,6 +4053,15 @@ uint32_t audiodsp_graph_run(audiodsp_graph_t *graph, int16_t *out,
                 break;
             case AUDIODSP_GRAPH_SPRING:
                 run_spring(graph, n, dst, frames);
+                break;
+            case AUDIODSP_GRAPH_WAVETABLE:
+                if (run_wavetable(graph, n, dst, frames) &&
+                    n->group != AUDIODSP_GRAPH_ALWAYS) {
+                    sounding |= 1u << n->group;
+                }
+                break;
+            case AUDIODSP_GRAPH_ROTARY:
+                run_rotary(graph, n, dst, frames);
                 break;
 #if AUDIODSP_GRAPH_HAS_OVERDRIVE
             case AUDIODSP_GRAPH_OVERDRIVE:

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Brad Barnett
 #
 # SPDX-License-Identifier: MIT
-"""Hold audiograph's STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2 and GLISS against the rack.
+"""Hold audiograph's STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2, GLISS, FOLLOW, WAVETABLE and ROTARY against the rack.
 
     graph_vs_rack.py [--rack PATH]
 
@@ -28,6 +28,14 @@ once-a-block semitone step (``voice.py``'s glissando line, generalised to
 sites' own lines — clavichord ``output.py``'s peak follower (0.4 up, 0.06
 down, once a block) and vocoder330 ``bank.py``'s ``_follow`` RMS follower
 (``exp(-dt/t)`` from its times), the analysis filter stood aside.
+
+WAVETABLE is held to ``DrawbarToneCore`` with the rack's output shifted by its
+256 frames, the drawbars, the pitch, the gate and a percussion block moving,
+and the phase it primed its bridge with set back to the start. A key that comes
+down while the last note still sounds is reported on its own: the rack cuts the
+block before it, which its latency lets it see coming, and the graph cannot.
+ROTARY is ``RotarySpeakerCore`` through stop, slow and fast with the drive and
+volume moving.
 """
 
 import math
@@ -65,6 +73,13 @@ from audioinstruments._rack.dsp.ladder import AcidFilterCore  # noqa: E402
 from audioinstruments._rack.dsp.reverb import SpringReverbCore  # noqa: E402
 from audioinstruments._rack.dsp.envelope import EnvelopeCore  # noqa: E402
 from audioinstruments._rack.dsp.glide import GlideCore  # noqa: E402
+from audioinstruments._rack.dsp.organ import (  # noqa: E402
+    DRAWBAR_LEVELS,
+    DrawbarToneCore,
+    tonewheel_harmonics,
+)
+from audioinstruments._rack.dsp.rotary import RotarySpeakerCore  # noqa: E402
+from audioinstruments._rack.core.signal import BASE_FREQ_C4  # noqa: E402
 from audioinstruments._rack.modules.rhythm78.cowbell import (  # noqa: E402
     Rhythm78Cowbell,
 )
@@ -821,6 +836,132 @@ def follow(attack, release, mode, blocks=50):
     return report(name, got, want)
 
 
+
+# ---------------------------------------------------------------- WAVETABLE --
+
+def wavetable(name, frames, keys, steal_at=(), blocks=None):
+    """WAVETABLE against DrawbarToneCore, the rack shifted by its 256 frames.
+
+    ``keys`` is a list of (pitch counts, gate) a 256-frame chunk; the drawbars
+    move every chunk. The rack's frequency and table can only move once a
+    chunk, so both are set on the chunk's first block. Returns the worst away
+    from the steals and prints the steals' own blocks."""
+    per = 256 // frames
+    g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1, buffers=6, nodes=4)
+    pitch_b, gate_b, extra_b, out = g.buffer(), g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.WAVETABLE, ag.ALWAYS, (pitch_b, gate_b, extra_b), out)
+    g.set(node, ag.WAVETABLE_FREQUENCY, float(np.float32(BASE_FREQ_C4)) * 0.5)
+    core = DrawbarToneCore(RATE, frames)
+    core.note._accum = 0  # the bridge's priming pull ran the phase on
+    out_f = np.zeros(frames, dtype=np.float32)
+    buf = array("h", bytes(2 * frames))
+    got, want = [], []
+    extras = []
+    chunks = len(keys)
+    for c in range(chunks + 1):
+        count, gate = keys[c] if c < chunks else keys[-1]
+        if c < chunks:
+            note = int(60.5 + count / UNIT * 120.0)
+            harmonics = tonewheel_harmonics(note, [0] * 9)
+            levels = [DRAWBAR_LEVELS[(c * (i + 3) + i) % 9] for i in range(9)]
+            core.set_levels(levels, harmonics)
+            g.table(node, core._table_i16)
+        p = np.float32(count / UNIT)
+        pitch_hz = BASE_FREQ_C4 * 2.0 ** (p * 10.0)
+        for k in range(per):
+            b = c * per + k
+            extra = [((b * frames + i) * 97 % 2001 - 1000) * (b % 3) for i in range(frames)]
+            extras.append(extra)
+            if c < chunks:
+                g.write(pitch_b, array("h", [count] * frames))
+                g.write(gate_b, array("h", [UNIT if gate else 0] * frames))
+                g.write(extra_b, array("h", extra))
+                g.run(None)
+                g.read(out, buf)
+                got += list(buf)
+            # the rack adds the percussion to the tone it hands out, 256 late
+            late = b - per
+            ex = np.asarray(extras[late], dtype=np.float32) / UNIT if late >= 0 else None
+            core.render(pitch_hz, 1.0 if gate else 0.0, out_f, ex)
+            want += list(wire(out_f))
+    want = want[256:]
+    got = np.asarray(got)
+    want = np.asarray(want[:len(got)])
+    keep = np.ones(len(got), dtype=bool)
+    for c in steal_at:
+        # the chunk before the key: the rack has cut it, the graph plays it
+        keep[(c - 1) * 256:c * 256] = False
+        w, rms, n = stats(got[(c - 1) * 256:c * 256], want[(c - 1) * 256:c * 256])
+        print("%-28s worst %d  rms %.1f  over %d samples (the chunk before a steal)"
+              % ("WAVETABLE " + name + " steal", w, rms, n))
+    return report("WAVETABLE " + name, got[keep], want[keep])
+
+
+def organ_keys(chunks):
+    keys = []
+    for c in range(chunks):
+        count = int(((c // 6) * 7 % 37 - 18) * UNIT / 120)
+        gate = (c % 6) < 4
+        keys.append((count, gate))
+    return keys
+
+
+def every_key():
+    """One note on each of the 61 keys, two chunks of rest between."""
+    keys = []
+    for note in range(36, 97):
+        count = round((note - 60) / 120.0 * UNIT)
+        keys += [(count, True)] * 3 + [(count, False)] * 2
+    return keys
+
+
+def steal_keys():
+    """A key that comes down a chunk after the last went up."""
+    keys = []
+    for c in range(40):
+        keys.append(((c // 5) * 137 - 300, (c % 5) != 2))
+    return keys
+
+
+# ------------------------------------------------------------------- ROTARY --
+
+def rotary(name, frames, drive, volume, blocks=900):
+    g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1, buffers=4, nodes=2)
+    a, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.ROTARY, ag.ALWAYS, (a,), left_b, right_b)
+    core = RotarySpeakerCore(RATE, frames)
+    src = np.zeros(frames, dtype=np.float32)
+    out_l = np.zeros(frames, dtype=np.float32)
+    out_r = np.zeros(frames, dtype=np.float32)
+    buf = array("h", bytes(2 * frames))
+    got_l, got_r, want_l, want_r = [], [], [], []
+    modes = ("stop", "slow", "fast")
+    for b in range(blocks):
+        speed = (1, 2, 0, 2, 1)[(b * frames // 24000) % 5]
+        d = drive if b < blocks // 2 else drive * 0.5
+        v = volume if b < blocks * 3 // 4 else volume + 1.5
+        block = [int(5000 * math.sin(2.0 * math.pi * (b * frames + i) / 61.0)
+                     + 2500 * math.sin(2.0 * math.pi * (b * frames + i) / 9.3)
+                     + 1200 * math.sin(2.0 * math.pi * (b * frames + i) / 3.1))
+                 for i in range(frames)]
+        g.write(a, array("h", block))
+        g.set(node, ag.ROTARY_SPEED, speed)
+        g.set(node, ag.ROTARY_DRIVE, d)
+        g.set(node, ag.ROTARY_VOLUME, v)
+        g.run(None)
+        g.read(left_b, buf)
+        got_l += list(buf)
+        g.read(right_b, buf)
+        got_r += list(buf)
+        src[:] = np.asarray(block, dtype=np.float32) / UNIT
+        core.set_mode(modes[speed])
+        core.render(src, out_l, out_r, drive=float(np.float32(d)), volume=float(np.float32(v)))
+        want_l += list(wire(out_l))
+        want_r += list(wire(out_r))
+    w = report("ROTARY %s left" % name, got_l, want_l)
+    return max(w, report("ROTARY %s right" % name, got_r, want_r))
+
+
 worst = 0
 worst = max(worst, tremolo("pan", ag.TREMOLO_PAN))
 worst = max(worst, tremolo("amplitude", ag.TREMOLO_AMPLITUDE))
@@ -896,4 +1037,12 @@ worst = max(worst, follow(-_dt / math.log(0.6), -_dt / math.log(0.94), ag.FOLLOW
 # vocoder330's FOLLOW_ATTACK_S and FOLLOW_RELEASE_S
 worst = max(worst, follow(0.005, 0.030, ag.FOLLOW_RMS))
 worst = max(worst, follow(0.005, 0.030, ag.FOLLOW_PEAK))
+worst = max(worst, wavetable("organ 256", 256, organ_keys(120)))
+worst = max(worst, wavetable("organ 128", 128, organ_keys(120)))
+worst = max(worst, wavetable("organ 64", 64, organ_keys(60)))
+worst = max(worst, wavetable("every key", 256, every_key()))
+worst = max(worst, wavetable("steals", 256, steal_keys(), steal_at=(3, 8, 13, 18, 23, 28, 33, 38)))
+worst = max(worst, rotary("drive 2 vol 7", 256, 2.0, 7.0))
+worst = max(worst, rotary("clean 128", 128, 0.0, 5.0))
+worst = max(worst, rotary("hot 64", 64, 9.0, 8.5, blocks=2400))
 print("worst over all: %d" % worst)

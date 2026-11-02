@@ -446,6 +446,16 @@ static mp_obj_t audiograph_graph_table(mp_obj_t self_in, mp_obj_t node,
     if (info.typecode != 'h' || info.len % 2) {
         mp_raise_TypeError(MP_ERROR_TEXT("table must be an int16 array"));
     }
+    // A wavetable node's cycle is copied: no lock here, the output pulls on
+    // the interpreter's own thread.
+    if (n >= 0 && (uint32_t)n < self->graph.nnodes &&
+        audiodsp_graph_node(&self->graph, (uint32_t)n)->kind == AUDIODSP_GRAPH_WAVETABLE) {
+        if (!audiodsp_graph_set_wavetable(&self->graph, (uint32_t)n,
+            (const int16_t *)info.buf, (uint32_t)(info.len / 2))) {
+            mp_raise_ValueError(MP_ERROR_TEXT("wavetable must hold 2 samples up to the node's arg"));
+        }
+        return mp_const_none;
+    }
     if (n < 0 || !audiodsp_graph_set_table(&self->graph, (uint32_t)n,
             (const int16_t *)info.buf, (uint32_t)(info.len / 2))) {
         mp_raise_ValueError(MP_ERROR_TEXT("not a delay node, or a bad table length"));
