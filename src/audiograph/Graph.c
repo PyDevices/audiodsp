@@ -252,43 +252,47 @@ static void set_struck_table_from_obj(audiodsp_graph_t *graph, uint32_t node,
             mp_raise_TypeError(MP_ERROR_TEXT("struck table must be a float array of (ratio, decay, gain) triples or a sequence of them"));
         }
         modes = (uint32_t)(info.len / (3 * sizeof(float)));
-        if (modes > AUDIODSP_GRAPH_STRUCK_MODES ||
-            !audiodsp_graph_set_struck_table(graph, node,
-                (const float *)info.buf, modes)) {
+        if (modes > AUDIODSP_GRAPH_STRUCK_MODES) {
             mp_raise_ValueError(MP_ERROR_TEXT("struck table has too many modes"));
         }
-        return;
-    }
-    size_t len = 0;
-    mp_obj_t *items = NULL;
-    mp_obj_get_array(table, &len, &items);
-    if (len > 0 && (mp_obj_is_type(items[0], &mp_type_tuple) ||
-        mp_obj_is_type(items[0], &mp_type_list))) {
-        if (len > AUDIODSP_GRAPH_STRUCK_MODES) {
-            mp_raise_ValueError(MP_ERROR_TEXT("struck table has too many modes"));
-        }
-        for (size_t i = 0; i < len; ++i) {
-            size_t tlen = 0;
-            mp_obj_t *titems = NULL;
-            mp_obj_get_array(items[i], &tlen, &titems);
-            if (tlen != 3) {
-                mp_raise_ValueError(MP_ERROR_TEXT("each mode must be (ratio, decay, gain)"));
-            }
-            triples[i * 3 + 0] = (float)mp_obj_get_float(titems[0]);
-            triples[i * 3 + 1] = (float)mp_obj_get_float(titems[1]);
-            triples[i * 3 + 2] = (float)mp_obj_get_float(titems[2]);
-        }
-        modes = (uint32_t)len;
+        memcpy(triples, info.buf, info.len);
     } else {
-        if ((len % 3) != 0 || (len / 3) > AUDIODSP_GRAPH_STRUCK_MODES) {
-            mp_raise_ValueError(MP_ERROR_TEXT("struck table must have 3 floats per mode (up to 24 modes)"));
+        size_t len = 0;
+        mp_obj_t *items = NULL;
+        mp_obj_get_array(table, &len, &items);
+        if (len > 0 && (mp_obj_is_type(items[0], &mp_type_tuple) ||
+            mp_obj_is_type(items[0], &mp_type_list))) {
+            if (len > AUDIODSP_GRAPH_STRUCK_MODES) {
+                mp_raise_ValueError(MP_ERROR_TEXT("struck table has too many modes"));
+            }
+            for (size_t i = 0; i < len; ++i) {
+                size_t tlen = 0;
+                mp_obj_t *titems = NULL;
+                mp_obj_get_array(items[i], &tlen, &titems);
+                if (tlen != 3) {
+                    mp_raise_ValueError(MP_ERROR_TEXT("each mode must be (ratio, decay, gain)"));
+                }
+                triples[i * 3 + 0] = (float)mp_obj_get_float(titems[0]);
+                triples[i * 3 + 1] = (float)mp_obj_get_float(titems[1]);
+                triples[i * 3 + 2] = (float)mp_obj_get_float(titems[2]);
+            }
+            modes = (uint32_t)len;
+        } else {
+            if ((len % 3) != 0 || (len / 3) > AUDIODSP_GRAPH_STRUCK_MODES) {
+                mp_raise_ValueError(MP_ERROR_TEXT("struck table must have 3 floats per mode (up to 24 modes)"));
+            }
+            for (size_t i = 0; i < len; ++i) {
+                triples[i] = (float)mp_obj_get_float(items[i]);
+            }
+            modes = (uint32_t)(len / 3);
         }
-        for (size_t i = 0; i < len; ++i) {
-            triples[i] = (float)mp_obj_get_float(items[i]);
-        }
-        modes = (uint32_t)(len / 3);
     }
-    if (!audiodsp_graph_set_struck_table(graph, node, triples, modes)) {
+    // Parsed above, where raising is free; the store is pure C, so the pump
+    // can be kept out for just the copy.
+    audiodsp_pump_lock_acquire();
+    bool ok = audiodsp_graph_set_struck_table(graph, node, triples, modes);
+    audiodsp_pump_lock_release();
+    if (!ok) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad struck table"));
     }
 }
@@ -303,51 +307,55 @@ static void set_decay_table_from_obj(audiodsp_graph_t *graph, uint32_t node,
             mp_raise_TypeError(MP_ERROR_TEXT("decay table must be a float array of (delay, level) pairs or a sequence of them"));
         }
         strikes = (uint32_t)(info.len / (2 * sizeof(float)));
-        if (strikes > AUDIODSP_GRAPH_DECAY_STRIKES ||
-            !audiodsp_graph_set_decay_table(graph, node,
-                (const float *)info.buf, strikes)) {
+        if (strikes > AUDIODSP_GRAPH_DECAY_STRIKES) {
             mp_raise_ValueError(MP_ERROR_TEXT("decay table has too many strikes"));
         }
-        return;
-    }
-    size_t len = 0;
-    mp_obj_t *items = NULL;
-    mp_obj_get_array(table, &len, &items);
-    if (len > 0 && (mp_obj_is_type(items[0], &mp_type_tuple) ||
-        mp_obj_is_type(items[0], &mp_type_list))) {
-        if (len > AUDIODSP_GRAPH_DECAY_STRIKES) {
-            mp_raise_ValueError(MP_ERROR_TEXT("decay table has too many strikes"));
-        }
-        for (size_t i = 0; i < len; ++i) {
-            size_t tlen = 0;
-            mp_obj_t *titems = NULL;
-            mp_obj_get_array(items[i], &tlen, &titems);
-            if (tlen != 2) {
-                mp_raise_ValueError(MP_ERROR_TEXT("each strike must be (delay, level)"));
-            }
-            pairs[i * 2 + 0] = (float)mp_obj_get_float(titems[0]);
-            pairs[i * 2 + 1] = (float)mp_obj_get_float(titems[1]);
-        }
-        strikes = (uint32_t)len;
+        memcpy(pairs, info.buf, info.len);
     } else {
-        if ((len % 2) != 0 || (len / 2) > AUDIODSP_GRAPH_DECAY_STRIKES) {
-            mp_raise_ValueError(MP_ERROR_TEXT("decay table must have 2 floats per strike (up to 16 strikes)"));
+        size_t len = 0;
+        mp_obj_t *items = NULL;
+        mp_obj_get_array(table, &len, &items);
+        if (len > 0 && (mp_obj_is_type(items[0], &mp_type_tuple) ||
+            mp_obj_is_type(items[0], &mp_type_list))) {
+            if (len > AUDIODSP_GRAPH_DECAY_STRIKES) {
+                mp_raise_ValueError(MP_ERROR_TEXT("decay table has too many strikes"));
+            }
+            for (size_t i = 0; i < len; ++i) {
+                size_t tlen = 0;
+                mp_obj_t *titems = NULL;
+                mp_obj_get_array(items[i], &tlen, &titems);
+                if (tlen != 2) {
+                    mp_raise_ValueError(MP_ERROR_TEXT("each strike must be (delay, level)"));
+                }
+                pairs[i * 2 + 0] = (float)mp_obj_get_float(titems[0]);
+                pairs[i * 2 + 1] = (float)mp_obj_get_float(titems[1]);
+            }
+            strikes = (uint32_t)len;
+        } else {
+            if ((len % 2) != 0 || (len / 2) > AUDIODSP_GRAPH_DECAY_STRIKES) {
+                mp_raise_ValueError(MP_ERROR_TEXT("decay table must have 2 floats per strike (up to 16 strikes)"));
+            }
+            for (size_t i = 0; i < len; ++i) {
+                pairs[i] = (float)mp_obj_get_float(items[i]);
+            }
+            strikes = (uint32_t)(len / 2);
         }
-        for (size_t i = 0; i < len; ++i) {
-            pairs[i] = (float)mp_obj_get_float(items[i]);
-        }
-        strikes = (uint32_t)(len / 2);
     }
-    if (!audiodsp_graph_set_decay_table(graph, node, pairs, strikes)) {
+    audiodsp_pump_lock_acquire();
+    bool ok = audiodsp_graph_set_decay_table(graph, node, pairs, strikes);
+    audiodsp_pump_lock_release();
+    if (!ok) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad decay table"));
     }
 }
 
 // table(node, table): a feedback delay's wow shape (int16 array, borrowed) or
 // a struck node's mode table (copied) or a decay node's burst table (copied).
+// A copied table may change while the pump plays: an instrument re-tunes a
+// struck node on every note. A borrowed one may not.
 static mp_obj_t audiograph_graph_table(mp_obj_t self_in, mp_obj_t node,
     mp_obj_t table) {
-    audiograph_graph_obj_t *self = graph_idle(self_in);
+    audiograph_graph_obj_t *self = graph_self(self_in);
     mp_int_t n = mp_obj_get_int(node);
     if (n >= 0 && (uint32_t)n < self->graph.nnodes &&
         audiodsp_graph_node(&self->graph, (uint32_t)n)->kind == AUDIODSP_GRAPH_STRUCK) {
@@ -359,6 +367,7 @@ static mp_obj_t audiograph_graph_table(mp_obj_t self_in, mp_obj_t node,
         set_decay_table_from_obj(&self->graph, (uint32_t)n, table);
         return mp_const_none;
     }
+    graph_idle(self_in);
     mp_buffer_info_t info;
     mp_get_buffer_raise(table, &info, MP_BUFFER_READ);
     if (info.typecode != 'h' || info.len % 2) {

@@ -322,6 +322,7 @@ jobs:
                          "pump_probe.py graph --fault split" \
                          "pump_probe.py graph --fault late" \
                          "pump_probe.py graph --fault unqueued" \
+                         "pump_probe.py table --fault refused" \
                          "route_probe.py ring --fault flip" \
                          "route_probe.py underrun --fault drop" \
                          "route_probe.py overrun --fault drop" \
