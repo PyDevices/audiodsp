@@ -3705,6 +3705,9 @@ static double rotary_tanhd(double x) {
 // the swirl's amplitude, in float32 as numpy multiplies a float32 sample.
 static inline float rotary_read(const float *ring, uint32_t idx, float delay,
     float amp) {
+    // Held inside the ring, so a high sample rate cannot outgrow it.
+    delay = delay > (float)(ROTARY_RING - 2u) ? (float)(ROTARY_RING - 2u) : delay;
+    delay = delay < 0.0f ? 0.0f : delay;
     const int32_t whole = (int32_t)delay;
     const float frac = delay - (float)whole;
     const uint32_t r0 = (idx - (uint32_t)whole) & ROTARY_MASK;
@@ -3712,12 +3715,22 @@ static inline float rotary_read(const float *ring, uint32_t idx, float delay,
     return (ring[r0] * (1.0f - frac) + ring[r1] * frac) * amp;
 }
 
-// cos of the angle `turns` + 0.25 of a turn on from it, `turns` in [-1, 2).
+// cos of the angle `turns` + 0.25 of a turn on from it. Within [-1, 2) (the
+// usual case) one turn is added or taken off; beyond that, which a low sample
+// rate reaches, the whole turns are dropped.
 static inline float rotary_cos(float turns) {
-    if (turns >= 1.0f) {
+    if (turns >= 1.0f && turns < 2.0f) {
         turns -= 1.0f;
-    } else if (turns < 0.0f) {
+    } else if (turns < 0.0f && turns >= -1.0f) {
         turns += 1.0f;
+    } else if (!(turns >= 0.0f && turns < 1.0f)) {
+        if (!(turns > -1.0e9f && turns < 1.0e9f)) {
+            return lfo_sine(0.0f);
+        }
+        turns -= (float)(int32_t)turns;
+        if (turns < 0.0f) {
+            turns += 1.0f;
+        }
     }
     return lfo_sine(turns >= 1.0f ? 0.0f : turns);
 }
@@ -3774,8 +3787,11 @@ static void run_rotary(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     const float vol = (float)((volume / 10.0) * 2.0);
 
     // 3. The crossover's coefficients, once.
-    if (d->xover.cutoff != 800.0) {
-        lpg_configure(&d->xover, 800.0, graph->sample_rate);
+    // 800 Hz, or 0.4 of the rate where that is lower: a cutoff past Nyquist
+    // makes the filter unstable.
+    const double cutoff = 800.0 < 0.4 * sr ? 800.0 : 0.4 * sr;
+    if (d->xover.cutoff != cutoff) {
+        lpg_configure(&d->xover, cutoff, graph->sample_rate);
     }
 
     // 4. The delays and the angles' steps.

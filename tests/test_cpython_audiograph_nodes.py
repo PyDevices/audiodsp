@@ -4606,6 +4606,30 @@ class RotaryTest(unittest.TestCase):
         self.assertEqual(play(dst, dst_in, dst_l, dst_r, program[20:]),
                          play(src, src_in, src_l, src_r, program[20:]))
 
+    def test_low_sample_rates_stay_bounded(self):
+        # At 1 kHz and 400 Hz a 256-frame block turns the rotors by several
+        # turns; the angle is wrapped, so the output is the same signal as at
+        # any rate, not a pinned one.
+        frames = 256
+        for rate in (1000, 400):
+            g = ag.Graph(sample_rate=rate, frames=frames, channel_count=1,
+                         buffers=4, nodes=2)
+            in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+            node = g.add(ag.ROTARY, ag.ALWAYS, (in_b,), left_b, right_b)
+            g.set(node, ag.ROTARY_SPEED, ag.ROTARY_FAST)
+            g.set(node, ag.ROTARY_DRIVE, 2.0)
+            g.set(node, ag.ROTARY_VOLUME, 7.0)
+            buf = array("h", bytes(2 * frames))
+            peak = 0
+            for block in rotary_program(frames, 30):
+                g.write(in_b, array("h", [v // 4 for v in block]))
+                g.run(None)
+                for b in (left_b, right_b):
+                    g.read(b, buf)
+                    peak = max(peak, max(abs(v) for v in buf))
+            self.assertGreater(peak, 100, rate)
+            self.assertLess(peak, 20000, rate)
+
     def test_the_check_catches_a_wrong_rotary(self):
         frames = 128
         settings = [(ag.ROTARY_FAST, 6.0, 7.0)] * 60
