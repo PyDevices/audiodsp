@@ -202,10 +202,14 @@ typedef struct {
     uint32_t pulse_pos;
     float pulse_amp;
     uint32_t pulse_shape;
+    // The bank table() prepared for this table, off the audio thread.
+    audiodsp_graph_struck_prep_t pre;
 } graph_struck_t;
 
 static void struck_init(graph_struck_t *d, uint32_t sample_rate);
 static void struck_bind(graph_struck_t *d);
+static void struck_tune_config(audiodsp_modal_config_t *config,
+    const float *table, uint32_t table_modes, float f0, uint32_t sample_rate);
 
 typedef struct {
     uint32_t rng;
@@ -748,12 +752,39 @@ bool audiodsp_graph_set_table(audiodsp_graph_t *graph, uint32_t node,
     return audiodsp_feedback_delay_set_wow_shape(&d->config, table, length);
 }
 
-bool audiodsp_graph_set_struck_table(audiodsp_graph_t *graph, uint32_t node,
+static bool struck_table_ok(const audiodsp_graph_t *graph, uint32_t node,
     const float *table, uint32_t modes) {
-    if (node >= graph->nnodes ||
-        audiodsp_graph_node(graph, node)->kind != AUDIODSP_GRAPH_STRUCK ||
-        modes > AUDIODSP_GRAPH_STRUCK_MODES ||
-        (modes > 0u && table == NULL)) {
+    return node < graph->nnodes &&
+           audiodsp_graph_node(graph, node)->kind == AUDIODSP_GRAPH_STRUCK &&
+           modes <= AUDIODSP_GRAPH_STRUCK_MODES &&
+           (modes == 0u || table != NULL);
+}
+
+bool audiodsp_graph_struck_prepare(const audiodsp_graph_t *graph,
+    uint32_t node, const float *table, uint32_t modes,
+    audiodsp_graph_struck_prep_t *prep) {
+    prep->valid = false;
+    float raw_f0 = 0.0f;
+    if (!struck_table_ok(graph, node, table, modes) ||
+        !audiodsp_graph_get_shadow(graph, node, AUDIODSP_GRAPH_STRUCK_FREQUENCY,
+            &raw_f0)) {
+        return false;
+    }
+    // run_struck()'s own clamp, and the bank struck_init() builds.
+    const float f0 = raw_f0 > 20.0f ? raw_f0 : 20.0f;
+    audiodsp_modal_config_t config;
+    audiodsp_modal_config_init(&config, graph->sample_rate, 1u,
+        AUDIODSP_GRAPH_STRUCK_MODES, prep->modes, prep->coeffs);
+    struck_tune_config(&config, table, modes, f0, graph->sample_rate);
+    prep->f0 = f0;
+    prep->valid = true;
+    return true;
+}
+
+bool audiodsp_graph_set_struck_table_prepared(audiodsp_graph_t *graph,
+    uint32_t node, const float *table, uint32_t modes,
+    const audiodsp_graph_struck_prep_t *prep) {
+    if (!struck_table_ok(graph, node, table, modes)) {
         return false;
     }
     graph_struck_t *d = audiodsp_graph_node(graph, node)->data;
@@ -763,7 +794,20 @@ bool audiodsp_graph_set_struck_table(audiodsp_graph_t *graph, uint32_t node,
     d->table_modes = modes;
     d->has_table = true;
     d->ready = false;
+    if (prep != NULL && prep->valid) {
+        d->pre = *prep;
+    } else {
+        d->pre.valid = false;
+    }
     return true;
+}
+
+bool audiodsp_graph_set_struck_table(audiodsp_graph_t *graph, uint32_t node,
+    const float *table, uint32_t modes) {
+    audiodsp_graph_struck_prep_t prep;
+    audiodsp_graph_struck_prepare(graph, node, table, modes, &prep);
+    return audiodsp_graph_set_struck_table_prepared(graph, node, table, modes,
+        &prep);
 }
 
 bool audiodsp_graph_set_decay_table(audiodsp_graph_t *graph, uint32_t node,
@@ -837,6 +881,8 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
     float struck_table[AUDIODSP_GRAPH_STRUCK_MODES * 3];
     uint32_t struck_modes = 0;
     bool struck_has_table = false;
+    audiodsp_graph_struck_prep_t struck_pre;
+    struck_pre.valid = false;
     float decay_table[AUDIODSP_GRAPH_DECAY_STRIKES * 2];
     uint32_t decay_strikes = 0;
     bool decay_has_table = false;
@@ -855,6 +901,7 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
         if (struck_has_table) {
             struck_modes = st->table_modes;
             memcpy(struck_table, st->table, sizeof(struck_table));
+            struck_pre = st->pre;
         }
     } else if (kind == AUDIODSP_GRAPH_DECAY) {
         const graph_decay_t *dc = d->data;
@@ -905,6 +952,8 @@ int audiodsp_graph_carry(audiodsp_graph_t *dst, uint32_t node,
                 memcpy(st->table, struck_table, sizeof(struck_table));
                 st->table_modes = struck_modes;
                 st->has_table = true;
+                // What was prepared for the table goes with the table.
+                st->pre = struck_pre;
                 if (!same) {
                     st->ready = false;
                 }
@@ -2601,29 +2650,43 @@ static void struck_init(graph_struck_t *d, uint32_t sample_rate) {
     d->pulse_pos = 0u;
     d->pulse_amp = 0.0f;
     d->pulse_shape = AUDIODSP_GRAPH_STRUCK_HAMMER;
+    d->pre.valid = false;
 }
 
-static void struck_tune(graph_struck_t *d, float f0, uint32_t sample_rate) {
+static void struck_tune_config(audiodsp_modal_config_t *config,
+    const float *table, uint32_t table_modes, float f0, uint32_t sample_rate) {
     const double nyq = (double)sample_rate * 0.45;
     const double base = (double)f0;
-    const uint32_t used = d->table_modes <= AUDIODSP_GRAPH_STRUCK_MODES
-        ? d->table_modes : AUDIODSP_GRAPH_STRUCK_MODES;
+    const uint32_t used = table_modes <= AUDIODSP_GRAPH_STRUCK_MODES
+        ? table_modes : AUDIODSP_GRAPH_STRUCK_MODES;
     for (uint32_t m = 0; m < used; ++m) {
-        const double ratio = (double)d->table[m * 3u + 0u];
-        const double decay = (double)d->table[m * 3u + 1u];
-        double gain = (double)d->table[m * 3u + 2u];
+        const double ratio = (double)table[m * 3u + 0u];
+        const double decay = (double)table[m * 3u + 1u];
+        double gain = (double)table[m * 3u + 2u];
         double freq = base * ratio;
         if (freq >= nyq) {
             freq = nyq;
             gain = 0.0;
         }
         const double t = decay > 0.001 ? decay : 0.001;
-        audiodsp_modal_set_mode(&d->config, m, (float)freq, (float)t, (float)gain);
+        audiodsp_modal_set_mode(config, m, (float)freq, (float)t, (float)gain);
     }
     for (uint32_t m = used; m < AUDIODSP_GRAPH_STRUCK_MODES; ++m) {
-        audiodsp_modal_set_mode(&d->config, m, f0, 0.001f, 0.0f);
+        audiodsp_modal_set_mode(config, m, f0, 0.001f, 0.0f);
     }
-    audiodsp_modal_config_finish(&d->config);
+    audiodsp_modal_config_finish(config);
+}
+
+static void struck_tune(graph_struck_t *d, float f0, uint32_t sample_rate) {
+    if (d->pre.valid && d->pre.f0 == f0) {
+        // table() worked this out already, from this table at this
+        // frequency, with struck_tune_config(): copy it.
+        memcpy(d->modes, d->pre.modes, sizeof(d->modes));
+        memcpy(d->coeffs, d->pre.coeffs, sizeof(d->coeffs));
+        d->config.derived = true;
+        return;
+    }
+    struck_tune_config(&d->config, d->table, d->table_modes, f0, sample_rate);
 }
 
 static uint32_t struck_round_even(double x) {

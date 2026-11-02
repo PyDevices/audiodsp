@@ -288,9 +288,13 @@ static void set_struck_table_from_obj(audiodsp_graph_t *graph, uint32_t node,
         }
     }
     // Parsed above, where raising is free; the store is pure C, so the pump
-    // can be kept out for just the copy.
+    // can be kept out for just the copy. The bank is retuned here too, ahead
+    // of the pump, so the block that strikes the note only copies it.
+    audiodsp_graph_struck_prep_t prep;
+    audiodsp_graph_struck_prepare(graph, node, triples, modes, &prep);
     audiodsp_pump_lock_acquire();
-    bool ok = audiodsp_graph_set_struck_table(graph, node, triples, modes);
+    bool ok = audiodsp_graph_set_struck_table_prepared(graph, node, triples,
+        modes, &prep);
     audiodsp_pump_lock_release();
     if (!ok) {
         mp_raise_ValueError(MP_ERROR_TEXT("bad struck table"));
