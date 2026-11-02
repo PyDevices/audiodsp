@@ -334,8 +334,8 @@ acid_env_b = g.buffer()
 acid_acc_b = g.buffer()
 acid_a, _ = node("acid_a", ag.ACID, (saw_b, acid_env_b, acid_acc_b))
 g.set(acid_a, ag.ACID_CUTOFF_HZ, 400.0)
-g.set(acid_a, ag.ACID_RESONANCE, 0.7)
-g.set(acid_a, ag.ACID_ENVMOD, 0.6)
+g.set(acid_a, ag.ACID_RESONANCE, 0.6875)
+g.set(acid_a, ag.ACID_ENVMOD, 0.625)
 acid_env = array("h", bytes(2 * FRAMES))
 acid_acc = array("h", bytes(2 * FRAMES))
 
@@ -344,16 +344,16 @@ spring_l, spring_r = g.buffer(), g.buffer()
 spring_a = g.add(ag.SPRING, ag.ALWAYS, (saw_b,), spring_l, spring_r)
 g.set(spring_a, ag.SPRING_MIX, 0.25)
 g.set(spring_a, ag.SPRING_DECAY, 0.75)
-g.set(spring_a, ag.SPRING_DAMP, 0.55)
+g.set(spring_a, ag.SPRING_DAMP, 0.5625)
 watched.append(("spring_l", spring_l))
 watched.append(("spring_r", spring_r))
 
 # -- a second envelope with initial and attack levels, gated by the clock line
 adsr2_a, _ = node("adsr2_a", ag.ADSR2, (clock_b,))
-g.set(adsr2_a, ag.ADSR2_ATTACK, 0.01)
-g.set(adsr2_a, ag.ADSR2_DECAY, 0.2)
+g.set(adsr2_a, ag.ADSR2_ATTACK, 0.0078125)
+g.set(adsr2_a, ag.ADSR2_DECAY, 0.1875)
 g.set(adsr2_a, ag.ADSR2_SUSTAIN, 0.5)
-g.set(adsr2_a, ag.ADSR2_RELEASE, 0.3)
+g.set(adsr2_a, ag.ADSR2_RELEASE, 0.3125)
 g.set(adsr2_a, ag.ADSR2_INITIAL, -0.5)
 g.set(adsr2_a, ag.ADSR2_ATTACK_LEVEL, 0.75)
 
@@ -366,12 +366,12 @@ g.set(gliss_a, ag.GLISS_STEP, 1.0)
 # -- a peak follower and an RMS follower on a stepped-level sawtooth
 follow_b = g.buffer()
 follow_peak, _ = node("follow_peak", ag.FOLLOW, (follow_b,))
-g.set(follow_peak, ag.FOLLOW_ATTACK, 0.005)
-g.set(follow_peak, ag.FOLLOW_RELEASE, 0.030)
+g.set(follow_peak, ag.FOLLOW_ATTACK, 0.00390625)
+g.set(follow_peak, ag.FOLLOW_RELEASE, 0.03125)
 g.set(follow_peak, ag.FOLLOW_MODE, ag.FOLLOW_PEAK)
 follow_rms, _ = node("follow_rms", ag.FOLLOW, (follow_b,))
-g.set(follow_rms, ag.FOLLOW_ATTACK, 0.005)
-g.set(follow_rms, ag.FOLLOW_RELEASE, 0.030)
+g.set(follow_rms, ag.FOLLOW_ATTACK, 0.00390625)
+g.set(follow_rms, ag.FOLLOW_RELEASE, 0.03125)
 g.set(follow_rms, ag.FOLLOW_MODE, ag.FOLLOW_RMS)
 
 NOTES = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 9557, 9557, 9557,
@@ -573,11 +573,13 @@ for b in range(BLOCKS):
     # the followers' release time steps every twenty blocks, and the source
     # they follow steps its level there too so the release has somewhere to go
     follow_at = b if FAULT != "follow" or b != 40 else b - 1
-    g.set(follow_peak, ag.FOLLOW_RELEASE, 0.030 * (1 + (follow_at // 20) % 4))
-    g.set(follow_rms, ag.FOLLOW_RELEASE, 0.030 * (1 + (follow_at // 20) % 4))
+    g.set(follow_peak, ag.FOLLOW_RELEASE, 0.03125 * (1 + (follow_at // 20) % 4))
+    g.set(follow_rms, ag.FOLLOW_RELEASE, 0.03125 * (1 + (follow_at // 20) % 4))
     amp = (4000, 16000, 2000, 14000, 6000, 18000, 1000, 12000)[(follow_at // 20) % 8]
+    # in integers: a float sawtooth here would round differently on a
+    # single-precision MicroPython, and so would the follower's input
     for i in range(FRAMES):
-        follow_src[i] = int(amp * (((b * FRAMES + i) * 440 % RATE) / RATE * 2.0 - 1.0))
+        follow_src[i] = amp * (2 * ((b * FRAMES + i) * 440 % RATE) - RATE) // RATE
     g.write(follow_b, follow_src)
 
     g.run(None)
