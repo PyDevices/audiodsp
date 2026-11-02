@@ -12,6 +12,11 @@
 // radius is exp(-LN1000 / (decay * sample_rate)).
 #define AUDIODSP_MODAL_LN1000 6.907755278982137
 
+// Frames the process loop takes per pass over the modes. Two float arrays of
+// this many live on the audio thread's stack, 512 bytes at 64; a longer
+// stretch saves only a reload of each mode's state per pass.
+#define AUDIODSP_MODAL_STRETCH 64u
+
 // Nothing here calls libm. `audiodsp_sincos()` supplies the angle, and the
 // exponential below is a series with range reduction, for the reason
 // audiodsp_trig.h gives: three platforms' `exp()` agree to within an ulp and
@@ -70,6 +75,28 @@ static void flush_pair(float *s1, float *s2) {
         *s1 = 0.0f;
         *s2 = 0.0f;
     }
+}
+
+// One sample of one mode. False, with nothing written, when the mode is
+// skipped: only a mode that is taking nothing in AND holding nothing. A muted
+// mode (b0 zero) that is still ringing has to keep advancing, or muting it
+// would be a cut rather than a mute. After the flush "holding nothing" is
+// exactly zero rather than nearly zero, so this test is never wrong by a
+// fraction of an LSB, and a resident-but-finished drum costs a compare
+// instead of a recursion.
+static inline bool mode_step(const audiodsp_modal_coeff_t *c, float x0,
+    float *s1, float *s2, float *y) {
+    if ((c->b0 == 0.0f || x0 == 0.0f) && *s1 == 0.0f && *s2 == 0.0f) {
+        return false;
+    }
+    // Transposed direct form II -- see the state struct in the header for
+    // why this shape and not direct form I.
+    const float y0 = c->b0 * x0 + *s1;
+    *s1 = -c->a1 * y0 + *s2;
+    *s2 = -c->a2 * y0;
+    flush_pair(s1, s2);
+    *y = y0;
+    return true;
 }
 
 // exp(-x) for x >= 0, in a fixed order on every platform.
@@ -336,34 +363,84 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
         return;
     }
 
-    for (uint32_t frame = 0; frame < frames; ++frame) {
-        for (uint32_t channel = 0; channel < channels; ++channel) {
-            const size_t index = (size_t)frame * channels + channel;
-            const float x0 = (float)in[index];
-            float sum = 0.0f;
-            for (uint32_t m = lo; m < hi; ++m) {
-                const uint32_t w = m * channels + channel;
-                const audiodsp_modal_coeff_t *c = &config->coeffs[m];
-                // Skip only a mode that is taking nothing in AND holding
-                // nothing: a muted mode (b0 zero) that is still ringing has
-                // to keep advancing, or muting it would be a cut rather than
-                // a mute. After the flush below "holding nothing" is exactly
-                // zero rather than nearly zero, so this test is never wrong
-                // by a fraction of an LSB, and a resident-but-finished drum
-                // costs a compare instead of a recursion.
-                if ((c->b0 == 0.0f || x0 == 0.0f) &&
-                    state->s1[w] == 0.0f && state->s2[w] == 0.0f) {
-                    continue;
-                }
-                // Transposed direct form II -- see the state struct in the
-                // header for why this shape and not direct form I.
-                const float y0 = c->b0 * x0 + state->s1[w];
-                state->s1[w] = -c->a1 * y0 + state->s2[w];
-                state->s2[w] = -c->a2 * y0;
-                flush_pair(&state->s1[w], &state->s2[w]);
-                sum += y0;
+    // --- one mode at a time across a stretch of frames --------------------
+    //
+    // Mode outermost, frames inside it, so a mode's two state words and three
+    // coefficients sit in registers for the whole stretch instead of being
+    // loaded and stored through pointers on every sample. Written frame
+    // outermost, the P4 toolchain at -O2 emitted 37 instructions per mode
+    // per sample, ten of them loads and stores (it reloads s1[] after storing
+    // it, since the store might alias s2[]), and the board measured about 57
+    // cycles. This shape is 27, and one and a half of them touch memory.
+    //
+    // The audio is bit-identical, and that is a property of the order, not
+    // a tolerance. The modes never read each other, so each one's recursion
+    // computes exactly what it did before. The only place they meet is the
+    // sum, and `acc[j]` starts at 0.0f and takes each sounding mode's y0 in
+    // ascending mode order, the same sequence of float additions the
+    // per-sample `sum` made. The skip test is the same test on the same
+    // values, because it only ever looked at this mode's own state and input.
+    float xs[AUDIODSP_MODAL_STRETCH];
+    float acc[AUDIODSP_MODAL_STRETCH];
+    for (uint32_t channel = 0; channel < channels; ++channel) {
+        for (uint32_t start = 0; start < frames;
+             start += AUDIODSP_MODAL_STRETCH) {
+            const uint32_t n = frames - start < AUDIODSP_MODAL_STRETCH
+                ? frames - start : AUDIODSP_MODAL_STRETCH;
+            const int16_t *src = in + (size_t)start * channels + channel;
+            for (uint32_t j = 0; j < n; ++j) {
+                xs[j] = (float)src[(size_t)j * channels];
+                acc[j] = 0.0f;
             }
-            out[index] = to_s16(dry * x0 + gain * sum);
+            // Two modes per pass where there are two, so an in-order core
+            // has the second mode's arithmetic to issue while the first
+            // one's recursion waits on its own result, and each acc[j] is
+            // loaded and stored once for both. acc[j] still takes mode m's
+            // y0 before mode m + 1's, so the additions keep their order.
+            uint32_t m = lo;
+            for (; m + 1u < hi; m += 2u) {
+                const audiodsp_modal_coeff_t ca = config->coeffs[m];
+                const audiodsp_modal_coeff_t cb = config->coeffs[m + 1u];
+                const uint32_t wa = m * channels + channel;
+                const uint32_t wb = wa + channels;
+                float s1a = state->s1[wa];
+                float s2a = state->s2[wa];
+                float s1b = state->s1[wb];
+                float s2b = state->s2[wb];
+                for (uint32_t j = 0; j < n; ++j) {
+                    float sum = acc[j];
+                    float y0;
+                    if (mode_step(&ca, xs[j], &s1a, &s2a, &y0)) {
+                        sum += y0;
+                    }
+                    if (mode_step(&cb, xs[j], &s1b, &s2b, &y0)) {
+                        sum += y0;
+                    }
+                    acc[j] = sum;
+                }
+                state->s1[wa] = s1a;
+                state->s2[wa] = s2a;
+                state->s1[wb] = s1b;
+                state->s2[wb] = s2b;
+            }
+            if (m < hi) {
+                const audiodsp_modal_coeff_t c = config->coeffs[m];
+                const uint32_t w = m * channels + channel;
+                float s1 = state->s1[w];
+                float s2 = state->s2[w];
+                for (uint32_t j = 0; j < n; ++j) {
+                    float y0;
+                    if (mode_step(&c, xs[j], &s1, &s2, &y0)) {
+                        acc[j] += y0;
+                    }
+                }
+                state->s1[w] = s1;
+                state->s2[w] = s2;
+            }
+            int16_t *dst = out + (size_t)start * channels + channel;
+            for (uint32_t j = 0; j < n; ++j) {
+                dst[(size_t)j * channels] = to_s16(dry * xs[j] + gain * acc[j]);
+            }
         }
     }
 }
