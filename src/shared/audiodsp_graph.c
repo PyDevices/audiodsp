@@ -1413,6 +1413,28 @@ static void run_env(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
     uint8_t stage = d->stage;
     bool high = d->high;
     float val = d->val;
+    if ((stage == ENV_SUSTAIN || stage == ENV_IDLE) && frames > 0u) {
+        // A held or finished envelope whose gate does not move this block
+        // writes the same value every frame, as the loop below would.
+        bool moves = false;
+        if (gate != NULL) {
+            for (uint32_t i = 0; i < frames; ++i) {
+                if (((float)gate[i] > ENV_GATE_THRESHOLD) != high) {
+                    moves = true;
+                    break;
+                }
+            }
+        }
+        if (!moves) {
+            val = stage == ENV_SUSTAIN ? sus : 0.0f;
+            const int16_t v = sat16(val * AUDIODSP_GRAPH_UNIT);
+            for (uint32_t i = 0; i < frames; ++i) {
+                out[i] = v;
+            }
+            d->val = val;
+            return;
+        }
+    }
     for (uint32_t i = 0; i < frames; ++i) {
         if (gate != NULL) {
             bool g = (float)gate[i] > ENV_GATE_THRESHOLD;
@@ -2934,17 +2956,20 @@ static void run_struck(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         struck_tune(d, f0, graph->sample_rate);
     }
 
+    // The first rising edge, and whether the strike ends the block high:
+    // after the first edge only the last frame matters.
     int32_t rising = -1;
-    if (strike != NULL) {
+    if (strike != NULL && frames > 0u) {
         bool high = d->high;
         for (uint32_t i = 0; i < frames; ++i) {
             const bool now = (float)strike[i] > MODAL_THRESHOLD;
-            if (now && !high && rising < 0) {
+            if (now && !high) {
                 rising = (int32_t)i;
+                break;
             }
             high = now;
         }
-        d->high = high;
+        d->high = (float)strike[frames - 1u] > MODAL_THRESHOLD;
     }
 
     float hardness = n->param[AUDIODSP_GRAPH_STRUCK_HARDNESS];
@@ -2957,6 +2982,13 @@ static void run_struck(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     const uint32_t shape = n->param[AUDIODSP_GRAPH_STRUCK_SHAPE] >= 0.5f
         ? (uint32_t)AUDIODSP_GRAPH_STRUCK_PLUCK
         : (uint32_t)AUDIODSP_GRAPH_STRUCK_HAMMER;
+
+    if (rising < 0 && !d->pulse_active) {
+        // Nothing struck and no pulse left to play: the bank rings on with a
+        // silent input, which the kernel takes as NULL.
+        audiodsp_modal_process_s16(&d->config, &d->state, out, NULL, frames);
+        return;
+    }
 
     float exc[AUDIODSP_GRAPH_MAX_FRAMES];
     for (uint32_t i = 0; i < frames; ++i) {
