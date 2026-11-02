@@ -1,3 +1,8 @@
+## v0.6.13.dev4 (2026-11-02)
+
+- audiograph: ACID, SPRING, ADSR2, GLISS and FOLLOW nodes (#365)
+- audiograph: take struck and decay tables while the pump plays (#364)
+
 ## v0.6.13.dev3 (2026-11-01)
 
 - audiograph: DECAY, PINK and CRUSH nodes for the drum machines (#362)
