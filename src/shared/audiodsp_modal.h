@@ -171,7 +171,8 @@ void audiodsp_modal_reset(audiodsp_modal_state_t *state);
 // `ringing`.
 bool audiodsp_modal_silent(const audiodsp_modal_state_t *state);
 
-// Interleaved 16-bit frames in and out. `out` may alias `in`.
+// Interleaved 16-bit frames in and out. `out` may alias `in`, and `in` may be
+// NULL for a silent input, which costs less than a block of zeros.
 void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
     audiodsp_modal_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames);

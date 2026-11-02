@@ -46,10 +46,15 @@ static int16_t to_s16(float value) {
     return (int16_t)(value >= 0.0f ? value + 0.5f : value - 0.5f);
 }
 
-// True when one state word is small enough to be nothing.
-static bool tiny(float value) {
-    return value > -AUDIODSP_MODAL_FLUSH && value < AUDIODSP_MODAL_FLUSH;
-}
+// |x|, inline on every target (no libm), and a hint that a branch is rare.
+#if defined(__GNUC__) || defined(__clang__)
+#define MODAL_FABS(x) __builtin_fabsf(x)
+#define MODAL_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#include <math.h>
+#define MODAL_FABS(x) fabsf(x)
+#define MODAL_UNLIKELY(x) (x)
+#endif
 
 // What makes a decaying float recursion actually arrive at zero, and here also
 // what makes "this mode has finished" an exact test.
@@ -70,33 +75,14 @@ static bool tiny(float value) {
 //
 // Zeroing the pair together cannot do that: the only state it can produce is
 // the one where the whole mode is off.
-static void flush_pair(float *s1, float *s2) {
-    if (tiny(*s1) && tiny(*s2)) {
-        *s1 = 0.0f;
-        *s2 = 0.0f;
-    }
-}
-
-// One sample of one mode. False, with nothing written, when the mode is
-// skipped: only a mode that is taking nothing in AND holding nothing. A muted
-// mode (b0 zero) that is still ringing has to keep advancing, or muting it
-// would be a cut rather than a mute. After the flush "holding nothing" is
-// exactly zero rather than nearly zero, so this test is never wrong by a
-// fraction of an LSB, and a resident-but-finished drum costs a compare
-// instead of a recursion.
-static inline bool mode_step(const audiodsp_modal_coeff_t *c, float x0,
-    float *s1, float *s2, float *y) {
-    if ((c->b0 == 0.0f || x0 == 0.0f) && *s1 == 0.0f && *s2 == 0.0f) {
-        return false;
-    }
-    // Transposed direct form II -- see the state struct in the header for
-    // why this shape and not direct form I.
-    const float y0 = c->b0 * x0 + *s1;
-    *s1 = -c->a1 * y0 + *s2;
-    *s2 = -c->a2 * y0;
-    flush_pair(s1, s2);
-    *y = y0;
-    return true;
+//
+// Non-zero when both words are small enough to be nothing: |s| < FLUSH, so
+// -FLUSH and FLUSH themselves are not, and neither is a NaN. The two tests
+// are joined with & rather than &&, so the caller pays one branch, and that
+// one is almost never taken.
+static inline int tiny_pair(float s1, float s2) {
+    return (MODAL_FABS(s1) < AUDIODSP_MODAL_FLUSH)
+           & (MODAL_FABS(s2) < AUDIODSP_MODAL_FLUSH);
 }
 
 // exp(-x) for x >= 0, in a fixed order on every platform.
@@ -276,7 +262,9 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
     const uint32_t modes = config->mode_count;
     if (state->s1 == NULL || state->s2 == NULL ||
         state->words < modes * channels || config->coeffs == NULL) {
-        if (out != in && frames > 0u) {
+        if (in == NULL) {
+            memset(out, 0, (size_t)frames * channels * sizeof(int16_t));
+        } else if (out != in && frames > 0u) {
             memcpy(out, in, (size_t)frames * channels * sizeof(int16_t));
         }
         return;
@@ -339,7 +327,8 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
         if (driven_lo < driven_hi
             && (driven_lo < lo || driven_hi > hi)) {
             bool excited = false;
-            for (uint32_t i = 0, n = frames * channels; i < n; ++i) {
+            for (uint32_t i = 0, n = in == NULL ? 0u : frames * channels;
+                 i < n; ++i) {
                 if (in[i] != 0) {
                     excited = true;
                     break;
@@ -357,6 +346,10 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
     }
     if (lo >= hi) {
         // Nothing can sound, so the dry path is the whole of the work.
+        if (in == NULL) {
+            memset(out, 0, (size_t)frames * channels * sizeof(int16_t));
+            return;
+        }
         for (uint32_t i = 0, n = frames * channels; i < n; ++i) {
             out[i] = to_s16(dry * (float)in[i]);
         }
@@ -365,81 +358,173 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
 
     // --- one mode at a time across a stretch of frames --------------------
     //
-    // Mode outermost, frames inside it, so a mode's two state words and three
-    // coefficients sit in registers for the whole stretch instead of being
-    // loaded and stored through pointers on every sample. Written frame
-    // outermost, the P4 toolchain at -O2 emitted 37 instructions per mode
-    // per sample, ten of them loads and stores (it reloads s1[] after storing
-    // it, since the store might alias s2[]), and the board measured about 57
-    // cycles. This shape is 27, and one and a half of them touch memory.
+    // Mode outermost, frames inside it, so a mode's state and coefficients
+    // sit in registers for the whole stretch, two modes per pass so an
+    // in-order core has the second one's arithmetic to issue while the first
+    // one's recursion waits on its own result.
     //
-    // The audio is bit-identical, and that is a property of the order, not
-    // a tolerance. The modes never read each other, so each one's recursion
-    // computes exactly what it did before. The only place they meet is the
-    // sum, and `acc[j]` starts at 0.0f and takes each sounding mode's y0 in
-    // ascending mode order, the same sequence of float additions the
-    // per-sample `sum` made. The skip test is the same test on the same
-    // values, because it only ever looked at this mode's own state and input.
+    // The audio is bit-identical to running each mode a sample at a time,
+    // skipping a sample whenever the mode is taking nothing in (b0 or the
+    // input zero) AND holding nothing (both state words zero): a muted mode
+    // that is still ringing keeps advancing, or muting would be a cut. That
+    // is a property of the arithmetic, not a tolerance:
+    //
+    // - `acc[j]` starts at +0.0f and takes each mode's y0 in ascending mode
+    //   order, the same float additions the per-sample sum made. It can never
+    //   be -0.0f (only -0 + -0 makes -0), so adding a zero leaves it as it was.
+    // - The skip is only tested per stretch here: a mode holding nothing at
+    //   the start of a stretch, with no way in (b0 zero or the stretch
+    //   silent), holds nothing all through it, so it is left out. Every other
+    //   mode runs every sample. On a sample the per-sample test would have
+    //   skipped, the state is zero and so is the input, so y0 and the new
+    //   state come out zero, the flush makes the state +0.0f exactly, and y0
+    //   adds nothing. Only the sign of a zero state word can differ, and a
+    //   signed zero never reaches a non-zero result: it is added to a
+    //   non-zero number, which comes out exact, or multiplied into a zero.
+    // - With nothing coming in, b0 * x0 is a zero, so y0 = b0 * x0 + s1 is s1
+    //   exactly whenever s1 is not zero, and a zero when it is. The silent
+    //   stretch, every sustained note between strikes, skips that multiply
+    //   and add, which are half the recursion's latency.
+    // - tiny_pair() is the flush the per-sample loop made, and both modes'
+    //   tests share one branch.
     float xs[AUDIODSP_MODAL_STRETCH];
     float acc[AUDIODSP_MODAL_STRETCH];
+    uint8_t act[AUDIODSP_MODAL_MAX_MODES];
     for (uint32_t channel = 0; channel < channels; ++channel) {
         for (uint32_t start = 0; start < frames;
              start += AUDIODSP_MODAL_STRETCH) {
             const uint32_t n = frames - start < AUDIODSP_MODAL_STRETCH
                 ? frames - start : AUDIODSP_MODAL_STRETCH;
-            const int16_t *src = in + (size_t)start * channels + channel;
+            bool silent = true;
+            if (in != NULL) {
+                const int16_t *src = in + (size_t)start * channels + channel;
+                int32_t any = 0;
+                for (uint32_t j = 0; j < n; ++j) {
+                    const int16_t v = src[(size_t)j * channels];
+                    any |= v;
+                    xs[j] = (float)v;
+                }
+                silent = any == 0;
+            }
             for (uint32_t j = 0; j < n; ++j) {
-                xs[j] = (float)src[(size_t)j * channels];
                 acc[j] = 0.0f;
             }
-            // Two modes per pass where there are two, so an in-order core
-            // has the second mode's arithmetic to issue while the first
-            // one's recursion waits on its own result, and each acc[j] is
-            // loaded and stored once for both. acc[j] still takes mode m's
-            // y0 before mode m + 1's, so the additions keep their order.
-            uint32_t m = lo;
-            for (; m + 1u < hi; m += 2u) {
-                const audiodsp_modal_coeff_t ca = config->coeffs[m];
-                const audiodsp_modal_coeff_t cb = config->coeffs[m + 1u];
-                const uint32_t wa = m * channels + channel;
-                const uint32_t wb = wa + channels;
+            uint32_t count = 0;
+            for (uint32_t m = lo; m < hi; ++m) {
+                const uint32_t w = m * channels + channel;
+                if ((silent || config->coeffs[m].b0 == 0.0f)
+                    && state->s1[w] == 0.0f && state->s2[w] == 0.0f) {
+                    continue;
+                }
+                act[count++] = (uint8_t)m;
+            }
+            uint32_t k = 0;
+            for (; k + 1u < count; k += 2u) {
+                const audiodsp_modal_coeff_t ca = config->coeffs[act[k]];
+                const audiodsp_modal_coeff_t cb = config->coeffs[act[k + 1u]];
+                const uint32_t wa = act[k] * channels + channel;
+                const uint32_t wb = act[k + 1u] * channels + channel;
+                const float na1a = -ca.a1;
+                const float na2a = -ca.a2;
+                const float na1b = -cb.a1;
+                const float na2b = -cb.a2;
                 float s1a = state->s1[wa];
                 float s2a = state->s2[wa];
                 float s1b = state->s1[wb];
                 float s2b = state->s2[wb];
-                for (uint32_t j = 0; j < n; ++j) {
-                    float sum = acc[j];
-                    float y0;
-                    if (mode_step(&ca, xs[j], &s1a, &s2a, &y0)) {
-                        sum += y0;
+                if (silent) {
+                    for (uint32_t j = 0; j < n; ++j) {
+                        const float ya = s1a;
+                        const float yb = s1b;
+                        s1a = na1a * ya + s2a;
+                        s2a = na2a * ya;
+                        s1b = na1b * yb + s2b;
+                        s2b = na2b * yb;
+                        float sum = acc[j];
+                        sum += ya;
+                        sum += yb;
+                        acc[j] = sum;
+                        const int ta = tiny_pair(s1a, s2a);
+                        const int tb = tiny_pair(s1b, s2b);
+                        if (MODAL_UNLIKELY(ta | tb)) {
+                            if (ta) {
+                                s1a = 0.0f;
+                                s2a = 0.0f;
+                            }
+                            if (tb) {
+                                s1b = 0.0f;
+                                s2b = 0.0f;
+                            }
+                        }
                     }
-                    if (mode_step(&cb, xs[j], &s1b, &s2b, &y0)) {
-                        sum += y0;
+                } else {
+                    const float b0a = ca.b0;
+                    const float b0b = cb.b0;
+                    for (uint32_t j = 0; j < n; ++j) {
+                        const float x0 = xs[j];
+                        const float ya = b0a * x0 + s1a;
+                        const float yb = b0b * x0 + s1b;
+                        s1a = na1a * ya + s2a;
+                        s2a = na2a * ya;
+                        s1b = na1b * yb + s2b;
+                        s2b = na2b * yb;
+                        float sum = acc[j];
+                        sum += ya;
+                        sum += yb;
+                        acc[j] = sum;
+                        const int ta = tiny_pair(s1a, s2a);
+                        const int tb = tiny_pair(s1b, s2b);
+                        if (MODAL_UNLIKELY(ta | tb)) {
+                            if (ta) {
+                                s1a = 0.0f;
+                                s2a = 0.0f;
+                            }
+                            if (tb) {
+                                s1b = 0.0f;
+                                s2b = 0.0f;
+                            }
+                        }
                     }
-                    acc[j] = sum;
                 }
                 state->s1[wa] = s1a;
                 state->s2[wa] = s2a;
                 state->s1[wb] = s1b;
                 state->s2[wb] = s2b;
             }
-            if (m < hi) {
-                const audiodsp_modal_coeff_t c = config->coeffs[m];
-                const uint32_t w = m * channels + channel;
+            if (k < count) {
+                const audiodsp_modal_coeff_t c = config->coeffs[act[k]];
+                const uint32_t w = act[k] * channels + channel;
+                const float b0 = c.b0;
+                const float na1 = -c.a1;
+                const float na2 = -c.a2;
                 float s1 = state->s1[w];
                 float s2 = state->s2[w];
                 for (uint32_t j = 0; j < n; ++j) {
-                    float y0;
-                    if (mode_step(&c, xs[j], &s1, &s2, &y0)) {
-                        acc[j] += y0;
+                    const float y0 = silent ? s1 : b0 * xs[j] + s1;
+                    s1 = na1 * y0 + s2;
+                    s2 = na2 * y0;
+                    acc[j] += y0;
+                    if (MODAL_UNLIKELY(tiny_pair(s1, s2))) {
+                        s1 = 0.0f;
+                        s2 = 0.0f;
                     }
                 }
                 state->s1[w] = s1;
                 state->s2[w] = s2;
             }
+            // With mix at 1 (STRUCK's) dry is +0.0f, and with a silent
+            // stretch xs is zero: either way dry * xs is a zero, and adding
+            // it to gain * acc leaves that as it was or, for a zero, changes
+            // only its sign, which to_s16() rounds to 0 regardless.
             int16_t *dst = out + (size_t)start * channels + channel;
-            for (uint32_t j = 0; j < n; ++j) {
-                dst[(size_t)j * channels] = to_s16(dry * xs[j] + gain * acc[j]);
+            if (silent || dry == 0.0f) {
+                for (uint32_t j = 0; j < n; ++j) {
+                    dst[(size_t)j * channels] = to_s16(gain * acc[j]);
+                }
+            } else {
+                for (uint32_t j = 0; j < n; ++j) {
+                    dst[(size_t)j * channels] = to_s16(dry * xs[j] + gain * acc[j]);
+                }
             }
         }
     }
