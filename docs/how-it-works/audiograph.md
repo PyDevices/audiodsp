@@ -304,6 +304,14 @@ replaces it with up to `STRUCK_MODES` (24) `(ratio, decay, gain)` triples (or a
 flat float array of `3 * m` floats), silencing any mode whose frequency reaches
 0.45 of the sample rate.
 
+Retuning the bank for a new note is the expensive part of a strike, and
+`table()` does it for you when it's called, at the frequency you last
+`set()`. Set `STRUCK_FREQUENCY` first and then call `table()`, and the block
+that plays the note only copies the result. In the other order the render
+retunes the bank itself, with the same result, in the block that strikes. On a
+board without a double-precision FPU, such as the ESP32-P4, that retune is
+around a millisecond for a three-node voice.
+
 ### Pickup
 
 `PICKUP` is vrack's `PickupCore` (`dsp/keys.py`), the asymmetric transducer

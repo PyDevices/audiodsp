@@ -712,6 +712,34 @@ bool audiodsp_graph_set_table(audiodsp_graph_t *graph, uint32_t node,
 bool audiodsp_graph_set_struck_table(audiodsp_graph_t *graph, uint32_t node,
     const float *table, uint32_t modes);
 
+// What a STRUCK node's bank becomes with a new table at the frequency last
+// set(): its modes and their coefficients, worked out ahead of the render.
+// Retuning a 24-mode bank costs a sine, a cosine and an exponential per mode,
+// in double precision, which a single-precision FPU does in software: on an
+// ESP32-P4 that was most of a millisecond in the block that struck the note.
+// Prepared on the caller's side and handed over with the table, the render
+// copies it instead, provided the frequency it reaches is the one prepared
+// for; if not, it computes as before. The same arithmetic either way.
+typedef struct {
+    audiodsp_modal_mode_t modes[AUDIODSP_GRAPH_STRUCK_MODES];
+    audiodsp_modal_coeff_t coeffs[AUDIODSP_GRAPH_STRUCK_MODES];
+    float f0;
+    bool valid;
+} audiodsp_graph_struck_prep_t;
+
+// Fills `prep` for `table` on `node`, reading only what the caller's own
+// thread writes (the sample rate and the frequency last set()), so it can run
+// outside the lock the render holds. False, and `prep` not valid, for a node
+// or table that audiodsp_graph_set_struck_table() would refuse.
+bool audiodsp_graph_struck_prepare(const audiodsp_graph_t *graph,
+    uint32_t node, const float *table, uint32_t modes,
+    audiodsp_graph_struck_prep_t *prep);
+
+// audiodsp_graph_set_struck_table() with the bank prepared for it (or NULL).
+bool audiodsp_graph_set_struck_table_prepared(audiodsp_graph_t *graph,
+    uint32_t node, const float *table, uint32_t modes,
+    const audiodsp_graph_struck_prep_t *prep);
+
 // A DECAY node's burst table: `strikes` pairs of (delay s, level), up to
 // AUDIODSP_GRAPH_DECAY_STRIKES, copied into the node.
 bool audiodsp_graph_set_decay_table(audiodsp_graph_t *graph, uint32_t node,
