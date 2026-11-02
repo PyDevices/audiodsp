@@ -3,10 +3,12 @@
     <interpreter> tests/pump/pump_probe.py [case ...] [--fault WHICH]
 
 Cases: ``identity``, ``alloc``, ``storm``, ``driver``, ``unpumpable``,
-``swap``, ``writes``, ``tear``, ``fade``, ``graph`` (all by default).
+``swap``, ``writes``, ``tear``, ``fade``, ``graph``, ``table`` (all by
+default).
 Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
 ``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap, writes),
-``split`` (tear, graph), ``cut`` (fade), ``late`` and ``unqueued`` (graph).
+``split`` (tear, graph), ``cut`` (fade), ``late`` and ``unqueued`` (graph),
+``refused`` (table).
 Each one must make this exit non-zero; a probe whose failing mode is never
 run is not a gate.
 
@@ -1260,10 +1262,75 @@ def graph(fault):
     return ok
 
 
+def table(fault):
+    """table() while the pump plays the graph.
+
+    A struck node's mode table and a decay node's burst table are copied, so
+    an instrument may change them on every note: they must be taken under
+    the pump lock, not refused. A delay's wow shape is borrowed, and stays
+    refused. ``--fault refused`` sends the struck call to the delay instead,
+    to show a refusal is seen."""
+    g = audiograph.Graph(sample_rate=RATE, frames=BLOCK_FRAMES,
+                         channel_count=CHANNELS, buffers=6, nodes=8)
+    strike, ring, burst, echo = g.buffer(), g.buffer(), g.buffer(), g.buffer()
+    hit = g.add(audiograph.CONST, audiograph.ALWAYS, (), strike)
+    g.set(hit, 0, 1.0)
+    struck = g.add(audiograph.STRUCK, audiograph.ALWAYS, (strike,), ring)
+    g.set(struck, audiograph.STRUCK_FREQUENCY, 220.0)
+    decay = g.add(audiograph.DECAY, audiograph.ALWAYS, (strike,), burst)
+    delay = g.add(audiograph.FBDELAY, audiograph.ALWAYS, (ring,), echo, 64.0)
+    g.add(audiograph.OUT, audiograph.ALWAYS, (echo, burst), None)
+    block = status()
+    ring_bytes = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 16)
+    out = bytearray(len(ring_bytes))
+    audiopump.spawn(g, 1 << 30, block, ring=ring_bytes)
+    threaded = bool(audiopump.threaded())
+
+    def run(blocks):
+        want = read(block)[BLOCKS_AT] + blocks
+        spins = 0
+        while read(block)[BLOCKS_AT] < want and spins < 200000:
+            if not threaded:
+                audiopump.service(1)
+            audiopump.drain(out)
+            spins += 1
+
+    run(4)
+    errors = []
+    for note in range(40):
+        modes = ((1.0, 1.0 + note * 0.01, 0.5), (2.76, 0.4, 0.25))
+        try:
+            g.table(delay if fault == "refused" else struck, modes)
+            g.table(decay, ((0.0, 1.0), (0.01 * (note % 4), 0.5)))
+        except Exception as e:  # noqa: BLE001 -- what is raised is the finding
+            errors.append(repr(e))
+        run(1)
+    shape = array("h", [0] * 64)
+    try:
+        g.table(delay, shape)
+        wow = "taken"
+    except RuntimeError:
+        wow = "refused"
+    pulled = read(block)[BLOCKS_AT]
+    audiopump.stop()
+    audiopump.join()
+    audiopump.shutdown()
+    g.deinit()
+    ok = say("copied", not errors and pulled > 40,
+             "40 notes re-tuned under the pump, %d pulled; %s"
+             % (pulled, errors[0] if errors else "none refused"))
+    if threaded:
+        # With no driver the pump runs on this thread, between calls, so
+        # nothing is ever rendering when table() is called.
+        ok = say("borrowed", wow == "refused",
+                 "a wow shape set while the pump plays was %s" % wow) and ok
+    return ok
+
+
 CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
          ("driver", driver), ("unpumpable", unpumpable), ("swap", swap),
          ("writes", writes), ("tear", tear), ("fade", fade),
-         ("graph", graph))
+         ("graph", graph), ("table", table))
 
 
 def main():
