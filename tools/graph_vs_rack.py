@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Brad Barnett
 #
 # SPDX-License-Identifier: MIT
-"""Hold audiograph's STRUCK, PICKUP, TREMOLO, DECAY, PINK and CRUSH against the rack.
+"""Hold audiograph's STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2 and GLISS against the rack.
 
     graph_vs_rack.py [--rack PATH]
 
@@ -22,7 +22,12 @@ amp-minus-rise strike, click envelope and pitch-bend envelope. PINK is
 ``NoiseGenerator.pink``. CRUSH is the quantise in
 ``BitDepthRateCore._hold_numpy`` — the hold and the anti-alias filter around
 it are SAMPLE_HOLD's and a filter node's, so they are stood aside here and the
-node is compared to the quantise alone.
+node is compared to the quantise alone. GLISS is ``GlideCore`` plus poly80's
+once-a-block semitone step (``voice.py``'s glissando line, generalised to
+``step``). FOLLOW has no rack class of its own: it is held to the two call
+sites' own lines — clavichord ``output.py``'s peak follower (0.4 up, 0.06
+down, once a block) and vocoder330 ``bank.py``'s ``_follow`` RMS follower
+(``exp(-dt/t)`` from its times), the analysis filter stood aside.
 """
 
 import math
@@ -56,6 +61,10 @@ from audioinstruments._rack.dsp.drums import (  # noqa: E402
     SweptOscillatorDrumCore,
 )
 from audioinstruments._rack.dsp.noise import NoiseGenerator  # noqa: E402
+from audioinstruments._rack.dsp.ladder import AcidFilterCore  # noqa: E402
+from audioinstruments._rack.dsp.reverb import SpringReverbCore  # noqa: E402
+from audioinstruments._rack.dsp.envelope import EnvelopeCore  # noqa: E402
+from audioinstruments._rack.dsp.glide import GlideCore  # noqa: E402
 from audioinstruments._rack.modules.rhythm78.cowbell import (  # noqa: E402
     Rhythm78Cowbell,
 )
@@ -603,6 +612,215 @@ def crush(bits, blocks=25):
     return report("CRUSH %g bits" % bits, got, want)
 
 
+# --------------------------------------------------------------------- ACID --
+
+def acid(cutoff_hz, resonance, env_mod, blocks=60):
+    """ACID against AcidFilterCore, with an envelope and accent bursts."""
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=8, nodes=3)
+    audio_b, env_b, acc_b, out = g.buffer(), g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.ACID, ag.ALWAYS, (audio_b, env_b, acc_b), out)
+    g.set(node, ag.ACID_CUTOFF_HZ, cutoff_hz)
+    g.set(node, ag.ACID_RESONANCE, resonance)
+    g.set(node, ag.ACID_ENVMOD, env_mod)
+    core = AcidFilterCore(RATE)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    src = np.zeros(FRAMES, dtype=np.float64)
+    dst = np.zeros(FRAMES, dtype=np.float64)
+    env_f = np.zeros(FRAMES, dtype=np.float64)
+    acc_f = np.zeros(FRAMES, dtype=np.float64)
+    for b in range(blocks):
+        block = tone(b, 9000, 47.0)
+        env_block = [int(UNIT * min(1.0, (b % 30) / 15.0))] * FRAMES
+        acc_block = [int(UNIT * 0.9)] * FRAMES if b % 14 == 0 else [0] * FRAMES
+        g.write(audio_b, array("h", block))
+        g.write(env_b, array("h", env_block))
+        g.write(acc_b, array("h", acc_block))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        src[:] = np.asarray(block, dtype=np.float64) / UNIT
+        env_f[:] = np.asarray(env_block, dtype=np.float64) / UNIT
+        acc_f[:] = np.asarray(acc_block, dtype=np.float64) / UNIT
+        core.render(FRAMES, src, dst, cutoff_hz, resonance, env_mod, env_f, acc_f)
+        want += list(wire(dst))
+    return report("ACID %.0fHz r%.2f e%.2f" % (cutoff_hz, resonance, env_mod), got, want)
+
+
+# ------------------------------------------------------------------- SPRING --
+
+def spring(mix, decay, damp=0.55, blocks=80):
+    """SPRING against SpringReverbCore: two Freeverb tanks, dry/wet mixed."""
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=4, nodes=2)
+    a, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.SPRING, ag.ALWAYS, (a,), left_b, right_b)
+    g.set(node, ag.SPRING_MIX, mix)
+    g.set(node, ag.SPRING_DECAY, decay)
+    g.set(node, ag.SPRING_DAMP, damp)
+    core = SpringReverbCore(RATE, FRAMES)
+    core.left.set(damp=damp)
+    core.right.set(damp=damp)
+    src = np.zeros(FRAMES, dtype=np.float64)
+    out_l = np.zeros(FRAMES, dtype=np.float64)
+    out_r = np.zeros(FRAMES, dtype=np.float64)
+    buf = array("h", bytes(2 * FRAMES))
+    got_l, got_r, want_l, want_r = [], [], [], []
+    for b in range(blocks):
+        block = tone(b, 6000, 41.0)
+        if b == 0:
+            block[0] = 16000
+        g.write(a, array("h", block))
+        g.run(None)
+        g.read(left_b, buf)
+        got_l += list(buf)
+        g.read(right_b, buf)
+        got_r += list(buf)
+        src[:] = np.asarray(block, dtype=np.float64) / UNIT
+        core.render(src, out_l, out_r, mix=mix, decay=decay)
+        want_l += list(wire(out_l))
+        want_r += list(wire(out_r))
+    w = report("SPRING m%.2f d%.2f left" % (mix, decay), got_l, want_l)
+    return max(w, report("SPRING m%.2f d%.2f right" % (mix, decay), got_r, want_r))
+
+
+# ------------------------------------------------------------------- ADSR2 --
+
+def adsr2(initial, attack_level, sustain, attack=0.01, decay=0.2, release=0.3,
+          blocks=60):
+    """ADSR2 against EnvelopeCore, remapped the way poly80 remaps its fenv."""
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=4, nodes=2)
+    gate_b, out = g.buffer(), g.buffer()
+    node = g.add(ag.ADSR2, ag.ALWAYS, (gate_b,), out)
+    g.set(node, ag.ADSR2_ATTACK, attack)
+    g.set(node, ag.ADSR2_DECAY, decay)
+    g.set(node, ag.ADSR2_SUSTAIN, sustain)
+    g.set(node, ag.ADSR2_RELEASE, release)
+    g.set(node, ag.ADSR2_INITIAL, initial)
+    g.set(node, ag.ADSR2_ATTACK_LEVEL, attack_level)
+    core = EnvelopeCore(RATE, FRAMES)
+    core.set_times(attack, decay, sustain, release)
+    span = attack_level - initial
+    dst = np.zeros(FRAMES, dtype=np.float64)
+    gate_f = np.zeros(FRAMES, dtype=np.float64)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    for b in range(blocks):
+        gate = [UNIT if (b % 10) < 4 else 0] * FRAMES
+        g.write(gate_b, array("h", gate))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        gate_f[:] = np.asarray(gate, dtype=np.float64) / UNIT
+        core.render(gate_f, dst)
+        want += list(wire(initial + dst * span))
+    return report("ADSR2 il%.2f al%.2f s%.2f" % (initial, attack_level, sustain),
+                  got, want)
+
+
+# ------------------------------------------------------------------- GLISS --
+
+def gliss(time, step=1.0, blocks=60):
+    """GLISS against GlideCore plus poly80's once-a-block semitone step.
+
+    GlideCore runs in octaves (the graph's own pitch unit, UNIT counts to
+    one). poly80 quantises `round(glided[-1] * 120.0) / 120.0` in its CV,
+    where a unit is 120 semitones; in octaves that is a grid of `step / 12`,
+    which at one semitone a step is voice.py's own line. The bend rides on
+    top unslid, as GlideCore documents.
+    """
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=5, nodes=2)
+    note_b, pitch_b, legato_b, out = g.buffer(), g.buffer(), g.buffer(), g.buffer()
+    node = g.add(ag.GLISS, ag.ALWAYS, (note_b, pitch_b, legato_b), out)
+    g.set(node, ag.GLISS_TIME, time)
+    g.set(node, ag.GLISS_MODE, ag.LAG_ON)
+    g.set(node, ag.GLISS_STEP, step)
+    core = GlideCore(RATE, FRAMES)
+    core.mode = GlideCore.ON
+    core.time = time
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    notes = (0, 0, 4096, 4096, 4096, -2731, -2731, 1365, 6827, 6827, 6827, -8192)
+    grid = step / 12.0
+    dst = np.zeros(FRAMES, dtype=np.float32)
+    note_f = np.zeros(FRAMES, dtype=np.float32)
+    pitch_f = np.zeros(FRAMES, dtype=np.float32)
+    for b in range(blocks):
+        n = notes[(b // 3) % len(notes)]
+        note = [n] * FRAMES
+        bend = [((b * FRAMES + i) * 7) % 801 - 400 for i in range(FRAMES)]
+        pitch = [v + d for v, d in zip(note, bend)]
+        legato = [UNIT if b % 3 else 0] * FRAMES
+        g.write(note_b, array("h", note))
+        g.write(pitch_b, array("h", pitch))
+        g.write(legato_b, array("h", legato))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        note_f[:] = np.asarray(note, dtype=np.float32) / UNIT
+        pitch_f[:] = np.asarray(pitch, dtype=np.float32) / UNIT
+        core.process(dst, note_f, legato=float(legato[0]) / UNIT)
+        # poly80's glissando at one semitone a step, generalised to `step`
+        held = round(float(dst[-1]) / grid) * grid
+        want += list(wire(held + pitch_f - note_f))
+    return report("GLISS t%.4f s%.2f" % (time, step), got, want)
+
+
+# ----------------------------------------------------------------- FOLLOW --
+
+def follow(attack, release, mode, blocks=50):
+    """FOLLOW against clavichord's peak follower and vocoder330's RMS one.
+
+    There is no rack class: the reference is the call sites' own maths.
+    clavichord ``output.py`` moves 0.4 toward the block's peak absolute
+    sample and 0.06 away, once a block; vocoder330 ``bank.py``'s ``_follow``
+    moves ``1 - exp(-dt/t)`` toward the block's RMS about its own mean, with
+    ``t`` its FOLLOW_ATTACK_S / FOLLOW_RELEASE_S. The node takes times, so
+    clavichord's coefficients are ``-dt/ln(0.6)`` and ``-dt/ln(0.94)`` at
+    this block size.
+    """
+    g = ag.Graph(sample_rate=RATE, frames=FRAMES, channel_count=1, buffers=3, nodes=2)
+    a, out = g.buffer(), g.buffer()
+    node = g.add(ag.FOLLOW, ag.ALWAYS, (a,), out)
+    g.set(node, ag.FOLLOW_ATTACK, attack)
+    g.set(node, ag.FOLLOW_RELEASE, release)
+    g.set(node, ag.FOLLOW_MODE, mode)
+    buf = array("h", bytes(2 * FRAMES))
+    got, want = [], []
+    env = 0.0
+    dt = FRAMES / float(RATE)
+    for b in range(blocks):
+        if 5 <= b < 15 or 25 <= b < 35:
+            amplitude = 9000 + 2000 * (b % 5)
+        else:
+            amplitude = 300
+        block = [int(amplitude * math.sin(2.0 * math.pi * (b * FRAMES + i) / 37.0))
+                 for i in range(FRAMES)]
+        g.write(a, array("h", block))
+        g.run(None)
+        g.read(out, buf)
+        got += list(buf)
+        src = np.asarray(block, dtype=np.float64) / UNIT
+        if mode == ag.FOLLOW_RMS:
+            # bank.py `_follow`, its analysis filter stood aside
+            mean = float(np.sum(src)) / FRAMES
+            sq = src * src
+            rms = math.sqrt(max(0.0, float(np.sum(sq)) / FRAMES - mean * mean))
+            coef = math.exp(-dt / (attack if rms > env else release))
+            env = rms + (env - rms) * coef
+            want += list(wire([env] * FRAMES))
+        else:
+            # output.py's auto-wah, its 0.4 and 0.06 as times at this block
+            peak = float(np.max(np.abs(src)))
+            if peak > env:
+                env += (peak - env) * (1.0 - math.exp(-dt / attack))
+            else:
+                env += (peak - env) * (1.0 - math.exp(-dt / release))
+            want += list(wire([env] * FRAMES))
+    name = "FOLLOW %s a%.4f r%.4f" % (
+        "rms" if mode == ag.FOLLOW_RMS else "peak", attack, release)
+    return report(name, got, want)
+
+
 worst = 0
 worst = max(worst, tremolo("pan", ag.TREMOLO_PAN))
 worst = max(worst, tremolo("amplitude", ag.TREMOLO_AMPLITUDE))
@@ -659,4 +877,23 @@ worst = max(worst, crush(6))
 worst = max(worst, crush(8))
 worst = max(worst, crush(15))
 worst = max(worst, crush(16))
+worst = max(worst, acid(400.0, 0.7, 0.6))
+worst = max(worst, acid(180.0, 0.0, 0.0))
+worst = max(worst, acid(1200.0, 0.9, 0.9))
+worst = max(worst, spring(0.25, 0.75))
+worst = max(worst, spring(0.5, 0.4))
+worst = max(worst, spring(0.0, 0.9))
+worst = max(worst, adsr2(0.0, 1.0, 0.7))
+worst = max(worst, adsr2(-0.5, 0.5, 0.5))
+# poly80's own fenv: sustain level -il/(al-il) puts the output at 0
+worst = max(worst, adsr2(-0.4, 0.8, 0.4 / 1.2, attack=0.05, decay=0.3, release=0.4))
+worst = max(worst, gliss(0.015625, 1.0))
+worst = max(worst, gliss(0.03125, 1.0))
+worst = max(worst, gliss(0.0625, 2.0))
+# clavichord's 0.4 and 0.06 at 128 frames
+_dt = FRAMES / float(RATE)
+worst = max(worst, follow(-_dt / math.log(0.6), -_dt / math.log(0.94), ag.FOLLOW_PEAK))
+# vocoder330's FOLLOW_ATTACK_S and FOLLOW_RELEASE_S
+worst = max(worst, follow(0.005, 0.030, ag.FOLLOW_RMS))
+worst = max(worst, follow(0.005, 0.030, ag.FOLLOW_PEAK))
 print("worst over all: %d" % worst)

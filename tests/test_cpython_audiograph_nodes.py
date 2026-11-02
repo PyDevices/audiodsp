@@ -20,6 +20,11 @@
 | `WAVEFOLD` | vrack's `dsp/wavefolder.py` `WavefolderCore`, with no CV, a fold CV, the knobs moving, a hot input, an open input and the bypass at fold 0.001 | 1 count, on about 1 sample in 1000 (the sine is a polynomial) |
 | `LPG` | vrack's `dsp/lpg.py` `LowPassGateCore`, its filter `audiofilters.Filter` with a `synthio.Biquad` low-pass driven as vrack's bridge drives it: VCF, VCA and BOTH, struck, on a control, with the manual level, the knobs and level moving, a hot input and an open one | 1 count (the node's own exp and pow against libm's); 0 measured over 168192 samples |
 | `MODAL` | vrack's `dsp/modal.py` `ModalResonatorCore`: its `Exciter` in float32, the sum cast to int16 as vrack's bridge casts it, and `audiomodal.Bank` pulled 256 frames at a time, lined up with its input: bar and membrane ratios, struck, rung by noise, mix 0, a mode turned off, the knobs moving, and 32 to 256 frames | 1 count (the strike's burst is a product where numpy takes an exp); 586 of 170240 samples measured |
+| `ACID` | vrack's `dsp/ladder.py` `AcidFilterCore`: four one-pole stages, high-passed feedback and the accent capacitor, with the cutoff, resonance and env_mod moving and accent bursts | 1 count (the graph's `tanh` polynomial against libm's) |
+| `SPRING` | vrack's `dsp/reverb.py` `SpringReverbCore` over `audiofreeverb.Freeverb` at mix 1.0, dry and wet mixed as the rack mixes them: two tanks, decay and decay + 0.05 | 0 counts |
+| `ADSR2` | vrack's `dsp/envelope.py` `EnvelopeCore` contour remapped to start at `initial` and peak at `attack_level`, as poly80's filter envelope remaps it | 0 counts |
+| `GLISS` | `GlideCore`'s linear glide, then poly80's glissando: once a block the last glided sample is rounded to the step grid and written across the block | 0 counts |
+| `FOLLOW` | clavichord's auto-wah peak follower and vocoder330's band RMS follower: once a block the level is followed by a one-pole and written across the block | 0 counts |
 
 vrack's cores run on numpy float32 blocks, a whole block per vector operation.
 They are transcribed below operation by operation, each rounded to float32 the
@@ -37,6 +42,7 @@ import unittest
 import audiobiquad
 import audiocore
 import audiofilters
+import audiofreeverb
 import audiograph as ag
 import audioshaper
 import synthio
@@ -3116,3 +3122,979 @@ class CrushTest(unittest.TestCase):
             audio = self.tone_blocks(frames, 8)
             got, want = self.compare(6, audio)
             self.assertLessEqual(worst(got, want), 0, frames)
+
+
+# -------------------------------------------------------------------- ACID --
+
+class AcidRef:
+    """vrack's `dsp/ladder.py` `AcidFilterCore`: four one-pole stages with
+    the feedback high-passed, and an accent capacitor."""
+
+    def __init__(self, sample_rate=RATE):
+        self.sample_rate = sample_rate
+        self.inv_sr = 1.0 / sample_rate
+        self.s0 = self.s1 = self.s2 = self.s3 = 0.0
+        self.hp_state = 0.0
+        self.accent_env = 0.0
+
+    def render(self, block_size, src, dst, cutoff_hz, resonance, env_mod, env, accent):
+        decay = math.exp(-self.inv_sr / 0.15)
+        s0, s1, s2, s3 = self.s0, self.s1, self.s2, self.s3
+        hp = self.hp_state
+        acc_env = self.accent_env
+        res_gain = resonance * 4.2
+        g = 0.5
+        for i in range(block_size):
+            x = src[i] if src is not None else 0.0
+            e = env[i] if env is not None else 0.0
+            acc = accent[i] if accent is not None else 0.0
+            if acc > 0.3:
+                acc_env = 1.0
+            else:
+                acc_env *= decay
+            if (i & 3) == 0:
+                total_env = e + acc_env * 0.4
+                f = max(30.0, min(14000.0, cutoff_hz * (2.0 ** (total_env * env_mod * 4.0))))
+                g = max(0.001, min(0.95, math.tan(math.pi * f * self.inv_sr)))
+            res_hp = s3 - hp
+            hp += 0.95 * res_hp
+            u = math.tanh(x - math.tanh(res_hp * res_gain))
+            s0 += g * (u - s0)
+            s1 += g * (s0 - s1)
+            s2 += g * (s1 - s2)
+            s3 += g * (s2 - s3)
+            y = s3
+            if acc_env > 0.01:
+                y = math.tanh(y * (1.0 + acc_env * 1.5))
+            dst[i] = y
+        self.s0, self.s1, self.s2, self.s3 = s0, s1, s2, s3
+        self.hp_state = hp
+        self.accent_env = acc_env
+
+
+class AcidTest(unittest.TestCase):
+    """ACID held to `AcidFilterCore`."""
+
+    def compare(self, audio, env, accent, cutoff_hz=400.0, resonance=0.7, env_mod=0.6):
+        frames = len(audio[0])
+        rig = Rig(frames, ag.ACID, 3)
+        rig.set(ag.ACID_CUTOFF_HZ, cutoff_hz)
+        rig.set(ag.ACID_RESONANCE, resonance)
+        rig.set(ag.ACID_ENVMOD, env_mod)
+        ref = AcidRef()
+        got, want = [], []
+        for a, e, c in zip(audio, env, accent):
+            got += rig.run(a, e, c)
+            dst = [0.0] * frames
+            ref.render(frames, [x / UNIT for x in a], dst, cutoff_hz, resonance,
+                       env_mod, [x / UNIT for x in e], [x / UNIT for x in c])
+            want += [sat(v * UNIT) for v in dst]
+        return got, want
+
+    def tone_blocks(self, frames, blocks, amp=9000):
+        return [[int(amp * math.sin(2.0 * math.pi * (b * frames + i) / 47.0))
+                 for i in range(frames)] for b in range(blocks)]
+
+    def flat_blocks(self, frames, blocks, value):
+        return [[value] * frames for _ in range(blocks)]
+
+    def test_matches_acidfiltercore(self):
+        frames, blocks = 128, 40
+        audio = self.tone_blocks(frames, blocks)
+        env = []
+        accent = []
+        for b in range(blocks):
+            env.append([int(UNIT * min(1.0, (b % 30) / 15.0))] * frames)
+            accent.append([int(UNIT * (0.9 if b % 14 == 0 else 0.0))] * frames)
+        got, want = self.compare(audio, env, accent)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(max(abs(v) for v in got), 500)
+
+    def test_the_cutoff_hz_moves_the_filter(self):
+        """Cutoff is in Hz before the envelope opens it, not a 0..1 lever."""
+        frames, blocks = 128, 16
+        audio = self.tone_blocks(frames, blocks)
+        env = self.flat_blocks(frames, blocks, 0)
+        accent = self.flat_blocks(frames, blocks, 0)
+        low, _ = self.compare(audio, env, accent, cutoff_hz=180.0)
+        high, want = self.compare(audio, env, accent, cutoff_hz=1200.0)
+        self.assertLessEqual(worst(high, want), 1)
+        self.assertGreater(worst(low, high), 200)
+
+    def test_the_resonance_scales_the_feedback(self):
+        """Resonance is 0..1 into a gain of 4.2, not already that gain."""
+        frames, blocks = 128, 16
+        audio = self.tone_blocks(frames, blocks, 12000)
+        env = self.flat_blocks(frames, blocks, 0)
+        accent = self.flat_blocks(frames, blocks, 0)
+        # held to the rack at 0.85, so a C that scales 0..1 wrong fails here
+        wet, want = self.compare(audio, env, accent, resonance=0.85)
+        self.assertLessEqual(worst(wet, want), 1)
+        # and the parameter is live: turning it down changes the render
+        dry, _ = self.compare(audio, env, accent, resonance=0.0)
+        self.assertGreater(worst(dry, wet), 0)
+
+    def test_the_env_mod_scales_the_envelope(self):
+        """Env_mod is 0..1, times 4 octaves of cutoff travel."""
+        frames, blocks = 128, 24
+        audio = self.tone_blocks(frames, blocks)
+        env = [[int(UNIT * min(1.0, (b % 12) / 6.0))] * frames for b in range(blocks)]
+        accent = self.flat_blocks(frames, blocks, 0)
+        none, _ = self.compare(audio, env, accent, env_mod=0.0)
+        full, want = self.compare(audio, env, accent, env_mod=0.9)
+        self.assertLessEqual(worst(full, want), 1)
+        self.assertGreater(worst(none, full), 200)
+
+    def test_the_accent_pushes_cutoff_and_drive(self):
+        """An accent above 0.3 charges the capacitor; it then decays over 0.15 s."""
+        frames, blocks = 128, 30
+        audio = self.tone_blocks(frames, blocks)
+        env = self.flat_blocks(frames, blocks, 0)
+        quiet = self.flat_blocks(frames, blocks, 0)
+        loud = []
+        for b in range(blocks):
+            loud.append([int(UNIT * 0.9)] * frames if b == 4 else [0] * frames)
+        plain, _ = self.compare(audio, env, quiet)
+        accented, want = self.compare(audio, env, loud)
+        self.assertLessEqual(worst(accented, want), 1)
+        self.assertGreater(worst(plain, accented), 100)
+
+    def test_the_check_catches_a_wrong_acid(self):
+        frames, blocks = 128, 20
+        audio = self.tone_blocks(frames, blocks)
+        env = [[int(UNIT * min(1.0, (b % 10) / 5.0))] * frames for b in range(blocks)]
+        accent = [[int(UNIT * (0.9 if b == 3 else 0.0))] * frames for b in range(blocks)]
+        got, want = self.compare(audio, env, accent)
+        self.assertLessEqual(worst(got, want), 1)
+        for name, bad in (("cutoff doubled", 800.0), ("cutoff halved", 200.0),
+                          ("resonance as 0.35", 0.35), ("env_mod as 0.3", 0.3)):
+            if name.startswith("cutoff"):
+                _, wl = self.compare(audio, env, accent, cutoff_hz=bad)
+            elif name.startswith("resonance"):
+                _, wl = self.compare(audio, env, accent, resonance=bad)
+            else:
+                _, wl = self.compare(audio, env, accent, env_mod=bad)
+            self.assertGreater(worst(got, wl), 50, name)
+
+    def test_an_open_input_is_silence(self):
+        frames = 64
+        rig = Rig(frames, ag.ACID, 3, open_=(0,))
+        self.assertEqual(set(rig.run(None, [UNIT // 2] * frames, [0] * frames)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            audio = self.tone_blocks(frames, 12)
+            env = [[int(UNIT * min(1.0, (b % 8) / 4.0))] * frames for b in range(12)]
+            accent = [[int(UNIT * (0.9 if b == 2 else 0.0))] * frames for b in range(12)]
+            got, want = self.compare(audio, env, accent)
+            self.assertLessEqual(worst(got, want), 1, frames)
+
+    def test_a_knob_past_its_range_plays_as_its_end(self):
+        # resonance and env_mod are held to 0..1 and a NaN cutoff takes the
+        # 30 Hz floor: an infinite gain times a still stage would be a NaN
+        # the stages kept until a reset.
+        frames, blocks = 128, 12
+        audio = self.tone_blocks(frames, blocks)
+        env = [[int(UNIT * min(1.0, (b % 8) / 4.0))] * frames for b in range(blocks)]
+        accent = [[int(UNIT * (0.9 if b == 2 else 0.0))] * frames for b in range(blocks)]
+
+        def render(cutoff_hz=400.0, resonance=0.7, env_mod=0.6):
+            rig = Rig(frames, ag.ACID, 3)
+            rig.set(ag.ACID_CUTOFF_HZ, cutoff_hz)
+            rig.set(ag.ACID_RESONANCE, resonance)
+            rig.set(ag.ACID_ENVMOD, env_mod)
+            out = []
+            for a, e, c in zip(audio, env, accent):
+                out += rig.run(a, e, c)
+            return out
+
+        inf, nan = float("inf"), float("nan")
+        self.assertEqual(worst(render(resonance=inf), render(resonance=1.0)), 0)
+        self.assertEqual(worst(render(resonance=nan), render(resonance=0.0)), 0)
+        self.assertEqual(worst(render(resonance=-inf), render(resonance=0.0)), 0)
+        self.assertEqual(worst(render(env_mod=inf), render(env_mod=1.0)), 0)
+        self.assertEqual(worst(render(env_mod=nan), render(env_mod=0.0)), 0)
+        self.assertEqual(worst(render(cutoff_hz=nan), render(cutoff_hz=0.0)), 0)
+        self.assertGreater(max(abs(v) for v in render(resonance=inf)), 500)
+
+
+# ----------------------------------------------------------------- SPRING --
+
+class SpringRef:
+    """vrack's `dsp/reverb.py` `SpringReverbCore`: two mono Freeverbs at
+    roomsize decay and decay + 0.05, wet-only, mixed against the dry signal.
+    The tanks are `audiofreeverb.Freeverb` at the rack's block size."""
+
+    def __init__(self, frames, sample_rate=RATE):
+        self.frames = frames
+        self.left = self._tank(frames, sample_rate)
+        self.right = self._tank(frames, sample_rate)
+
+    def _tank(self, frames, sample_rate):
+        return audiofreeverb.Freeverb(
+            roomsize=0.5, damp=0.55, mix=1.0, buffer_size=frames * 2,
+            sample_rate=sample_rate, bits_per_sample=16, samples_signed=True,
+            channel_count=1)
+
+    def _wet(self, verb, block):
+        verb.play(audiocore.RawSample(array("h", block), sample_rate=RATE,
+                                      channel_count=1))
+        out = array("h", bytes(audiocore.get_buffer(verb)[1]))
+        if len(out) != self.frames:
+            out = array("h", bytes(audiocore.get_buffer(verb)[1]))
+        return list(out)
+
+    def render(self, block, mix, decay, damp=0.55):
+        """(left, right) on the wire, as SpringReverbCore.render leaves them."""
+        room_l = max(0.1, min(0.98, decay))
+        room_r = max(0.1, min(0.98, decay + 0.05))
+        self.left.roomsize = room_l
+        self.left.damp = damp
+        self.right.roomsize = room_r
+        self.right.damp = damp
+        wet_l = self._wet(self.left, block)
+        wet_r = self._wet(self.right, block)
+        left = [sat((1.0 - mix) * x + mix * w) for x, w in zip(block, wet_l)]
+        right = [sat((1.0 - mix) * x + mix * w) for x, w in zip(block, wet_r)]
+        return left, right
+
+
+class SpringTest(unittest.TestCase):
+    """SPRING held to `SpringReverbCore`."""
+
+    def compare(self, audio, mix=0.25, decay=0.75, damp=0.55):
+        frames = len(audio[0])
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                     buffers=8, nodes=3)
+        in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+        node = g.add(ag.SPRING, ag.ALWAYS, (in_b,), left_b, right_b)
+        g.set(node, ag.SPRING_MIX, mix)
+        g.set(node, ag.SPRING_DECAY, decay)
+        g.set(node, ag.SPRING_DAMP, damp)
+        ref = SpringRef(frames)
+        buf = array("h", bytes(2 * frames))
+        got_l, got_r, want_l, want_r = [], [], [], []
+        for block in audio:
+            g.write(in_b, array("h", block))
+            g.run(None)
+            g.read(left_b, buf)
+            got_l += list(buf)
+            g.read(right_b, buf)
+            got_r += list(buf)
+            wl, wr = ref.render(block, mix, decay, damp)
+            want_l += wl
+            want_r += wr
+        return (got_l, want_l), (got_r, want_r)
+
+    def impulse_blocks(self, frames, blocks, amp=12000):
+        out = [[0] * frames for _ in range(blocks)]
+        out[0][0] = amp
+        for b in range(1, blocks):
+            out[b] = [int(3000 * math.sin(2.0 * math.pi * (b * frames + i) / 41.0))
+                      for i in range(frames)]
+        return out
+
+    def test_matches_springreverbcore(self):
+        frames, blocks = 128, 60
+        audio = self.impulse_blocks(frames, blocks)
+        (gl, wl), (gr, wr) = self.compare(audio)
+        self.assertLessEqual(worst(gl, wl), 0)
+        self.assertLessEqual(worst(gr, wr), 0)
+        self.assertGreater(max(abs(v) for v in gl), 100)
+
+    def test_the_tanks_differ(self):
+        """The right tank is decay + 0.05, so the two sides are not the same."""
+        frames, blocks = 128, 40
+        audio = self.impulse_blocks(frames, blocks)
+        (gl, _), (gr, _) = self.compare(audio)
+        self.assertGreater(worst(gl, gr), 10)
+
+    def test_the_mix_scales_dry_against_wet(self):
+        """Mix is 0..1: 0 is dry, 1 is wet only."""
+        frames, blocks = 128, 30
+        audio = self.impulse_blocks(frames, blocks)
+        (dry, dw), _ = self.compare(audio, mix=0.0)
+        (half, hw), _ = self.compare(audio, mix=0.5)
+        (wet, ww), _ = self.compare(audio, mix=1.0)
+        self.assertLessEqual(worst(dry, dw), 0)
+        self.assertLessEqual(worst(half, hw), 0)
+        self.assertLessEqual(worst(wet, ww), 0)
+        self.assertEqual(dry, [x for block in audio for x in block])
+        self.assertGreater(worst(dry, half), 50)
+        self.assertGreater(worst(half, wet), 50)
+
+    def test_the_decay_scales_the_roomsize(self):
+        """Decay is 0..1 room size, clamped 0.1..0.98."""
+        frames, blocks = 128, 40
+        audio = self.impulse_blocks(frames, blocks)
+        (_, _), (short_r, sw) = self.compare(audio, decay=0.2)
+        (_, _), (long_r, lw) = self.compare(audio, decay=0.9)
+        self.assertLessEqual(worst(short_r, sw), 0)
+        self.assertLessEqual(worst(long_r, lw), 0)
+        self.assertGreater(worst(short_r, long_r), 50)
+
+    def test_the_damp_scales_the_tank(self):
+        """Damp is 0..1, 0.55 as SpringReverbCore builds it."""
+        frames, blocks = 128, 30
+        audio = self.impulse_blocks(frames, blocks)
+        (bright, bw), _ = self.compare(audio, damp=0.1)
+        (dark, dw), _ = self.compare(audio, damp=0.9)
+        self.assertLessEqual(worst(bright, bw), 0)
+        self.assertLessEqual(worst(dark, dw), 0)
+        self.assertGreater(worst(bright, dark), 10)
+
+    def test_the_check_catches_a_wrong_spring(self):
+        frames, blocks = 128, 30
+        audio = self.impulse_blocks(frames, blocks)
+        (gl, wl), _ = self.compare(audio)
+        self.assertLessEqual(worst(gl, wl), 0)
+        for name, kw in (("mix as 0.5", {"mix": 0.5}),
+                         ("decay as 0.4", {"decay": 0.4}),
+                         ("damp as 0.2", {"damp": 0.2})):
+            wrong = SpringRef(frames)
+            wl2 = []
+            for block in audio:
+                left, _ = wrong.render(block, mix=kw.get("mix", 0.25),
+                                       decay=kw.get("decay", 0.75),
+                                       damp=kw.get("damp", 0.55))
+                wl2 += left
+            self.assertGreater(worst(gl, wl2), 20, name)
+
+    def test_an_open_input_is_silence(self):
+        frames = 64
+        rig = Rig(frames, ag.SPRING, 1, float(1), open_=(0,))
+        self.assertEqual(set(rig.run(None)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            audio = self.impulse_blocks(frames, 20)
+            (gl, wl), (gr, wr) = self.compare(audio)
+            self.assertLessEqual(worst(gl, wl), 0, frames)
+            self.assertLessEqual(worst(gr, wr), 0, frames)
+
+    def test_the_right_side_must_be_a_buffer_of_its_own(self):
+        g = ag.Graph(sample_rate=RATE, frames=64, channel_count=1, buffers=4, nodes=4)
+        a, b = g.buffer(), g.buffer()
+        for right in (a, 4.0, -1.0, 1.5, 40000.0):
+            with self.assertRaises(ValueError, msg=right):
+                g.add(ag.SPRING, ag.ALWAYS, (b,), a, right)
+        g.add(ag.SPRING, ag.ALWAYS, (b,), a, 2)
+
+    def test_a_skipped_group_silences_both_sides(self):
+        frames = 64
+        g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1, buffers=4, nodes=2)
+        in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+        g.add(ag.SPRING, 3, (in_b,), left_b, right_b)
+        g.write(in_b, array("h", [8000] * frames))
+        buf = array("h", bytes(2 * frames))
+        g.run(None, 0, 1 << 3)
+        g.read(right_b, buf)
+        self.assertEqual(buf[0], 6000)
+        g.run(None, 0, 0)
+        g.read(left_b, buf)
+        self.assertEqual(set(buf), {0})
+        g.read(right_b, buf)
+        self.assertEqual(set(buf), {0})
+
+    def test_a_carried_tank_keeps_its_own_right_side(self):
+        # A recompiled patch may put the right side on another buffer id; the
+        # tanks carry over and each graph keeps writing its own right side.
+        frames = 64
+
+        def build(spare):
+            g = ag.Graph(sample_rate=RATE, frames=frames, channel_count=1,
+                         buffers=8, nodes=2)
+            for _ in range(spare):
+                g.buffer()
+            in_b, left_b, right_b = g.buffer(), g.buffer(), g.buffer()
+            return g, g.add(ag.SPRING, ag.ALWAYS, (in_b,), left_b, right_b), in_b, left_b, right_b
+
+        src, src_n, src_in, src_l, src_r = build(0)
+        dst, dst_n, dst_in, dst_l, dst_r = build(2)
+        for block in self.impulse_blocks(frames, 30):
+            src.write(src_in, array("h", block))
+            src.run(None)
+        dst.carry(dst_n, src, src_n)
+        buf = array("h", bytes(2 * frames))
+        tails = []
+        for _ in range(4):
+            sides = []
+            for g, in_b, left_b, right_b in ((src, src_in, src_l, src_r),
+                                             (dst, dst_in, dst_l, dst_r)):
+                g.write(in_b, array("h", bytes(2 * frames)))
+                g.run(None)
+                g.read(left_b, buf)
+                left = list(buf)
+                g.read(right_b, buf)
+                sides.append((left, list(buf)))
+            self.assertEqual(sides[1], sides[0])
+            tails += sides[0][1]
+        self.assertGreater(max(abs(v) for v in tails), 50)
+
+
+# ------------------------------------------------------------------ ADSR2 --
+
+ATTACK_TARGET = 1.3
+DECAY_TOLERANCE = 0.001
+RELEASE_TOLERANCE = 0.0005
+
+
+class Adsr2Ref:
+    """vrack's `dsp/envelope.py` `EnvelopeCore` contour, sample by sample as
+    the runner walks it, then poly80's remap: out = il + e * (al - il).
+    `sustain` is the EnvelopeCore sustain level; poly80 sets it to
+    clamp(-il / (al - il), 0, 1) so the sustain step lands on 0."""
+
+    def __init__(self, attack, decay, sustain, release, initial, attack_level,
+                 sample_rate=RATE):
+        self.a = math.exp(-1.0 / max(1.0, attack * sample_rate * 0.35))
+        self.d = math.exp(-1.0 / max(1.0, decay * sample_rate * 0.25))
+        self.r = math.exp(-1.0 / max(1.0, release * sample_rate * 0.25))
+        self.sus = sustain
+        self.il = initial
+        self.span = attack_level - initial
+        self.stage = 0
+        self.val = 0.0
+        self.high = False
+
+    def render(self, gate):
+        out = []
+        for g0 in gate:
+            g = g0 > 0.1 * UNIT
+            if g != self.high:
+                self.high = g
+                if g:
+                    self.stage = 1
+                elif self.stage != 0:
+                    self.stage = 4
+            if self.stage == 1:
+                self.val = ATTACK_TARGET + (self.val - ATTACK_TARGET) * self.a
+                if self.val >= 1.0:
+                    self.val = 1.0
+                    self.stage = 2
+            elif self.stage == 2:
+                self.val = self.sus + (self.val - self.sus) * self.d
+                if abs(self.val - self.sus) <= DECAY_TOLERANCE:
+                    self.val = self.sus
+                    self.stage = 3
+            elif self.stage == 3:
+                self.val = self.sus
+            elif self.stage == 4:
+                self.val *= self.r
+                if self.val <= RELEASE_TOLERANCE:
+                    self.val = 0.0
+                    self.stage = 0
+            else:
+                self.val = 0.0
+            out.append(sat((self.il + self.val * self.span) * UNIT))
+        return out
+
+
+class Adsr2Test(unittest.TestCase):
+    """ADSR2 held to `EnvelopeCore`'s contour remapped by IL and AL."""
+
+    def compare(self, gate, attack=0.01, decay=0.2, sustain=0.7, release=0.3,
+                initial=0.0, attack_level=1.0):
+        frames = len(gate[0])
+        rig = Rig(frames, ag.ADSR2, 1)
+        rig.set(ag.ADSR2_ATTACK, attack)
+        rig.set(ag.ADSR2_DECAY, decay)
+        rig.set(ag.ADSR2_SUSTAIN, sustain)
+        rig.set(ag.ADSR2_RELEASE, release)
+        rig.set(ag.ADSR2_INITIAL, initial)
+        rig.set(ag.ADSR2_ATTACK_LEVEL, attack_level)
+        ref = Adsr2Ref(attack, decay, sustain, release, initial, attack_level)
+        got, want = [], []
+        for block in gate:
+            got += rig.run(block)
+            want += ref.render(block)
+        return got, want
+
+    def gate_blocks(self, frames, blocks, period=10, high=4):
+        return [[UNIT if (b % period) < high else 0 for _ in range(frames)]
+                for b in range(blocks)]
+
+    def test_matches_envelopecore(self):
+        frames, blocks = 128, 50
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, initial=-0.5, attack_level=0.5)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(max(abs(v) for v in got), 1000)
+
+    def test_poly80_filter_envelope(self):
+        """poly80's IL/AL: rest at IL, peak at AL, sustain at 0."""
+        frames, blocks = 128, 80
+        # a long hold so the envelope reaches its sustain step
+        gate = [[0] * frames]
+        gate += [[UNIT] * frames for _ in range(30)]
+        gate += [[0] * frames for _ in range(blocks - 31)]
+        il, al = -0.4, 0.8
+        span = al - il
+        sus = max(0.0, min(1.0, -il / span))
+        got, want = self.compare(gate, attack=0.002, decay=0.005, sustain=sus,
+                                 release=0.01, initial=il, attack_level=al)
+        self.assertLessEqual(worst(got, want), 1)
+        # the rest level is IL and the sustain step is 0
+        self.assertEqual(got[0], sat(il * UNIT))
+        held = got[20 * frames:28 * frames]
+        self.assertLessEqual(max(abs(v) for v in held), 1)
+
+    def test_the_initial_level_is_where_it_rests(self):
+        """Initial is a lever, 1.0 = UNIT; the rest level is initial * UNIT."""
+        frames, blocks = 128, 20
+        # the gate starts low, so the first samples are the rest level
+        gate = [[0] * frames] + self.gate_blocks(frames, blocks - 1)
+        got, want = self.compare(gate, initial=-0.5, attack_level=0.5)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertEqual(got[0], sat(-0.5 * UNIT))
+        self.assertEqual(want[0], sat(-0.5 * UNIT))
+        # a C that scaled initial wrong (counts, or doubled) fails the bar above
+        for name, bad in (("initial doubled", -1.0), ("initial as 0", 0.0)):
+            _, wl = self.compare(gate, initial=bad, attack_level=0.5)
+            self.assertGreater(worst(got, wl), 100, name)
+
+    def test_the_attack_level_is_the_peak(self):
+        """Attack_level is the peak lever; the peak is attack_level * UNIT."""
+        frames, blocks = 128, 20
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, initial=-0.5, attack_level=0.5)
+        self.assertLessEqual(worst(got, want), 1)
+        self.assertGreater(max(got), sat(0.4 * UNIT))
+        for name, bad in (("attack_level doubled", 1.0),
+                          ("attack_level as 0.25", 0.25)):
+            _, wl = self.compare(gate, initial=-0.5, attack_level=bad)
+            self.assertGreater(worst(got, wl), 100, name)
+
+    def test_the_attack_seconds_scale(self):
+        frames, blocks = 128, 20
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, attack=0.05)
+        self.assertLessEqual(worst(got, want), 1)
+        _, wl = self.compare(gate, attack=0.05 / 1000.0)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_decay_seconds_scale(self):
+        frames, blocks = 128, 30
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, decay=0.3)
+        self.assertLessEqual(worst(got, want), 1)
+        _, wl = self.compare(gate, decay=0.3 / 1000.0)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_sustain_level_scales(self):
+        frames, blocks = 128, 30
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, sustain=0.6, initial=0.0, attack_level=1.0)
+        self.assertLessEqual(worst(got, want), 1)
+        _, wl = self.compare(gate, sustain=0.3)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_release_seconds_scale(self):
+        frames, blocks = 128, 30
+        gate = self.gate_blocks(frames, blocks, period=8, high=2)
+        got, want = self.compare(gate, release=0.4)
+        self.assertLessEqual(worst(got, want), 1)
+        _, wl = self.compare(gate, release=0.4 / 1000.0)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_check_catches_a_wrong_adsr2(self):
+        frames, blocks = 128, 30
+        gate = self.gate_blocks(frames, blocks)
+        got, want = self.compare(gate, initial=-0.5, attack_level=0.5)
+        self.assertLessEqual(worst(got, want), 1)
+        for name, kw in (("initial as -0.25", {"initial": -0.25}),
+                         ("attack_level as 0.25", {"attack_level": 0.25}),
+                         ("attack as 0.005", {"attack": 0.005}),
+                         ("sustain as 0.4", {"sustain": 0.4})):
+            args = dict(initial=-0.5, attack_level=0.5)
+            args.update(kw)
+            _, wl = self.compare(gate, **args)
+            self.assertGreater(worst(got, wl), 50, name)
+
+    def test_an_open_input_is_silence(self):
+        frames = 64
+        rig = Rig(frames, ag.ADSR2, 1, open_=(0,))
+        self.assertEqual(set(rig.run(None)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            gate = self.gate_blocks(frames, 16)
+            got, want = self.compare(gate, initial=-0.25, attack_level=0.75)
+            self.assertLessEqual(worst(got, want), 1, frames)
+
+    def test_a_nan_knob_plays_as_the_end_it_is_past(self):
+        # A NaN time is one sample and a NaN sustain is 0: a NaN level never
+        # reaches the release's floor, so the voice would never go idle.
+        frames, blocks = 128, 24
+        gate = self.gate_blocks(frames, blocks, period=8, high=3)
+
+        def render(**kw):
+            rig = Rig(frames, ag.ADSR2, 1)
+            knobs = dict(attack=0.01, decay=0.05, sustain=0.6, release=0.005)
+            knobs.update(kw)
+            rig.set(ag.ADSR2_ATTACK, knobs["attack"])
+            rig.set(ag.ADSR2_DECAY, knobs["decay"])
+            rig.set(ag.ADSR2_SUSTAIN, knobs["sustain"])
+            rig.set(ag.ADSR2_RELEASE, knobs["release"])
+            rig.set(ag.ADSR2_INITIAL, -0.5)
+            rig.set(ag.ADSR2_ATTACK_LEVEL, 0.5)
+            out = []
+            for block in gate:
+                out += rig.run(block)
+            return out
+
+        nan = float("nan")
+        self.assertEqual(worst(render(sustain=nan), render(sustain=0.0)), 0)
+        self.assertEqual(worst(render(sustain=-float("inf")), render(sustain=0.0)), 0)
+        for name in ("attack", "decay", "release"):
+            self.assertEqual(worst(render(**{name: nan}), render(**{name: 0.0})), 0, name)
+        # after the last release it rests at the initial level again
+        self.assertEqual(render(sustain=nan)[-1], -UNIT // 2)
+
+
+# ------------------------------------------------------------------- GLISS --
+
+class GlissRef:
+    """`GlideCore`'s linear glide (dsp/glide.py) then poly80's glissando:
+    once a block the last glided sample is rounded to the step grid and that
+    one value is written across the block. The glide's own state stays
+    unquantised, so the next block starts from where the sweep really was.
+    A semitone is UNIT/12 on the wire, so the grid is step * UNIT / 12."""
+
+    def __init__(self, mode, time, step):
+        self.glide = GlideLinear(mode, time)
+        self.grid = step * UNIT / 12.0
+
+    def process(self, note, pitch=None, legato=0.0):
+        glided = self.glide.process(note, None, legato)
+        held = round(glided[-1] / self.grid) * self.grid
+        if pitch is not None:
+            return [sat(held + p - m) for p, m in zip(pitch, note)]
+        return [sat(held)] * len(note)
+
+
+class GlissTest(unittest.TestCase):
+    """GLISS held to `GlideCore` plus poly80's once-a-block semitone step."""
+
+    def compare(self, phrase_blocks, mode=ag.LAG_ON, time=0.015625, step=1.0,
+                bend=True, frames=None):
+        if frames is None:
+            frames = len(phrase_blocks[0][0])
+        rig = Rig(frames, ag.GLISS, 3)
+        rig.set(ag.GLISS_MODE, mode)
+        rig.set(ag.GLISS_TIME, time)
+        rig.set(ag.GLISS_STEP, step)
+        ref = GlissRef(mode, time, step)
+        got, want = [], []
+        for note, pitch, legato in phrase_blocks:
+            got += rig.run(note, pitch if bend else note, legato)
+            want += ref.process(note, pitch if bend else None, legato[0] / UNIT)
+        return got, want
+
+    def test_matches_glidecore_and_poly80_glissando(self):
+        frames, blocks = 128, 60
+        got, want = self.compare(phrase(frames, blocks))
+        self.assertEqual(worst(got, want), 0)
+        # without a bend it really steps: whole semitones and nothing else
+        flat, _ = self.compare(phrase(frames, blocks), bend=False)
+        grid = UNIT / 12.0
+        for v in flat:
+            self.assertEqual(v, sat(round(v / grid) * grid))
+
+    def test_poly80_steps_in_semitones(self):
+        """poly80's glissando is one semitone a step: step 1, grid UNIT/12."""
+        frames, blocks = 128, 40
+        got, want = self.compare(phrase(frames, blocks), step=1.0)
+        self.assertEqual(worst(got, want), 0)
+        self.assertEqual(GlissRef(ag.LAG_ON, 0.015625, 1.0).grid, UNIT / 12.0)
+        # a C that took the step as octaves (12) or as half a semitone fails
+        for name, bad in (("step as octaves", 12.0), ("step as half", 0.5)):
+            _, wl = self.compare(phrase(frames, blocks), step=bad)
+            self.assertGreater(worst(got, wl), 100, name)
+
+    def test_the_time_seconds_scale(self):
+        frames, blocks = 128, 40
+        got, want = self.compare(phrase(frames, blocks), time=0.03125)
+        self.assertEqual(worst(got, want), 0)
+        _, wl = self.compare(phrase(frames, blocks), time=0.03125 / 1000.0)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_mode_selects_when_it_glides(self):
+        frames, blocks = 128, 40
+        phrase_blocks = phrase(frames, blocks)
+        on, _ = self.compare(phrase_blocks, mode=ag.LAG_ON, time=0.03125)
+        off, _ = self.compare(phrase_blocks, mode=ag.LAG_OFF, time=0.03125)
+        auto, auto_want = self.compare(phrase_blocks, mode=ag.LAG_AUTO, time=0.03125)
+        self.assertNotEqual(on, off)
+        self.assertNotEqual(on, auto)
+        # AUTO with legato held glides as GlideCore does, so it is not OFF
+        self.assertEqual(worst(auto, auto_want), 0)
+        self.assertNotEqual(auto, off)
+        # AUTO glides only on a held note: with no legato it is OFF
+        no_legato = [(n, p, [0] * frames) for n, p, _ in phrase_blocks]
+        auto_free, _ = self.compare(no_legato, mode=ag.LAG_AUTO, time=0.03125)
+        off_free, _ = self.compare(no_legato, mode=ag.LAG_OFF, time=0.03125)
+        self.assertEqual(auto_free, off_free)
+        # a C that always glided would match ON here, not OFF
+        self.assertNotEqual(auto_free, on)
+
+    def test_the_step_scales_the_grid(self):
+        frames, blocks = 128, 40
+        one, _ = self.compare(phrase(frames, blocks), step=1.0, bend=False)
+        two, _ = self.compare(phrase(frames, blocks), step=2.0, bend=False)
+        self.assertNotEqual(one, two)
+        grid_one, grid_two = UNIT / 12.0, UNIT / 6.0
+        for v in two:
+            self.assertEqual(v, sat(round(v / grid_two) * grid_two))
+        for v in one:
+            self.assertEqual(v, sat(round(v / grid_one) * grid_one))
+
+    def test_the_bend_rides_on_top(self):
+        """The step is the note; the bend moves every sample on top of it."""
+        frames, blocks = 128, 30
+        got, want = self.compare(phrase(frames, blocks), bend=True)
+        self.assertEqual(worst(got, want), 0)
+        flat, _ = self.compare(phrase(frames, blocks), bend=False)
+        self.assertNotEqual(got, flat)
+        # with a bend the output is not on the grid, but the note under it is
+        grid = UNIT / 12.0
+        self.assertGreater(sum(1 for v in got if v != sat(round(v / grid) * grid)),
+                           100)
+
+    def test_the_check_catches_a_wrong_gliss(self):
+        frames, blocks = 128, 40
+        got, want = self.compare(phrase(frames, blocks), time=0.03125, step=1.0)
+        self.assertEqual(worst(got, want), 0)
+        for name, kw in (("time as 0.003", {"time": 0.003125}),
+                         ("step as 2", {"step": 2.0}),
+                         ("mode off", {"mode": ag.LAG_OFF})):
+            args = dict(time=0.03125, step=1.0)
+            args.update(kw)
+            _, wl = self.compare(phrase(frames, blocks), **args)
+            self.assertGreater(worst(got, wl), 50, name)
+
+    def test_reset_forgets_the_pitch(self):
+        frames = 128
+        rig = Rig(frames, ag.GLISS, 3)
+        rig.set(ag.GLISS_TIME, 0.5)
+        rig.set(ag.GLISS_STEP, 1.0)
+        note, pitch, legato = [0] * frames, [0] * frames, [0] * frames
+        rig.run(note, pitch, legato)
+        note = [8192] * frames
+        pitch = [8192] * frames
+        self.assertNotEqual(rig.run(note, pitch, legato)[-1], 8192)
+        rig.g.reset(rig.node)
+        self.assertEqual(rig.run(note, pitch, legato), [8192] * frames)
+
+    def test_an_open_note_is_zero(self):
+        frames = 64
+        rig = Rig(frames, ag.GLISS, 3, open_=(0,))
+        self.assertEqual(set(rig.run(None, [0] * frames, [0] * frames)), {0})
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            got, want = self.compare(phrase(frames, 24), frames=frames)
+            self.assertEqual(worst(got, want), 0, frames)
+
+    def test_a_step_past_its_range_leaves_the_glide_unstepped(self):
+        # An infinite step would round to inf * 0, and a tiny one to a
+        # quotient past an int32: both play the glide as it is, unstepped.
+        frames, blocks = 128, 30
+
+        def render(step):
+            rig = Rig(frames, ag.GLISS, 3)
+            rig.set(ag.GLISS_MODE, ag.LAG_ON)
+            rig.set(ag.GLISS_TIME, 0.0625)
+            rig.set(ag.GLISS_STEP, step)
+            out = []
+            for note, _pitch, legato in phrase(frames, blocks):
+                out += rig.run(note, note, legato)
+            return out
+
+        plain = render(0.0)
+        self.assertEqual(worst(render(float("inf")), plain), 0)
+        self.assertEqual(worst(render(1e-30), plain), 0)
+        self.assertEqual(worst(render(float("nan")), plain), 0)
+        self.assertGreater(max(abs(v) for v in plain), 1000)
+        self.assertNotEqual(render(1.0), plain)
+
+
+# ----------------------------------------------------------------- FOLLOW --
+
+class FollowRef:
+    """clavichord's auto-wah peak follower (output.py: the block's peak
+    absolute sample, moved toward by 0.4 up and 0.06 down) and vocoder330's
+    band follower (bank.py `_follow`: the block's RMS about its own mean,
+    moved toward by 1 - exp(-dt/t)). Once a block, that one value is written
+    across the block. The node takes times, so at a given block size the two
+    are the same one-pole: clavichord's 0.4 and 0.06 are times of
+    -dt/ln(0.6) and -dt/ln(0.94)."""
+
+    def __init__(self, attack, release, mode, sample_rate=RATE):
+        self.attack = attack
+        self.release = release
+        self.mode = mode
+        self.sample_rate = sample_rate
+        self.env = 0.0
+
+    def render(self, block):
+        n = len(block)
+        dt = n / float(self.sample_rate)
+        if self.mode == ag.FOLLOW_RMS:
+            mean = sum(block) / float(n)
+            var = sum(v * v for v in block) / float(n) - mean * mean
+            level = math.sqrt(var) if var > 0.0 else 0.0
+        else:
+            level = max(abs(v) for v in block) if n else 0.0
+        t = self.attack if level > self.env else self.release
+        coef = math.exp(-dt / t) if t > 0.0 else 0.0
+        self.env = level + (self.env - level) * coef
+        return [sat(self.env)] * n
+
+
+class ClavichordRef:
+    """clavichord's own coefficients, not times: 0.4 toward a peak, 0.06 away."""
+
+    def __init__(self):
+        self.env = 0.0
+
+    def render(self, block):
+        peak = max(abs(v) for v in block) if block else 0.0
+        if peak > self.env:
+            self.env += (peak - self.env) * 0.4
+        else:
+            self.env += (peak - self.env) * 0.06
+        return [sat(self.env)] * len(block)
+
+
+class FollowTest(unittest.TestCase):
+    """FOLLOW held to clavichord's peak follower and vocoder330's RMS one."""
+
+    def compare(self, blocks, attack=0.005, release=0.030,
+                mode=ag.FOLLOW_PEAK, frames=None):
+        if frames is None:
+            frames = len(blocks[0])
+        rig = Rig(frames, ag.FOLLOW, 1)
+        rig.set(ag.FOLLOW_ATTACK, attack)
+        rig.set(ag.FOLLOW_RELEASE, release)
+        rig.set(ag.FOLLOW_MODE, mode)
+        ref = FollowRef(attack, release, mode)
+        got, want = [], []
+        for block in blocks:
+            got += rig.run(block)
+            want += ref.render(block)
+        return got, want
+
+    def program(self, frames, blocks):
+        """A burst, a quiet stretch and another burst, in counts."""
+        out = []
+        for b in range(blocks):
+            if 5 <= b < 15 or 25 <= b < 35:
+                amp = 9000 + 2000 * (b % 5)
+            else:
+                amp = 300
+            out.append([int(amp * math.sin(2.0 * math.pi * (b * frames + i) / 37.0))
+                        for i in range(frames)])
+        return out
+
+    def test_clavichords_auto_wah_peak_follower(self):
+        """clavichord's 0.4 and 0.06 are -dt/ln(0.6) and -dt/ln(0.94) at 128."""
+        frames = 128
+        dt = frames / float(RATE)
+        attack = -dt / math.log(0.6)
+        release = -dt / math.log(0.94)
+        blocks = self.program(frames, 50)
+        got, want = self.compare(blocks, attack=attack, release=release,
+                                 mode=ag.FOLLOW_PEAK)
+        self.assertEqual(worst(got, want), 0)
+        # and against clavichord's own per-block coefficients
+        ref = ClavichordRef()
+        want2 = []
+        for block in blocks:
+            want2 += ref.render(block)
+        self.assertEqual(worst(got, want2), 0)
+        self.assertGreater(max(got), 8000)
+
+    def test_vocoder330_band_rms_follower(self):
+        """vocoder330's FOLLOW_ATTACK_S=0.005 and FOLLOW_RELEASE_S=0.030."""
+        frames = 128
+        blocks = self.program(frames, 50)
+        got, want = self.compare(blocks, attack=0.005, release=0.030,
+                                 mode=ag.FOLLOW_RMS)
+        self.assertEqual(worst(got, want), 0)
+        self.assertGreater(max(got), 4000)
+
+    def test_the_peak_and_rms_levels_differ(self):
+        frames = 128
+        blocks = self.program(frames, 40)
+        peak, _ = self.compare(blocks, mode=ag.FOLLOW_PEAK)
+        rms, _ = self.compare(blocks, mode=ag.FOLLOW_RMS)
+        self.assertNotEqual(peak, rms)
+        # a C that always took the peak would match PEAK here, not RMS
+        self.assertGreater(worst(peak, rms), 100)
+
+    def test_the_attack_seconds_scale(self):
+        frames = 128
+        blocks = self.program(frames, 40)
+        got, want = self.compare(blocks, attack=0.005, release=0.030)
+        self.assertEqual(worst(got, want), 0)
+        _, wl = self.compare(blocks, attack=0.005 / 1000.0, release=0.030)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_release_seconds_scale(self):
+        frames = 128
+        blocks = self.program(frames, 40)
+        got, want = self.compare(blocks, attack=0.005, release=0.030)
+        self.assertEqual(worst(got, want), 0)
+        _, wl = self.compare(blocks, attack=0.005, release=0.030 * 1000.0)
+        self.assertGreater(worst(got, wl), 100)
+
+    def test_the_check_catches_a_wrong_follow(self):
+        frames = 128
+        blocks = self.program(frames, 40)
+        got, want = self.compare(blocks, attack=0.01, release=0.04)
+        self.assertEqual(worst(got, want), 0)
+        for name, kw in (("attack as 0.001", {"attack": 0.001}),
+                         ("release as 0.4", {"release": 0.4}),
+                         ("mode as rms", {"mode": ag.FOLLOW_RMS})):
+            args = dict(attack=0.01, release=0.04)
+            args.update(kw)
+            _, wl = self.compare(blocks, **args)
+            self.assertGreater(worst(got, wl), 50, name)
+
+    def test_an_open_input_decays_to_zero(self):
+        frames = 64
+        rig = Rig(frames, ag.FOLLOW, 1, open_=(0,))
+        out = rig.run(None)
+        self.assertEqual(set(out), {0})
+        # after a burst the open input walks the level down, not to zero at once
+        rig2 = Rig(frames, ag.FOLLOW, 1)
+        rig2.set(ag.FOLLOW_ATTACK, 0.005)
+        rig2.set(ag.FOLLOW_RELEASE, 0.030)
+        loud = [12000] * frames
+        for _ in range(10):
+            rig2.run(loud)
+        self.assertGreater(rig2.run(loud)[-1], 5000)
+        quiet = [0] * frames
+        first = rig2.run(quiet)
+        self.assertGreater(first[-1], 0)
+        self.assertLess(first[-1], 12000)
+
+    def test_reset_forgets_the_level(self):
+        frames = 64
+        rig = Rig(frames, ag.FOLLOW, 1)
+        rig.set(ag.FOLLOW_ATTACK, 0.005)
+        rig.set(ag.FOLLOW_RELEASE, 0.030)
+        for _ in range(10):
+            rig.run([12000] * frames)
+        self.assertGreater(rig.run([12000] * frames)[-1], 5000)
+        rig.g.reset(rig.node)
+        self.assertEqual(rig.run([0] * frames), [0] * frames)
+
+    def test_other_block_sizes(self):
+        for frames in (32, 256):
+            blocks = self.program(frames, 40)
+            got, want = self.compare(blocks, frames=frames)
+            # the node's level is a float32 state and the rack keeps a Python
+            # float; at 256 frames that is one count
+            self.assertLessEqual(worst(got, want), 1, frames)

@@ -101,6 +101,11 @@ rather than its last block.
 | `DECAY` | trigger, velocity | `DECAY_DECAY`, `DECAY_RESTRIKE`, `DECAY_ATTACK`, `DECAY_FAST`, `DECAY_FAST_SEC`, `DECAY_RISE` in seconds; `table(node, strikes)` sets up to `DECAY_STRIKES` (16) `(delay s, level)` pairs | a one-shot exponential envelope, a burst of re-strikes, or the two-stage, soft-attack and rise shapes the rack drums use, [below](#decay) |
 | `PINK` | white | `PINK_LEVEL` | pink noise: Paul Kellet's pinking filter on the white input, [below](#pink) |
 | `CRUSH` | audio | `CRUSH_BITS` 1..15 | the audio rounded to that many bits, [below](#crush) |
+| `ACID` | audio, env, accent | `ACID_CUTOFF_HZ`, `ACID_RESONANCE` 0..1, `ACID_ENVMOD` 0..1 | acid303's diode ladder with its accent circuit, [below](#acid) |
+| `SPRING` | audio | `SPRING_MIX` 0..1, `SPRING_DECAY` 0..1, `SPRING_DAMP` 0..1; built with `arg` = the right side's buffer | patch2600's two-tank spring reverb over `audiofreeverb`, wet-only into a dry/wet mix on both sides, [below](#spring) |
+| `ADSR2` | gate | `ADSR2_ATTACK`, `ADSR2_DECAY`, `ADSR2_RELEASE` in seconds, `ADSR2_SUSTAIN` 0..1, `ADSR2_INITIAL`, `ADSR2_ATTACK_LEVEL` | ENV's contour starting at `ADSR2_INITIAL` and peaking at `ADSR2_ATTACK_LEVEL`: poly80's filter envelope, [below](#adsr2) |
+| `GLISS` | note, pitch, legato | `GLISS_TIME` s, `GLISS_MODE` (`LAG_OFF`, `LAG_ON`, `LAG_AUTO`), `GLISS_STEP` semitones | `LAG`'s linear glide stepped onto a semitone grid once a block: poly80's glissando, [below](#gliss) |
+| `FOLLOW` | audio | `FOLLOW_ATTACK`, `FOLLOW_RELEASE` in seconds, `FOLLOW_MODE` (`FOLLOW_PEAK`, `FOLLOW_RMS`) | an envelope follower, one level a block: clavichord's auto-wah peak and vocoder330's band RMS, [below](#follow) |
 
 The kernel nodes take their parameters under the same numbers as the
 modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
@@ -400,6 +405,71 @@ an integer and held to 1..15; 16 and above passes the audio through. The
 quantise is memoryless and sits before the hold, so the sample-rate hold is
 `SAMPLE_HOLD`'s and the anti-alias filter is a filter node's; nothing in the
 quantise needs them.
+
+### Acid
+
+`ACID` is vrack's `dsp/ladder.py` `AcidFilterCore`, the diode ladder acid303
+plays: four one-pole stages, the feedback high-passed so bass thins as
+resonance rises, and an accent capacitor that pushes cutoff and drive for a
+short burst. `ACID_CUTOFF_HZ` is the cutoff in Hz before the envelope and
+accent open it (30 to 14000 after); `ACID_RESONANCE` 0..1 times 4.2 into the
+high-passed feedback; `ACID_ENVMOD` 0..1, how far the env and accent open the
+cutoff in octaves. The `env` input is the filter envelope and `accent` a gate
+that charges the capacitor above 0.3; both are in units of `UNIT`. The cutoff
+coefficient is refreshed every four samples, as the rack refreshes it.
+
+### Spring
+
+`SPRING` is vrack's `dsp/reverb.py` `SpringReverbCore`, the spring reverb
+patch2600 runs after its VCA: two mono `audiofreeverb` tanks at roomsize
+`SPRING_DECAY` and `SPRING_DECAY + 0.05` (each clamped to 0.1..0.98), both at
+`SPRING_DAMP`, rendered wet-only and mixed against the dry signal by
+`SPRING_MIX`. The left tank is the node's output and the right goes to the
+buffer `arg` names, as `PAN` and `TREMOLO` do. The tanks hold the freeverb
+comb and all-pass lines, so the node is the freeverb kernel rather than a
+second reverb; nothing about the spring is simulated beyond the roomsize
+offset that makes the two sides differ.
+
+### Adsr2
+
+`ADSR2` is ENV's contour with two more levels: the output starts at
+`ADSR2_INITIAL` and peaks at `ADSR2_ATTACK_LEVEL` instead of starting at 0 and
+peaking at 1.0. The times and the sustain level are ENV's, so the shape is the
+same one-pole attack, decay, sustain and release; only the write differs —
+`out = (initial + e · (attack_level − initial)) · UNIT`. That is poly80's
+filter envelope: its IL and AL levers are `ADSR2_INITIAL` (−1..0) and
+`ADSR2_ATTACK_LEVEL` (0..1), and its caller sets the sustain level to
+`clamp(−initial / (attack_level − initial), 0, 1)` so the sustain step lands
+on 0. ENV itself cannot express this: it always attacks to 1.0 and rests at 0,
+and those are not parameters.
+
+### Gliss
+
+`GLISS` is `LAG`'s linear glide with one more step at the end of each block:
+the last glided sample is rounded onto a grid of `GLISS_STEP` semitones (a
+semitone is `UNIT/12`, since pitch is in octaves and `UNIT` is one) and that
+one value is written across the block. The glide's own state is left
+unquantised, so the next block starts from where the sweep really was and
+steps again. That is poly80's glissando — a semitone a step — where the
+portamento is a smooth sweep and the glissando is a staircase of one step per
+block. The bend (`pitch − note`) still rides on top unslid, so a glissando
+note steps while the wheel bends it. `LAG` plus a quantiser cannot express
+this: no node quantises a pitch CV onto a step grid (`CRUSH` quantises
+amplitude), and the quantise has to see the glide's own state, not the bent
+output.
+
+### Follow
+
+`FOLLOW` is an envelope follower, one level a block. The block's level is
+its peak absolute sample (`FOLLOW_PEAK`, clavichord's auto-wah) or its RMS
+about its own mean (`FOLLOW_RMS`, vocoder330's band follower), and the node
+moves toward that level by `exp(−dt / t)` a block — `dt` the block's length
+in seconds, `t` `FOLLOW_ATTACK` when the level is above the current one and
+`FOLLOW_RELEASE` when it is below. That one value is written across the
+block, so a CV that sweeps a filter holds still between blocks and jumps at
+the boundary, as the rack's does. clavichord's follower takes its 0.4 and
+0.06 per-block coefficients rather than times; at 128 frames those are
+`−dt/ln(0.6)` and `−dt/ln(0.94)`, about 5.2 ms and 43 ms.
 
 ## Output
 

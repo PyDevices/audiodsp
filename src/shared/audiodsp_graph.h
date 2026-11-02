@@ -218,6 +218,37 @@ typedef enum {
     // Bits of 16 or more pass the audio through. The sample-rate hold is
     // SAMPLE_HOLD's, and the anti-alias filter a BIQUAD or LADDER before it.
     AUDIODSP_GRAPH_CRUSH,
+    // inputs: audio, env, accent. params: cutoff_hz, resonance, env_mod.
+    // vrack's dsp/ladder.py AcidFilterCore: four one-pole stages with the
+    // feedback high-passed so bass thins as resonance rises, and an accent
+    // capacitor that pushes cutoff and drive for a short burst. The cutoff
+    // coefficient is refreshed every four samples.
+    AUDIODSP_GRAPH_ACID,
+    // inputs: audio. params: mix, decay, damp. Built with `arg` = the right
+    // side's buffer id (output is the left side, like PAN). vrack's
+    // dsp/reverb.py SpringReverbCore over audiodsp's Freeverb: two mono
+    // tanks at roomsize decay and decay + 0.05 (clamped 0.1..0.98), each
+    // wet-only and mixed against the dry signal by mix. The left tank's
+    // output is the node's, the right tank's the buffer `arg` names.
+    AUDIODSP_GRAPH_SPRING,
+    // inputs: gate. params: attack s, decay s, sustain 0..1, release s,
+    // initial, attack_level. ENV's contour remapped to start at initial and
+    // peak at attack_level: out = (initial + e * (attack_level - initial)) *
+    // UNIT, with e ENV's 0..1 shape. poly80's filter envelope (its IL and AL
+    // levers); ENV itself always attacks to 1.0 and rests at 0.
+    AUDIODSP_GRAPH_ADSR2,
+    // inputs: note, pitch, legato. params: time s, mode, step (semitones).
+    // LAG's linear glide, then once a block the last glided sample is rounded
+    // to the step grid and that one value is written across the block; the
+    // glide's own state stays unquantised. poly80's glissando (a semitone a
+    // step); the bend (pitch - note) still rides on top unslid.
+    AUDIODSP_GRAPH_GLISS,
+    // inputs: audio. params: attack s, release s, mode. Once a block the
+    // block's level (its peak absolute sample, or its RMS about its own
+    // mean) is followed by a one-pole at exp(-dt/attack) or
+    // exp(-dt/release), and that one value is written across the block.
+    // clavichord's auto-wah peak follower and vocoder330's per-band RMS.
+    AUDIODSP_GRAPH_FOLLOW,
     AUDIODSP_GRAPH_KINDS,
 } audiodsp_graph_kind_t;
 
@@ -450,6 +481,57 @@ enum {
     // Bits of quantisation, truncated to an integer and held to 1..15; 16 or
     // more passes the audio through.
     AUDIODSP_GRAPH_CRUSH_BITS = 0,
+};
+
+enum {
+    // Cutoff in Hz before the envelope and accent move it (30..14000 after).
+    AUDIODSP_GRAPH_ACID_CUTOFF_HZ = 0,
+    // 0..1, times 4.2 into the high-passed feedback.
+    AUDIODSP_GRAPH_ACID_RESONANCE,
+    // 0..1, how far the env and accent open the cutoff in octaves.
+    AUDIODSP_GRAPH_ACID_ENVMOD,
+};
+
+enum {
+    // 0..1 wet amount: out = (1 - mix) * dry + mix * wet.
+    AUDIODSP_GRAPH_SPRING_MIX = 0,
+    // 0..1 room size of the left tank; the right is decay + 0.05, both
+    // clamped to 0.1..0.98 as SpringReverbCore.set clamps them.
+    AUDIODSP_GRAPH_SPRING_DECAY,
+    // 0..1 Freeverb damp, 0.55 as SpringReverbCore builds it.
+    AUDIODSP_GRAPH_SPRING_DAMP,
+};
+
+enum {
+    AUDIODSP_GRAPH_ADSR2_ATTACK = 0,
+    AUDIODSP_GRAPH_ADSR2_DECAY,
+    AUDIODSP_GRAPH_ADSR2_SUSTAIN,
+    AUDIODSP_GRAPH_ADSR2_RELEASE,
+    // The level the envelope rests at and returns to (poly80's IL, -1..0).
+    AUDIODSP_GRAPH_ADSR2_INITIAL,
+    // The level the attack aims at (poly80's AL, 0..1).
+    AUDIODSP_GRAPH_ADSR2_ATTACK_LEVEL,
+};
+
+enum {
+    AUDIODSP_GRAPH_GLISS_TIME = 0,
+    AUDIODSP_GRAPH_GLISS_MODE,
+    // The step in semitones (1 as poly80 steps it). The grid on the wire is
+    // step * UNIT / 12, since a semitone is 1/12 of an octave and UNIT is one.
+    AUDIODSP_GRAPH_GLISS_STEP,
+};
+
+enum {
+    AUDIODSP_GRAPH_FOLLOW_ATTACK = 0,
+    AUDIODSP_GRAPH_FOLLOW_RELEASE,
+    // 0 is the block's peak absolute sample (clavichord's auto-wah), 1 is
+    // its RMS about its own mean (vocoder330's band follower).
+    AUDIODSP_GRAPH_FOLLOW_MODE,
+};
+
+enum {
+    AUDIODSP_GRAPH_FOLLOW_PEAK = 0,
+    AUDIODSP_GRAPH_FOLLOW_RMS,
 };
 
 enum {
