@@ -1,3 +1,9 @@
+## v0.6.13.dev6 (2026-11-02)
+
+- audiomodal: skip idle modes per block and run ringing ones four at a time (#373)
+- audiomodal: run the bank mode by mode, bit-identical and about twice as fast (#370)
+- Docs: GLISS_STEP's grid is step times UNIT over 12, so a semitone at 1 V/octave is 0.1 (#372)
+
 ## v0.6.13.dev5 (2026-11-02)
 
 - audiograph: WAVETABLE and ROTARY nodes (#369)
