@@ -104,7 +104,7 @@ rather than its last block.
 | `ACID` | audio, env, accent | `ACID_CUTOFF_HZ`, `ACID_RESONANCE` 0..1, `ACID_ENVMOD` 0..1 | acid303's diode ladder with its accent circuit, [below](#acid) |
 | `SPRING` | audio | `SPRING_MIX` 0..1, `SPRING_DECAY` 0..1, `SPRING_DAMP` 0..1; built with `arg` = the right side's buffer | patch2600's two-tank spring reverb over `audiofreeverb`, wet-only into a dry/wet mix on both sides, [below](#spring) |
 | `ADSR2` | gate | `ADSR2_ATTACK`, `ADSR2_DECAY`, `ADSR2_RELEASE` in seconds, `ADSR2_SUSTAIN` 0..1, `ADSR2_INITIAL`, `ADSR2_ATTACK_LEVEL` | ENV's contour starting at `ADSR2_INITIAL` and peaking at `ADSR2_ATTACK_LEVEL`: poly80's filter envelope, [below](#adsr2) |
-| `GLISS` | note, pitch, legato | `GLISS_TIME` s, `GLISS_MODE` (`LAG_OFF`, `LAG_ON`, `LAG_AUTO`), `GLISS_STEP` semitones | `LAG`'s linear glide stepped onto a semitone grid once a block: poly80's glissando, [below](#gliss) |
+| `GLISS` | note, pitch, legato | `GLISS_TIME` s, `GLISS_MODE` (`LAG_OFF`, `LAG_ON`, `LAG_AUTO`), `GLISS_STEP` (0.1 is a semitone at 1 V/octave) | `LAG`'s linear glide stepped onto a semitone grid once a block: poly80's glissando, [below](#gliss) |
 | `FOLLOW` | audio | `FOLLOW_ATTACK`, `FOLLOW_RELEASE` in seconds, `FOLLOW_MODE` (`FOLLOW_PEAK`, `FOLLOW_RMS`) | an envelope follower, one level a block: clavichord's auto-wah peak and vocoder330's band RMS, [below](#follow) |
 
 The kernel nodes take their parameters under the same numbers as the
@@ -454,8 +454,8 @@ and those are not parameters.
 ### Gliss
 
 `GLISS` is `LAG`'s linear glide with one more step at the end of each block:
-the last glided sample is rounded onto a grid of `GLISS_STEP` semitones (a
-semitone is `UNIT/12`, since pitch is in octaves and `UNIT` is one) and that
+the last glided sample is rounded onto a grid of `GLISS_STEP · UNIT / 12`
+(on a 1 V/octave wire `UNIT` is ten octaves, so a semitone is a step of 0.1) and that
 one value is written across the block. The glide's own state is left
 unquantised, so the next block starts from where the sweep really was and
 steps again. That is poly80's glissando — a semitone a step — where the
