@@ -368,11 +368,10 @@ void audiodsp_modal_process_s16(const audiodsp_modal_config_t *config,
     // Mode outermost, frames inside it, so a mode's two state words and three
     // coefficients sit in registers for the whole stretch instead of being
     // loaded and stored through pointers on every sample. Written frame
-    // outermost, the P4 toolchain at -O2 emitted about 40 instructions per
-    // mode per sample, eight of them loads and stores (it reloads s1[] after
-    // storing it, since the store might alias s2[]), and the board measured
-    // about 57 cycles. This shape is about 23 instructions, three of them
-    // memory.
+    // outermost, the P4 toolchain at -O2 emitted 37 instructions per mode
+    // per sample, ten of them loads and stores (it reloads s1[] after storing
+    // it, since the store might alias s2[]), and the board measured about 57
+    // cycles. This shape is 27, and one and a half of them touch memory.
     //
     // The audio is bit-identical, and that is a property of the order, not
     // a tolerance. The modes never read each other, so each one's recursion
