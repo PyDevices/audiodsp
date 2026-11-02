@@ -271,7 +271,8 @@ jobs:
       # one for each of the phaser, the glide, the LFO shapes, the
       # sample-and-hold, the two-pole filters, the overdrive, the pan, the wavefolder, the low-pass gate, the modal resonator, the struck string, the pickup,
       # the tremolo, the drum decay, the pink noise, the crusher, the acid ladder,
-      # the spring, the two-level envelope, the glissando and the follower, and two for a
+      # the spring, the two-level envelope, the glissando, the follower, the drawbar
+      # voice and the rotary speaker, and two for a
       # graph pulled as a source: its queue
       # drained after the render, and a batch published in halves, and one for
       # a graph that takes a running one's nodes a block late) goes into
@@ -283,7 +284,7 @@ jobs:
           MP=$GITHUB_WORKSPACE/micropython/ports/unix/build-standard/micropython
           PY=$GITHUB_WORKSPACE/audiodsp/.ci-venv/bin/python
           cd audiodsp
-          for planted in lsb late phaser lag lfo hold twopole overdrive pan wavefold lpg modal struck pickup tremolo decay pink crush acid spring adsr2 gliss follow drain split offbeat; do
+          for planted in lsb late phaser lag lfo hold twopole overdrive pan wavefold lpg modal struck pickup tremolo decay pink crush acid spring adsr2 gliss follow wavetable rotary drain split offbeat; do
             if "$PY" tests/parity/verify_graph.py --micropython "$MP" --fault $planted > /dev/null; then
               echo "the planted fault passed, so this comparison proves nothing: $planted" >&2
               exit 1
