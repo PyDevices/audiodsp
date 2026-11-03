@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Biquad and AllPass at the caller's block size.
 
     filter_f32_frames_probe.py audiobiquad

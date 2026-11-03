@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The synthesizer's press semantics, held to CircuitPython's own.
 
 These behaviors were sourced from the oracle's synthio_span_change_note

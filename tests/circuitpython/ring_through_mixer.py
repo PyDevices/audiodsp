@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 # audiopump.Ring pulled through audiomixer, checked sample by sample.
 #
 # Run it with a CircuitPython unix build that has audiodsp in it:

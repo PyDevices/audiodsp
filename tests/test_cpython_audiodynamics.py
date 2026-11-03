@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiodynamics: the traits and the surface the renders cannot check.
 
 `tests/parity/dynamics_probe.py`, `dynamics_options_probe.py` and

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiorender: a whole (small) piece, from a composition to a WAV.
 
 The sound source is the smallest instrument audiorender can drive - a

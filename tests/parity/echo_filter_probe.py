@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic Echo.filter PCM.
 
     echo_filter_probe.py audiodelays

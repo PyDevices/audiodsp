@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audioshaper: the claims the parity goldens cannot carry.
 
 tests/parity/waveshaper_probe.py and samplehold_probe.py pin what these two

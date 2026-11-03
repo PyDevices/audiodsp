@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiograph on CPython: the board's module, with the board's names.
 
 | trait | bar |

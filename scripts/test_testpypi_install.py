@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Smoke a fresh omnipython-audiodsp install from TestPyPI.
 
     scripts/test_testpypi_install.py [VERSION] [--skip-render]

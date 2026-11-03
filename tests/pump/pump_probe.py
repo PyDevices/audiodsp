@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The pump's own gates: same bytes, no allocation, survives a storm.
 
     <interpreter> tests/pump/pump_probe.py [case ...] [--fault WHICH]

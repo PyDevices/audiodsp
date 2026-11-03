@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Fail if a ``deinit()`` does work outside the pump lock.
 
 The live-audio-path audit's rule, in one line: **a deinit() needs the lock

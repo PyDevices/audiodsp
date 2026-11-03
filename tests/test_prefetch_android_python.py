@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """tools/prefetch_android_python.py: a passing 404 no longer fails the Android build."""
 
 import hashlib

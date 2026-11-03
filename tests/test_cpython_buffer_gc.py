@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A native sample holding a memoryview must survive the cyclic collector.
 
 `RawSample` and `BufferOwner` keep a `Py_buffer` open on whatever buffer they

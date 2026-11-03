@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic PCM for the effect bounds and silence fills upstream fixed.
 
     effects_bounds_probe.py audiodelays audiofilters

@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Verify biquad PCM across every FilterMode against committed metadata.
 
 Unlike the other verifies here, the golden is captured from *this* port and

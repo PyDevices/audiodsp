@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic audiobiquad PCM, and the two invariants the module exists for.
 
     filter_f32_probe.py audiobiquad

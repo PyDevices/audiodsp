@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic biquad PCM probes across every FilterMode.
 
 The rest of the parity suite only ever builds LOW_PASS filters, which is how

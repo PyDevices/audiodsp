@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Band levels for a spectrum meter: N log-spaced bands between two
 frequencies, plus peak and RMS, one byte each in half-dB steps.
 

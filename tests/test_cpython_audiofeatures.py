@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiofeatures: the frontend's bytes, the resampler, and the surface.
 
 The bytes. tests/data/audiofeatures/signal_16k.u16 and .s8 are the features

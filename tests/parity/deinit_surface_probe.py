@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Every node in the palette releases, and refuses to be used afterwards.
 
 Runs unchanged on the CPython target, on desktop MicroPython and on

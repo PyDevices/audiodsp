@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Arithmetic on audio streams: one multiplied by another, and one divided
 down in frequency.
 

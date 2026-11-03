@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic Dynamics PCM for the two options the original never had.
 
     dynamics_extras_probe.py audiodynamics

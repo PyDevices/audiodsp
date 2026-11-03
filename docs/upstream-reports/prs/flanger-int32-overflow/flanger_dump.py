@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 # Dump a Flanger render, one sample a line, for comparing two builds.
 #   micropython flanger_dump.py rails > rails.txt
 import sys

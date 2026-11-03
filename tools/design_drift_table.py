@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Write (or check) the DriftResampler's polyphase interpolation table.
 
     tools/design_drift_table.py --write    regenerate src/shared/audiodsp_drift_table.h

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Small cross-runtime synthesis probes used while tightening PCM parity."""
 
 from array import array

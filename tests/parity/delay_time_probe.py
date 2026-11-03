@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A delay's Time shortened and lengthened again: the line comes back empty.
 
     delay_time_probe.py audiodelays

@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Verify deterministic effect PCM against committed oracle metadata.
 
 The gate is an exact hash, and on the reference architecture it stays one:

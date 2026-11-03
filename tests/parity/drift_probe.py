@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """DriftResampler following a producer on another clock.
 
     drift_probe.py audiopump

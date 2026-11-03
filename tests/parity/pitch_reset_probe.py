@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A reset puts the pitch shifters back where a new node starts.
 
     pitch_reset_probe.py audiodelays

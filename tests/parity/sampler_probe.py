@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic audiosampler PCM, and the invariants the module exists for.
 
     sampler_probe.py audiosampler

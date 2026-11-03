@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The block render loop: a composition in, a mixed master out.
 
 Rendering happens a block at a time, and every block does the same three
@@ -44,10 +48,10 @@ def render_track(track, composition, tempo, voice, total_frames,
                  patch=None, effects=(), clock=None, block=BLOCK):
     """One track's audio as float32 ``(total_frames, 2)`` in -1.0..1.0.
 
-    `voice` is anything implementing the protocol in :mod:`.voices`, and
+    `voice` is anything implementing the protocol in `.voices`, and
     `effects` are callables taking the rendered track as int16 bytes and
     returning something to pull the processed track from - a rack built
-    from :mod:`audioeffects`, or a host's own effect runner.
+    from `audioeffects`, or a host's own effect runner.
     """
     events = build_events(track, composition, tempo, patch=patch, block=block)
     data = np.zeros((total_frames, 2), dtype=np.float32)
@@ -112,7 +116,7 @@ def render(composition, voice_for, patch_for=None, effects_for=None,
     a sound is its own business:
 
     ``voice_for(track, clock)``
-        the voice to render this track with (see :mod:`.voices`).
+        the voice to render this track with (see `.voices`).
     ``patch_for(track)``
         ``{macro index: normalized value}`` for the macros the composition
         does not set - the instrument's own patch, not the middle of every

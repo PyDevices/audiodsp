@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Turn a track's notes and automation into a time-ordered event list.
 
 Events are ``(sample_position, kind, data, value)`` where `kind` is one of

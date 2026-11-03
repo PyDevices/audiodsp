@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A biquad and a first-order all-pass cascade that reach exact zero.
 
 Not a CircuitPython module, and not from micropython-vst3's engine either --

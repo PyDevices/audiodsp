@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A band-limited oscillator whose pitch, FM, pulse width and sync are audio
 streams, read sample by sample.
 

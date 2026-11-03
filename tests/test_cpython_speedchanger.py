@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """`audiospeed.SpeedChanger`: the Q16 rate, and the phase across a boundary.
 
 Two deliberate departures from CircuitPython 10.3.0, both of them upstream

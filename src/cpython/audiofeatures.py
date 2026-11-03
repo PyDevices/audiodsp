@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Speech features for a wake word model, from PCM at any rate.
 
 audiodsp's own, not a CircuitPython module. ``Frontend`` is TensorFlow Lite

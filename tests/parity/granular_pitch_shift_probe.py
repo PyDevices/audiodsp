@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic GranularPitchShift PCM.
 
     granular_pitch_shift_probe.py audiodelays

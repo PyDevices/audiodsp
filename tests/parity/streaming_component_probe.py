@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Streaming, looping, panning, live-property, and tail parity probes."""
 
 from array import array

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """FeedbackDelay: `delay_frames` reads the line exactly that many frames back.
 
     feedback_delay_frames_probe.py audioecho

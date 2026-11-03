@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Fail if this repo's C has learned about a platform.
 
 audiodsp is the DSP half of the audio stack. The same sources build as a

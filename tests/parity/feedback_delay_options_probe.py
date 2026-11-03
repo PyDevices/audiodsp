@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic FeedbackDelay PCM for the four options the node grew later.
 
     feedback_delay_options_probe.py audioecho

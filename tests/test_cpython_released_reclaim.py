@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A released note's channel comes back before its tail has finished.
 
 The oracle does not simply refuse a press at capacity. When no channel is

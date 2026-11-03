@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiomodal: the traits and the surface the renders cannot check.
 
 `tests/parity/modal_probe.py` pins what this module renders across the three

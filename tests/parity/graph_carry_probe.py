@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiograph's carry(): a graph built beside a running one takes over its nodes' state.
 
     graph_carry_probe.py                 # prints the render, then GRAPH CARRY PASS

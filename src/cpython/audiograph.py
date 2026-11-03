@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The graph runner: a whole patch rendered by one C call per block.
 
 audiodsp's own, not a CircuitPython module. The runner is

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiosampler's filter, modulation envelope and LFOs, measured.
 
 What a SoundFont region asks of a voice besides its amplitude envelope

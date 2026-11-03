@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic Tank PCM across the node's own state changes.
 
     tank_state_probe.py audioverb

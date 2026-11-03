@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The pitch shifters and Flanger with a source that says it has more and
 hands nothing.
 

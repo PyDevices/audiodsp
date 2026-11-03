@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Play recorded notes: N voices, each reading a buffer at its own pitch.
 
 `audiomixer.Mixer` plays sources at their own rate and `synthio` plays

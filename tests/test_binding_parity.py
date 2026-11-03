@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Our two hand-written bindings per module must expose the same surface.
 
 audiodsp carries each of its nine own modules twice: `src/<module>/*.c` binds it

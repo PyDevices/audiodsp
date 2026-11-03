@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiovorbis against ffmpeg: the same files, the same samples within Tremor's error.
 
     verify_vorbis.py [--micropython PATH] [--circuitpython PATH]

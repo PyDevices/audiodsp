@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A transistor ladder filter: four one-pole stages round a feedback loop
 with an odd saturator inside the loop.
 

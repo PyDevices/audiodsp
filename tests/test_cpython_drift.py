@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """`audiopump.DriftResampler`: lock, hold and sound, against arithmetic.
 
 A producer on one clock writes a Ring; the node plays it on another and

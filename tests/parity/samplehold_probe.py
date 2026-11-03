@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic SampleHold PCM, and the counts PCM alone would not say.
 
     samplehold_probe.py audioshaper

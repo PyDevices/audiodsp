@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic FeedbackDelay PCM for two controls taken to their stop.
 
     feedback_delay_park_probe.py audioecho

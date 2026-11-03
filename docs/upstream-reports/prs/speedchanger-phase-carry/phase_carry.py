@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 # What a SpeedChanger renders should not depend on how the node above it
 # chunks its output. The phase accumulator counts source frames since the
 # stream began, so a source buffer boundary is not frame zero.

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A table-driven waveshaper that does its shaping above the sample rate.
 
 Not a CircuitPython module, and not from micropython-vst3's engine either --

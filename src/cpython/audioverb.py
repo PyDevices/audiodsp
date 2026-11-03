@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """An algorithmic reverberation tank whose topology comes from Python.
 
 Not a CircuitPython module, and not from micropython-vst3's engine either --

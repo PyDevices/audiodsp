@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Design (and check) audiodsp_shaper.c's polyphase half-band coefficients.
 
     tools/design_halfband.py --verify      check the shipped four

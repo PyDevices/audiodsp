@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 # The Flanger's wet tap interpolates between two int16 taps:
 #
 #   int32_t wet = s0 + (((s1 - s0) * (int32_t)delay_frac) >> 16);

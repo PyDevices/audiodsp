@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A voice at envelope level 0 contributes nothing, on every target.
 
 CircuitPython ends a voice the moment its envelope level hits exactly 0: the

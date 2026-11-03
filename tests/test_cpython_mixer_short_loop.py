@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A looping sample too short to fill one packed word must not hang (#85).
 
 The mixer consumes whole 32-bit words, so a one-frame mono sample -- two

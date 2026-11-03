@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Envelope-follower dynamics processing: compression, limiting, downward
 expansion, gating and transient shaping.
 

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Drive the synthio mix-down limiter across its knee and print digests.
 
 WHY THIS PROBE EXISTS (audiodsp#27)

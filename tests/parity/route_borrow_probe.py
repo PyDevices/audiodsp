@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Routing nodes under a mixer voice: borrowed tap buffers, a looping voice
 over a double-buffered sample, and a Port's pass-through.
 

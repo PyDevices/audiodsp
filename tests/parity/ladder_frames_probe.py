@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Ladder at the caller's block size.
 
     ladder_frames_probe.py audioladder

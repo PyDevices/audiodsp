@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiopump on CPython: the service-mode engine, as audiodev drives it.
 
 The byte-identity, storm, ring, queue and tap gates are tests/pump/*_probe.py,

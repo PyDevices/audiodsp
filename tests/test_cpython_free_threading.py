@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Many instruments on many threads, each rendering what it renders alone.
 
 The native extension declares that it doesn't need the GIL, so on a

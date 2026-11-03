@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic Echo PCM for a delay line shorter than one audio buffer.
 
     echo_short_line_probe.py audiodelays

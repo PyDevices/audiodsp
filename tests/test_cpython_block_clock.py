@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """synthio's block clock belongs to the render in progress.
 
 Every render (a Synthesizer's block, an effect's block) advances the block

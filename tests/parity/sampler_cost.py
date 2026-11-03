@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """What a block of audiosampler costs, by voice count and by what each voice does.
 
     sampler_cost.py [voices ...]

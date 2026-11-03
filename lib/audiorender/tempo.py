@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Beats to seconds and back, through a piecewise-constant tempo map.
 
 A tempo map is a list of rows, each ``(beat, bpm)`` or
@@ -37,7 +41,7 @@ class TempoMap:
         return seconds
 
     def beat_at_sample(self, sample):
-        """The inverse of :meth:`beats_to_seconds`, piecewise exact."""
+        """The inverse of `beats_to_seconds`, piecewise exact."""
         seconds = sample / self.sample_rate
         elapsed = 0.0
         for index, (start, bpm) in enumerate(self._spans):

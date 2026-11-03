@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiosampler: the traits and the surface the renders cannot check.
 
 `tests/parity/sampler_probe.py` pins what this module renders across the

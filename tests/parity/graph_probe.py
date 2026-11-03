@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiograph: a graph renders what its nodes are wired to render, in one call.
 
     graph_probe.py                   # PASS, or FAIL and exit 1

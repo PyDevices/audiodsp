@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """PitchShift.freeze, from CircuitPython 11.0.0-alpha.1 (9bef7b7606).
 
     pitchshift_freeze_probe.py audiodelays           # PASS, or FAIL and exit 1

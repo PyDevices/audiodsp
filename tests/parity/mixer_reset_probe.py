@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A host reset of a Mixer keeps its voices where they are.
 
     mixer_reset_probe.py audiomixer

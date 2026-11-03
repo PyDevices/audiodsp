@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """An MP3 rewound for a loop decodes its second lap exactly like its first.
 
     mp3_rewind_probe.py            # PASS, or FAIL and exit 1

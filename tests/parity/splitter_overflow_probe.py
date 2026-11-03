@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A block bigger than the Splitter's ring must arrive whole.
 
     splitter_overflow_probe.py

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2, GLISS, FOLLOW, WAVETABLE, ROTARY and BIQUAD_RAMP, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS

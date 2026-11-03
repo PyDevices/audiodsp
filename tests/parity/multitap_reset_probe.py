@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """MultiTapDelay: a reset puts the write head back at the top.
 
     multitap_reset_probe.py audiodelays

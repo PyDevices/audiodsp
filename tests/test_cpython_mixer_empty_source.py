@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A source claiming MORE_DATA while returning nothing must not hang the mixer.
 
 `Mixer._get_buffer` fills a render block by repeatedly pulling from each
