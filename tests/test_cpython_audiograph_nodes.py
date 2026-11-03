@@ -3,6 +3,7 @@
 | node | held to | bar |
 |---|---|---|
 | `PHASER` | `audiobiquad.AllPass` on one channel, fed the same frequency, feedback and mix each 256-frame block | 0 counts |
+| `BIQUAD`, `BIQUAD_RAMP` | the float kernel with the same ramp, a move every block | 0 counts |
 | `LAG`, linear | vrack's `dsp/glide.py` `GlideCore` (OFF, ON, AUTO with legato, a new note mid-glide, the bend on top) | 0 counts |
 | `LAG`, one-pole | vrack's `dsp/utility.py` `GlideCore` | 1 count |
 | `LFO` triangle | the runner's triangle before the shapes existed, arithmetic for arithmetic | 0 counts |
@@ -41,6 +42,7 @@ from array import array
 import math
 import unittest
 
+import _audiodsp
 import audiobiquad
 import audiocore
 import audiofilters
@@ -1206,6 +1208,55 @@ class Pan(unittest.TestCase):
         for i in range(8):
             self.assertEqual(g.get(node, i), 1.0)
             self.assertEqual(g.get(node, ag.PAN_PAN + i), 0.0)
+
+
+
+# ------------------------------------------------------------- BIQUAD_RAMP --
+
+class BiquadRamp(unittest.TestCase):
+    """A move every block, as a filter envelope makes, at each ramp."""
+
+    SWEEP = [250.0 * 2.0 ** (block / 4.0) for block in range(16)]
+
+    def node(self, ramp):
+        rig = Rig(256, ag.BIQUAD, 1)
+        rig.set(ag.BIQUAD_Q, 2.0)
+        if ramp is not None:
+            rig.set(ag.BIQUAD_RAMP, ramp)
+        source = program(len(self.SWEEP))
+        out = []
+        for index, hz in enumerate(self.SWEEP):
+            rig.set(ag.BIQUAD_FREQUENCY, hz)
+            out += rig.run(source[index * 256:(index + 1) * 256])
+        return out
+
+    def kernel(self, ramp):
+        state = _audiodsp.BiquadF32State(sample_rate=RATE, channel_count=1)
+        state.configure(ag.BIQUAD_Q, 2.0)
+        if ramp is not None:
+            state.configure(ag.BIQUAD_RAMP, ramp)
+        source = program(len(self.SWEEP))
+        out = []
+        for index, hz in enumerate(self.SWEEP):
+            state.configure(ag.BIQUAD_FREQUENCY, hz)
+            state.finish()
+            out += array("h", state.process(source[index * 256:(index + 1) * 256]))
+        return out
+
+    def test_it_reads_back_and_starts_at_twenty(self):
+        rig = Rig(256, ag.BIQUAD, 1)
+        self.assertEqual(rig.g.get(rig.node, ag.BIQUAD_RAMP), 20.0)
+        rig.set(ag.BIQUAD_RAMP, 0.0)
+        self.assertEqual(rig.g.get(rig.node, ag.BIQUAD_RAMP), 0.0)
+
+    def test_the_node_matches_the_kernel(self):
+        for ramp in (None, 20.0, 5.0, 0.0):
+            with self.subTest(ramp=ramp):
+                self.assertEqual(self.node(ramp), self.kernel(ramp))
+
+    def test_the_default_is_no_setting_and_the_shortest_is_not(self):
+        self.assertEqual(self.node(None), self.node(20.0))
+        self.assertGreater(worst(self.node(None), self.node(0.0)), 200)
 
 
 if __name__ == "__main__":
