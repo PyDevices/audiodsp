@@ -1,3 +1,6 @@
+## v0.6.13 (2026-11-03)
+
+
 ## v0.6.13.dev8 (2026-11-03)
 
 - audiograph: BIQUAD_RAMP sets how long a biquad walks to new coefficients (#378)
