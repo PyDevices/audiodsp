@@ -1,3 +1,7 @@
+## v0.6.13.dev8 (2026-11-03)
+
+- audiograph: BIQUAD_RAMP sets how long a biquad walks to new coefficients (#378)
+
 ## v0.6.13.dev7 (2026-11-02)
 
 - ladder: keep a channel's state in locals for the block (#375)
