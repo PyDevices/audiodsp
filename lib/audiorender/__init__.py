@@ -1,6 +1,6 @@
 """Render a whole composition offline, through audiodsp's own DSP.
 
-This is the tier above :mod:`audioinstruments` and :mod:`audioeffects`: it
+This is the tier above `audioinstruments` and `audioeffects`: it
 knows what a *piece* is - tracks, a tempo map, notes, automation, sections
 - and turns one into a mixed stereo master plus the level report that
 master is judged by. It is deliberately offline and CPython-shaped (numpy
@@ -33,9 +33,9 @@ A **track** is a dict with ``name``, ``script``, ``pan`` (-1.0 to 1.0),
 
 Loading a track's sound is the caller's job, not this package's - a
 plug-in host has its own script loader and its own reasons to keep it. Pass
-:func:`render` a ``voice_for`` that returns a :class:`~.voices.Voice`
-around an :mod:`audioinstruments` instrument, or anything else that speaks
-the small protocol in :mod:`.voices`.
+`render` a ``voice_for`` that returns a `Voice <.voices.Voice>`
+around an `audioinstruments` instrument, or anything else that speaks
+the small protocol in `.voices`.
 
     from audiorender import Clock, Voice, render, report, write_wav
 

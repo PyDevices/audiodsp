@@ -22,18 +22,18 @@ two different numbers before it arrived.
 
 `docs/how-it-works/correctness-standard.md` holds our nodes to every target rendering
 them identically, so a setting derived in Python arithmetic passes through
-:func:`float32` before it reaches a node. On a single-precision target that
+`float32` before it reaches a node. On a single-precision target that
 call is the identity. On a double one it rounds to the value the board would
 have held. Both then agree, which is the whole point.
 
 The same rule is what audiocomponents#75 needs on the class side: a class
 computing ``360 * 4 ** (macro / 127)`` for a filter frequency is deriving a
 setting in Python, and its board and its desktop land a ULP apart until that
-derivation ends in :func:`float32`.
+derivation ends in `float32`.
 
 ## And why printing needs its own function
 
-:func:`float32_bits` is for output rather than settings. ``"%.6f" % value``
+`float32_bits` is for output rather than settings. ``"%.6f" % value``
 is not one string across interpreters even when ``value`` is bit-for-bit the
 same float32: six decimals of a single-precision number is seven significant
 digits, and MicroPython's single-precision formatter is not correctly

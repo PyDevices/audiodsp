@@ -1,12 +1,12 @@
 """What a render pulls audio from, and how it tells them the time.
 
 A *voice* is anything a render can drive: it takes the events
-:mod:`audiorender.events` builds and hands back frames.
+`audiorender.events` builds and hands back frames.
 
     deliver(event, sample_position)
     pull_frames(frames) -> interleaved little-endian stereo int16
 
-:class:`Voice` is that protocol over an :mod:`audioinstruments` instrument,
+`Voice` is that protocol over an `audioinstruments` instrument,
 which is what a caller wants unless it has its own way of loading a sound -
 a plug-in host driving its own script runner, say. Keeping the protocol
 this small is what lets such a host reuse the render loop without reusing
@@ -45,7 +45,7 @@ class Puller:
 
 
 class Voice(Puller):
-    """One :mod:`audioinstruments` instrument, ready to be rendered."""
+    """One `audioinstruments` instrument, ready to be rendered."""
 
     def __init__(self, instrument):
         Puller.__init__(self, instrument.output)
