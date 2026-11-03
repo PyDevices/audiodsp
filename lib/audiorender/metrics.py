@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """What a finished render is worth looking at.
 
 Levels rather than waveforms: which track carries which section, whether

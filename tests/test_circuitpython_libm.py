@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """What CircuitPython builds of audiodsp may call from double-precision libm.
 
 CircuitPython's RP2040 port links with the pico-sdk's ``--wrap`` for every

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A host reset in the middle of a stream keeps the frames already taken.
 
     host_reset_probe.py

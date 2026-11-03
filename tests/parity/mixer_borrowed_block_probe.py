@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A mixer voice mixes the source's buffer as it stands at MIX time.
 
 `common_hal_audiomixer_mixervoice_play` fetches one block from the source and

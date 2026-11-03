@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audioverb.Tank: the surface the parity gate cannot check.
 
 What the tank *renders* is pinned across every interpreter by

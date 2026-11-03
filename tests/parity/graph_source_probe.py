@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A graph pulled as a source renders what run() renders, for verify_graph.py.
 
     graph_source_probe.py                # prints the render, then GRAPH SOURCE PASS

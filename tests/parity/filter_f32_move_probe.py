@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiobiquad's coefficient moves, rendered for every interpreter to agree on.
 
     filter_f32_move_probe.py audiobiquad

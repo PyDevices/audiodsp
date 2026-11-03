@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The C scaling kernel renders the same bytes the Python loop does.
 
 `Mixer._get_buffer` scales every voice that is not at unity by its per-channel

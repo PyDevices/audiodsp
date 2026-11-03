@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A bank of resonators, which is what a struck object is.
 
 Hit a drum head, a marimba bar, a bell or a wine glass and it rings as a sum

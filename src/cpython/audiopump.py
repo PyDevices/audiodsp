@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The audio pump, for CPython.
 
 The same module the MicroPython and CircuitPython builds carry, with the same

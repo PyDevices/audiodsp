@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Render a whole composition offline, through audiodsp's own DSP.
 
 This is the tier above `audioinstruments` and `audioeffects`: it

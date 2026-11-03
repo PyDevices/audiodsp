@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Convolution: an impulse response applied properly, rather than imitated.
 
 Not a CircuitPython module, and not from micropython-vst3's engine either --

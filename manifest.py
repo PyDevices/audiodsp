@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiodsp's manifest: it names the C module and freezes no Python.
 
 A build includes this file from its own manifest (see the README), so

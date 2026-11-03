@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """MultiTapDelay: a shorter Time and back again reads silence, not old audio.
 
     multitap_time_probe.py audiodelays

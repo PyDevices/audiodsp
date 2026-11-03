@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The voice ceiling lives in five places. This asserts they agree.
 
 Why this test exists, and why it is not paranoia:

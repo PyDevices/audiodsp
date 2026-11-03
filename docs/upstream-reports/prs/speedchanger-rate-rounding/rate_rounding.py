@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 # A rate is stored in 16.16, so `rate` should read back within half a step of
 # what was asked for. Truncating instead of rounding costs a whole step.
 #

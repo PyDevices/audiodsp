@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic MultiTapDelay PCM for two loops audiodsp#177 found.
 
     multitap_edges_probe.py audiodelays

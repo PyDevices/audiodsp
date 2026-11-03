@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """No Tremor symbol escapes audiodsp's namespace.
 
     vorbis_symbols_check.py            # PASS, or FAIL and exit 1

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A sample-and-hold built out of two SpeedChangers, over several block sizes.
 
     speedchanger_hold_probe.py audiospeed

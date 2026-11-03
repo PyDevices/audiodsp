@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 # The consequence of the lost LSB: a SpeedChanger pair asked to cancel --
 # decimate at N, restore at 1/N -- is not an identity when 1/N truncates.
 # N = 1.0000000000000004 is what fs / rate_hz returns for a log-mapped rate

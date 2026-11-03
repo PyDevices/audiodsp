@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiograph: one patch, rendered block by block, for verify_graph.py to compare.
 
     graph_parity_probe.py               # prints the render, then GRAPH PARITY PASS

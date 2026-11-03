@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Ogg Vorbis files as audio samples, for CPython.
 
 Not part of CircuitPython, which has no Vorbis module: this is PyDevices'.

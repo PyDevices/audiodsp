@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic audiomodal PCM, and the three invariants the module exists for.
 
     modal_probe.py audiomodal

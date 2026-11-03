@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Require CPython acceptance stdout to match what this port should produce.
 
 This one used to be a straight byte-for-byte match against CircuitPython

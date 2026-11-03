@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A block where nothing sounds is silence, and costs next to nothing.
 
 The CPython synthio twin renders in Python, and under Pyodide that is the

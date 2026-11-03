@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """MultiTapDelay: a reset node is a fresh node.
 
 `audiocore.reset_buffer` on a MultiTapDelay emptied the line but left the

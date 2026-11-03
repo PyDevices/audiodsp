@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Reassigning ``note.envelope`` takes effect on the next render block.
 
 The MicroPython and CircuitPython builds fetch a note's envelope on every

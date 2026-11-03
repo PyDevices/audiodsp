@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """CircuitPython-compatible streaming speed changer."""
 
 from audiocore import GET_BUFFER_DONE, GET_BUFFER_MORE_DATA, _AudioSample, get_buffer, reset_buffer

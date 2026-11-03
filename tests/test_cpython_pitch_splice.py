@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiodelays.PitchShift: a held note plays its shifted pitch at every splice.
 
 `PitchShift` reads a window of what was played at the shifted rate, and when

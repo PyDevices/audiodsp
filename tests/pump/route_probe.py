@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The three things around the pump: its ring, its queue, its tap -- and
 the port that must fault instead of recursing.
 

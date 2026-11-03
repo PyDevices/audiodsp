@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A tail rings out after its source ends, and a node at rest is empty.
 
     tail_rest_probe.py

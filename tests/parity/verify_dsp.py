@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Every target must render these nodes identically. That is the whole gate.
 
     verify_dsp.py --micropython PATH [--circuitpython PATH]

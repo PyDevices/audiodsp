@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A stand-in for the `vstaudio` host module, so the original instrument
 scripts can be imported and played outside a VST3 sidecar.
 

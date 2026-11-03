@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The block render loop: a composition in, a mixed master out.
 
 Rendering happens a block at a time, and every block does the same three

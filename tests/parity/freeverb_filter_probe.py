@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic Freeverb pre_filter / post_filter PCM.
 
     freeverb_filter_probe.py audiofreeverb

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiovorbis.VorbisDecoder: the surface, the edges, and a loop.
 
     vorbis_probe.py            # PASS, or FAIL and exit 1

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """What a Splitter does once its source runs out.
 
     route_dry_probe.py audioroute        the port

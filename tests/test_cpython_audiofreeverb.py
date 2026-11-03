@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiofreeverb: the traits the renders cannot check.
 
 `tests/parity/freeverb_filter_probe.py` pins what this module renders across

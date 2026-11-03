@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The delay nodes' lifecycle matrix: the same events on every delay node.
 
     delay_lifecycle_probe.py audioecho

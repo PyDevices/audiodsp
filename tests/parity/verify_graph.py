@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A graph renders the same samples on every interpreter.
 
     verify_graph.py --micropython PATH [--circuitpython PATH]

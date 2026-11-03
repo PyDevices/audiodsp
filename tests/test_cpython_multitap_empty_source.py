@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """MultiTapDelay with a source that says it has more and hands back nothing.
 
 Upstream CircuitPython's pull loop goes round for ever on such a source: it

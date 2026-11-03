@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiobiquad: the claims the parity golden cannot make on its own.
 
 `tests/parity/filter_f32_probe.py` pins what this module renders, and prints

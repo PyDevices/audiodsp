@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A delay with a filter, a soft-clip and a cross-feed inside its feedback
 loop.
 

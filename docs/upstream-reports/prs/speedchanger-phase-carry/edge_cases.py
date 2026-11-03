@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 # Guards for the carry: the stream must still end, a carry larger than a whole
 # source buffer must not read out of one, and a Resampler's bound rate must
 # still be the ratio it was asked for.

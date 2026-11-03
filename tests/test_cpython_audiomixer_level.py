@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A voice is scaled in integers, because that is what the kernel does.
 
 `src/audiomixer/Mixer.c`'s `mult16signed` is the authority, as CircuitPython

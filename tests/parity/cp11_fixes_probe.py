@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """CircuitPython 11.0.0-alpha.1's synthio, audiomixer and audiocore fixes.
 
     cp11_fixes_probe.py synthio

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audioroute: the traits and the surface the renders cannot check.
 
 `tests/parity/route_probe.py`, `route_dry_probe.py` and `midside_probe.py` pin

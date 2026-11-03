@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """`audiodsp_util`: one number, the same number, on every target.
 
 A setting written in Python is held at the interpreter's `mp_float_t` width --

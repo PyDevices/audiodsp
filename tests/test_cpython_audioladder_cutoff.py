@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audioladder's cutoff input: the cutoff moved every sample, not every block.
 
 `set(cutoff_hz=...)` moves the cutoff once a block, so a cutoff swept by an

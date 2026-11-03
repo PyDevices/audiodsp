@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The three option tables for `audiodynamics` must agree, name for number.
 
 `Dynamics` takes its settings by keyword, and each keyword has to reach the

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """`audiospeed.Resampler`: the ratio is bound by whoever plays it.
 
 CircuitPython 10.3.0 added the node. The thing worth testing is not the

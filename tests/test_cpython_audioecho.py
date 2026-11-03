@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audioecho: the traits and the surface the renders cannot check.
 
 `tests/parity/feedback_delay_probe.py` and `feedback_delay_options_probe.py`

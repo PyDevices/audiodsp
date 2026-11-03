@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Decode one .ogg to raw PCM through audiovorbis, for verify_vorbis.py.
 
     vorbis_decode.py IN.ogg OUT.raw [--fault swap|drop]

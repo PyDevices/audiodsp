@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 # Phase 7 acceptance test: run todbot's unmodified `synthtools` engine
 # (vendored at tests/vendor/synthtools, see SYNTHTOOLS_COMMIT.txt) against
 # the real ported synthio/audiomixer/audiofilters/audiodelays modules and

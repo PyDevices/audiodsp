@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """What a render pulls audio from, and how it tells them the time.
 
 A *voice* is anything a render can drive: it takes the events

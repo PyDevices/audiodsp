@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 # A 441 Hz tone written from Python into audiopump.Ring and played by the
 # board's audiobusio.I2SOut for 30 s, then the ring's counts. Copy it to a
 # CircuitPython board with an I2S amplifier as code.py, or paste it at the

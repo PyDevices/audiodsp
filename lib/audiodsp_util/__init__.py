@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """One number, the same number, on every target audiodsp runs on.
 
 ``import audiodsp_util`` -- a pure-Python tier with no dependencies beyond

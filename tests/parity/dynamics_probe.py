@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic Dynamics PCM, from whichever module provides the node.
 
     dynamics_probe.py audiodynamics

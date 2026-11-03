@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Routing and mixer events no other probe covers (audiodsp#178).
 
     EDGE  <case>  <what was seen>

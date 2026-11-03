@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A level move on a mixer voice whose source hands out short buffers.
 
 A voice's level and pan move wait for a zero crossing, so they cannot click,

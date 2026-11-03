@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiomath.cast_into on every target: the same int16 from the same floats.
 
     cast_probe.py audiomath

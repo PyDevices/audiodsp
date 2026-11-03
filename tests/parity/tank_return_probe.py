@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Tank: a filter or the modulation taken to 0 and brought back.
 
     tank_return_probe.py audioverb

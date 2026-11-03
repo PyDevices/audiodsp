@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Ring modulation actually modulates.
 
 The CPython target used to accept `ring_frequency`/`ring_waveform` on a

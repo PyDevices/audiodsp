@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audioverb's native TankState reads its delay and tap tables safely.
 
 `delays` and `taps` are read one number at a time, and reading a number can

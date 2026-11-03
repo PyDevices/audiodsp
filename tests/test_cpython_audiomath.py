@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiomath.SubOctave: that it is actually an octave down, and the surface.
 
 What the node *renders* is pinned byte-for-byte across the three interpreters

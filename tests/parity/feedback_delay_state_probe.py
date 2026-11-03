@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic FeedbackDelay PCM for the node's own state: the damping
 low-pass near the floor, the loop filters taken out and put back, a wow
 depth moved while playing, and a cross-fed stereo line near the floor.

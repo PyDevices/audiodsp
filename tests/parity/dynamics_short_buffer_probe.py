@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A Dynamics node whose source hands out buffers shorter than its block.
 
 The node fills its 256-frame block from as many source buffers as it takes.

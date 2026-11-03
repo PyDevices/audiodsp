@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """A voice's level and pan are Q15 integers, and a sample is `(x * q) >> 15`.
 
 CircuitPython 11.0.0-alpha.2 (adafruit/circuitpython#11617) scales a voice in

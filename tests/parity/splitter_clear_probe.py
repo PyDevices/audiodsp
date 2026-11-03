@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """`Splitter.clear()`: what the ring held and nobody read is let go.
 
 A Splitter writes a whole source buffer into its ring and hands it out a

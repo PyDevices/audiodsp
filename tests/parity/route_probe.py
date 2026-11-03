@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Deterministic Splitter PCM, from whichever module provides the node.
 
     route_probe.py audioroute        the port

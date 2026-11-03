@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Beats to seconds and back, through a piecewise-constant tempo map.
 
 A tempo map is a list of rows, each ``(beat, bpm)`` or

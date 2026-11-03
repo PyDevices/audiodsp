@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiooscillator: the traits the parity gate cannot see.
 
 `verify_dsp.py` pins what this node renders, byte for byte, on every

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """Download cibuildwheel's Android Python tarballs ahead of the build, with retries.
 
 cibuildwheel downloads the target Python for each Android wheel once per

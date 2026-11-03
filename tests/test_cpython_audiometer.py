@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """audiometer: that its levels mean what they say, and the surface.
 
 That every interpreter reads the same bytes is tests/parity/meter_probe.py's

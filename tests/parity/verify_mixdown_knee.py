@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """The one gate that can see a synthio voice-ceiling change (audiodsp#27).
 
 WHAT THIS COVERS THAT THE OTHER FOUR CANNOT

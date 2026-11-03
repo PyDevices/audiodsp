@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
+
 """CircuitPython 11.0.0-alpha.1's WaveFile and MP3Decoder fixes.
 
     cp11_files_probe.py            # PASS, or FAIL and exit 1
