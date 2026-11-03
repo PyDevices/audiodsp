@@ -74,6 +74,7 @@ void audiodsp_biquad_f32_config_init(audiodsp_biquad_f32_config_t *config,
     config->q = 0.7071067811865475f;
     config->gain_db = 0.0f;
     config->mix = 1.0f;
+    config->ramp_ms = (float)AUDIODSP_BIQUAD_F32_RAMP_MS;
     config->derived = false;
 }
 
@@ -106,6 +107,9 @@ void audiodsp_biquad_f32_configure(audiodsp_biquad_f32_config_t *config,
             break;
         case AUDIODSP_BIQUAD_F32_OPT_MIX:
             config->mix = clampf(value, 0.0f, 1.0f);
+            break;
+        case AUDIODSP_BIQUAD_F32_OPT_RAMP:
+            config->ramp_ms = clampf(value, 0.0f, 1000.0f);
             break;
         default:
             break;
@@ -338,14 +342,13 @@ static void biquad_leave_svf(audiodsp_biquad_f32_state_t *state,
     }
 }
 
-// Frames in a move: the power of two nearest AUDIODSP_BIQUAD_F32_RAMP_MS.
+// Frames in a move: the power of two nearest `ramp_ms`, and at least one.
 // A power of two because the walk's per-frame ratio is then a chain of
 // square roots, which IEEE rounds correctly everywhere -- pow() is three
 // functions on three targets that nearly agree, and this has to render the
 // same bytes on all of them (see audiodsp_trig.h).
-static uint32_t biquad_ramp_shift(uint32_t sample_rate) {
-    const double frames = (double)sample_rate *
-        (double)AUDIODSP_BIQUAD_F32_RAMP_MS / 1000.0;
+static uint32_t biquad_ramp_shift(uint32_t sample_rate, float ramp_ms) {
+    const double frames = (double)sample_rate * (double)ramp_ms / 1000.0;
     uint32_t shift = 0;
     while (shift < 20u &&
            (double)(1u << shift) * 1.4142135623730951 < frames) {
@@ -411,7 +414,8 @@ static void biquad_begin_move(const audiodsp_biquad_f32_config_t *config,
         state->ramp_left = 0u;
         return;
     }
-    const uint32_t shift = biquad_ramp_shift(config->sample_rate);
+    const uint32_t shift = biquad_ramp_shift(config->sample_rate,
+        config->ramp_ms);
     const uint32_t frames = 1u << shift;
     state->g_step = (float)biquad_root_chain(
         (double)config->svf_g / (double)state->g, shift);

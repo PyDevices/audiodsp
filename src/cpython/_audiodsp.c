@@ -1394,7 +1394,7 @@ static PyObject *biquad_f32_state_configure(
     double value;
     if (!PyArg_ParseTuple(args, "id:configure", &option, &value)) return NULL;
     if (option < AUDIODSP_BIQUAD_F32_OPT_MODE ||
-        option > AUDIODSP_BIQUAD_F32_OPT_MIX) {
+        option > AUDIODSP_BIQUAD_F32_OPT_RAMP) {
         PyErr_SetString(PyExc_ValueError, "unknown biquad option");
         return NULL;
     }
@@ -5117,6 +5117,7 @@ static int graph_add_constants(PyObject *module) {
         {"BIQUAD_Q", AUDIODSP_BIQUAD_F32_OPT_Q},
         {"BIQUAD_GAIN_DB", AUDIODSP_BIQUAD_F32_OPT_GAIN_DB},
         {"BIQUAD_MIX", AUDIODSP_BIQUAD_F32_OPT_MIX},
+        {"BIQUAD_RAMP", AUDIODSP_BIQUAD_F32_OPT_RAMP},
         {"DELAY_MS", AUDIODSP_FEEDBACK_DELAY_OPT_DELAY_MS},
         {"DELAY_FEEDBACK", AUDIODSP_FEEDBACK_DELAY_OPT_FEEDBACK},
         {"DELAY_MIX", AUDIODSP_FEEDBACK_DELAY_OPT_MIX},

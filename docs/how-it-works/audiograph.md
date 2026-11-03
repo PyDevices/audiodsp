@@ -77,7 +77,7 @@ rather than its last block.
 | `CONST` | | 0: the value, in counts | that value every sample |
 | `OSC` | pitch, fm, pwm, sync | `OSC_FREQUENCY`, `OSC_WAVEFORM` (1 saw, 2 pulse, 4 triangle, 8 sine; a sum plays those added), `OSC_PULSE_WIDTH`, `OSC_LEVEL`, `OSC_PITCH_OCTAVES`, `OSC_FM_DEPTH`, `OSC_PWM_DEPTH` | audiooscillator's band-limited waveform |
 | `LADDER` | audio, cutoff | `LADDER_CUTOFF_HZ`, `LADDER_RESONANCE`, `LADDER_DRIVE`, `LADDER_POLES`, `LADDER_PASSBAND_COMP`, `LADDER_OVERSAMPLE`, `LADDER_MIX`, `LADDER_CUTOFF_OCTAVES` | audioladder's filter, the cutoff input read every sample |
-| `BIQUAD` | audio | `BIQUAD_MODE`, `BIQUAD_FREQUENCY`, `BIQUAD_Q`, `BIQUAD_GAIN_DB`, `BIQUAD_MIX` | audiobiquad's float biquad |
+| `BIQUAD` | audio | `BIQUAD_MODE`, `BIQUAD_FREQUENCY`, `BIQUAD_Q`, `BIQUAD_GAIN_DB`, `BIQUAD_MIX`, `BIQUAD_RAMP` ms 0..1000 (default 20) | audiobiquad's float biquad, [walking to new coefficients](#biquad-moves) |
 | `FBDELAY` | audio | `DELAY_MS`, `DELAY_FEEDBACK`, `DELAY_MIX`, `DELAY_DAMPING_HZ`, `DELAY_WOW_HZ`, `DELAY_WOW_DEPTH_MS` and audioecho's other options by number; built with `arg` = the line's length in ms; `table(node, int16_array)` sets its wow shape | audioecho's FeedbackDelay |
 | `ENV` | gate | `ENV_ATTACK`, `ENV_DECAY`, `ENV_RELEASE` in seconds, `ENV_SUSTAIN` 0..1 | an ADSR, 0..`UNIT`, each stage a one-pole approach, the attack aimed past 1.0 so it arrives with a slope |
 | `LFO` | | `LFO_RATE` Hz, `LFO_AMPLITUDE` counts, `LFO_SHAPE` (`LFO_TRIANGLE`, `LFO_SINE`, `LFO_SAW`, `LFO_SQUARE`, `LFO_RANDOM`) | that shape, ±amplitude, [below](#lfo-shapes) |
@@ -115,6 +115,19 @@ modules that wrap them (`audiooscillator`, `audioladder`, `audiobiquad`,
 `audiograph` so a caller needs no other module.
 An input left `None` is open: an oscillator without a pitch input plays
 `OSC_FREQUENCY`, a ladder without a cutoff input sits at `LADDER_CUTOFF_HZ`.
+
+### Biquad moves
+
+A new frequency, Q or gain doesn't land on a `BIQUAD` at once: the filter walks
+to it, so a jump doesn't thump. `BIQUAD_RAMP` says for how long, in milliseconds
+from 0 to 1000, and the default of 20 is what `audiobiquad.Biquad` always does.
+The walk is a power of two frames, the one nearest what you asked for: 20 ms at
+48 kHz is 1024 frames, and 0 is one frame, the shortest there is.
+
+Set it low when a value moves every block. Each move starts the walk again from
+where it had got to, so a filter envelope on a 20 ms walk trails behind what it
+is told and opens slowly. One frame follows it the way `synthio.Biquad` does.
+The new value takes effect at the next move, and setting it isn't a move.
 
 ### LFO shapes
 

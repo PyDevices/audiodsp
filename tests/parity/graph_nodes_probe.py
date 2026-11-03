@@ -1,4 +1,4 @@
-"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2, GLISS, FOLLOW, WAVETABLE and ROTARY, rendered for verify_graph.py.
+"""audiograph's PHASER, LAG, LFO shapes, SAMPLE_HOLD, TWOPOLE, OVERDRIVE, PAN, WAVEFOLD, LPG, MODAL, STRUCK, PICKUP, TREMOLO, DECAY, PINK, CRUSH, ACID, SPRING, ADSR2, GLISS, FOLLOW, WAVETABLE, ROTARY and BIQUAD_RAMP, rendered for verify_graph.py.
 
     graph_nodes_probe.py                 # prints the render, then GRAPH NODES PASS
     graph_nodes_probe.py --fault phaser  # one phaser frequency a block late
@@ -24,6 +24,7 @@
     graph_nodes_probe.py --fault follow     # one release time a block late
     graph_nodes_probe.py --fault wavetable  # one frequency change a block late
     graph_nodes_probe.py --fault rotary     # one speed change a block late
+    graph_nodes_probe.py --fault ramp       # one BIQUAD_RAMP change a block late
 
 The same file runs on CPython, MicroPython and CircuitPython and prints every
 sample each of these nodes writes, every block. ``verify_graph.py`` runs it on
@@ -62,7 +63,10 @@ follower on the sawtooth, each with its release time stepped. And two
 drawbar voices: one on a written pitch, gate and percussion line, its key
 coming down again while the last note still sounds, and one with no gate and
 its frequency stepped; and two rotary speakers, the sawtooth driven through
-slow, fast and stop and the noise clean and fast, both sides printed.
+slow, fast and stop and the noise clean and fast, both sides printed. And four
+biquads on the sawtooth with a cutoff that moves each block: one that never
+sets BIQUAD_RAMP, one that sets it to its default and must render the same, one
+at the shortest, one frame, and one that changes its ramp part way through.
 
 Every value handed to the graph is a short binary fraction or an integer, so a
 single-precision MicroPython parses the same floats a double one does.
@@ -88,7 +92,7 @@ except (ImportError, AttributeError):
 
 FAULTS = ("phaser", "lag", "lfo", "hold", "twopole", "overdrive", "pan", "wavefold", "lpg",
           "modal", "struck", "pickup", "tremolo", "decay", "pink", "crush", "acid", "spring",
-          "adsr2", "gliss", "follow", "wavetable", "rotary")
+          "adsr2", "gliss", "follow", "wavetable", "rotary", "ramp")
 FAULT = None
 if "--fault" in sys.argv:
     FAULT = sys.argv[sys.argv.index("--fault") + 1]
@@ -134,6 +138,20 @@ ph6, _ = node("phaser6", ag.PHASER, (saw_b,), 6.0)
 g.set(ph6, ag.PHASER_FREQUENCY, 750.0)
 g.set(ph6, ag.PHASER_FEEDBACK, -0.375)
 g.set(ph6, ag.PHASER_MIX, 0.75)
+
+# -- biquads with a cutoff moving each block, at the walks BIQUAD_RAMP gives
+ramp_nodes = []
+for name, ramp in (("biquad_walk", None), ("biquad_twenty", 20.0), ("biquad_snap", 0.0),
+                   ("biquad_moved", 20.0)):
+    index, _ = node(name, ag.BIQUAD, (saw_b,))
+    g.set(index, ag.BIQUAD_Q, 2.0)
+    if ramp is not None:
+        g.set(index, ag.BIQUAD_RAMP, ramp)
+    ramp_nodes.append(index)
+check(g.get(ramp_nodes[0], ag.BIQUAD_RAMP) == 20.0, "BIQUAD_RAMP starts at 20 ms")
+walk_block = None
+ramp_same = True
+ramp_differs = False
 
 # -- one LFO of each shape
 lfos = []
@@ -438,6 +456,10 @@ for b in range(BLOCKS):
     step = centre % 64
     tri = step if step < 32 else 64 - step
     g.set(ph4, ag.PHASER_FREQUENCY, 100.0 + 125.0 * tri)
+    for index in ramp_nodes:
+        g.set(index, ag.BIQUAD_FREQUENCY, 250.0 + 125.0 * tri)
+    if b == (41 if FAULT == "ramp" else 40):
+        g.set(ramp_nodes[3], ag.BIQUAD_RAMP, 2.5)
 
     # the note line: a new note every few blocks, one mid-block; a bend that
     # moves every sample; legato on two blocks in three
@@ -649,6 +671,12 @@ for b in range(BLOCKS):
     for name, buffer in watched:
         g.read(buffer, block)
         print("node %d %s %s" % (b, name, " ".join([str(v) for v in block])))
+        if name == "biquad_walk":
+            walk_block = list(block)
+        elif name == "biquad_twenty":
+            ramp_same = ramp_same and list(block) == walk_block
+        elif name == "biquad_snap":
+            ramp_differs = ramp_differs or list(block) != walk_block
         stats = seen.setdefault(name, [0, block[0], block[0], block[0]])
         for v in block:
             if v != stats[3]:
@@ -748,6 +776,9 @@ check(seen["wavetable_b"][0] > 5000 and seen["wavetable_b"][2] > 2000,
 for name in ("rotary_l", "rotary_r", "rotary_bl", "rotary_br"):
     check(seen[name][0] > 5000 and seen[name][2] > 1000,
           "the rotary speaker's %s renders sound" % name)
+
+check(ramp_same, "BIQUAD_RAMP set to its default renders what no setting renders")
+check(ramp_differs, "the shortest BIQUAD_RAMP moves the sound")
 
 if failures:
     for what in failures:

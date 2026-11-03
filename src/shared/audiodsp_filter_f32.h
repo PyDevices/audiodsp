@@ -85,6 +85,7 @@ typedef enum {
     AUDIODSP_BIQUAD_F32_OPT_Q,
     AUDIODSP_BIQUAD_F32_OPT_GAIN_DB,
     AUDIODSP_BIQUAD_F32_OPT_MIX,
+    AUDIODSP_BIQUAD_F32_OPT_RAMP,
 } audiodsp_biquad_f32_option_t;
 
 //: Everything derived from the constructor/`set()` arguments, held apart from
@@ -99,6 +100,11 @@ typedef struct {
     // 0..1, a crossfade between the untouched signal and the filtered one --
     // `audiofilters.Filter`'s convention (Filter.c:288), not `Echo`'s 0..2.
     float mix;
+    // 0..1000 ms: how long a coefficient move takes, rounded to the nearest
+    // power of two frames, and 0 is one frame. Read when a move begins, so a
+    // change takes effect at the next move, not during one. The default is
+    // AUDIODSP_BIQUAD_F32_RAMP_MS.
+    float ramp_ms;
     // Written by audiodsp_biquad_f32_config_finish() from everything above.
     float b0, b1, b2, a1, a2;
     // The same section as a state-variable filter (Simper's trapezoidal
@@ -153,7 +159,7 @@ typedef struct {
 // do not mean the same thing under another: state a 20 kHz low-pass built,
 // read through a 20 Hz one, is a full-scale step that rings for 100 ms
 // (audiocomponents#162). So when the coefficients change, the kernel stops
-// running transposed direct form II for `AUDIODSP_BIQUAD_F32_RAMP_MS`: it
+// running transposed direct form II for the config's `ramp_ms`: it
 // carries the memory over into a state-variable filter's two integrators --
 // whose words are the band and low outputs, and so mean the same thing at
 // every corner -- walks that SVF's corner and damping geometrically and its
@@ -181,8 +187,9 @@ typedef struct {
     bool primed;
 } audiodsp_biquad_f32_state_t;
 
-//: How long a coefficient move takes. 20 ms, the ramp
-//: audiocomponents' docs/control-smoothing.md gives every control move.
+//: How long a coefficient move takes unless AUDIODSP_BIQUAD_F32_OPT_RAMP says
+//: otherwise. 20 ms, the ramp audiocomponents' docs/control-smoothing.md gives
+//: every control move.
 #define AUDIODSP_BIQUAD_F32_RAMP_MS 20u
 
 void audiodsp_biquad_f32_config_init(audiodsp_biquad_f32_config_t *config,

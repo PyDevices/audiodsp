@@ -530,6 +530,7 @@ int audiodsp_graph_add(audiodsp_graph_t *graph, audiodsp_graph_kind_t kind,
             node->param[AUDIODSP_BIQUAD_F32_OPT_Q] = d->config.q;
             node->param[AUDIODSP_BIQUAD_F32_OPT_GAIN_DB] = d->config.gain_db;
             node->param[AUDIODSP_BIQUAD_F32_OPT_MIX] = d->config.mix;
+            node->param[AUDIODSP_BIQUAD_F32_OPT_RAMP] = d->config.ramp_ms;
             break;
         }
         case AUDIODSP_GRAPH_FBDELAY: {
@@ -1295,7 +1296,7 @@ static void derive(audiodsp_graph_t *graph, audiodsp_graph_node_t *n) {
         }
         case AUDIODSP_GRAPH_BIQUAD: {
             graph_biquad_t *d = n->data;
-            for (uint32_t i = 0; i <= AUDIODSP_BIQUAD_F32_OPT_MIX; ++i) {
+            for (uint32_t i = 0; i <= AUDIODSP_BIQUAD_F32_OPT_RAMP; ++i) {
                 audiodsp_biquad_f32_configure(&d->config,
                     (audiodsp_biquad_f32_option_t)i, n->param[i]);
             }

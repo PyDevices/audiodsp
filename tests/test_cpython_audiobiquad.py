@@ -45,6 +45,8 @@ learn what is being promised.
 | B14 | After that jump the output settles onto the new filter's | within 64 LSB inside 75 ms |
 | B15 | A slow sweep set once a block does not zipper | curvature spike under 4 LSB |
 | B16 | Nothing moves when the coefficients do not | exact, a block at a time against one call |
+| B17 | `BIQUAD_RAMP` sets how long a move walks, and 0 is one frame | the new section's recursion holds from the frame the walk ends |
+| B18 | `BIQUAD_RAMP` at its default is no setting at all, and changing it alone moves nothing | exact |
 
 **B11's recorded departure is CLOSED (audiodsp#64, 2026-09-09).** It had two
 causes and only one of them was the filter. The measurement ended before the
@@ -371,6 +373,7 @@ class SurfaceTest(unittest.TestCase):
 
 RAMP_RATE = 48000
 OPT_MODE, OPT_FREQUENCY, OPT_Q = 0, 1, 2
+OPT_RAMP = 5
 
 
 def _words(data):
@@ -555,6 +558,86 @@ class CoefficientMoveTest(unittest.TestCase):
                         self.assertTrue(last == 0 or last < first,
                                         "silence after the moves left %d "
                                         "then %d" % (first, last))
+
+
+
+def walk_frames(ramp=None, block=256):
+    """Frames after a move before the output obeys the new section's recursion.
+
+    A low-pass moved from 500 Hz to 4 kHz, with `ramp` set if it is given. The
+    recursion reaches back two outputs and two inputs, and the memory taken
+    over at the end of a walk speaks for the output before it, so a walk of
+    `n` frames reads as `n + 2` here. A one-frame walk reads as 3 at most."""
+    lead, after = 2048, 8192
+    source = _triangle(lead + after, level=12000)
+    state = _kernel(audiobiquad.LOW_PASS, 500.0, 2.0)
+    if ramp is not None:
+        state.configure(OPT_RAMP, ramp)
+    out = _render(state, source, [(lead, 4000.0)], block)
+    b0, b1, b2, a1, a2 = state.coefficients()
+    last = -1
+    for index in range(after):
+        n = lead + index
+        want = (b0 * source[n] + b1 * source[n - 1] + b2 * source[n - 2]
+                - a1 * out[n - 1] - a2 * out[n - 2])
+        if abs(want - out[n]) > 4:
+            last = index
+    return last + 1
+
+
+class BiquadRampTest(unittest.TestCase):
+    """B17-B18: the option that shortens a move, on the kernel."""
+
+    def test_the_shortest_ramp_is_one_frame(self):
+        """B17, on a block of 256 frames and on one of 32."""
+        self.assertLessEqual(walk_frames(0.0), 3)
+        self.assertLessEqual(walk_frames(0.0, block=32), 3)
+
+    def test_the_ramp_sets_the_walk(self):
+        """B17. The frames are the power of two nearest the milliseconds, so
+        5 ms at 48 kHz is 256. The bars are low because the last frames of a
+        walk are already close to where it ends."""
+        for ramp, frames in ((None, 1024), (20.0, 1024), (5.0, 256),
+                             (2.0, 128)):
+            with self.subTest(ramp=ramp):
+                walked = walk_frames(ramp)
+                self.assertGreater(walked, frames // 2)
+                self.assertLessEqual(walked, frames + 2)
+
+    def test_past_the_ends_it_clamps(self):
+        """Below 0 is 0, and past 1000 ms is 1000."""
+        source = _triangle(9600, level=12000)
+        rendered = {}
+        for ramp in (-1.0, 0.0, 1000.0, 1000000.0):
+            state = _kernel(audiobiquad.LOW_PASS, 500.0, 2.0)
+            state.configure(OPT_RAMP, ramp)
+            rendered[ramp] = _words(_render(state, source, [(2048, 4000.0)]))
+        self.assertEqual(rendered[-1.0], rendered[0.0])
+        self.assertEqual(rendered[1000000.0], rendered[1000.0])
+        self.assertNotEqual(rendered[0.0], rendered[1000.0])
+
+    def test_the_default_is_no_setting(self):
+        """B18. What makes the option safe to add: goldens that never set it
+        are still the bytes they were."""
+        source = _triangle(9600, level=12000)
+        moves = [(start, 500.0 + start / 4) for start in range(0, 9600, 256)]
+        plain = _kernel(audiobiquad.LOW_PASS, 500.0, 2.0)
+        twenty = _kernel(audiobiquad.LOW_PASS, 500.0, 2.0)
+        twenty.configure(OPT_RAMP, 20.0)
+        self.assertEqual(_render(plain, source, moves),
+                         _render(twenty, source, moves))
+
+    def test_setting_the_ramp_is_not_a_move(self):
+        """B18, a change of ramp with the coefficients still."""
+        source = _triangle(9600, level=12000)
+        plain = _render(_kernel(audiobiquad.LOW_PASS, 500.0, 2.0), source)
+        state = _kernel(audiobiquad.LOW_PASS, 500.0, 2.0)
+        out = array("h")
+        for start in range(0, 9600, 256):
+            state.configure(OPT_RAMP, 0.0 if (start // 256) % 2 else 5.0)
+            state.finish()
+            out.extend(_words(state.process(source[start:start + 256])))
+        self.assertEqual(plain, out)
 
 
 if __name__ == "__main__":
