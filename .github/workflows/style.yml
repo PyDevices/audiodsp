@@ -1,0 +1,16 @@
+# The mechanical house-style rules: SPDX header, no Sphinx roles in
+# docstrings, no link to the .github repo from a page, no README badges or
+# status banner. Pull requests check the changed files; a manual run checks
+# every file. Paths that aren't ours go in .style-exclude.
+name: Style
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  style:
+    uses: PyDevices/.github/.github/workflows/reusable-style-check.yml@publishing-v20

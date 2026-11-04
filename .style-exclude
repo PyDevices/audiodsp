@@ -1,0 +1,8 @@
+# Paths the style check skips: code that isn't ours, and generated files.
+# One glob per line.
+
+# Adafruit's synthio helpers, vendored for the tests.
+tests/vendor/
+
+# A stand-in for ulab's numpy, kept as the test support package wrote it.
+tests/support/ulab/
