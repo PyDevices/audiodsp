@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Brad Barnett
+#
+# SPDX-License-Identifier: MIT
 """Fail if a ported source has lost its upstream copyright notice.
 
 Most C/H files under src/ are ports of CircuitPython (and through it,

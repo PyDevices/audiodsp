@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 PyDevices contributors
+#
 # SPDX-License-Identifier: MIT
 """Say which CI jobs a change can reach.
 
