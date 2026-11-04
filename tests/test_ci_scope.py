@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2026 PyDevices contributors
+#
 # SPDX-License-Identifier: MIT
 """tools/ci_scope.py decides which CI jobs a change reaches; this holds its rules."""
 
