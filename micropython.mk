@@ -19,6 +19,21 @@ MPAUDIO_SRC_DIR := $(MPAUDIO_MOD_DIR)/src
 
 CFLAGS_USERMOD += -I$(MPAUDIO_SRC_DIR)
 
+# The stm32 port compiles with -Werror=double-promotion. The engine computes
+# some coefficients in double on purpose, where the parity gates hold it to
+# the reference, so the warning is off for this module's own objects; the rest
+# of the firmware keeps it. An STM32H7's FPU does double in hardware.
+$(BUILD)/$(notdir $(MPAUDIO_MOD_DIR))/%.o: CFLAGS += -Wno-double-promotion
+
+# The stm32 port links with -nostdlib. The double-precision maths comes from
+# the toolchain's libm, for the H7's double FPU, and src/mp_libc_shim.c has
+# the rest (malloc and friends, stderr). This runs before the port has set
+# its compiler flags, so the multilib is named here.
+ifeq ($(MCU_SERIES),h7)
+SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/mp_libc_shim.c
+LIBS_USERMOD += "$(shell $(or $(CROSS_COMPILE),arm-none-eabi-)gcc -mthumb -mcpu=cortex-m7 -mfpu=fpv5-d16 -mfloat-abi=hard -print-file-name=libm.a)"
+endif
+
 # --- which audiodsp this firmware was built from -----------------------------
 #
 # audiodsp#55. `os.uname().version` answers for MicroPython and says nothing
