@@ -112,25 +112,33 @@ Called from the engine's teardown, which a soft reset reaches through a
 finaliser. Drop whatever the VM cannot: a channel, a timer, a handle. It must
 not raise and it must be safe to call twice.
 
-### What the four shipped ports fill in
+### What the five shipped ports fill in
 
-| hook | esp32 | win32 | pthread | none |
-|---|---|---|---|---|
-| `lock_take`/`lock_give` | `xSemaphoreTakeRecursive` on a static priority-inheriting mutex | `CRITICAL_SECTION` | recursive `pthread_mutex` | — |
-| `now_us` | `esp_timer_get_time` | `QueryPerformanceCounter` | `clock_gettime` | — |
-| `thread_start` | `xTaskCreatePinnedToCore[WithCaps]` | `_beginthreadex` | `pthread_create` | — |
-| `thread_wake` | `xTaskNotifyGive` | — | — | — |
-| `thread_release` | `vTaskDelete[WithCaps]` | `WaitForSingleObject` + `CloseHandle` | `pthread_join` | — |
-| `self_id` / `status_tid` | task handle / **core** | thread id | `pthread_self` | — |
-| `stack_free` | `uxTaskGetStackHighWaterMark` | — | — | — |
-| `park_spin` | `ulTaskNotifyTake` | `SwitchToThread` | `sched_yield` | — |
-| `sleep_us` | `vTaskDelay` / `esp_rom_delay_us` | waitable timer | `nanosleep` | — |
-| `sink_open`/`close` | — (the channel is its own surface) | `_open` + `_O_BINARY` | `open` | — |
-| `sink_ready`/`sink_write` | `i2s_channel_write` | `_write` | `write` | — |
-| `sink_dma_bytes`/`rx_bytes` | the ISR counters | — | — | — |
-| `teardown` | close the channel | close the pace timer | — | — |
+| hook | esp32 | win32 | pthread | stm32 | none |
+|---|---|---|---|---|---|
+| `lock_take`/`lock_give` | `xSemaphoreTakeRecursive` on a static priority-inheriting mutex | `CRITICAL_SECTION` | recursive `pthread_mutex` | — | — |
+| `now_us` | `esp_timer_get_time` | `QueryPerformanceCounter` | `clock_gettime` | `mp_hal_ticks_us`, widened | — |
+| `thread_start` | `xTaskCreatePinnedToCore[WithCaps]` | `_beginthreadex` | `pthread_create` | — (service mode) | — |
+| `thread_wake` | `xTaskNotifyGive` | — | — | — | — |
+| `thread_release` | `vTaskDelete[WithCaps]` | `WaitForSingleObject` + `CloseHandle` | `pthread_join` | — | — |
+| `self_id` / `status_tid` | task handle / **core** | thread id | `pthread_self` | — | — |
+| `stack_free` | `uxTaskGetStackHighWaterMark` | — | — | — | — |
+| `park_spin` | `ulTaskNotifyTake` | `SwitchToThread` | `sched_yield` | — | — |
+| `sleep_us` | `vTaskDelay` / `esp_rom_delay_us` | waitable timer | `nanosleep` | `mp_hal_delay_us` | — |
+| `sink_open`/`close` | — (the channel is its own surface) | `_open` + `_O_BINARY` | `open` | — (`audioio.AudioOut` is the surface) | — |
+| `sink_ready`/`sink_write` | `i2s_channel_write` | `_write` | `write` | the DAC's DMA ring | — |
+| `sink_dma_bytes`/`rx_bytes` | the ISR counters | — | — | the DMA's position / — | — |
+| `teardown` | close the channel | close the pace timer | — | stop the DAC, DMA and timer | — |
 
-All four are one file, so reading it beside this page is the fastest way in.
+All five are in audioif, four of them in `_audioif.c` and the stm32 one in
+`audioif_stm32.c`. Reading them beside this page is the fastest way in.
+
+A port with no threads can still play by itself. The stm32 driver leaves
+`thread_start` empty, so the engine is in service mode, and calls
+`audiopump_c_service()` itself: a soft timer checks the DAC's DMA every few
+milliseconds and schedules a callback on the interpreter whenever a block's
+worth of its ring has played. The graph is pulled between bytecodes, never in
+an interrupt, because a graph may allocate and may raise.
 
 ## How it binds, and the trap it dodges
 
