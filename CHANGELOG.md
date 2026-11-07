@@ -1,3 +1,7 @@
+## v0.6.16.dev0 (2026-11-07)
+
+- audiometer: attach() meters a pump tap on CPython too (#392)
+
 ## v0.6.15.dev0 (2026-11-07)
 
 - audiomp3: MP3 files decode on CPython with the boards' Helix decoder (#390)
