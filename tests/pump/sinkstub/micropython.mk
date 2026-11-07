@@ -7,3 +7,6 @@
 
 SINKSTUB_DIR := $(USERMOD_DIR)
 SRC_USERMOD_C += $(SINKSTUB_DIR)/sinkstub.c
+# audiodsp's own headers (shared/audiodsp_port.h), three levels up, whichever
+# order the build reads the two modules in.
+CFLAGS_USERMOD += -I$(SINKSTUB_DIR)/../../../src
