@@ -117,14 +117,15 @@ jobs:
         # The manifest names this module with c_module(), so USER_C_MODULES
         # never points at the workspace: the parent-directory scan plus the
         # manifest would include audiodsp twice. It points at tests/pump, for
-        # the probes' test sink (sinkstub). It names no ulab; nothing here
-        # uses one.
+        # the probes' test sink (sinkstub), and comes from the environment:
+        # on make's command line it would override the manifest's own
+        # USER_C_MODULES += and leave audiodsp out. It names no ulab; nothing
+        # here uses one.
         run: |
           make -C micropython/mpy-cross -j2
           make -C micropython/ports/unix submodules
-          make -C micropython/ports/unix -j2 \
+          USER_C_MODULES=$GITHUB_WORKSPACE/audiodsp/tests/pump make -C micropython/ports/unix -j2 \
             FROZEN_MANIFEST=$GITHUB_WORKSPACE/audiodsp/manifest.py \
-            USER_C_MODULES=$GITHUB_WORKSPACE/audiodsp/tests/pump \
             CFLAGS_EXTRA="${{ matrix.float-impl.cflags }}"
       - name: Smoke the result
         run: |
@@ -360,9 +361,8 @@ jobs:
         run: |
           git -C audiodsp -c user.name=ci -c user.email=ci@localhost \
               commit -q --allow-empty -m "move HEAD"
-          make -C micropython/ports/unix -j2 \
+          USER_C_MODULES=$GITHUB_WORKSPACE/audiodsp/tests/pump make -C micropython/ports/unix -j2 \
             FROZEN_MANIFEST=$GITHUB_WORKSPACE/audiodsp/manifest.py \
-            USER_C_MODULES=$GITHUB_WORKSPACE/audiodsp/tests/pump \
             CFLAGS_EXTRA="${{ matrix.float-impl.cflags }}"
           want=$(git -C audiodsp describe --tags --match 'v[0-9]*' --always --dirty --abbrev=7)
           got=$(./micropython/ports/unix/build-standard/micropython -c "import audioecho; print(audioecho.__revision__)")
