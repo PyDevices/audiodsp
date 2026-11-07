@@ -908,6 +908,22 @@ static void audiopump_swap_now(audiopump_ctx_t *ctx) {
 
 // Service mode: the rest of a block the sink didn't take, before anything
 // new is pulled. True once it's all out.
+// The tail points into a block the current sample handed back, so it lives
+// only as long as that block can be trusted. stop(), a teardown, a plain
+// retarget and a deinit() drop it whole: what was due to follow it (a loop's
+// rewind, the end) belonged to the old sample too. A park drops only the
+// bytes, because the graph may be rewired before the next service(); a swap,
+// rewind or end that was waiting on them still happens.
+static void audiopump_tail_drop(audiopump_ctx_t *ctx, bool keep_after) {
+    ctx->tail.pending = false;
+    ctx->tail.buffer = NULL;
+    if (!keep_after) {
+        ctx->tail.swap = false;
+        ctx->tail.reset = false;
+        ctx->tail.end = false;
+    }
+}
+
 static bool AUDIODSP_HOT audiopump_tail_resume(audiopump_ctx_t *ctx,
     const audiodsp_port_ops_t *port, audiopump_out_t *out) {
     return audiopump_emit_kept(ctx, port, ctx->tail.buffer, ctx->tail.length,
@@ -958,8 +974,15 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
         }
         // Service mode: what the sink didn't take last time goes first, and
         // then what was waiting for it.
-        if (ctx->tail.pending) {
-            if (!audiopump_tail_resume(ctx, port, &out)) {
+        if (ctx->tail.pending && ctx->sample != MP_OBJ_NULL
+            && audiosample_deinited((audiosample_base_t *)MP_OBJ_TO_PTR(ctx->sample))) {
+            audiopump_tail_drop(ctx, false);    // the pull below reports it
+        }
+        // Not while parked: a park dropped the bytes, and what waited on them
+        // waits for unpark(), after the rewire.
+        if ((ctx->tail.pending || ctx->tail.swap || ctx->tail.reset || ctx->tail.end)
+            && !ctx->park_req) {
+            if (ctx->tail.pending && !audiopump_tail_resume(ctx, port, &out)) {
                 why = AUDIOPUMP_SERVICE_FULL;
                 break;
             }
@@ -1603,6 +1626,9 @@ static void audiopump_entry(void *arg) {
 static void audiopump_teardown(bool release_guard) {
     audiopump_ctx.stop = true;
     audiopump_ctx.park_req = false;
+    if (audiopump_ctx.service_mode) {
+        audiopump_tail_drop(&audiopump_ctx, false);
+    }
     audiodsp_pump_set_active(false);
     const audiodsp_port_ops_t *port = audiodsp_port();
     if (audiopump_live && !audiopump_ctx.service_mode) {
@@ -1966,6 +1992,9 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiopump_join_obj, 0, 1,
 void audiopump_c_stop(void) {
     audiopump_ctx.stop = true;
     audiopump_ctx.park_req = false;
+    if (audiopump_ctx.service_mode) {
+        audiopump_tail_drop(&audiopump_ctx, false);
+    }
     const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->thread_wake != NULL) {
         port->thread_wake();
@@ -2078,6 +2107,7 @@ static bool audiopump_c_park_fade(uint32_t timeout_us, bool fade) {
         }
     }
     if (audiopump_ctx.service_mode) {
+        audiopump_tail_drop(&audiopump_ctx, true);
         // The loop is not running -- this call IS the only thread -- so the
         // pump is already at a block boundary by construction and park() is a
         // store. The wait below would spin until the timeout and then report
@@ -2219,6 +2249,9 @@ void audiopump_c_retarget(mp_obj_t sample, int loop) {
     // the latest call is the tail that plays.
     audiopump_ctx.swap_req = false;
     MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_NEXT] = MP_OBJ_NULL;
+    if (audiopump_ctx.service_mode) {
+        audiopump_tail_drop(&audiopump_ctx, false);
+    }
     audiopump_ctx.protocol = protocol;
     audiopump_ctx.sample = sample;
     // The loop flag belongs to the tail, not to the pump's whole lifetime.

@@ -7,8 +7,8 @@
     <interpreter> tests/pump/pump_probe.py [case ...] [--fault WHICH]
 
 Cases: ``identity``, ``alloc``, ``storm``, ``driver``, ``unpumpable``,
-``swap``, ``writes``, ``tear``, ``fade``, ``graph``, ``table``, ``tail`` (all
-by default).
+``swap``, ``writes``, ``tear``, ``fade``, ``graph``, ``table``, ``tail``,
+``switch`` (all by default).
 Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
 ``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap, writes),
 ``split`` (tear, graph), ``cut`` (fade), ``late`` and ``unqueued`` (graph),
@@ -1422,6 +1422,62 @@ def tail(fault):
                else "the ramps arrived broken at frame %d" % at) and ok
 
 
+def switch(fault):
+    """A sample changed under a kept tail: none of the old block follows it.
+
+    In service mode a long one-shot is one block, and most of it is a tail
+    waiting for the sink. Through `_pumpsink` at 37 frames a write: the
+    one-shot plays a few blocks' worth, then (1) stop() and a new spawn, and
+    (2) a plain retarget() to the new sample. The new sample is a constant
+    the old one never reaches, so any old byte after the switch shows. The
+    engine's planted fault is a tail that stop() and retarget() leave alone.
+    """
+    try:
+        import _pumpsink  # noqa: F401
+    except ImportError:
+        return say("switch", True, "skipped: this build has no _pumpsink test driver")
+    if audiopump.threaded():
+        return say("switch", True, "skipped: the pump has a thread here, so no service mode")
+    step = 37 * CHANNELS * 2
+    early = BLOCK_FRAMES * CHANNELS * 2 * 3
+    new = _flat(5000, BLOCK_FRAMES * 4)
+    mark = [0]
+
+    def first():
+        return audiocore.RawSample(tone(), sample_rate=RATE, channel_count=CHANNELS)
+
+    def stop_then_play(block):
+        audiopump.spawn(first(), 1 << 30, block, sink="stub")
+        _tail_service(block, lambda why: _pumpsink_bytes() >= early)
+        audiopump.stop()
+        audiopump.join()
+        audiopump.shutdown()
+        mark[0] = _pumpsink_bytes()
+        audiopump.spawn(new, 1 << 30, block, sink="stub")
+        _tail_service(block, lambda why: why == 3)
+
+    def retarget_mid_tail(block):
+        audiopump.spawn(first(), 1 << 30, block, sink="stub")
+        _tail_service(block, lambda why: _pumpsink_bytes() >= early)
+        mark[0] = _pumpsink_bytes()
+        audiopump.retarget(new, loop=False)
+        _tail_service(block, lambda why: why == 3)
+
+    ok = True
+    for name, run in (("switch: stop", stop_then_play), ("switch: retarget", retarget_mid_tail)):
+        got, writes = _tail_capture(step, False, run)
+        before = bytes(got[:mark[0]])
+        after = _frames(got[mark[0]:])
+        old = sum(1 for f in after if f != 5000)
+        good = before == bytes(tone())[:mark[0]] and after and old == 0
+        ok = say(name, good,
+                 "%d old bytes before the switch, then %d frames of the new sample only"
+                 % (mark[0], len(after)) if good else
+                 "%d frames after the switch, %d of them the old sample's"
+                 % (len(after), old)) and ok
+    return ok
+
+
 def _pumpsink_bytes():
     import _pumpsink
     return _pumpsink.taken()[0]
@@ -1430,7 +1486,8 @@ def _pumpsink_bytes():
 CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
          ("driver", driver), ("unpumpable", unpumpable), ("swap", swap),
          ("writes", writes), ("tear", tear), ("fade", fade),
-         ("graph", graph), ("table", table), ("tail", tail))
+         ("graph", graph), ("table", table), ("tail", tail),
+         ("switch", switch))
 
 
 def main():
