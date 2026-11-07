@@ -53,7 +53,11 @@ architecture, and an emulator reproduces those only by accident:
 
 Releases ship the aarch64 wheels too, built by the release workflow on the
 same kind of native ARM runner, so `pip install omnipython-audiodsp` works
-on 64-bit Raspberry Pi OS and other 64-bit ARM Linux machines.
+on 64-bit Raspberry Pi OS and other 64-bit ARM Linux machines. They have run
+on a Raspberry Pi 4 and a Pi 3 B+. A Pi 5 runs the same OS and should take the
+same wheels, but nobody has tried it yet. If you do,
+[open an issue](https://github.com/PyDevices/audiodsp/issues) and say what
+worked.
 
 ## The same bytes within one architecture
 
