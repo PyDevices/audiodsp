@@ -19,7 +19,7 @@ through [`manifest.py`](../../manifest.py). [Install](../get-started/install.md)
 has the commands for each, and [Your first program](../get-started/first-program.md)
 renders a block of audio. A host can pull the graph for offline rendering,
 give it to a mixer or pump, or attach it to a platform-specific audio output.
-`audiomp3` is firmware-only.
+`audiomp3` is in the wheel too, decoding with the same C as a board.
 
 ## The mental model
 

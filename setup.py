@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,59 @@ try:
         capture_output=True, text=True, check=True).stdout.strip() or "unknown"
 except (OSError, subprocess.CalledProcessError):
     REVISION = "unknown"
+
+HERE = Path(__file__).parent
+MP3_DIR = HERE / ".deps" / "mp3" / "src"
+# Helix's sources, as micropython.mk lists them. buffers.c is compiled through
+# src/audiomp3/mp3_buffers.c, which hands it this extension's allocator.
+MP3_SOURCES = ["bitstream.c", "dct32.c", "dequant.c", "dqchan.c", "huffman.c",
+               "hufftabs.c", "imdct.c", "mp3dec.c", "mp3tabs.c", "polyphase.c",
+               "scalfact.c", "stproc.c", "subband.c", "trigtabs.c"]
+
+
+def fetch_mp3():
+    """Put the pinned Adafruit_MP3 under .deps/mp3, with patches/adafruit_mp3/.
+
+    What scripts/fetch_deps.sh does, in Python, so a build on Windows needs
+    no shell. An sdist already carries the sources and skips this.
+    """
+    lock = (HERE / "DEPENDENCIES.lock").read_text().split("\n")
+    name, url, rev = next(line.split() for line in lock
+                          if line.strip() and not line.startswith("#"))
+    dest = HERE / ".deps" / name
+
+    def git(*args):
+        subprocess.run(["git", "-C", str(dest), *args], check=True)
+
+    if not (dest / ".git").is_dir():
+        dest.mkdir(parents=True, exist_ok=True)
+        git("init", "-q")
+        git("remote", "add", "origin", url)
+    git("fetch", "-q", "--depth", "1", "origin", rev)
+    git("checkout", "-qf", rev)
+    for patch in sorted((HERE / "patches" / "adafruit_mp3").glob("*.patch")):
+        applied = subprocess.run(["git", "-C", str(dest), "apply", "--reverse", "--check", str(patch)],
+                                 capture_output=True).returncode == 0
+        if not applied:
+            git("apply", str(patch))
+
+
+# audiomp3 needs the MP3 decoder. AUDIODSP_OPTIONAL_DEPS=1 builds without it,
+# as it does for the board builds; otherwise a failed fetch fails the build,
+# so no wheel ships without the module.
+MP3_EXTENSION = {}
+if os.environ.get("AUDIODSP_OPTIONAL_DEPS") != "1":
+    if not (MP3_DIR / "mp3dec.c").is_file():
+        fetch_mp3()
+    MP3_EXTENSION = {
+        "sources": ["src/cpython/audiodsp_mp3.c", "src/audiomp3/mp3_buffers.c"]
+        + [".deps/mp3/src/" + name for name in MP3_SOURCES],
+        "include_dirs": [".deps/mp3/src"],
+        # mp3dec.h stops at an unknown platform unless told to take the
+        # portable one. On every platform a wheel is built for, that is the
+        # path assembly.h already takes, and the one x86-64 boards' builds use.
+        "define_macros": [("AUDIODSP_HAVE_MP3", "1"), ("MP3DEC_GENERIC", "1")],
+    }
 
 setup(
     ext_modules=[
@@ -84,10 +138,12 @@ setup(
                 # into this one file from third_party; audiofeatures' engine.
                 "src/shared/audiodsp_microfrontend.c",
                 "src/shared/audiodsp_features.c",
-            ],
-            include_dirs=["src", "third_party/microfrontend", "third_party/kissfft"],
+            ] + MP3_EXTENSION.get("sources", []),
+            include_dirs=["src", "third_party/microfrontend", "third_party/kissfft"]
+            + MP3_EXTENSION.get("include_dirs", []),
             define_macros=[("AUDIODSP_VERSION", '"%s"' % VERSION),
-                           ("AUDIODSP_REVISION", '"%s"' % REVISION)],
+                           ("AUDIODSP_REVISION", '"%s"' % REVISION)]
+            + MP3_EXTENSION.get("define_macros", []),
             extra_compile_args=MACOS_COMPILE_ARGS,
         )
     ]

@@ -14,7 +14,8 @@ whence swapped, which seeked the file back to byte 1, so the decoder read the
 file's start twice; at the end of a long song that failed a few frames in and
 a looping player stopped. And the rewind kept the decoder's frame-to-frame
 state, so the second lap's first frames were decoded against the first lap's
-last ones. MicroPython only: the CPython package has no audiomp3.
+last ones. It runs on MicroPython and on CPython, whose audiomp3 is the same
+decoder, and prints the same checksums on both.
 """
 
 import sys
@@ -24,9 +25,9 @@ import audiocore
 try:
     import audiomp3
 except ImportError:
-    # The CPython package has no audiomp3. The release job runs every probe
-    # under CPython, so this one stands aside there; the MicroPython job runs
-    # it and requires the PASS line, so a skip can't pass for a pass.
+    # A build made without the MP3 decoder (AUDIODSP_OPTIONAL_DEPS=1) has no
+    # audiomp3, so the probe stands aside there; the MicroPython job runs it
+    # and requires the PASS line, so a skip can't pass for a pass.
     print("MP3 REWIND SKIPPED: no audiomp3 here")
     sys.exit(0)
 

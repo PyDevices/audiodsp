@@ -24,3 +24,10 @@ used under the Apache-2.0 license in third_party/microfrontend/LICENSE
 under the BSD-3-Clause license in third_party/kissfft/COPYING (Copyright (c)
 2003-2010 Mark Borgerding). Each directory's ORIGIN.txt names the upstream
 commit it came from and how it is built.
+
+audiomp3 compiles the Helix fixed-point MP3 decoder (Portions Copyright (c)
+1995-2002 RealNetworks, Inc.) from Adafruit_MP3
+(https://github.com/adafruit/Adafruit_MP3), at the commit DEPENDENCIES.lock
+names, under the RealNetworks Public Source License 1.0 its source files
+carry. It is fetched into .deps/mp3 rather than kept in this repository, and
+patches/adafruit_mp3/ holds the changes made to it.
