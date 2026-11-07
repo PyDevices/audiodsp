@@ -9,7 +9,7 @@ a block at a time, reads the flags, and prints each stretch of speech with
 its start and end time, so a file of a few phrases prints a line for each.
 
 Needs: audiodsp, built into MicroPython or installed on CPython with
-pip install pydevices-audiodsp, and a 16-bit PCM WAV file at 16 kHz or
+pip install omnipython-audiodsp, and a 16-bit PCM WAV file at 16 kHz or
 higher, mono or stereo, that starts with a moment of quiet.
 
 Run it:

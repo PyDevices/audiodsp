@@ -10,7 +10,7 @@ the same C.
 
 ## Installation
 
-`audiorender` ships inside the `pydevices-audiodsp` distribution itself,
+`audiorender` ships inside the `omnipython-audiodsp` distribution itself,
 not as a separate package, and is never frozen into firmware or meant for
 a board. It needs `numpy`, which the distribution declares as the `render`
 extra rather than as a dependency — the core modules run on boards and in
@@ -18,13 +18,13 @@ wasm, where numpy has no place — so ask for the extra:
 
 ```sh
 python -m pip install --index-url https://test.pypi.org/simple/ \
-    --extra-index-url https://pypi.org/simple/ "pydevices-audiodsp[render]"
+    --extra-index-url https://pypi.org/simple/ "omnipython-audiodsp[render]"
 ```
 
 The second index is not optional: TestPyPI carries no numpy anyone can
 use — a 2.4.0.dev0 pre-release pip will not pick, and a 2015 1.9.3 sdist
 that cannot build on a supported Python — so without PyPI in the search
-path the extra fails to install. Installing `pydevices-audiodsp` without
+path the extra fails to install. Installing `omnipython-audiodsp` without
 `[render]` still gets you every core module; `import audiorender` is then
 the one thing that fails, on numpy.
 

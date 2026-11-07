@@ -5,7 +5,7 @@
 audiodsp is the part of OmniPython that makes and shapes sound: CircuitPython's audio modules (`audiocore`, `synthio`, `audiomixer` and the effects) with the same import names on MicroPython-compatible boards, CircuitPython-compatible boards and CPython, plus filters, a reverb, a sampler, a Vorbis decoder and an audio pump that CircuitPython doesn't have.
 
 ```bash
-pip install pydevices-audiodsp
+pip install omnipython-audiodsp
 ```
 
 ```bash
