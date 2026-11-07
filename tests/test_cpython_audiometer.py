@@ -34,6 +34,7 @@ from array import array
 import numpy as np
 
 import audiometer
+import audiopump
 
 RATE = 48000
 
@@ -156,9 +157,15 @@ class SurfaceTest(unittest.TestCase):
         self.assertIs(lv, buf)
         self.assertEqual(bytes(buf), m.levels()[1])
 
-    def test_attach_needs_a_board(self):
-        with self.assertRaises(NotImplementedError):
-            audiometer.Meter(8).attach(object(), 48000)
+    def test_attach_refuses_what_is_not_a_tap(self):
+        m = audiometer.Meter(8)
+        with self.assertRaises(TypeError):
+            m.attach(object(), 48000)
+        with self.assertRaises(TypeError):
+            m.attach(audiopump.Tap(frames=64))
+        with self.assertRaises(ValueError):
+            m.attach(audiopump.Tap(frames=64), 500)
+        self.assertIsNone(m.stats()["source"])
         self.assertFalse(hasattr(audiometer, "UAC"))
 
     def test_deinit(self):
@@ -172,6 +179,74 @@ class SurfaceTest(unittest.TestCase):
         self.assertEqual(audiometer.db_byte(0.5), 194)
         self.assertEqual(audiometer.db_byte(1e-11), 0)
 
+
+class TapTest(unittest.TestCase):
+    """A meter on a pump tap reads what feed() would have, from attach() on,
+    as fast as the audio plays."""
+
+    def setUp(self):
+        self.now = [100.0]
+
+    def meter(self, tap, bands):
+        m = audiometer.Meter(bands)
+        m._clock = lambda: self.now[0]
+        m.attach(tap, RATE)
+        return m
+
+    def play(self, tap, pcm, block=256):
+        for at in range(0, len(pcm), block * 4):
+            tap._write(pcm[at:at + block * 4])
+
+    def test_a_tap_reads_the_bytes_feed_does(self):
+        pcm = stereo(coloured(-3.0, 1.0, seed=3))
+        fed = audiometer.Meter(24)
+        feed_all(fed, pcm)
+        tap = audiopump.Tap(frames=RATE)
+        tapped = self.meter(tap, 24)
+        self.play(tap, pcm)
+        self.now[0] += 2.0
+        self.assertEqual(tapped.levels()[1:], fed.levels()[1:])
+        self.assertEqual(tapped.stats()["source"], "tap")
+
+    def test_a_burst_is_read_as_it_plays(self):
+        # 80 ms rendered at once, read at 60 frames a second: about 60
+        # analyses a second, not one burst's worth every 80 ms.
+        tap = audiopump.Tap(frames=4096)
+        m = self.meter(tap, 16)
+        self.play(tap, stereo(sine(1000.0, 0.08)))
+        seen = []
+        for _ in range(5):
+            self.now[0] += 1 / 60
+            seen.append(m.levels()[0])
+        self.assertEqual(seen, [1, 2, 3, 4, 4])
+
+    def test_only_what_plays_after_attach_counts(self):
+        tap = audiopump.Tap(frames=4096)
+        self.play(tap, stereo(sine(1000.0, 0.05)))
+        m = self.meter(tap, 16)
+        self.now[0] += 1.0
+        self.assertEqual(m.levels()[0], 0)
+        self.play(tap, bytes(4 * RATE // 10))
+        self.now[0] += 1.0
+        seq, lv, pk, rms = m.levels()
+        self.assertGreater(seq, 0)
+        self.assertEqual((set(lv), pk, rms), ({0}, 0, 0))
+
+    def test_a_reader_that_falls_behind_is_lapped(self):
+        tap = audiopump.Tap(frames=1024)
+        m = self.meter(tap, 16)
+        self.play(tap, stereo(sine(1000.0, 0.5)))
+        self.now[0] += 1.0
+        self.assertGreater(m.levels()[0], 0)
+        self.assertEqual(m.stats()["lapped"], 1)
+
+    def test_attached_meters_are_not_fed(self):
+        m = self.meter(audiopump.Tap(frames=64), 8)
+        with self.assertRaises(ValueError):
+            m.feed(bytes(64), RATE, 2)
+        m.detach()
+        m.feed(bytes(64), RATE, 2)
+        self.assertIsNone(m.stats()["source"])
 
 if __name__ == "__main__":
     unittest.main()
