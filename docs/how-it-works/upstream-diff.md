@@ -1109,6 +1109,29 @@ port, so none was ever reachable upstream:
   taken there) is unaffected, confirmed by re-running the full tier 0-5
   parity suite plus the LVGL smoke test on unix after the change.
 
+## Tier 5 audiomp3 on CPython: the same decoder, and 64-bit MSVC
+
+The CPython wheel compiles the same Helix sources, fetched and patched the
+same way (`setup.py` runs the fetch itself when `.deps/mp3` is missing, and
+the sdist carries the fetched sources). What drives the decoder there is
+[`src/cpython/audiodsp_mp3.c`](../../src/cpython/audiodsp_mp3.c): the input
+buffer, ID3v2 skip, sync-word search, output buffers and rewind of
+[`src/audiomp3/MP3Decoder.c`](../../src/audiomp3/MP3Decoder.c), step for step,
+over two read and seek callbacks instead of MicroPython's stream API. A change
+to one of the two belongs in the other.
+[`tests/test_cpython_audiomp3.py`](../../tests/test_cpython_audiomp3.py) holds
+CPython to the unix MicroPython build's SHA-256 of
+`tests/parity/fixtures/rewind.mp3`, and `verify_dsp.py` compares
+`mp3_rewind_probe.py` between the two.
+
+Every wheel defines `MP3DEC_GENERIC`, so `mp3dec.h` accepts any platform, and
+every one takes `assembly.h`'s portable C arithmetic, the path x86-64 and
+aarch64 builds of the firmware take. The Windows wheel is built with MSVC for
+x64, which has no inline assembly at all, so a second patch,
+`patches/adafruit_mp3/0002-msvc-x64-portable-path.patch`, sends `_WIN64` to
+that portable path too, with a `CLZ` over `_BitScanReverse` because MSVC has
+no `__builtin_clz`. No firmware build is compiled by MSVC, so none changes.
+
 ## Tier 5 audiomp3: allocator wiring diverges from upstream (both are correct)
 
 Upstream's Make glue picks between two different `MPDEC_ALLOCATOR(x)`/

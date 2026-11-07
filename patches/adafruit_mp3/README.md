@@ -11,3 +11,9 @@ declared in `DEPENDENCIES.lock`.
   excludes `__GNUC__` so mingw falls through to the portable C path.
   CircuitPython never hits this (no Windows port). Full rationale:
   [`docs/how-it-works/upstream-diff.md`](../../docs/how-it-works/upstream-diff.md), "Tier 5 audiomp3".
+- `0002-msvc-x64-portable-path.patch` — 64-bit MSVC, which builds the
+  Windows CPython wheel, has no inline assembly, so `src/assembly.h` also
+  sends `_WIN64` to the portable C path, with an MSVC `CLZ`. No firmware
+  build is compiled by MSVC, so none changes.
+
+`setup.py` applies the same queue when it fetches the decoder for a wheel.

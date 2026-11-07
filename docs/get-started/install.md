@@ -18,8 +18,9 @@ This gets you `audiocore`, `synthio`, `audiomixer`, `audiofilters`,
 `audiodelays`, `audiofreeverb`, `audiospeed`, `audiodynamics`, `audioroute`,
 `audiomath`, `audioecho`, `audioshaper`, `audioladder`, `audiooscillator`,
 `audioconvolve`, `audiobiquad`, `audioverb`, `audiomodal`, `audiosampler`, `audiometer`,
-`audiofeatures`, `audiopump`, `audiovorbis`, `audiograph`, and the `audiorender` package.
-`audiomp3` remains firmware-only. The distribution declares no *required*
+`audiofeatures`, `audiopump`, `audiovorbis`, `audiomp3`, `audiograph`, and the `audiorender` package.
+`audiomp3` decodes with the Helix C decoder a board's firmware compiles, so a
+file decodes to the same bytes here as on a board. The distribution declares no *required*
 runtime dependencies and does not itself publish an `audiodsp` import; its
 version is the `VERSION` file, which is also what `_audiodsp.__version__`
 reports.

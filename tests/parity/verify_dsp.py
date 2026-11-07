@@ -330,8 +330,17 @@ PROBES = (
     ("cp11_fixes_probe.py", "synthio", {}, None),
     # The file-backed half (WaveFile's pad and buffer length, an MP3 cut off
     # mid-frame) is cp11_files_probe.py. It cannot be compared here: CPython
-    # has no audiomp3, which leaves one interpreter in CI. It checks itself
-    # against CircuitPython's answers instead, in clean-build.yml.
+    # reads WAV files through the standard library in its own block sizes,
+    # which leaves one interpreter in CI. It checks itself against
+    # CircuitPython's answers instead, in clean-build.yml.
+    #
+    # audiomp3: CPython compiles the same Helix decoder, so an MP3's two laps
+    # come out the same on both. CircuitPython keeps the decoder's state
+    # across a rewind (docs/how-it-works/upstream-sync.md), so its second lap
+    # differs by design.
+    ("mp3_rewind_probe.py", "audiomp3",
+     {"circuitpython": "upstream keeps the decoder's state across a rewind"},
+     None),
     #
     # PitchShift.freeze, upstream's one audio addition in 11.0.0-alpha.1
     # (9bef7b7606). It checks the sustain itself and exits 1 without it, so a

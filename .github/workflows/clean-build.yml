@@ -184,7 +184,7 @@ jobs:
           MICROPYPATH=audiodsp "$MP" "$PROBE"
 
       # MP3 looping: a rewound file decodes its second lap exactly like its
-      # first. CPython has no audiomp3, so this is the only place it runs. The
+      # first. CPython runs it too, among every probe in test-cpython.yml. The
       # PASS line is required, not just the exit code, so a skip can't pass.
       - name: An MP3 rewound for a loop plays its second lap like its first
         run: |

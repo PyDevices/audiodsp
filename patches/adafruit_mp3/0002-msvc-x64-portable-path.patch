@@ -1,0 +1,58 @@
+From: PyDevices audiodsp
+Date: Sat, 7 Nov 2026 00:00:00 +0000
+Subject: [PATCH] src/assembly.h: let 64-bit MSVC take the portable C path
+
+Purpose: the CPython extension's Windows wheel is built with MSVC, for
+x64. assembly.h sends every non-GCC _WIN32 compiler to its MSVC branch,
+whose MULSHIFT32 is inline `__asm{}`, which 64-bit MSVC doesn't accept at
+all. Excluding _WIN64 sends it to the portable C fallback at the bottom of
+the file, the one x86-64 and aarch64 GCC and clang builds already use, so
+it computes the same results. That fallback's CLZ uses __builtin_clz, which
+MSVC doesn't have, so it gets an MSVC CLZ over _BitScanReverse that returns
+the same counts (32 for zero).
+
+Provenance: written for audiodsp's CPython audiomp3 module (2026-11).
+Upstream never hits this: CircuitPython has no Windows port.
+Upstream-version: authored against Adafruit_MP3
+aac02afd9f24d2ee930f650156654ab9211a306a with 0001 applied.
+Order: second, after 0001-windows-msvc-inline-assembly.patch. Applied by
+scripts/fetch_deps.sh and setup.py on top of the pinned commit.
+Test: no firmware build defines _MSC_VER, so none changes. The Windows
+wheel's tests/test_cpython_audiomp3.py checks the decoded bytes' hash.
+
+diff --git a/src/assembly.h b/src/assembly.h
+index 3427a00..b3b3be3 100644
+--- a/src/assembly.h
++++ b/src/assembly.h
+@@ -70,7 +70,11 @@ extern "C" {
+  * through to the portable C fallback near the bottom of this file (the same
+  * one this workspace's unix build already uses), not to a different branch.
+  */
+-#if (defined _WIN32 && !defined _WIN32_WCE && !defined(__GNUC__)) || (defined __WINS__ && defined _SYMBIAN) || defined(_OPENWAVE_SIMULATOR) || defined(WINCE_EMULATOR)    /* Symbian emulator for Ix86 */
++/* PyDevices local patch 0002: `&& !defined(_WIN64)` too. 64-bit MSVC has no
++ * inline assembly at all, so the CPython extension built with it takes the
++ * portable C fallback as well (with an MSVC CLZ, below).
++ */
++#if (defined _WIN32 && !defined _WIN32_WCE && !defined(__GNUC__) && !defined(_WIN64)) || (defined __WINS__ && defined _SYMBIAN) || defined(_OPENWAVE_SIMULATOR) || defined(WINCE_EMULATOR)    /* Symbian emulator for Ix86 */
+ 
+ #pragma warning( disable : 4035 )	/* complains about inline asm not returning a value */
+ 
+@@ -536,9 +540,18 @@ static inline int FASTABS(int x) {
+ #endif
+ }
+ 
++/* PyDevices local patch 0002: MSVC has no __builtin_clz. */
++#if defined(_MSC_VER)
++#include <intrin.h>
++static inline int CLZ(int x) {
++    unsigned long index;
++    return _BitScanReverse(&index, (unsigned long)x) ? 31 - (int)index : 32;
++}
++#else
+ static inline int CLZ(int x) {
+     return x ? __builtin_clz(x) : 32;
+ }
++#endif
+ 
+ static inline Word64 MADD64(Word64 sum, int x, int y) {
+     return sum + (int64_t)x * y;

@@ -38,6 +38,9 @@
 #include "shared/audiodsp_features.h"
 #include "shared/audiodsp_filter_f32.h"
 #include "shared/audiodsp_vorbis.h"
+#ifdef AUDIODSP_HAVE_MP3
+#include "cpython/audiodsp_mp3.h"
+#endif
 #include "shared/audiodsp_graph.h"
 
 // setup.py defines this from the VERSION file; the fallback is only for
@@ -132,6 +135,7 @@ typedef struct {
     PyObject *meter_state_type;
     PyObject *features_state_type;
     PyObject *vorbis_stream_type;
+    PyObject *mp3_stream_type;
     PyObject *tank_state_type;
     PyObject *modal_state_type;
     PyObject *sampler_state_type;
@@ -5380,6 +5384,232 @@ static PyType_Spec vorbis_stream_spec = {
     .slots = vorbis_stream_slots,
 };
 
+#ifdef AUDIODSP_HAVE_MP3
+// --- MP3Stream: audiomp3's decoder (cpython/audiodsp_mp3.c) ----------------
+//
+// Helix, the decoder the board builds compile, reading the Python file object
+// through two callbacks. A read that raises is kept and raised again once the
+// decoder has returned, as VorbisStream does.
+
+typedef struct {
+    PyObject_HEAD
+    audiodsp_mp3_t *m;
+    PyObject *file;
+    PyObject *pending;   // the exception a read raised, until it's raised again
+} audiodsp_mp3_object_t;
+
+static void mp3_keep_error(audiodsp_mp3_object_t *self) {
+    if (self->pending != NULL) {
+        PyErr_Clear();
+        return;
+    }
+#if PY_VERSION_HEX >= 0x030C0000
+    self->pending = PyErr_GetRaisedException();
+#else
+    PyObject *type, *value, *tb;
+    PyErr_Fetch(&type, &value, &tb);
+    PyErr_NormalizeException(&type, &value, &tb);
+    if (tb != NULL && value != NULL) PyException_SetTraceback(value, tb);
+    Py_XDECREF(type);
+    Py_XDECREF(tb);
+    self->pending = value;
+#endif
+}
+
+static int mp3_raise_pending(audiodsp_mp3_object_t *self) {
+    if (self->pending == NULL) return 0;
+    PyObject *exc = self->pending;
+    self->pending = NULL;
+#if PY_VERSION_HEX >= 0x030C0000
+    PyErr_SetRaisedException(exc);
+#else
+    PyErr_SetObject((PyObject *)Py_TYPE(exc), exc);
+    Py_DECREF(exc);
+#endif
+    return 1;
+}
+
+static long mp3_py_read(void *ds, void *buf, size_t len) {
+    audiodsp_mp3_object_t *self = ds;
+    PyObject *data = PyObject_CallMethod(self->file, "read", "n", (Py_ssize_t)len);
+    if (data == NULL) {
+        mp3_keep_error(self);
+        return AUDIODSP_MP3_EREAD;
+    }
+    if (data == Py_None) {
+        // A non-blocking stream with nothing to read yet.
+        Py_DECREF(data);
+        return AUDIODSP_MP3_EAGAIN;
+    }
+    Py_buffer view;
+    if (PyObject_GetBuffer(data, &view, PyBUF_SIMPLE) < 0) {
+        Py_DECREF(data);
+        mp3_keep_error(self);
+        return AUDIODSP_MP3_EREAD;
+    }
+    Py_ssize_t got = view.len < (Py_ssize_t)len ? view.len : (Py_ssize_t)len;
+    memcpy(buf, view.buf, (size_t)got);
+    PyBuffer_Release(&view);
+    Py_DECREF(data);
+    return (long)got;
+}
+
+// A stream that can't seek (a socket, a pipe) raises here; MP3Decoder then
+// reads past an ID3 tag instead, and doesn't rewind.
+static int64_t mp3_py_seek(void *ds, int64_t offset, int whence) {
+    audiodsp_mp3_object_t *self = ds;
+    PyObject *r = PyObject_CallMethod(self->file, "seek", "Li", (long long)offset, whence);
+    if (r == NULL) {
+        PyErr_Clear();
+        return -1;
+    }
+    long long at = PyLong_AsLongLong(r);
+    Py_DECREF(r);
+    if (at == -1 && PyErr_Occurred()) {
+        PyErr_Clear();
+        return -1;
+    }
+    return (int64_t)at;
+}
+
+static const audiodsp_mp3_io_t mp3_py_io = {
+    mp3_py_read, mp3_py_seek,
+};
+
+static int mp3_raise(audiodsp_mp3_object_t *self, int err) {
+    if (mp3_raise_pending(self)) return -1;
+    if (err == AUDIODSP_MP3_ENOMEM) {
+        PyErr_SetString(PyExc_MemoryError, "Couldn't allocate decoder");
+    } else if (err == AUDIODSP_MP3_EPARSE) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to parse MP3 file");
+    } else {
+        PyErr_SetString(PyExc_OSError, "reading the MP3 stream failed");
+    }
+    return -1;
+}
+
+// MP3Stream(file, inbuf_size=2048)
+static int mp3_stream_init(audiodsp_mp3_object_t *self, PyObject *args, PyObject *kwargs) {
+    PyObject *file;
+    Py_ssize_t inbuf_size = 2048;
+    if (!PyArg_ParseTuple(args, "O|n:MP3Stream", &file, &inbuf_size)) return -1;
+    if (inbuf_size < 16) {
+        PyErr_SetString(PyExc_ValueError, "inbuf_size must be at least 16");
+        return -1;
+    }
+    if (self->m != NULL) {
+        audiodsp_mp3_close(self->m);
+        self->m = NULL;
+    }
+    Py_INCREF(file);
+    Py_XSETREF(self->file, file);
+    int err = 0;
+    self->m = audiodsp_mp3_open(&mp3_py_io, self, (size_t)inbuf_size, &err);
+    if (self->m == NULL) {
+        return mp3_raise(self, err);
+    }
+    return 0;
+}
+
+static void mp3_stream_dealloc(audiodsp_mp3_object_t *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    audiodsp_mp3_close(self->m);
+    self->m = NULL;
+    Py_CLEAR(self->file);
+    Py_CLEAR(self->pending);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
+static int mp3_check_open(audiodsp_mp3_object_t *self) {
+    if (self->m == NULL) {
+        PyErr_SetString(PyExc_ValueError, "the MP3 stream is closed");
+        return -1;
+    }
+    return 0;
+}
+
+// info() -> (sample_rate, channel_count, bytes in each decoded buffer)
+static PyObject *mp3_stream_info(audiodsp_mp3_object_t *self, PyObject *unused) {
+    if (mp3_check_open(self) < 0) return NULL;
+    return Py_BuildValue("(iin)", audiodsp_mp3_sample_rate(self->m),
+        audiodsp_mp3_channels(self->m), (Py_ssize_t)audiodsp_mp3_buffer_bytes(self->m));
+}
+
+// decode() -> (result, bytes): the next frame, interleaved native-endian s16,
+// with audiocore's get_buffer result.
+static PyObject *mp3_stream_decode(audiodsp_mp3_object_t *self, PyObject *unused) {
+    if (mp3_check_open(self) < 0) return NULL;
+    const int16_t *pcm = NULL;
+    size_t nbytes = 0;
+    int result = audiodsp_mp3_decode(self->m, &pcm, &nbytes);
+    if (result < 0) {
+        mp3_raise(self, result);
+        return NULL;
+    }
+    return Py_BuildValue("(iy#)", result, (const char *)pcm, (Py_ssize_t)nbytes);
+}
+
+static PyObject *mp3_stream_rewind(audiodsp_mp3_object_t *self, PyObject *unused) {
+    if (mp3_check_open(self) < 0) return NULL;
+    int err = audiodsp_mp3_rewind(self->m);
+    if (err < 0) {
+        mp3_raise(self, err);
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *mp3_stream_rms_level(audiodsp_mp3_object_t *self, PyObject *unused) {
+    if (mp3_check_open(self) < 0) return NULL;
+    return PyFloat_FromDouble(audiodsp_mp3_rms_level(self->m));
+}
+
+static PyObject *mp3_stream_samples_decoded(audiodsp_mp3_object_t *self, PyObject *unused) {
+    if (mp3_check_open(self) < 0) return NULL;
+    return PyLong_FromUnsignedLong(audiodsp_mp3_samples_decoded(self->m));
+}
+
+static PyObject *mp3_stream_close(audiodsp_mp3_object_t *self, PyObject *unused) {
+    audiodsp_mp3_close(self->m);
+    self->m = NULL;
+    Py_CLEAR(self->file);
+    Py_RETURN_NONE;
+}
+
+AUDIODSP_LOCKED_ARGS(mp3_stream_info, audiodsp_mp3_object_t)
+AUDIODSP_LOCKED_ARGS(mp3_stream_decode, audiodsp_mp3_object_t)
+AUDIODSP_LOCKED_ARGS(mp3_stream_rewind, audiodsp_mp3_object_t)
+AUDIODSP_LOCKED_ARGS(mp3_stream_rms_level, audiodsp_mp3_object_t)
+AUDIODSP_LOCKED_ARGS(mp3_stream_samples_decoded, audiodsp_mp3_object_t)
+AUDIODSP_LOCKED_ARGS(mp3_stream_close, audiodsp_mp3_object_t)
+static PyMethodDef mp3_stream_methods[] = {
+    {"info", (PyCFunction)mp3_stream_info_locked, METH_NOARGS, NULL},
+    {"decode", (PyCFunction)mp3_stream_decode_locked, METH_NOARGS, NULL},
+    {"rewind", (PyCFunction)mp3_stream_rewind_locked, METH_NOARGS, NULL},
+    {"rms_level", (PyCFunction)mp3_stream_rms_level_locked, METH_NOARGS, NULL},
+    {"samples_decoded", (PyCFunction)mp3_stream_samples_decoded_locked, METH_NOARGS, NULL},
+    {"close", (PyCFunction)mp3_stream_close_locked, METH_NOARGS, NULL},
+    {NULL, NULL, 0, NULL},
+};
+
+AUDIODSP_LOCKED_INIT(mp3_stream_init, audiodsp_mp3_object_t)
+static PyType_Slot mp3_stream_slots[] = {
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, mp3_stream_init_locked},
+    {Py_tp_dealloc, mp3_stream_dealloc},
+    {Py_tp_methods, mp3_stream_methods},
+    {0, NULL},
+};
+
+static PyType_Spec mp3_stream_spec = {
+    .name = "_audiodsp.MP3Stream",
+    .basicsize = sizeof(audiodsp_mp3_object_t),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = mp3_stream_slots,
+};
+#endif
+
 static PyObject *audiodsp_meter_db_byte_py(PyObject *module, PyObject *args) {
     double power;
     if (!PyArg_ParseTuple(args, "d:meter_db_byte", &power)) return NULL;
@@ -6447,6 +6677,13 @@ static int audiodsp_exec(PyObject *module) {
     if (state->vorbis_stream_type == NULL) return -1;
     if (PyModule_AddObjectRef(module, "VorbisStream",
         state->vorbis_stream_type) < 0) return -1;
+#ifdef AUDIODSP_HAVE_MP3
+    state->mp3_stream_type = PyType_FromModuleAndSpec(module,
+        &mp3_stream_spec, NULL);
+    if (state->mp3_stream_type == NULL) return -1;
+    if (PyModule_AddObjectRef(module, "MP3Stream",
+        state->mp3_stream_type) < 0) return -1;
+#endif
     if (PyModule_AddIntConstant(module, "METER_MAX_BANDS",
         AUDIODSP_METER_MAX_BANDS) < 0) return -1;
     state->features_state_type = PyType_FromModuleAndSpec(module,
@@ -6532,6 +6769,7 @@ static int audiodsp_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->meter_state_type);
     Py_VISIT(state->features_state_type);
     Py_VISIT(state->vorbis_stream_type);
+    Py_VISIT(state->mp3_stream_type);
     Py_VISIT(state->tank_state_type);
     Py_VISIT(state->modal_state_type);
     Py_VISIT(state->sampler_state_type);
@@ -6561,6 +6799,7 @@ static int audiodsp_clear(PyObject *module) {
     Py_CLEAR(state->meter_state_type);
     Py_CLEAR(state->features_state_type);
     Py_CLEAR(state->vorbis_stream_type);
+    Py_CLEAR(state->mp3_stream_type);
     Py_CLEAR(state->tank_state_type);
     Py_CLEAR(state->modal_state_type);
     Py_CLEAR(state->sampler_state_type);

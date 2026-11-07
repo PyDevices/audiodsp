@@ -19,7 +19,7 @@ fixes, no unix impact".
 Upstream-version: authored against Adafruit_MP3
 aac02afd9f24d2ee930f650156654ab9211a306a, the exact commit
 CircuitPython 10.2.1 vendors (see DEPENDENCIES.lock).
-Order: first and only patch in the series. Applied by
+Order: first in the series. Applied by
 scripts/fetch_deps.sh on top of the pinned commit.
 Test: build the Windows MicroPython port (mingw-w64) with the audiodsp
 usermod; the unix build is unaffected because it never entered this

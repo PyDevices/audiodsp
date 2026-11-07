@@ -23,15 +23,20 @@ build without its fix:
 Every line is compared with what CircuitPython 11.0.0-alpha.1 prints for the
 same script, which is EXPECTED below, and the oracle passes it too.
 MicroPython and CircuitPython only. The CPython package reads WAV files
-through the standard library in its own block sizes and has no audiomp3, so
-the release job's run of every probe under CPython finds this one standing
-aside, and CI runs it on the MicroPython build and requires the PASS line.
+through the standard library in its own block sizes, so the release job's run
+of every probe under CPython finds this one standing aside, and CI runs it on
+the MicroPython build and requires the PASS line. The cut MP3 is checked on
+CPython by tests/test_cpython_audiomp3.py.
 """
 
 import os
 import sys
 
 import audiocore
+
+if sys.implementation.name == "cpython":
+    print("CP11 FILES SKIPPED: CPython reads WAV files its own way")
+    sys.exit(0)
 
 try:
     import audiomp3
