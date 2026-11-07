@@ -114,14 +114,17 @@ jobs:
           ref: v1.29.0
           path: micropython
       - name: Build the unix port with the audiodsp usermod
-        # The manifest names this module with c_module(), so there is no
-        # USER_C_MODULES: the parent-directory scan plus the manifest would
-        # include audiodsp twice. It names no ulab; nothing here uses one.
+        # The manifest names this module with c_module(), so USER_C_MODULES
+        # never points at the workspace: the parent-directory scan plus the
+        # manifest would include audiodsp twice. It points at tests/pump, for
+        # the probes' test sink (sinkstub). It names no ulab; nothing here
+        # uses one.
         run: |
           make -C micropython/mpy-cross -j2
           make -C micropython/ports/unix submodules
           make -C micropython/ports/unix -j2 \
             FROZEN_MANIFEST=$GITHUB_WORKSPACE/audiodsp/manifest.py \
+            USER_C_MODULES=$GITHUB_WORKSPACE/audiodsp/tests/pump \
             CFLAGS_EXTRA="${{ matrix.float-impl.cflags }}"
       - name: Smoke the result
         run: |
@@ -325,6 +328,7 @@ jobs:
                          "pump_probe.py graph --fault late" \
                          "pump_probe.py graph --fault unqueued" \
                          "pump_probe.py table --fault refused" \
+                         "pump_probe.py tail --fault drop" \
                          "route_probe.py ring --fault flip" \
                          "route_probe.py underrun --fault drop" \
                          "route_probe.py overrun --fault drop" \
@@ -358,6 +362,7 @@ jobs:
               commit -q --allow-empty -m "move HEAD"
           make -C micropython/ports/unix -j2 \
             FROZEN_MANIFEST=$GITHUB_WORKSPACE/audiodsp/manifest.py \
+            USER_C_MODULES=$GITHUB_WORKSPACE/audiodsp/tests/pump \
             CFLAGS_EXTRA="${{ matrix.float-impl.cflags }}"
           want=$(git -C audiodsp describe --tags --match 'v[0-9]*' --always --dirty --abbrev=7)
           got=$(./micropython/ports/unix/build-standard/micropython -c "import audioecho; print(audioecho.__revision__)")

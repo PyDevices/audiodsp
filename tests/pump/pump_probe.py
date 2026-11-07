@@ -7,12 +7,12 @@
     <interpreter> tests/pump/pump_probe.py [case ...] [--fault WHICH]
 
 Cases: ``identity``, ``alloc``, ``storm``, ``driver``, ``unpumpable``,
-``swap``, ``writes``, ``tear``, ``fade``, ``graph``, ``table`` (all by
-default).
+``swap``, ``writes``, ``tear``, ``fade``, ``graph``, ``table``, ``tail`` (all
+by default).
 Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
 ``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap, writes),
 ``split`` (tear, graph), ``cut`` (fade), ``late`` and ``unqueued`` (graph),
-``refused`` (table).
+``refused`` (table), ``drop`` (tail).
 Each one must make this exit non-zero; a probe whose failing mode is never
 run is not a gate.
 
@@ -469,10 +469,12 @@ def driver(fault):
     name = audiopump.driver()
     threads = bool(audiopump.threaded())
     # A build with no driver bound still pumps: `threaded()` goes False and
-    # `service()` runs the same loop on the interpreter's thread. A build
-    # WITH one has a thread. Those are the only two shapes.
-    agrees = (name == "none") != threads
-    known = name in ("none", "pthread", "win32", "esp32")
+    # `service()` runs the same loop on the interpreter's thread. A driver
+    # with a thread of its own gives the pump one; a driver with only a sink
+    # (the stm32 DAC, and the probes' `sinkstub`) leaves it in service mode.
+    threaded_drivers = ("pthread", "win32", "esp32")
+    agrees = (name in threaded_drivers) == threads
+    known = name in threaded_drivers + ("none", "stm32", "sinkstub")
     return say("driver", agrees and known,
                "driver()=%r threaded()=%s" % (name, threads))
 
@@ -1331,10 +1333,104 @@ def table(fault):
     return ok
 
 
+# --- tail ------------------------------------------------------------------
+
+
+def _tail_capture(step, lie, run):
+    """Arm the stub sink, let `run(block)` drive the pump, and return what the
+    sink was given."""
+    import _pumpsink
+    got = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 120)
+    _pumpsink.arm(got, step, lie)
+    block = status()
+    run(block)
+    taken, writes = _pumpsink.taken()
+    audiopump.shutdown()
+    return got[:taken], writes
+
+
+def _tail_service(block, until, limit=200000):
+    for _ in range(limit):
+        why = audiopump.service(1) & 3
+        if until(why):
+            return True
+    return False
+
+
+def tail(fault):
+    """A sink that takes less than a block, in service mode: nothing lost.
+
+    A board with no thread for its pump (the stm32 DAC) takes what fits in
+    its ring and returns; the engine keeps the rest and offers it first on
+    the next service(). Two runs through `_pumpsink`, a test driver that
+    takes 37 frames a write and keeps what it got: a one-shot RawSample
+    forty blocks long, one block to the pump, which must arrive whole and in
+    order and then end; and a fading swap between two looped constants,
+    whose ramps must arrive unbroken. ``--fault drop`` has the sink claim
+    every byte while keeping only 37 frames, which is what a dropped tail
+    sounds like, and must fail.
+    """
+    try:
+        import _pumpsink  # noqa: F401
+    except ImportError:
+        return say("tail", True, "skipped: this build has no _pumpsink test driver")
+    if audiopump.threaded():
+        return say("tail", True, "skipped: the pump has a thread here, so no service mode")
+    lie = fault == "drop"
+    step = 37 * CHANNELS * 2
+    source = tone()
+
+    def one_shot(block):
+        audiopump.spawn(audiocore.RawSample(source, sample_rate=RATE,
+                                            channel_count=CHANNELS),
+                        1 << 30, block, sink="stub")
+        _tail_service(block, lambda why: why == 3)
+
+    got, writes = _tail_capture(step, lie, one_shot)
+    want = bytes(source)
+    ok = say("tail: one-shot", bytes(got) == want,
+             "%d of %d bytes, in order, in %d writes" % (len(got), len(want), writes)
+             if bytes(got) == want else
+             "%d of %d bytes, first difference at byte %d" % (
+                 len(got), len(want),
+                 next((i for i in range(min(len(got), len(want))) if got[i] != want[i]),
+                      min(len(got), len(want)))))
+
+    old, new = _flat(8000), _flat(-6000)
+    swapped = [False]
+
+    def fading_swap(block):
+        audiopump.spawn(old, 1 << 30, block, sink="stub", loop=True)
+        _tail_service(block, lambda why: _pumpsink_bytes() >= BLOCK_FRAMES * CHANNELS * 2 * 4)
+        audiopump.retarget(new, loop=True, fade=True)
+        swapped[0] = True
+        _tail_service(block, lambda why: _pumpsink_bytes() >= BLOCK_FRAMES * CHANNELS * 2 * 40)
+        audiopump.stop()
+        audiopump.join()
+
+    got, writes = _tail_capture(step, lie, fading_swap)
+    frames = _frames(got)
+    at = 0
+    while at < len(frames) and frames[at] == 8000:
+        at += 1
+    want = _ramp(8000, BLOCK_FRAMES, False) + _ramp(-6000, BLOCK_FRAMES, True)
+    seen = frames[at:at + len(want)]
+    after = frames[at + len(want):]
+    good = seen == want and len(after) > 0 and all(f == -6000 for f in after)
+    return say("tail: fading swap", good,
+               "old ramped out, new ramped in, %d frames after" % len(after) if good
+               else "the ramps arrived broken at frame %d" % at) and ok
+
+
+def _pumpsink_bytes():
+    import _pumpsink
+    return _pumpsink.taken()[0]
+
+
 CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
          ("driver", driver), ("unpumpable", unpumpable), ("swap", swap),
          ("writes", writes), ("tear", tear), ("fade", fade),
-         ("graph", graph), ("table", table))
+         ("graph", graph), ("table", table), ("tail", tail))
 
 
 def main():
