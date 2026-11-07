@@ -75,7 +75,7 @@ what each module is held to.
 
 ## Build and release wheels
 
-`pydevices-audiodsp` is a native CPython distribution. `python -m build` makes
+`omnipython-audiodsp` is a native CPython distribution. `python -m build` makes
 a local source archive and wheel.
 
 A GitHub Release `vX.Y.Z`, matching the `VERSION` file (which is also where

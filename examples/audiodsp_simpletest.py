@@ -8,7 +8,7 @@ them, and the program pulls the result one block at a time and writes it
 to a WAV file you can open in any audio player. No speaker is needed.
 
 Needs: audiodsp, built into MicroPython or installed on CPython with
-pip install pydevices-audiodsp. CircuitPython has these modules built in.
+pip install omnipython-audiodsp. CircuitPython has these modules built in.
 
 Run it:
     micropython audiodsp_simpletest.py

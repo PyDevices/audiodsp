@@ -6823,7 +6823,7 @@ static PyModuleDef_Slot audiodsp_slots[] = {
 static struct PyModuleDef audiodsp_module = {
     PyModuleDef_HEAD_INIT,
     .m_name = "_audiodsp",
-    .m_doc = "Private native core for pydevices-audiodsp.",
+    .m_doc = "Private native core for omnipython-audiodsp.",
     .m_size = sizeof(audiodsp_state_t),
     .m_methods = audiodsp_methods,
     .m_slots = audiodsp_slots,

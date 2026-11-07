@@ -114,7 +114,7 @@ catalogue better than reading the module directories alphabetically.
 
 audiodsp was named `audioif` earlier; that name now belongs to the audio
 hardware layer. The modules you import did not change. The helper package is
-`audiodsp_util`, and the distribution on PyPI is `pydevices-audiodsp`.
+`audiodsp_util`, and the distribution on PyPI is `omnipython-audiodsp`.
 
 ## How it is checked
 

@@ -9,7 +9,7 @@ overdrive), then call `run()` once a block. Nothing in Python runs between the n
 lets a six-voice polysynth built from these kernels play in real time on an
 ESP32-P4, where the same patch run node by node from Python could not.
 
-It is the same module on CPython (in the `pydevices-audiodsp` wheel),
+It is the same module on CPython (in the `omnipython-audiodsp` wheel),
 MicroPython and CircuitPython, and the same C underneath, so a graph renders
 the same samples on all three: you can build and listen to a patch on the
 desktop and get the board's render, sample for sample.

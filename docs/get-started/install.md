@@ -10,7 +10,7 @@ a MicroPython build, or a CircuitPython build. Once it's installed,
 
 ```sh
 
-The distribution on PyPI is `pydevices-audiodsp`.
+The distribution on PyPI is `omnipython-audiodsp`.
 
 ```
 
@@ -31,14 +31,14 @@ so numpy comes with the `render` extra rather than with the wheel, keeping
 the core dependency-free for boards and wasm:
 
 ```sh
-python -m pip install "pydevices-audiodsp[render]"
+python -m pip install "omnipython-audiodsp[render]"
 ```
 
 
 The instrument and effect libraries, `audioinstruments` and `audioeffects`,
 are not part of this distribution. They live in the
 [audiocomponents](https://github.com/PyDevices/audiocomponents) repository
-as their own packages, each depending on `pydevices-audiodsp`; see that
+as their own packages, each depending on `omnipython-audiodsp`; see that
 repository for how to install them.
 
 To render on several threads, see [Render on several threads](../guides/use-threads.md).

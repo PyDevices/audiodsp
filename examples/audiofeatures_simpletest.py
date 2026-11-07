@@ -10,7 +10,7 @@ bands on the left, darker for more energy, so speech shows up as dense rows
 and silence as blank ones.
 
 Needs: audiodsp, built into MicroPython or installed on CPython with
-pip install pydevices-audiodsp, and a 16-bit PCM WAV file at 16 kHz or
+pip install omnipython-audiodsp, and a 16-bit PCM WAV file at 16 kHz or
 higher, mono or stereo.
 
 Run it:
