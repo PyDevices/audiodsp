@@ -1166,6 +1166,13 @@ none reachable on unix or windows before now:
   /ports/webassembly,$(abspath $(CURDIR)))`) -- unix and windows both
   already match a named `__GNUC__`/arch branch and must keep using it, not
   silently fall back to the generic path.
+  64-bit ARM is the exception that came later: aarch64 and arm64 compilers
+  define `__aarch64__`, not `ARM` or `__ARMEL__`, so a unix build on a
+  Raspberry Pi or an Apple Silicon Mac hit the same `#error`. `micropython.mk`
+  adds `-DMP3DEC_GENERIC` when `$(CC) -dumpmachine` names aarch64 or arm64.
+  That selects the portable C arithmetic in `assembly.h`, which x86-64
+  already uses because `assembly.h` has no amd64 branch, so the decoded
+  bytes match.
 - **`src/synthio/__init__.h`'s `synthio_synth_t`, and
   [`src/synthio/Note.h`](../../src/synthio/Note.h)'s `synthio_bend_mode_t`** were each declared with
   two `typedef`s of the same name -- a forward declaration plus the real

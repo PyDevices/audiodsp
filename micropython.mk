@@ -342,6 +342,15 @@ MPAUDIO_WASM_PORT := $(findstring /ports/webassembly,$(abspath $(CURDIR)))
 ifneq ($(MPAUDIO_WASM_PORT),)
 CFLAGS_USERMOD += -DMP3DEC_GENERIC
 endif
+# 64-bit ARM (a Raspberry Pi or other ARM Linux machine, an Apple Silicon
+# Mac) matches none of the named branches either: its compilers define
+# __aarch64__, not ARM or __ARMEL__. It takes the same escape hatch, which
+# selects the portable C arithmetic in assembly.h -- the path x86-64 already
+# uses, since assembly.h has no amd64 branch -- so it decodes the same bytes.
+MPAUDIO_CC_MACHINE := $(shell $(CC) -dumpmachine 2>/dev/null)
+ifneq ($(filter aarch64% arm64%,$(MPAUDIO_CC_MACHINE)),)
+CFLAGS_USERMOD += -DMP3DEC_GENERIC
+endif
 
 MPAUDIO_MP3_SRC_DIR := $(abspath $(MPAUDIO_MOD_DIR)/.deps/mp3/src)
 ifeq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)
