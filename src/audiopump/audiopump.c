@@ -344,6 +344,24 @@ typedef struct {
     bool service_mode;
     uint32_t max_block_bytes;   // what the tail said it can hand back
     uint64_t park_enter_us;     // wasm: when the park the loop returned on began
+    // Service mode: the part of the last block the sink hasn't taken yet.
+    // A driver with no thread can't wait for its speaker, so its write takes
+    // what fits and returns; the rest goes first on the next service() call,
+    // and nothing is pulled until it has. The block stays valid until the
+    // next pull, and what was to happen after it (the end of a one-shot,
+    // a loop's reset, a fading swap) waits for it too.
+    struct {
+        bool pending;
+        const uint8_t *buffer;  // the block, as pulled (or converted)
+        uint32_t length;
+        uint32_t done;          // bytes of it behind the piece in progress
+        uint32_t sunk;          // bytes of the piece in progress written
+        bool up;                // the fade the block was going out with
+        bool down;
+        bool end;               // then: the one-shot ends
+        bool reset;             // then: the loop rewinds
+        bool swap;              // then: the fading swap
+    } tail;
 } audiopump_ctx_t;
 
 // Why a service() call gave the thread back. Two bits, so the answer and the
@@ -550,7 +568,22 @@ static inline bool audiopump_ring_room(audiopump_ctx_t *ctx, uint32_t length) {
 // the ring and the tap and before the sink write. `clock_bytes` is how much
 // graph audio this completes (0 for silence the pump made up, which is not a
 // frame of the graph).
+static void AUDIODSP_HOT audiopump_emit_front(audiopump_ctx_t *ctx,
+    const audiodsp_port_ops_t *port, const uint8_t *buffer, uint32_t length,
+    audiopump_out_t *out, uint32_t clock_bytes);
+static uint32_t AUDIODSP_HOT audiopump_emit_sink(audiopump_ctx_t *ctx,
+    const audiodsp_port_ops_t *port, const uint8_t *buffer, uint32_t length,
+    audiopump_out_t *out);
+
 static void AUDIODSP_HOT audiopump_emit(audiopump_ctx_t *ctx,
+    const audiodsp_port_ops_t *port, const uint8_t *buffer, uint32_t length,
+    audiopump_out_t *out, uint32_t clock_bytes) {
+    audiopump_emit_front(ctx, port, buffer, length, out, clock_bytes);
+    (void)audiopump_emit_sink(ctx, port, buffer, length, out);
+}
+
+// The ring, the tap and the clock: everything but the sink.
+static void AUDIODSP_HOT audiopump_emit_front(audiopump_ctx_t *ctx,
     const audiodsp_port_ops_t *port, const uint8_t *buffer, uint32_t length,
     audiopump_out_t *out, uint32_t clock_bytes) {
     // The ring, if there is one. Single producer (here), single consumer
@@ -611,7 +644,13 @@ static void AUDIODSP_HOT audiopump_emit(audiopump_ctx_t *ctx,
         AUDIOPUMP_STORE_REL(&ctx->frames, ctx->frames + nframes);
         ctx->status[STATUS_FRAMES] = ctx->frames;
     }
+}
 
+// The sink: what it took.
+static uint32_t AUDIODSP_HOT audiopump_emit_sink(audiopump_ctx_t *ctx,
+    const audiodsp_port_ops_t *port, const uint8_t *buffer, uint32_t length,
+    audiopump_out_t *out) {
+    uint32_t written = 0;
     // The sink, whatever it is: a file descriptor on a desktop, an I2S
     // channel on a board. One call either way, and the engine never learns
     // which -- a write(2) and an i2s_channel_write are the same shape and
@@ -630,7 +669,7 @@ static void AUDIODSP_HOT audiopump_emit(audiopump_ctx_t *ctx,
         }
         bool timed_out = false;
         const uint64_t s0 = audiopump_now_us();
-        const uint32_t written = port->sink_write(buffer, length,
+        written = port->sink_write(buffer, length,
             ctx->sink_timeout_ms, &timed_out);
         out->sink_us += audiopump_now_us() - s0;
         if (timed_out) {
@@ -641,7 +680,10 @@ static void AUDIODSP_HOT audiopump_emit(audiopump_ctx_t *ctx,
         // park writes silence for as long as it lasts and anything comparing
         // this word with the byte clock would read that silence as starved.
         ctx->status[STATUS_SINK_BYTES] = out->sink_bytes;
+    } else {
+        written = length;   // no sink: nothing is owed to it
     }
+    return written;
 }
 
 // The same, ramped: `up` fades it in, `down` fades it out, both makes a
@@ -682,6 +724,64 @@ static void AUDIODSP_HOT audiopump_emit_faded(audiopump_ctx_t *ctx,
             done + n >= length ? length : 0);
         done += n;
     }
+}
+
+// The service-mode form of audiopump_emit_faded(): the same pieces in the
+// same order, but a sink that takes less than a piece ends it there, with
+// what's left kept in ctx->tail for audiopump_tail_resume(). Starts `done`
+// bytes into the block with `sunk` of that piece already written, which the
+// ring, the tap and the clock have had. True when the whole block is out.
+static bool AUDIODSP_HOT audiopump_emit_kept(audiopump_ctx_t *ctx,
+    const audiodsp_port_ops_t *port, const uint8_t *buffer, uint32_t length,
+    bool up, bool down, uint32_t done, uint32_t sunk, audiopump_out_t *out) {
+    uint32_t channels = 2;
+    bool s16 = true;
+    if (ctx->conv == NULL) {
+        const audiosample_base_t *base = MP_OBJ_TO_PTR(ctx->sample);
+        channels = base->channel_count;
+        s16 = base->bits_per_sample == 16 && base->samples_signed;
+    }
+    const uint32_t frame = channels * 2u;
+    const uint32_t chunk = frame ? (ctx->fade_len / frame) * frame : 0;
+    const bool faded = (up || down) && s16 && ctx->fade != NULL && chunk != 0
+        && length >= frame;
+    const uint32_t total = faded ? length / frame : 0;
+    while (done < length) {
+        uint32_t n = length - done;
+        const uint8_t *piece = buffer + done;
+        if (faded) {
+            if (n > chunk) {
+                n = chunk;
+            }
+            // Faded again from the block on a resume: the same ramp gives
+            // the same samples, and the scratch may have been used since.
+            memmove(ctx->fade, piece, n);
+            audiopump_ramp((int16_t *)ctx->fade, n / frame, channels,
+                done / frame, total, up, down);
+            piece = ctx->fade;
+        }
+        if (sunk == 0) {
+            // The clock moves once, with the last piece, by the whole block.
+            audiopump_emit_front(ctx, port, piece, n, out,
+                done + n >= length ? length : 0);
+        }
+        const uint32_t w = audiopump_emit_sink(ctx, port, piece + sunk,
+            n - sunk, out);
+        if (w < n - sunk) {
+            ctx->tail.pending = true;
+            ctx->tail.buffer = buffer;
+            ctx->tail.length = length;
+            ctx->tail.done = done;
+            ctx->tail.sunk = sunk + w;
+            ctx->tail.up = up;
+            ctx->tail.down = down;
+            return false;
+        }
+        done += n;
+        sunk = 0;
+    }
+    ctx->tail.pending = false;
+    return true;
 }
 
 // How much audio is queued ahead of the speaker, in bytes. False where
@@ -791,6 +891,45 @@ static void audiopump_adopt(audiopump_ctx_t *ctx, mp_obj_t sample,
         ((audiosample_base_t *)MP_OBJ_TO_PTR(sample))->max_buffer_length;
 }
 
+// The old tail's last block is out, faded; now the swap, under the lock, and
+// the new tail's first block fades in.
+static void audiopump_swap_now(audiopump_ctx_t *ctx) {
+    audiodsp_pump_lock_acquire_pump();
+    if (ctx->swap_req) {
+        audiopump_adopt(ctx, ctx->swap_sample, ctx->swap_protocol,
+            ctx->swap_loop);
+        ctx->swap_req = false;
+        ctx->fade_in = true;
+        ctx->fades++;
+        ctx->swap_done = true;
+    }
+    audiodsp_pump_lock_release_pump();
+}
+
+// Service mode: the rest of a block the sink didn't take, before anything
+// new is pulled. True once it's all out.
+// The tail points into a block the current sample handed back, so it lives
+// only as long as that block can be trusted. stop(), a teardown, a plain
+// retarget and a deinit() drop it whole: what was due to follow it (a loop's
+// rewind, the end) belonged to the old sample too. A park drops only the
+// bytes, because the graph may be rewired before the next service(); a swap,
+// rewind or end that was waiting on them still happens.
+static void audiopump_tail_drop(audiopump_ctx_t *ctx, bool keep_after) {
+    ctx->tail.pending = false;
+    ctx->tail.buffer = NULL;
+    if (!keep_after) {
+        ctx->tail.swap = false;
+        ctx->tail.reset = false;
+        ctx->tail.end = false;
+    }
+}
+
+static bool AUDIODSP_HOT audiopump_tail_resume(audiopump_ctx_t *ctx,
+    const audiodsp_port_ops_t *port, audiopump_out_t *out) {
+    return audiopump_emit_kept(ctx, port, ctx->tail.buffer, ctx->tail.length,
+        ctx->tail.up, ctx->tail.down, ctx->tail.done, ctx->tail.sunk, out);
+}
+
 static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
     uint64_t budget) {
     uint64_t digest = ctx->acc_digest;
@@ -832,6 +971,36 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
         if (spent >= budget) {
             why = AUDIOPUMP_SERVICE_MORE;
             break;
+        }
+        // Service mode: what the sink didn't take last time goes first, and
+        // then what was waiting for it.
+        if (ctx->tail.pending && ctx->sample != MP_OBJ_NULL
+            && audiosample_deinited((audiosample_base_t *)MP_OBJ_TO_PTR(ctx->sample))) {
+            audiopump_tail_drop(ctx, false);    // the pull below reports it
+        }
+        // Not while parked: a park dropped the bytes, and what waited on them
+        // waits for unpark(), after the rewire.
+        if ((ctx->tail.pending || ctx->tail.swap || ctx->tail.reset || ctx->tail.end)
+            && !ctx->park_req) {
+            if (ctx->tail.pending && !audiopump_tail_resume(ctx, port, &out)) {
+                why = AUDIOPUMP_SERVICE_FULL;
+                break;
+            }
+            if (ctx->tail.swap) {
+                ctx->tail.swap = false;
+                audiopump_swap_now(ctx);
+            }
+            if (ctx->tail.reset) {
+                ctx->tail.reset = false;
+                AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_RESET);
+                (void)audiodsp_sample_reset(&ctx->source, false, 0);
+            }
+            if (ctx->tail.end) {
+                ctx->tail.end = false;
+                error = 3;
+                break;
+            }
+            continue;
         }
         // The ring is the pace, on every port that has one. A block that will
         // not fit is not dropped and not overwritten: the pull simply does not
@@ -910,6 +1079,7 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
         // pull below runs with `hold_this` set, and the next turn round comes
         // back here holding it, to wait out the park against the deadline.
         bool hold_this = false;
+        bool kept = false;
         if (ctx->park_req && ctx->park_fade && !ctx->service_mode
             && ctx->fade != NULL && port->park_spin != NULL) {
             if (ctx->holding) {
@@ -1123,24 +1293,23 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
             }
             ctx->held_len = length;
             ctx->holding = true;
+        } else if (ctx->service_mode) {
+            // A driver with no thread takes what fits and returns; the rest
+            // is kept, not dropped, and goes out on the next service().
+            kept = !audiopump_emit_kept(ctx, port, buffer, length,
+                ctx->fade_in, swapping, 0, 0, &out);
+            ctx->fade_in = false;
         } else {
             audiopump_emit_faded(ctx, port, buffer, length, ctx->fade_in,
                 swapping, &out);
             ctx->fade_in = false;
         }
         if (swapping) {
-            // The old tail's last block is out, faded; now the swap, under the
-            // lock, and the new tail's first block fades in.
-            audiodsp_pump_lock_acquire_pump();
-            if (ctx->swap_req) {
-                audiopump_adopt(ctx, ctx->swap_sample, ctx->swap_protocol,
-                    ctx->swap_loop);
-                ctx->swap_req = false;
-                ctx->fade_in = true;
-                ctx->fades++;
-                ctx->swap_done = true;
+            if (kept) {
+                ctx->tail.swap = true;
+            } else {
+                audiopump_swap_now(ctx);
             }
-            audiodsp_pump_lock_release_pump();
         }
 
         // The pace, if one was asked for: hold until this block's moment.
@@ -1184,6 +1353,12 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
         }
         if (result == AUDIODSP_BUFFER_DONE) {
             if (!ctx->loop) {
+                if (kept) {
+                    // The one-shot ends once its last block is all out.
+                    ctx->tail.end = true;
+                    why = AUDIOPUMP_SERVICE_FULL;
+                    break;
+                }
                 error = 3;
                 break;
             }
@@ -1198,9 +1373,17 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
             // so it never enters the runtime. A RawSample with one buffer
             // says DONE on every pull, which is why a looped RawSample is
             // this branch every single block and has to be this cheap.
-            AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_RESET);
-            (void)audiodsp_sample_reset(&ctx->source, false, 0);
+            if (kept) {
+                ctx->tail.reset = true;     // after the block it rewinds under
+            } else {
+                AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_RESET);
+                (void)audiodsp_sample_reset(&ctx->source, false, 0);
+            }
             result = AUDIODSP_BUFFER_MORE_DATA;
+        }
+        if (kept) {
+            why = AUDIOPUMP_SERVICE_FULL;
+            break;
         }
     }
 
@@ -1443,6 +1626,9 @@ static void audiopump_entry(void *arg) {
 static void audiopump_teardown(bool release_guard) {
     audiopump_ctx.stop = true;
     audiopump_ctx.park_req = false;
+    if (audiopump_ctx.service_mode) {
+        audiopump_tail_drop(&audiopump_ctx, false);
+    }
     audiodsp_pump_set_active(false);
     const audiodsp_port_ops_t *port = audiodsp_port();
     if (audiopump_live && !audiopump_ctx.service_mode) {
@@ -1806,6 +1992,9 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiopump_join_obj, 0, 1,
 void audiopump_c_stop(void) {
     audiopump_ctx.stop = true;
     audiopump_ctx.park_req = false;
+    if (audiopump_ctx.service_mode) {
+        audiopump_tail_drop(&audiopump_ctx, false);
+    }
     const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->thread_wake != NULL) {
         port->thread_wake();
@@ -1918,6 +2107,7 @@ static bool audiopump_c_park_fade(uint32_t timeout_us, bool fade) {
         }
     }
     if (audiopump_ctx.service_mode) {
+        audiopump_tail_drop(&audiopump_ctx, true);
         // The loop is not running -- this call IS the only thread -- so the
         // pump is already at a block boundary by construction and park() is a
         // store. The wait below would spin until the timeout and then report
@@ -2059,6 +2249,9 @@ void audiopump_c_retarget(mp_obj_t sample, int loop) {
     // the latest call is the tail that plays.
     audiopump_ctx.swap_req = false;
     MP_STATE_VM(audiopump_held)[AUDIOPUMP_HELD_NEXT] = MP_OBJ_NULL;
+    if (audiopump_ctx.service_mode) {
+        audiopump_tail_drop(&audiopump_ctx, false);
+    }
     audiopump_ctx.protocol = protocol;
     audiopump_ctx.sample = sample;
     // The loop flag belongs to the tail, not to the pump's whole lifetime.
