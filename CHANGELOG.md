@@ -1,3 +1,8 @@
+## v0.6.15.dev0 (2026-11-07)
+
+- audiomp3: MP3 files decode on CPython with the boards' Helix decoder (#390)
+- Docs: Raspberry Pi 5 should take the aarch64 wheel; reports welcome (#389)
+
 ## v0.6.14.dev0 (2026-11-07)
 
 - audiomp3: build into MicroPython on 64-bit ARM Linux and macOS (#387)
