@@ -1021,6 +1021,34 @@ class Tap:
         self._last_read = w
         return want
 
+    def _read_since(self, cursor, limit):
+        """(data, cursor, lapped): what was written after ``cursor``, at most
+        ``limit`` bytes, as audiopump_tap_read_since() hands it to a meter.
+
+        Each reader keeps its own cursor, so several can share the tap.
+        """
+        w = self._w
+        start = cursor
+        avail = (w - start) & _MASK32
+        lapped = False
+        if avail > self._cap:
+            # As the C keeps it: an eighth of margin from the writer.
+            keep = self._cap - self._cap // 8
+            keep -= keep % self._frame
+            start = (w - keep) & _MASK32
+            avail = keep
+            lapped = True
+        n = min(avail, limit)
+        n -= n % self._frame
+        if n == 0:
+            return b"", start, lapped
+        at = start & (self._cap - 1)
+        first = min(self._cap - at, n)
+        data = bytes(self._buf[at:at + first])
+        if n > first:
+            data += bytes(self._buf[:n - first])
+        return data, (start + n) & _MASK32, lapped
+
     def stats(self):
         """(bytes written, blocks, reads, torn, capacity, frame bytes)."""
         return (self._w, self._blocks, self._reads, self._torn, self._cap,

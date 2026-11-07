@@ -16,6 +16,10 @@ On a board it can listen without Python touching a sample.
 I2S, or a USB sound card playing through the pump. `seq` counts analyses, 60 a second of audio, so a
 reader can tell fresh levels from a stopped stream.
 
+`attach()` works on a desktop too, where the reading is a Python copy. A
+desktop's pump renders ahead in bursts, so there the meter takes in only what
+has played since the last `levels()`, and the bars keep moving between bursts.
+
 Two FFTs, because one can't be both quick and sharp at the bottom of a log
 scale: 1024 points for the bands above 400 Hz, and 512 points on a copy
 low-passed and decimated by 16 for those below. A band's level is the
