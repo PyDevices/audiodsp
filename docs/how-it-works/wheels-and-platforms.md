@@ -6,13 +6,13 @@ and why. The steps to build and release are in
 
 ## What a release builds
 
-A release builds and validates exactly **24** wheels
+A release builds and validates exactly **30** wheels
 (`expected-wheel-count` in `.github/workflows/publish-release-packages.yml`
 is the number that counts; if this page and that value disagree, the workflow
 is right):
 
 - CPython 3.11 to 3.15, plus the free-threaded 3.15t, on manylinux_2_28
-  x86_64, Windows AMD64 and macosx_arm64: 18.
+  x86_64, manylinux_2_28 aarch64, Windows AMD64 and macosx_arm64: 24.
 - CPython 3.13 to 3.14, Android API 21 arm64_v8a and x86_64: 4.
 - CPython 3.13 to 3.14, Pyodide wasm32: 2.
 
@@ -32,7 +32,7 @@ x86_64 or universal2 wheel cross-compiled there couldn't run its test
 command. An untested wheel is a claim, not a capability, so an Intel Mac
 field report is what would add x86_64.
 
-## Linux aarch64: CI-proven, not shipped
+## Linux aarch64: CI-proven and shipped
 
 `[tool.cibuildwheel.linux]` uses `archs = ["auto64"]`, the runner's own
 64-bit architecture, with `manylinux_2_28` images for both x86_64 and
@@ -51,10 +51,9 @@ architecture, and an emulator reproduces those only by accident:
   compiling the extension and running each wheel's import smoke test.
   Nothing is published.
 
-A release still ships no aarch64 wheel. The organization's desktop wheel
-matrix has no ARM cell, so shipping one means adding an ARM runner to that
-matrix, cutting a new publishing tag, and moving this repository's pin and
-`expected-wheel-count` together.
+Releases ship the aarch64 wheels too, built by the release workflow on the
+same kind of native ARM runner, so `pip install omnipython-audiodsp` works
+on 64-bit Raspberry Pi OS and other 64-bit ARM Linux machines.
 
 ## The same bytes within one architecture
 
