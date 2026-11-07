@@ -1,3 +1,13 @@
+## v0.6.14.dev0 (2026-11-07)
+
+- audiomp3: build into MicroPython on 64-bit ARM Linux and macOS (#387)
+- Wheels for Linux on ARM64, such as 64-bit Raspberry Pi OS (#386)
+- audiopump: a sink with no thread keeps the rest of a long block for later (#385)
+- MicroPython: audiodsp builds and links on the stm32 port (#384)
+- Style check: fail a pull request on the mechanical style rules (#383)
+- LICENSE: copyright Brad Barnett, as the file headers say (#382)
+- Docstrings: Google sections and cross-references; licence headers on every file (#381)
+
 ## v0.6.13 (2026-11-03)
 
 
