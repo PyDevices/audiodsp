@@ -527,7 +527,7 @@ def pull(sample, blocks, status, sink=None, ring=None):
     _run_end(ctx)
 
 
-def spawn(sample, blocks, status, sink=None, ring=None, core=-1, prio=4,
+def spawn(sample, blocks, status, sink=None, ring=None, core=-1, prio=21,
           stack=16384, psram=False, timeout_ms=200, pace=False, loop=False):
     """Adopt `sample` as the pump's tail. Returns -2: there is no thread.
 
