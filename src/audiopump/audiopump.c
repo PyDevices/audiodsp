@@ -1768,6 +1768,14 @@ static void audiopump_refuse_unpumpable(mp_obj_t sample) {
 
 static int audiopump_launch(int core, int prio, int stack, bool psram);
 
+// The pump's FreeRTOS priority on ESP32 (other ports ignore it). It shares
+// its core with the Bluetooth host, whose tasks run at 19 and 20; below them,
+// an A2DP stream decoding beside a busy display left the pump short of the
+// I2S rate (42.5k of 44.1k frames a second on an ESP32 with PSRAM), and the
+// DMA ran dry. Each pull is short and then waits on the DMA, so ranking it
+// above the host costs the host nothing it notices.
+#define AUDIOPUMP_TASK_PRIO 21
+
 static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
     mp_map_t *kw_args) {
     enum { ARG_sample, ARG_blocks, ARG_status, ARG_sink, ARG_ring, ARG_core,
@@ -1779,7 +1787,7 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
         { MP_QSTR_sink,       MP_ARG_OBJ,  { .u_obj = mp_const_none } },
         { MP_QSTR_ring,       MP_ARG_OBJ,  { .u_obj = mp_const_none } },
         { MP_QSTR_core,       MP_ARG_INT,  { .u_int = -1 } },
-        { MP_QSTR_prio,       MP_ARG_INT,  { .u_int = 4 } },
+        { MP_QSTR_prio,       MP_ARG_INT,  { .u_int = AUDIOPUMP_TASK_PRIO } },
         { MP_QSTR_stack,      MP_ARG_INT,  { .u_int = 16384 } },
         { MP_QSTR_psram,      MP_ARG_BOOL, { .u_bool = false } },
         { MP_QSTR_timeout_ms, MP_ARG_INT,  { .u_int = 200 } },
@@ -1924,7 +1932,7 @@ int audiopump_c_spawn(mp_obj_t sample, mp_obj_t status, uint64_t blocks,
         audiopump_ctx.pace_rate =
             ((audiosample_base_t *)MP_OBJ_TO_PTR(sample))->sample_rate;
     }
-    return audiopump_launch(core, 4, 16384, false);
+    return audiopump_launch(core, AUDIOPUMP_TASK_PRIO, 16384, false);
 }
 
 bool audiopump_c_join(uint32_t timeout_ms) {
