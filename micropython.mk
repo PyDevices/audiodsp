@@ -372,7 +372,6 @@ ifneq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)
 CFLAGS_USERMOD += -I$(MPAUDIO_MP3_SRC_DIR)
 SRC_USERMOD_C += $(addprefix $(MPAUDIO_MP3_SRC_DIR)/, \
     bitstream.c \
-    buffers.c \
     dct32.c \
     dequant.c \
     dqchan.c \
@@ -388,16 +387,14 @@ SRC_USERMOD_C += $(addprefix $(MPAUDIO_MP3_SRC_DIR)/, \
     trigtabs.c \
     )
 
-# buffers.c's MPDEC_ALLOCATOR(x)/MPDEC_FREE(x) macros (used nowhere else in
-# lib/mp3) route through this port's own mp3_alloc()/mp3_free()
-# (src/audiomp3/mp3_alloc.h -> m_malloc_maybe/m_free), matching upstream's
-# own production (non-coverage-build) allocator wiring exactly, including
-# the -fwrapv upstream applies to this one file only (Helix's fixed-point
-# DSP relies on defined signed-overflow wraparound here).
-$(BUILD)/mp3/src/buffers.o: CFLAGS += -include "$(MPAUDIO_SRC_DIR)/audiomp3/mp3_alloc.h" -D'MPDEC_ALLOCATOR(x)=mp3_alloc(x)' -D'MPDEC_FREE(x)=mp3_free(x)' -fwrapv
-
+# buffers.c is compiled through src/audiomp3/mp3_buffers.c, which hands it
+# this port's allocator, the same file the CMake build compiles. A per-object
+# CFLAGS rule used to do it here, but the object's path depends on where the
+# source was found and on the MicroPython version, and when the path missed,
+# Helix fell back to its static buffers without a word.
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiomp3/mp3_alloc.c \
+    $(MPAUDIO_SRC_DIR)/audiomp3/mp3_buffers.c \
     $(MPAUDIO_SRC_DIR)/audiomp3/MP3Decoder.c \
     $(MPAUDIO_SRC_DIR)/audiomp3/module.c
 endif

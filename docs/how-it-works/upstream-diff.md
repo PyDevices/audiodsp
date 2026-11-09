@@ -1081,6 +1081,14 @@ port, so none was ever reachable upstream:
   definition without issue). Dropping `MP_WEAK` entirely -- correct here
   since nothing in this port ever needs to override these two one-line
   wrappers -- fixed the windows link with no effect on unix.
+- **The same file asks the bound driver first.** When the driver fills the
+  `mem_alloc_hot`/`mem_free_hot` pair in
+  [`src/shared/audiodsp_port.h`](../../src/shared/audiodsp_port.h), the Helix
+  buffers come from there instead of the GC heap. On a classic ESP32 whose
+  GC heap is PSRAM, the decoder ran at half speed in more than half of the
+  runs measured, and none once these buffers moved to internal RAM. Where
+  the memory lives doesn't change the decoded PCM; a driver without the pair
+  gets the GC heap, as before.
 - **[`src/audiomp3/MP3Decoder.c`](../../src/audiomp3/MP3Decoder.c)'s `stream_readable()`** (ported from CP's
   own `MP3Decoder.c`) calls `stream_p->ioctl(stream, MP_STREAM_POLL, ...)`
   to check whether the input stream has data ready before attempting a

@@ -49,16 +49,38 @@
 #include "audiomp3/mp3_alloc.h"
 #include "py/misc.h"
 #include "py/mpconfig.h"
+#include "shared/audiodsp_port.h"
 
 #if MICROPY_ENABLE_GC
 #include "py/gc.h"
 #endif
 
+// Deviation from upstream, part 3: the bound driver may hand out faster
+// memory for these buffers (shared/audiodsp_port.h, "memory a decoder
+// touches on every frame"). Helix reads and writes them many times per
+// frame; from PSRAM on a classic ESP32 that halved the decode rate in more
+// than half of the runs measured. With no such hooks nothing changes. The
+// binding never changes after the first call, so mp3_free always matches
+// mp3_alloc.
+static const audiodsp_port_ops_t *mp3_port_hot(void) {
+    const audiodsp_port_ops_t *p = audiodsp_port();
+    return (p->mem_alloc_hot != NULL && p->mem_free_hot != NULL) ? p : NULL;
+}
+
 void *mp3_alloc(size_t sz) {
+    const audiodsp_port_ops_t *p = mp3_port_hot();
+    if (p != NULL) {
+        return p->mem_alloc_hot(sz);
+    }
     return m_malloc_maybe(sz);
 }
 
 void mp3_free(void *ptr) {
+    const audiodsp_port_ops_t *p = mp3_port_hot();
+    if (p != NULL) {
+        p->mem_free_hot(ptr);
+        return;
+    }
     #if MICROPY_ENABLE_GC
     gc_free(ptr);
     #else

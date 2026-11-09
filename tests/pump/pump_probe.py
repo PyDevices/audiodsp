@@ -8,11 +8,11 @@
 
 Cases: ``identity``, ``alloc``, ``storm``, ``driver``, ``unpumpable``,
 ``swap``, ``writes``, ``reads``, ``tear``, ``fade``, ``graph``, ``table``,
-``tail``, ``switch`` (all by default).
+``tail``, ``switch``, ``hotmem`` (all by default).
 Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
 ``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap, writes),
 ``split`` (tear, graph), ``cut`` (fade), ``late`` and ``unqueued`` (graph),
-``refused`` (table), ``drop`` (tail), ``locked`` (reads).
+``refused`` (table), ``drop`` (tail), ``locked`` (reads), ``leak`` (hotmem).
 Each one must make this exit non-zero; a probe whose failing mode is never
 run is not a gate.
 
@@ -85,6 +85,14 @@ What each case is for
     Each read must leave the lock ledger at zero takes. ``--fault locked``
     makes a write that takes the lock instead, and must fail. Skipped on
     CPython, as ``swap`` is.
+
+``hotmem``  A driver's hot memory carries the MP3 decoder's buffers. When
+    the bound driver fills ``mem_alloc_hot`` and ``mem_free_hot``, the
+    decoder's working buffers come from there, and every one goes back on
+    ``deinit()``. Through ``_pumpsink``, which counts both: a decoder that
+    plays the fixture to its end must take at least one block and give back
+    exactly as many. ``--fault leak`` skips the ``deinit()`` and must fail.
+    Skipped on a build without ``_pumpsink`` or without ``audiomp3``.
 
 ``tear``    One ``set()`` is one change. The six nodes whose ``set()``
     takes a table of options -- ``Waveshaper``, ``Ladder``, ``Bank``,
@@ -801,6 +809,38 @@ def reads(fault):
     for each in keep:
         each.deinit()
     return ok
+
+
+# --- hotmem ----------------------------------------------------------------
+
+
+def hotmem(fault):
+    try:
+        import _pumpsink
+    except ImportError:
+        return say("hotmem", True, "skipped: this build has no _pumpsink test driver")
+    try:
+        import audiomp3
+    except ImportError:
+        return say("hotmem", True, "skipped: this build has no audiomp3")
+    taken0, given0 = _pumpsink.hot()
+    decoder = audiomp3.MP3Decoder(_mp3_fixture())
+    taken1, given1 = _pumpsink.hot()
+    blocks = 0
+    while True:
+        result, _buf = audiocore.get_buffer(decoder)
+        blocks += 1
+        if result == 0 or blocks > 10000:
+            break
+    if fault != "leak":
+        decoder.deinit()
+    taken2, given2 = _pumpsink.hot()
+    taken = taken1 - taken0
+    ok = say("decoder buffers from the hot pair", taken > 0,
+             "%d taken for %d buffers decoded" % (taken, blocks))
+    back = given2 - given0
+    return say("all given back on deinit()", back == taken and taken2 == taken1,
+               "%d of %d given back" % (back, taken)) and ok
 
 
 # --- tear ------------------------------------------------------------------
@@ -1554,7 +1594,7 @@ CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
          ("driver", driver), ("unpumpable", unpumpable), ("swap", swap),
          ("writes", writes), ("reads", reads), ("tear", tear), ("fade", fade),
          ("graph", graph), ("table", table), ("tail", tail),
-         ("switch", switch))
+         ("switch", switch), ("hotmem", hotmem))
 
 
 def main():
