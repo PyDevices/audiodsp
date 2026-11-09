@@ -332,19 +332,13 @@ static mp_obj_t audiofilters_filter_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiofilters_filter_deinit_obj, audiofilters_filter_deinit);
 
 static void check_for_deinit(audiofilters_filter_obj_t *self) {
-    // One word read under the lock, and the RAISE OUTSIDE IT. The lock's
-    // contract is that nothing which can longjmp runs while it is held
-    // (shared/audiodsp_pump_lock.h): a raise from in here never reaches the
-    // release, so the mutex is left owned by a thread that has gone back to
-    // the interpreter, and the pump blocks on it for ever. This is the guard
-    // on every Python-facing method of this class, so it is the most reached
-    // statement in the file.
-    audiodsp_pump_lock_acquire();
-    const bool released = audiosample_deinited(&self->base);
-    audiodsp_pump_lock_release();
-    if (released) {
-        audiosample_check_for_deinit(&self->base);
-    }
+    // No pump lock here. The flag is one aligned word, so the read can't
+    // tear, and taking the lock to read it deadlocks a second thread: while
+    // the interpreter thread holds the lock inside a pull whose stream read
+    // has let the GIL go, this thread would block on the lock still holding
+    // the GIL, and neither could move. deinit() still holds the lock over
+    // its whole body, so a pull never sees a half-torn-down object.
+    audiosample_check_for_deinit(&self->base);
 }
 
 static mp_obj_t audiofilters_filter_obj_get_filter(mp_obj_t self_in) {

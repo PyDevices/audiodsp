@@ -391,14 +391,13 @@ static mp_obj_t audiovorbis_vorbisdecoder_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(audiovorbis_vorbisdecoder_deinit_obj, audiovorbis_vorbisdecoder_deinit);
 
 static void check_for_deinit(audiovorbis_vorbisdecoder_obj_t *self) {
-    // One word read under the lock and the raise outside it, as in
-    // MP3Decoder: nothing that can longjmp runs while the lock is held.
-    audiodsp_pump_lock_acquire();
-    const bool released = audiosample_deinited(&self->base);
-    audiodsp_pump_lock_release();
-    if (released) {
-        audiosample_check_for_deinit(&self->base);
-    }
+    // No pump lock here. The flag is one aligned word, so the read can't
+    // tear, and taking the lock to read it deadlocks a second thread: while
+    // the interpreter thread holds the lock inside a pull whose stream read
+    // has let the GIL go, this thread would block on the lock still holding
+    // the GIL, and neither could move. deinit() still holds the lock over
+    // its whole body, so a pull never sees a half-torn-down object.
+    audiosample_check_for_deinit(&self->base);
 }
 
 static mp_obj_t audiovorbis_vorbisdecoder_obj_get_file(mp_obj_t self_in) {
