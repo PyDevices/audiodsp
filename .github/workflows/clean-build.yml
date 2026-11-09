@@ -323,6 +323,7 @@ jobs:
                          "pump_probe.py unpumpable --fault unpumpable" \
                          "pump_probe.py swap --fault unlocked" \
                          "pump_probe.py writes --fault unlocked" \
+                         "pump_probe.py reads --fault locked" \
                          "pump_probe.py tear --fault split" \
                          "pump_probe.py fade --fault cut" \
                          "pump_probe.py graph --fault split" \

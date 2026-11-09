@@ -229,8 +229,9 @@ modules carry what that needs. None of it changes a sample.
 
 - Every state swap a Python call makes (`press`, a tap change, a new filter,
   `deinit()`) is taken under the pump lock, and nothing that can raise runs
-  while it is held. `check_for_deinit` reads the flag under the lock and
-  raises outside it
+  while it is held. `check_for_deinit` reads the flag without the lock, as
+  upstream does: it's one word, and taking the lock there deadlocked a second
+  thread while a decoder's stream read had let the GIL go
   ([the pull is a critical section](upstream-diff.md#the-pull-is-a-critical-section-and-the-funnel-stopped-raising-live-audio-path)).
 - The pull funnel returns `GET_BUFFER_ERROR` and a fault code where upstream
   raises; `audiocore.get_buffer()` and `reset_buffer()` still raise.

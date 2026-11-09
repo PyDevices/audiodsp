@@ -7,12 +7,12 @@
     <interpreter> tests/pump/pump_probe.py [case ...] [--fault WHICH]
 
 Cases: ``identity``, ``alloc``, ``storm``, ``driver``, ``unpumpable``,
-``swap``, ``writes``, ``tear``, ``fade``, ``graph``, ``table``, ``tail``,
-``switch`` (all by default).
+``swap``, ``writes``, ``reads``, ``tear``, ``fade``, ``graph``, ``table``,
+``tail``, ``switch`` (all by default).
 Faults: ``short`` and ``reuse`` (identity), ``alloc`` (alloc),
 ``stall`` (storm), ``unpumpable`` (unpumpable), ``unlocked`` (swap, writes),
 ``split`` (tear, graph), ``cut`` (fade), ``late`` and ``unqueued`` (graph),
-``refused`` (table), ``drop`` (tail).
+``refused`` (table), ``drop`` (tail), ``locked`` (reads).
 Each one must make this exit non-zero; a probe whose failing mode is never
 run is not a gate.
 
@@ -76,6 +76,15 @@ What each case is for
     reading them, and the rest wrote what a pull reads with no lock at all
     (audiodsp#177). ``--fault unlocked`` writes ``mix`` instead, which takes
     no lock, and must fail. Skipped on CPython, as ``swap`` is.
+
+``reads``   A getter takes no pump lock. While a decoder pulls from a
+    socket, the interpreter thread holds the lock and the read has let the
+    GIL go; a second thread whose getter then waited on the lock would hold
+    the GIL while it waited, and neither thread could move (audiodsp#396).
+    The deinit check every getter starts with is one word and needs no lock.
+    Each read must leave the lock ledger at zero takes. ``--fault locked``
+    makes a write that takes the lock instead, and must fail. Skipped on
+    CPython, as ``swap`` is.
 
 ``tear``    One ``set()`` is one change. The six nodes whose ``set()``
     takes a table of options -- ``Waveshaper``, ``Ladder``, ``Bank``,
@@ -733,6 +742,64 @@ def writes(fault):
         ok = say(name, takes >= 1, "%d lock take(s)" % takes) and ok
     echo.deinit()
     taps.deinit()
+    return ok
+
+
+# --- reads -----------------------------------------------------------------
+
+
+def _mp3_fixture():
+    here = sys.argv[0].replace("\\", "/").rsplit("/", 1)
+    root = here[0] + "/.." if len(here) > 1 else ".."
+    return root + "/parity/fixtures/rewind.mp3"
+
+
+def reads(fault):
+    if sys.implementation.name == "cpython":
+        return say("reads", True, "skipped: the CPython extension has no "
+                   "pump lock, and nothing there pulls from another thread")
+    keep = []
+    echo = graph_echo(keep)
+    node = graph_filter(keep)
+    mixer = graph_mixer(keep)
+    for each in (echo, node, mixer):
+        for _ in range(2):
+            audiocore.get_buffer(each)
+    calls = [
+        ("Echo.playing", lambda: echo.playing),
+        ("Filter.playing", lambda: node.playing),
+        ("Filter.filter", lambda: node.filter),
+        ("Mixer.playing", lambda: mixer.playing),
+        ("Mixer.voice", lambda: mixer.voice),
+    ]
+    decoder = None
+    try:
+        import audiomp3
+    except ImportError:
+        say("MP3Decoder", True, "skipped: this build has no audiomp3")
+    else:
+        decoder = audiomp3.MP3Decoder(_mp3_fixture())
+        audiocore.get_buffer(decoder)
+        calls += [
+            ("MP3Decoder.samples_decoded", lambda: decoder.samples_decoded),
+            ("MP3Decoder.rms_level", lambda: decoder.rms_level),
+            ("MP3Decoder.file", lambda: decoder.file),
+        ]
+    delay = audioecho.FeedbackDelay(max_delay_ms=200, sample_rate=RATE,
+                                    channel_count=CHANNELS)
+    keep.append(delay)
+    ok = True
+    for name, call in calls:
+        if fault == "locked":
+            call = lambda: delay.set(mix=0.25)   # noqa: E731 -- takes the lock
+        audiopump.lock_reset()
+        call()
+        takes = audiopump.lock_stats()[3]
+        ok = say(name, takes == 0, "%d lock take(s)" % takes) and ok
+    if decoder is not None:
+        decoder.deinit()
+    for each in keep:
+        each.deinit()
     return ok
 
 
@@ -1485,7 +1552,7 @@ def _pumpsink_bytes():
 
 CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
          ("driver", driver), ("unpumpable", unpumpable), ("swap", swap),
-         ("writes", writes), ("tear", tear), ("fade", fade),
+         ("writes", writes), ("reads", reads), ("tear", tear), ("fade", fade),
          ("graph", graph), ("table", table), ("tail", tail),
          ("switch", switch))
 
