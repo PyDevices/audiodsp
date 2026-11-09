@@ -11,7 +11,12 @@
 //
 // No thread: thread_start is NULL, so the pump stays in service mode and the
 // probe drives it with audiopump.service().
+//
+// It also fills the hot-memory pair, with the C library's calloc and free and
+// a count of each, so the MP3 decoder's buffers come through here on this
+// binary and a probe can see them all come back (pump_probe.py, `hotmem`).
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "py/obj.h"
@@ -60,12 +65,32 @@ static uint32_t pumpsink_sink_write(const uint8_t *buffer, uint32_t length,
     return pumpsink_lie ? length : n;
 }
 
+static uint32_t pumpsink_hot_allocs;
+static uint32_t pumpsink_hot_frees;
+
+static void *pumpsink_mem_alloc_hot(size_t size) {
+    void *ptr = calloc(1, size);
+    if (ptr != NULL) {
+        __atomic_add_fetch(&pumpsink_hot_allocs, 1, __ATOMIC_RELAXED);
+    }
+    return ptr;
+}
+
+static void pumpsink_mem_free_hot(void *ptr) {
+    if (ptr != NULL) {
+        __atomic_add_fetch(&pumpsink_hot_frees, 1, __ATOMIC_RELAXED);
+    }
+    free(ptr);
+}
+
 static const audiodsp_port_ops_t pumpsink_ops = {
     .name = "sinkstub",
     .sink_open = pumpsink_sink_open,
     .sink_close = pumpsink_sink_close,
     .sink_ready = pumpsink_sink_ready,
     .sink_write = pumpsink_sink_write,
+    .mem_alloc_hot = pumpsink_mem_alloc_hot,
+    .mem_free_hot = pumpsink_mem_free_hot,
 };
 
 const audiodsp_port_ops_t *audiodsp_port_driver(void) {
@@ -97,10 +122,21 @@ static mp_obj_t pumpsink_taken(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(pumpsink_taken_obj, pumpsink_taken);
 
+// hot(): (hot blocks handed out, hot blocks given back).
+static mp_obj_t pumpsink_hot(void) {
+    mp_obj_t items[2] = {
+        mp_obj_new_int_from_uint(__atomic_load_n(&pumpsink_hot_allocs, __ATOMIC_RELAXED)),
+        mp_obj_new_int_from_uint(__atomic_load_n(&pumpsink_hot_frees, __ATOMIC_RELAXED)),
+    };
+    return mp_obj_new_tuple(2, items);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(pumpsink_hot_obj, pumpsink_hot);
+
 static const mp_rom_map_elem_t pumpsink_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR__pumpsink) },
     { MP_ROM_QSTR(MP_QSTR_arm), MP_ROM_PTR(&pumpsink_arm_obj) },
     { MP_ROM_QSTR(MP_QSTR_taken), MP_ROM_PTR(&pumpsink_taken_obj) },
+    { MP_ROM_QSTR(MP_QSTR_hot), MP_ROM_PTR(&pumpsink_hot_obj) },
 };
 static MP_DEFINE_CONST_DICT(pumpsink_globals, pumpsink_globals_table);
 

@@ -142,10 +142,27 @@ typedef struct {
     void *(*mem_alloc)(size_t size);
     void *(*mem_realloc)(void *ptr, size_t size);
     void (*mem_free)(void *ptr);
+
+    // --- memory a decoder touches on every frame ------------------------------
+    //
+    // The small, hot part of a codec's state: the MP3 decoder's working
+    // buffers (about 24 KB), read and written many times per frame. Where the
+    // general heap is PSRAM, keeping them there can halve the decode rate on a
+    // classic ESP32, so a driver with faster memory hands it out here. The
+    // memory comes back zeroed. The driver falls back to slower memory itself
+    // when the fast kind runs short, and returns NULL only when there is none.
+    // Both or neither: with either NULL the decoder uses its usual heap, as it
+    // always has. Thread-safe, and must not raise. A driver that also builds
+    // against an older audiodsp fills them only #ifdef
+    // AUDIODSP_PORT_MEM_HOT_HOOKS.
+    void *(*mem_alloc_hot)(size_t size);
+    void (*mem_free_hot)(void *ptr);
 } audiodsp_port_ops_t;
 
 // This header has the mem_* hooks above.
 #define AUDIODSP_PORT_MEM_HOOKS (1)
+// And the mem_*_hot pair.
+#define AUDIODSP_PORT_MEM_HOT_HOOKS (1)
 
 // The bound driver, resolved once. Never NULL.
 const audiodsp_port_ops_t *audiodsp_port(void);
