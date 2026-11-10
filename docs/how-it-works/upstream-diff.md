@@ -3555,7 +3555,7 @@ group delay 0 samples at x1, 2.2 (46 us) at x2, 3.3 (69 us) at x4, 3.9 (80
 us) at x8, with the magnitude response flat to within 0.001 dB from 200 Hz to
 18 kHz. It is small -- a linear-phase FIR half-band steep enough for this
 transition would be several times that -- but it is not zero and it is not an
-integer, so `audioshaper.GROUP_DELAY_SAMPLES` carries the table and a
+integer, so `audioshaper.GROUP_DELAY_SAMPLES` (a constant of the CPython build only) carries the table and a
 component reporting `latency_samples` reports the entry for the factor it
 built with.
 

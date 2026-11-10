@@ -24,11 +24,15 @@ What the two kinds of node take, side by side:
 | read-only | `playing`, `coefficients` | `playing`, `stages`, `coefficient` |
 | latency | 0 samples | 0 samples |
 
+Generated from [`audiobiquad.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiobiquad/audiobiquad.pyi); the file reads on its own.
+
 ```{eval-rst}
 .. automodule:: audiobiquad
 ```
 
 ## `audiodynamics`
+
+Generated from [`audiodynamics.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiodynamics/audiodynamics.pyi); the file reads on its own.
 
 ```{eval-rst}
 .. automodule:: audiodynamics
@@ -36,11 +40,15 @@ What the two kinds of node take, side by side:
 
 ## `audioecho`
 
+Generated from [`audioecho.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audioecho/audioecho.pyi); the file reads on its own.
+
 ```{eval-rst}
 .. automodule:: audioecho
 ```
 
 ## `audioshaper`
+
+Generated from [`audioshaper.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audioshaper/audioshaper.pyi); the file reads on its own.
 
 ```{eval-rst}
 .. automodule:: audioshaper
@@ -48,11 +56,15 @@ What the two kinds of node take, side by side:
 
 ## `audioladder`
 
+Generated from [`audioladder.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audioladder/audioladder.pyi); the file reads on its own.
+
 ```{eval-rst}
 .. automodule:: audioladder
 ```
 
 ## `audioverb`
+
+Generated from [`audioverb.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audioverb/audioverb.pyi); the file reads on its own.
 
 ```{eval-rst}
 .. automodule:: audioverb
@@ -60,11 +72,15 @@ What the two kinds of node take, side by side:
 
 ## `audioroute.MidSide`
 
+Generated from [`audioroute.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audioroute/audioroute.pyi); the file reads on its own.
+
 ```{eval-rst}
 .. autoclass:: audioroute.MidSide
 ```
 
 ## `audiofilters`
+
+Generated from [`audiofilters.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiofilters/audiofilters.pyi); the file reads on its own.
 
 ```{eval-rst}
 .. automodule:: audiofilters
@@ -72,11 +88,15 @@ What the two kinds of node take, side by side:
 
 ## `audiodelays`
 
+Generated from [`audiodelays.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiodelays/audiodelays.pyi); the file reads on its own.
+
 ```{eval-rst}
 .. automodule:: audiodelays
 ```
 
 ## `audiofreeverb`
+
+Generated from [`audiofreeverb.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiofreeverb/audiofreeverb.pyi); the file reads on its own.
 
 ```{eval-rst}
 .. automodule:: audiofreeverb
@@ -84,11 +104,15 @@ What the two kinds of node take, side by side:
 
 ## `audiospeed`
 
+Generated from [`audiospeed.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiospeed/audiospeed.pyi); the file reads on its own.
+
 ```{eval-rst}
 .. automodule:: audiospeed
 ```
 
 ## `audioconvolve`
+
+Generated from [`audioconvolve.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audioconvolve/audioconvolve.pyi); the file reads on its own.
 
 ```{eval-rst}
 .. automodule:: audioconvolve

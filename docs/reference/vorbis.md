@@ -152,6 +152,8 @@ C library that doesn't, so leave it the room above.
 
 ## Names and signatures
 
+Generated from [`audiovorbis.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiovorbis/audiovorbis.pyi); the file reads on its own.
+
 ```{eval-rst}
 .. automodule:: audiovorbis
 ```

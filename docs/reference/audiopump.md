@@ -111,6 +111,8 @@ is [the pump-port guide](../how-it-works/pump-ports.md).
 
 ## Names and signatures
 
+Generated from [`audiopump.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiopump/audiopump.pyi); the file reads on its own.
+
 ```{eval-rst}
 .. automodule:: audiopump
 ```

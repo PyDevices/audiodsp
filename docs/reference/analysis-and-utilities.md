@@ -6,17 +6,23 @@ and [Speech features](../guides/speech-features.md).
 
 ## `audiometer`
 
+Generated from [`audiometer.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiometer/audiometer.pyi); the file reads on its own.
+
 ```{eval-rst}
 .. automodule:: audiometer
 ```
 
 ## `audiofeatures`
 
+Generated from [`audiofeatures.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiofeatures/audiofeatures.pyi); the file reads on its own.
+
 ```{eval-rst}
 .. automodule:: audiofeatures
 ```
 
 ## `audiomath`
+
+Generated from [`audiomath.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiomath/audiomath.pyi); the file reads on its own.
 
 ```{eval-rst}
 .. automodule:: audiomath

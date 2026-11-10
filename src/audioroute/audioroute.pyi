@@ -9,7 +9,7 @@ that each play the same audio, so a stream can feed parallel branches.
 is a wire whose source can be changed while it plays.
 
 All of them are audio samples (a `Splitter` itself is not; its taps are), so
-they play wherever a `audiocore.RawSample` does.
+they play wherever an `audiocore.RawSample` does.
 """
 
 from typing import Protocol, Self
