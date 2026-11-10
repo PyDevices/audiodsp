@@ -284,6 +284,9 @@ reason, and a resync should not take them.
   Level and panning are always block inputs, and the ARM CMSIS intrinsics are
   the portable C
   ([why](upstream-diff.md#audiomixer-synthio-block-input-made-unconditional-arm-cmsis-dropped-tier-3)).
+  `Mixer.level_ramp` is new: set it and a level or pan move walks instead of
+  waiting for a zero crossing
+  ([why](upstream-diff.md#a-level-ramp-on-mixer-voices)).
 - **audiospeed**: the Q16 rate rounds and the phase carries across a source
   buffer
   ([rate](upstream-diff.md#audiospeed-the-q16-rate-rounds-here-upstream-truncates-audiodsp92),

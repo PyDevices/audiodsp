@@ -201,6 +201,13 @@ PROBES = (
                        "docs/how-it-works/upstream-diff.md, \"Resetting a Mixer silenced "
                        "it\""},
      None),
+    # A level move walks with Mixer.level_ramp set: the native mixer and the
+    # twin walk the same steps. CircuitPython's Mixer has no level_ramp.
+    ("mixer_level_ramp_probe.py", "audiomixer",
+     {"circuitpython": "Mixer.level_ramp is this port's, not "
+                       "CircuitPython's - docs/how-it-works/upstream-diff.md, "
+                       "\"A level ramp on Mixer voices\""},
+     None),
     ("tank_probe.py", "audioverb", {}, None),
     # The node's own state: Tone out and back through 0 (#168) and the
     # network re-cut in place on a playing node (#169). Its own file, so the

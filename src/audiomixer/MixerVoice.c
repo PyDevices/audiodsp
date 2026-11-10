@@ -15,6 +15,7 @@
 // SPDX-License-Identifier: MIT
 
 #include <stdint.h>
+#include <string.h>
 
 #include "audiomixer/Mixer.h"
 #include "audiomixer/MixerVoice.h"
@@ -45,6 +46,8 @@ void common_hal_audiomixer_mixervoice_construct(audiomixer_mixervoice_obj_t *sel
     self->buffer_length = 0;
     self->active_lo_level = 0;
     self->active_hi_level = 0;
+    memset(&self->ramp, 0, sizeof(self->ramp));
+    self->ramp_primed = false;
     common_hal_audiomixer_mixervoice_set_level(self, mp_obj_new_float(1.0));
     common_hal_audiomixer_mixervoice_set_panning(self, mp_obj_new_float(0.0));
 }
