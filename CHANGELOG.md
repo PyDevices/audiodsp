@@ -1,3 +1,21 @@
+## v0.6.16.dev1 (2026-11-10)
+
+- docs: generate the module reference from the type stubs (#407)
+- ci: a stub or the stub test runs the interpreter build (#408)
+- stubs: type stubs for the twelve modules that lacked one (#404)
+- Level ramps: build under CircuitPython's -Werror=float-equal (#405)
+- audiograph: a set lands within one block, and the docs say so (#406)
+- audiopump: a port with no threads can render from an interrupt (#403)
+- Level and Mix moves walk over 20 ms: Mixer.level_ramp, the nodes, Port.play(after=) (#400)
+- DEPENDENCIES.lock: the CircuitPython oracle pin joins the one pin file (#402)
+- audiodsp: type stubs for thirteen modules, a check, and wheel packaging (#401)
+- audioverb: the tank compiles for speed in size-optimised firmware (#399)
+- audiomp3: decoder buffers from the driver's fast memory when it has some (#398)
+- Getters stop taking the pump lock to check deinit, so a second thread can read a playing decoder (#397)
+- audiopump: the pump runs above the Bluetooth host on ESP32 (#395)
+- ci: bump pypa/cibuildwheel from 4.3.4 to 4.3.5 in the actions group (#377)
+- Docs: install omnipython-audiodsp, not the old pydevices-audiodsp (#394)
+
 ## v0.6.16.dev0 (2026-11-07)
 
 - audiometer: attach() meters a pump tap on CPython too (#392)
