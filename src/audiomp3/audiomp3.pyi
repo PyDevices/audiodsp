@@ -4,7 +4,7 @@
 """Play MP3 files.
 
 `MP3Decoder` reads an MP3 file while it plays and hands out signed 16-bit
-audio. It is an audio sample, so it plays wherever a `audiocore.WaveFile`
+audio. It is an audio sample, so it plays wherever an `audiocore.WaveFile`
 does. The module has CircuitPython's own `audiomp3` API, so one script runs on
 both.
 

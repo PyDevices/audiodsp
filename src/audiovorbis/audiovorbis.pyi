@@ -5,7 +5,7 @@
 
 `VorbisDecoder` plays an Ogg Vorbis file the way `audiomp3.MP3Decoder` plays an
 MP3, with the same properties and methods. It is an audio sample, so it plays
-wherever a `audiocore.WaveFile` does. CircuitPython has no Vorbis module; this
+wherever an `audiocore.WaveFile` does. CircuitPython has no Vorbis module; this
 one is audiodsp's own.
 
 The decoder reads its file during playback, so keep the file open while the
