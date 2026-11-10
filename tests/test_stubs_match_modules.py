@@ -37,11 +37,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 
-# The modules that have a stub.
+# The modules that have a stub: all of them.
 MODULES = (
     "audiocore", "audiofeatures", "audiomath", "audiometer", "audiomp3",
     "audiovorbis", "audiooscillator", "audiopump", "audioroute",
     "audiosampler", "audiomodal", "audioconvolve", "synthio",
+    "audiobiquad", "audiodelays", "audiodynamics", "audioecho",
+    "audiofilters", "audiofreeverb", "audiograph", "audioladder",
+    "audiomixer", "audioshaper", "audiospeed", "audioverb",
 )
 
 KEPT_DUNDERS = ("__enter__", "__exit__")
