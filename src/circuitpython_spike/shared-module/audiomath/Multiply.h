@@ -23,6 +23,8 @@ typedef struct {
     // failure: no modulator means the signal passes through untouched.
     mp_obj_t modulator;
     audiodsp_multiply_config_t config;
+    // `mix` as the output stands, walking to a move (audiodsp_multiply.h).
+    audiodsp_multiply_state_t state;
     int16_t buffer[AUDIODSP_MULTIPLY_FRAMES * 2];
     // Frames fetched from each input but not yet consumed, carried across
     // output blocks. The two inputs hand out different block lengths, so

@@ -87,6 +87,10 @@ class Multiply:
     def set(self, *, mix: float = ...) -> None:
         """Change an option while the node plays.
 
+        A move of ``mix`` on a playing node walks to the new value in a
+        straight line over 20 ms instead of stepping, so it doesn't click.
+        Before the first pull, or after a reset, it lands at once.
+
         Args:
             mix: Wet amount from 0.0 to 1.0, clamped.
 

@@ -1570,8 +1570,12 @@ could not do either:
   `audioeffects.Tremolo` is exactly this effect inside that ceiling; a ring
   modulator wants hundreds of hertz and a carrier of a few kilohertz.
 
-The arithmetic is `shared/audiodsp_multiply.c`, Q15 and stateless: the product
-is `(a * b) >> 15`, blended `(dry * a + wet * product) >> 15`, clamped. The
+The arithmetic is `shared/audiodsp_multiply.c`, Q15: the product is
+`(a * b) >> 15`, blended `(dry * a + wet * product) >> 15`, clamped. The one
+thing it carries between runs is a move of `mix`, which walks over 20 ms
+(`shared/audiodsp_level_ramp.h`) a frame at a time, rounded to the Q15 grid,
+and lands on `mix` exactly; before the first pull and after a reset `mix`
+lands at once. The
 two negative rails are the one product that lands outside `int16`, which is
 what the clamp is for; [`tests/parity/multiply_probe.py`](../../tests/parity/multiply_probe.py) drives it there
 deliberately rather than assuming.

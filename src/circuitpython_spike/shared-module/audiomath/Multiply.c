@@ -9,14 +9,15 @@
 
 void audiomath_multiply_reset_buffer(audiomath_multiply_obj_t *self,
     bool single_channel_output, uint8_t channel) {
-    (void)self;
     (void)single_channel_output;
     (void)channel;
-    // Nothing to clear: the product holds nothing between frames. The frames
-    // already taken from the source and from the modulator are kept, the rule
-    // CircuitPython's effects follow for a host reset: neither input was
-    // reset, so dropping them would skip that much of it and shift the
-    // modulator against the source.
+    // The product holds nothing between frames; only a walk of `mix` in
+    // progress is cleared, so the next block lands at `mix` as it stands.
+    // The frames already taken from the source and from the modulator are
+    // kept, the rule CircuitPython's effects follow for a host reset: neither
+    // input was reset, so dropping them would skip that much of it and shift
+    // the modulator against the source.
+    audiodsp_multiply_state_clear(&self->state);
 }
 
 audioio_get_buffer_result_t audiomath_multiply_get_buffer(
@@ -64,7 +65,7 @@ audioio_get_buffer_result_t audiomath_multiply_get_buffer(
             if (run > self->pending_modulator_frames) {
                 run = self->pending_modulator_frames;
             }
-            audiodsp_multiply_process_s16(&self->config,
+            audiodsp_multiply_process_s16(&self->config, &self->state,
                 &self->buffer[produced * self->base.channel_count],
                 self->pending_source,
                 self->pending_modulator, run);

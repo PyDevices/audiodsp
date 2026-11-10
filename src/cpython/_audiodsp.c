@@ -5619,15 +5619,30 @@ static PyObject *audiodsp_meter_db_byte_py(PyObject *module, PyObject *args) {
 static PyObject *audiodsp_multiply_s16(PyObject *module, PyObject *args) {
     Py_buffer signal = {0};
     Py_buffer modulator = {0};
+    Py_buffer state = {0};
     double mix = 1.0;
     unsigned int channel_count = 2;
-    if (!PyArg_ParseTuple(args, "y*y*d|I:multiply_s16", &signal, &modulator,
-        &mix, &channel_count)) {
+    unsigned int ramp_frames = 0;
+    // `state`, when given, is a writable buffer of MULTIPLY_STATE_BYTES the
+    // caller keeps between calls (zeroed is a cleared walk): a move of `mix`
+    // then walks over `ramp_frames`, as the MicroPython node's does.
+    if (!PyArg_ParseTuple(args, "y*y*d|Iw*I:multiply_s16", &signal,
+        &modulator, &mix, &channel_count, &state, &ramp_frames)) {
+        return NULL;
+    }
+    if (state.buf != NULL &&
+        state.len != (Py_ssize_t)sizeof(audiodsp_multiply_state_t)) {
+        PyBuffer_Release(&signal);
+        PyBuffer_Release(&modulator);
+        PyBuffer_Release(&state);
+        PyErr_SetString(PyExc_ValueError,
+            "state must be MULTIPLY_STATE_BYTES long");
         return NULL;
     }
     if (channel_count < 1 || channel_count > 2) {
         PyBuffer_Release(&signal);
         PyBuffer_Release(&modulator);
+        PyBuffer_Release(&state);
         PyErr_SetString(PyExc_ValueError, "channel_count must be 1 or 2");
         return NULL;
     }
@@ -5635,6 +5650,7 @@ static PyObject *audiodsp_multiply_s16(PyObject *module, PyObject *args) {
     if (signal.len != modulator.len || signal.len % width) {
         PyBuffer_Release(&signal);
         PyBuffer_Release(&modulator);
+        PyBuffer_Release(&state);
         PyErr_SetString(PyExc_ValueError,
             "buffers must be the same whole number of configured frames");
         return NULL;
@@ -5645,12 +5661,15 @@ static PyObject *audiodsp_multiply_s16(PyObject *module, PyObject *args) {
         audiodsp_multiply_config_init(&config);
         audiodsp_multiply_set_channel_count(&config, channel_count);
         audiodsp_multiply_set_mix(&config, (float)mix);
+        config.ramp_frames = ramp_frames;
         audiodsp_multiply_process_s16(&config,
+            (audiodsp_multiply_state_t *)state.buf,
             (int16_t *)PyBytes_AS_STRING(result), (const int16_t *)signal.buf,
             (const int16_t *)modulator.buf, (uint32_t)(signal.len / width));
     }
     PyBuffer_Release(&signal);
     PyBuffer_Release(&modulator);
+    PyBuffer_Release(&state);
     return result;
 }
 
@@ -6591,6 +6610,8 @@ static int audiodsp_exec(PyObject *module) {
         AUDIODSP_DYNAMICS_FRAMES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "MULTIPLY_FRAMES",
         AUDIODSP_MULTIPLY_FRAMES) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "MULTIPLY_STATE_BYTES",
+        (long)sizeof(audiodsp_multiply_state_t)) < 0) return -1;
     if (PyModule_AddIntConstant(module, "MIDSIDE_FRAMES",
         AUDIODSP_MIDSIDE_FRAMES) < 0) return -1;
     state->feedback_delay_state_type = PyType_FromModuleAndSpec(module,

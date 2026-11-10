@@ -20,6 +20,7 @@
 #include "audiocore/RawSample.h"
 #include "audiocore/WaveFile.h"
 #include "audiocore/__init__.h"
+#include "cp_compat/audiodsp_build.h"
 
 #include "py/obj.h"
 #include "py/runtime.h"
@@ -84,6 +85,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiocore_reset_buffer_obj, audiocore_reset_buf
 
 static const mp_rom_map_elem_t audiocore_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audiocore) },
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_RawSample), MP_ROM_PTR(&audioio_rawsample_type) },
     { MP_ROM_QSTR(MP_QSTR_WaveFile), MP_ROM_PTR(&audioio_wavefile_type) },
     { MP_ROM_QSTR(MP_QSTR_get_buffer), MP_ROM_PTR(&audiocore_get_buffer_obj) },

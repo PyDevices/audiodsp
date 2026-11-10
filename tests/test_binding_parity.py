@@ -227,9 +227,10 @@ class EveryModuleSaysWhichAudiodspItIs(unittest.TestCase):
     firmware built from a throwaway source tree during a pin move could not be
     attributed to any commit, because nothing in it recorded one.
 
-    Upstream's modules are deliberately NOT checked: adding a dunder to
-    `audiocore` or `synthio` would deviate from CircuitPython's surface, and any
-    of our nine answers the question (decided 2026-09-09).
+    Upstream's modules are not checked here. `audiocore`, `audiomp3`,
+    `audiopump` and `synthio` carry the marker too, so a firmware with only
+    those can still be attributed; the other upstream modules stay as
+    CircuitPython has them.
 
     **The CircuitPython spike bindings are also excluded, on purpose.** They
     have the same globals-table shape and could carry the marker, but the CP
@@ -263,7 +264,7 @@ class EveryModuleSaysWhichAudiodspItIs(unittest.TestCase):
 
     def test_upstream_modules_are_left_alone(self):
         """The control: this suite must not pass by marking everything."""
-        for module in ("audiocore", "audiodelays", "audiofilters", "audiomixer"):
+        for module in ("audiodelays", "audiofilters", "audiomixer"):
             with self.subTest(module=module):
                 source = (ROOT / "src" / module / "module.c").read_text()
                 self.assertNotIn(self.MARKER, source)

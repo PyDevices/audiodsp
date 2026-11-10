@@ -5,11 +5,13 @@
 // SPDX-License-Identifier: MIT
 
 #include "audiomp3/MP3Decoder.h"
+#include "cp_compat/audiodsp_build.h"
 
 #include "py/obj.h"
 
 static const mp_rom_map_elem_t audiomp3_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audiomp3) },
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_MP3Decoder), MP_ROM_PTR(&audiomp3_mp3file_type) },
 };
 static MP_DEFINE_CONST_DICT(audiomp3_module_globals, audiomp3_module_globals_table);

@@ -46,6 +46,7 @@
 #include "audiopump/audiopump_ring.h"
 #include "audiopump/audiopump_tap.h"
 #include "audiopump/audiopump_drift.h"
+#include "cp_compat/audiodsp_build.h"
 
 // The same acquire/release pair the push ring uses, and here for the same
 // reason: `volatile` orders the compiler, not the machine, and a 64-bit store
@@ -2580,6 +2581,7 @@ static const mp_rom_map_elem_t audiopump_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_lock_reset), MP_ROM_PTR(&audiopump_lock_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_fault), MP_ROM_PTR(&audiopump_fault_obj) },
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audiopump) },
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_pull), MP_ROM_PTR(&audiopump_pull_obj) },
     { MP_ROM_QSTR(MP_QSTR_spawn), MP_ROM_PTR(&audiopump_spawn_obj) },
     { MP_ROM_QSTR(MP_QSTR_join), MP_ROM_PTR(&audiopump_join_obj) },
