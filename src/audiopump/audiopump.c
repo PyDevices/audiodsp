@@ -1627,7 +1627,9 @@ static void audiopump_teardown(bool release_guard) {
     audiopump_ctx.stop = true;
     audiopump_ctx.park_req = false;
     if (audiopump_ctx.service_mode) {
+        audiodsp_pump_lock_acquire();
         audiopump_tail_drop(&audiopump_ctx, false);
+        audiodsp_pump_lock_release();
     }
     audiodsp_pump_set_active(false);
     const audiodsp_port_ops_t *port = audiodsp_port();
@@ -1854,9 +1856,13 @@ static int audiopump_launch(int core, int prio, int stack, bool psram) {
         // -2, not -1: a caller that prints what spawn() returned should be
         // able to tell "no core affinity" from "no thread at all", and on a
         // build that should have had one that number is the symptom.
+        // Under the lock, for a driver that renders from an interrupt: the
+        // first render must find the loop begun.
+        audiodsp_pump_lock_acquire();
         audiopump_ctx.service_mode = true;
         audiopump_live = true;
         audiopump_run_begin(&audiopump_ctx);
+        audiodsp_pump_lock_release();
         return -2;
     }
 
@@ -2001,7 +2007,9 @@ void audiopump_c_stop(void) {
     audiopump_ctx.stop = true;
     audiopump_ctx.park_req = false;
     if (audiopump_ctx.service_mode) {
+        audiodsp_pump_lock_acquire();
         audiopump_tail_drop(&audiopump_ctx, false);
+        audiodsp_pump_lock_release();
     }
     const audiodsp_port_ops_t *port = audiodsp_port();
     if (port->thread_wake != NULL) {
@@ -2035,9 +2043,20 @@ void audiopump_c_service(uint64_t budget) {
         || audiopump_ctx.finished) {
         return;
     }
+    // A driver that renders from an interrupt calls this from it, where the
+    // lock is nothing; a call from the interpreter (an output's stop()
+    // finishing the loop) holds the interrupt off while it runs, so the two
+    // never pull at once. Without render_kick the lock isn't taken, as before.
+    const bool hold = audiodsp_port()->render_kick != NULL;
+    if (hold) {
+        audiodsp_pump_lock_acquire();
+    }
     if (audiopump_run_blocks(&audiopump_ctx, budget ? budget : UINT64_MAX)
         == AUDIOPUMP_SERVICE_DONE) {
         audiopump_run_end(&audiopump_ctx);
+    }
+    if (hold) {
+        audiodsp_pump_lock_release();
     }
 }
 
@@ -2115,7 +2134,9 @@ static bool audiopump_c_park_fade(uint32_t timeout_us, bool fade) {
         }
     }
     if (audiopump_ctx.service_mode) {
+        audiodsp_pump_lock_acquire();
         audiopump_tail_drop(&audiopump_ctx, true);
+        audiodsp_pump_lock_release();
         // The loop is not running -- this call IS the only thread -- so the
         // pump is already at a block boundary by construction and park() is a
         // store. The wait below would spin until the timeout and then report
@@ -2178,7 +2199,17 @@ static mp_obj_t audiopump_service(size_t n_args, const mp_obj_t *args) {
     }
     int why = AUDIOPUMP_SERVICE_MORE;
     uint64_t before = audiopump_ctx.acc_blocks;
-    if (audiopump_ctx.service_mode) {
+    void (*kick)(void) = audiodsp_port()->render_kick;
+    if (kick != NULL) {
+        // The driver renders from an interrupt: running the pump here as
+        // well would be two pumps at once. Ask it to render, and report no
+        // blocks, as a threaded port does.
+        if (audiopump_live && !audiopump_ctx.finished) {
+            kick();
+        } else {
+            why = AUDIOPUMP_SERVICE_DONE;
+        }
+    } else if (audiopump_ctx.service_mode) {
         if (audiopump_live && !audiopump_ctx.finished) {
             why = audiopump_run_blocks(&audiopump_ctx, budget);
             if (why == AUDIOPUMP_SERVICE_DONE) {
