@@ -20,7 +20,6 @@ pointing it at that same source again is not a new start. The nodes and the
 Port are this package's own, and every target runs the same C for them.
 """
 
-import math
 from array import array
 
 import audiobiquad
@@ -54,15 +53,17 @@ CLIP = clip_curve()
 
 
 def tone(rate, channels):
-    # Whole cycles, and longer than PULLS pulls of 256 frames: a node's
-    # play() takes no loop on MicroPython.
-    period = (rate // 200) * 30
+    """A 200 Hz triangle in whole cycles, worked in integers so a
+    single-precision build plays the same input, and longer than PULLS
+    pulls of 256 frames: a node's play() takes no loop on MicroPython."""
+    cycle = rate // 200
     values = array("h")
-    for i in range(period):
-        v = 12000 * math.sin(2 * math.pi * 200.0 * i / rate)
-        values.append(int(v))
+    for i in range(cycle * 30):
+        t = 48000 * (i % cycle) // cycle
+        v = t if t < 12000 else (24000 - t if t < 36000 else t - 48000)
+        values.append(v)
         if channels == 2:
-            values.append(int(0.7 * v))
+            values.append(v * 7 // 10)
     return audiocore.RawSample(values, sample_rate=rate,
                                channel_count=channels)
 
