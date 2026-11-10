@@ -157,7 +157,22 @@ typedef struct {
     // AUDIODSP_PORT_MEM_HOT_HOOKS.
     void *(*mem_alloc_hot)(size_t size);
     void (*mem_free_hot)(void *ptr);
+
+    // --- a port that renders from an interrupt -------------------------------
+    //
+    // A port with no threads can still render away from the interpreter, from
+    // an interrupt the driver raises (the STM32H7's DAC does). The interrupt
+    // is then the pump's thread: audiopump.service() on the interpreter calls
+    // render_kick() to ask the driver to render, instead of rendering there,
+    // and the interpreter's changes to the pump take the lock, which such a
+    // driver implements by holding its interrupt off. NULL everywhere else,
+    // which changes nothing. A driver that also builds against an older
+    // audiodsp fills it only #ifdef AUDIODSP_PORT_IRQ_HOOKS.
+    void (*render_kick)(void);
 } audiodsp_port_ops_t;
+
+// This header has render_kick.
+#define AUDIODSP_PORT_IRQ_HOOKS (1)
 
 // This header has the mem_* hooks above.
 #define AUDIODSP_PORT_MEM_HOOKS (1)
