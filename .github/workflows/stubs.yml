@@ -1,0 +1,40 @@
+# The modules' type stubs: mypy reads every .pyi under src/, so a stub that
+# doesn't parse or contradicts itself fails here and not in your editor. Runs
+# when a stub or this file changes. That a stub names what its module exports
+# is checked by tests/test_stubs_match_modules.py in the unit job.
+name: Stubs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**/*.pyi'
+      - '.github/workflows/stubs.yml'
+  pull_request:
+    paths:
+      - 'src/**/*.pyi'
+      - '.github/workflows/stubs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mypy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install mypy
+      # One module's stubs at a time: two modules may each ship an `image.pyi`.
+      - name: mypy over each module's stubs
+        run: |
+          status=0
+          for dir in $(find src -name '*.pyi' -printf '%h\n' | sort -u); do
+            echo "== $dir"
+            (cd "$dir" && python -m mypy --no-incremental ./*.pyi) || status=1
+          done
+          exit $status

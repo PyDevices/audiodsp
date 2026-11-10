@@ -164,6 +164,16 @@ jobs:
             --micropython "$GITHUB_WORKSPACE/micropython/ports/unix/build-standard/micropython" \
             ${{ matrix.float-impl.known-divergent }}
 
+      # The type stubs against the modules this job just built: name for name
+      # on MicroPython, and every declared name present in the CPython
+      # extension. Without a MicroPython binary the exact half is skipped, so
+      # this is the one place it runs.
+      - name: The type stubs match the modules
+        run: |
+          cd audiodsp
+          MICROPYTHON="$GITHUB_WORKSPACE/micropython/ports/unix/build-standard/micropython" \
+            ./.ci-venv/bin/python -m unittest -v tests/test_stubs_match_modules.py
+
       # The native half of the deinit surface. Nothing else in CI runs on a
       # MicroPython build, and this is the gate for #58/#59/#60/#63: every
       # node type releases, and every way back into the audio path raises

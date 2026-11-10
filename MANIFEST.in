@@ -10,3 +10,5 @@ recursive-include third_party/kissfft *.c *.h COPYING ORIGIN.txt
 # included by src/audiomp3/mp3_buffers.c rather than compiled itself.
 include .deps/mp3/src/*.h .deps/mp3/src/buffers.c DEPENDENCIES.lock patches/adafruit_mp3/*.patch
 include src/cpython/*.h src/audiomp3/mp3_alloc.h
+# The type stubs build_py_with_stubs in setup.py installs beside the modules.
+include src/*/*.pyi
