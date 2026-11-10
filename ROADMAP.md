@@ -21,8 +21,9 @@ audio pump holding up under live use such as a stompbox or a stage rig.
 
 ## Housekeeping
 
-- `.pyi` stubs for every module, so your editor completes audiodsp's API and
-  the Reference pages are generated from them rather than written by hand.
+- `.pyi` stubs for the modules that lack one (`audiobiquad`, `audiodelays`,
+  `audiodynamics`, `audioecho`, `audiofilters`, `audiofreeverb`, `audiograph`,
+  `audioladder`, `audiomixer`, `audioshaper`, `audiospeed`, `audioverb`).
 - The CircuitPython glue's folder takes a lasting name (`src/circuitpython_spike/`
   becomes `src/circuitpython/`), and `CIRCUITPYTHON_ORACLE` joins `DEPENDENCIES.lock`.
 

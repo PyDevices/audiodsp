@@ -3,11 +3,13 @@
 # SPDX-License-Identifier: MIT
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from setuptools import Extension, setup
+from setuptools.command.build_py import build_py
 
 # The parity gates hash PCM bit-exactly against the CircuitPython oracle,
 # and Linux (gcc) and Windows (MSVC) builds agree with it. On macOS arm64,
@@ -88,7 +90,26 @@ if os.environ.get("AUDIODSP_OPTIONAL_DEPS") != "1":
         "define_macros": [("AUDIODSP_HAVE_MP3", "1"), ("MP3DEC_GENERIC", "1")],
     }
 
+class build_py_with_stubs(build_py):
+    """Install each module's type stub beside the module (PEP 561).
+
+    Every wrapper module installs as a top-level ``audiocore.py`` and so on, so
+    its stub goes in an ``audiocore-stubs`` folder, which type checkers search
+    for. The folder's ``__init__.pyi`` is the one ``src/<module>/<module>.pyi``
+    the repository keeps, copied at build time. Every ``src/*/*.pyi`` is taken,
+    so a module that gains a stub ships it with no change here.
+    """
+
+    def run(self):
+        super().run()
+        for stub in sorted((HERE / "src").glob("*/*.pyi")):
+            target = Path(self.build_lib) / (stub.stem + "-stubs")
+            target.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(stub, target / "__init__.pyi")
+
+
 setup(
+    cmdclass={"build_py": build_py_with_stubs},
     ext_modules=[
         Extension(
             "_audiodsp",
