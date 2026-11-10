@@ -46,9 +46,13 @@ RULES = (
     (".github/workflows/test-cpython.yml", ("unit", "wheels")),
     (".github/workflows/clean-build.yml", ("build",)),
     (".github/workflows/android-wheels.yml", ()),
+    (".github/workflows/stubs.yml", ()),
     (".github/workflows/prepare-release.yml", ()),
     (".github/workflows/publish-release-packages.yml", ()),
     (".github/workflows/tag-release.yml", ()),
+    # A type stub reaches the wheel, which carries it, and the test that holds
+    # it to its module. The Stubs workflow runs mypy over it on its own.
+    ("src/*/*.pyi", ("unit", "wheels")),
     # flake8 reads the examples; nothing else does.
     ("examples/**", ("lint",)),
     (".flake8", ("lint",)),
