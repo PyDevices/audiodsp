@@ -5,7 +5,8 @@
 """A node's level control walks to a new value over 20 ms instead of stepping.
 
 The Waveshaper's `mix` and `post_gain`, the Biquad's and the AllPass's `mix`,
-the Dynamics node's makeup and the FeedbackDelay's `mix` each scale a signal
+the Dynamics node's makeup, the FeedbackDelay's `mix` and the Multiply's
+`mix` each scale a signal
 the node has already worked out. Moved on a playing node, each walks there in
 a straight line over 20 ms (`audiodsp_level_ramp.h`), so the move cannot click.
 None of these controls feeds the node's own state, so the walked output is
@@ -33,6 +34,7 @@ import audiobiquad
 import audiocore
 import audiodynamics
 import audioecho
+import audiomath
 import audioshaper
 
 MOVE_AT = 4
@@ -94,6 +96,21 @@ def delay(rate, channels, mix):
                                    feedback=0.3, mix=mix)
 
 
+def multiply(rate, channels, mix):
+    """A Multiply whose modulator is a looped 50 Hz sine at full scale, so
+    the product swings the tone right down and back, as a tremolo does."""
+    period = rate // 50
+    values = array("h")
+    for i in range(period):
+        v = int(32767 * (0.5 + 0.5 * math.sin(2 * math.pi * i / period)))
+        values.extend([v] * channels)
+    node = audiomath.Multiply(mix=mix, sample_rate=rate,
+                              channel_count=channels)
+    node.modulate(audiocore.RawSample(values, sample_rate=rate,
+                                      channel_count=channels))
+    return node
+
+
 def _set(name):
     def move(node, value):
         node.set(**{name: value})
@@ -116,6 +133,7 @@ CASES = (
     ("allpass mix", allpass, _attr("mix"), 0.5, 0.0),
     ("dynamics makeup", dynamics, _set("makeup_db"), 0.0, 9.0),
     ("delay mix", delay, _set("mix"), 0.0, 1.0),
+    ("multiply mix", multiply, _set("mix"), 1.0, 0.0),
 )
 
 

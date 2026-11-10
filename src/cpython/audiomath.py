@@ -111,6 +111,10 @@ class Multiply(_AudioSample):
         self._source = source
         self._modulator = modulator
         self._mix = 1.0
+        # A move of `mix` walks over 20 ms in the shared kernel, which keeps
+        # where the walk stands here between runs; zeroed is no walk.
+        self._ramp = bytearray(_audiodsp.MULTIPLY_STATE_BYTES)
+        self._ramp_frames = (self.sample_rate * 20 + 500) // 1000
         self._pending_source = b""
         self._pending_modulator = b""
         self._apply({"mix": mix})
@@ -151,11 +155,13 @@ class Multiply(_AudioSample):
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
-        # Nothing to clear: the product holds nothing between frames. The
-        # frames already taken from the source and from the modulator are
-        # kept, the rule CircuitPython's effects follow for a host reset:
-        # neither input was reset, so dropping them would skip that much of
-        # it and shift the modulator against the source.
+        # The product holds nothing between frames; only a walk of `mix` in
+        # progress is cleared, so the next block lands at `mix` as it
+        # stands. The frames already taken from the source and from the
+        # modulator are kept, the rule CircuitPython's effects follow for a
+        # host reset: neither input was reset, so dropping them would skip
+        # that much of it and shift the modulator against the source.
+        self._ramp[:] = bytes(len(self._ramp))
 
     def _pull(self, sample):
         result, data = get_buffer(sample, False, 0)
@@ -189,7 +195,7 @@ class Multiply(_AudioSample):
                 output += _audiodsp.multiply_s16(
                     self._pending_source[:run * width],
                     self._pending_modulator[:run * width], self._mix,
-                    self.channel_count)
+                    self.channel_count, self._ramp, self._ramp_frames)
                 self._pending_modulator = self._pending_modulator[run * width:]
             else:
                 output += self._pending_source[:run * width]

@@ -10,7 +10,8 @@
     PORT  <case>  <first value of each pull>
 
 The Waveshaper's `mix` and `post_gain`, the Biquad's and the AllPass's `mix`,
-the Dynamics node's makeup and the FeedbackDelay's `mix` walk a move over
+the Dynamics node's makeup, the FeedbackDelay's `mix` and the Multiply's
+`mix` walk a move over
 20 ms (`src/shared/audiodsp_level_ramp.h`). Each is moved on a playing node,
 moved before the first pull, and moved and then reset halfway through the
 walk, mono and stereo, at 48 and 22.05 kHz. A Port told to switch `after`
@@ -26,6 +27,7 @@ import audiobiquad
 import audiocore
 import audiodynamics
 import audioecho
+import audiomath
 import audioroute
 import audioshaper
 
@@ -97,6 +99,23 @@ def delay(rate, channels, name, value):
                                    feedback=0.3, mix=value)
 
 
+def multiply(rate, channels, name, value):
+    """A Multiply under a 50 Hz integer triangle that runs from 0 to full
+    scale, the way a tremolo's modulator swings."""
+    period = rate // 50
+    values = array("h")
+    for i in range(period):
+        t = 65534 * i // period
+        v = t if t < 32767 else 65534 - t
+        for _ in range(channels):
+            values.append(v)
+    node = audiomath.Multiply(mix=value, sample_rate=rate,
+                              channel_count=channels)
+    node.modulate(audiocore.RawSample(values, sample_rate=rate,
+                                      channel_count=channels))
+    return node
+
+
 def by_set(node, name, value):
     options = {name: value}
     node.set(**options)
@@ -113,6 +132,7 @@ CASES = (
     ("allpass-mix", allpass, by_attr, "mix", 0.5, 0.0),
     ("dynamics-makeup", dynamics, by_set, "makeup_db", 0.0, 9.0),
     ("delay-mix", delay, by_set, "mix", 0.0, 1.0),
+    ("multiply-mix", multiply, by_set, "mix", 1.0, 0.0),
 )
 
 

@@ -7,8 +7,9 @@ The reasons these exist beside CircuitPython's own modules are in
 
 A level moved on a playing node walks to its new value in a straight line
 over 20 ms instead of stepping, so turning it in one call doesn't click: the
-`mix` of `Biquad`, `AllPass`, `Waveshaper` and `FeedbackDelay`, the
-Waveshaper's `post_gain` and the Dynamics node's `makeup_db`. A node that
+`mix` of `Biquad`, `AllPass`, `Waveshaper`, `FeedbackDelay` and
+`audiomath.Multiply`, the Waveshaper's `post_gain` and the Dynamics node's
+`makeup_db`. A node that
 hasn't played yet, or has just been reset, takes its levels at once.
 
 ## `audiobiquad`

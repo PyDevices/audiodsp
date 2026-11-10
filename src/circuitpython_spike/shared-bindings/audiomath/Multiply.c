@@ -73,6 +73,8 @@ static mp_obj_t audiomath_multiply_make_new(const mp_obj_type_t *type,
     audiodsp_multiply_config_init(&self->config);
     audiodsp_multiply_set_channel_count(&self->config,
         (uint32_t)self->base.channel_count);
+    audiodsp_multiply_set_sample_rate(&self->config, self->base.sample_rate);
+    audiodsp_multiply_state_clear(&self->state);
 
     if (args[ARG_source].u_obj != mp_const_none) {
         audiosample_base_t *sample = audiosample_check(args[ARG_source].u_obj);

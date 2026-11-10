@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include "shared/audiodsp_level_ramp.h"
+
 //: Frames one output block carries. The same 256 audiodynamics uses, so a
 //: chain built out of both moves in one block size.
 #define AUDIODSP_MULTIPLY_FRAMES 256u
@@ -29,7 +31,18 @@ typedef struct {
     // Q15 integer rather than a float because the process loop is the hot
     // path and every other term in it is already an integer.
     int32_t mix;
+    // Frames a move of `mix` walks over (audiodsp_level_ramp.h); 0 steps at
+    // once. audiodsp_multiply_set_sample_rate() sets AUDIODSP_LEVEL_RAMP_MS.
+    uint32_t ramp_frames;
 } audiodsp_multiply_config_t;
+
+// What the multiply carries from one run to the next: `mix` as the output
+// stands, walking to a new value instead of stepping there, on the Q15 scale
+// of `config->mix`. A reset clears it, so the first run after one lands at
+// `mix` as it stands, as a fresh node's first block does.
+typedef struct {
+    audiodsp_level_ramp_t mix_ramp;
+} audiodsp_multiply_state_t;
 
 void audiodsp_multiply_config_init(audiodsp_multiply_config_t *config);
 
@@ -40,10 +53,19 @@ void audiodsp_multiply_set_channel_count(audiodsp_multiply_config_t *config,
 // than a request worth honouring.
 void audiodsp_multiply_set_mix(audiodsp_multiply_config_t *config, float mix);
 
+// A move of `mix` walks over AUDIODSP_LEVEL_RAMP_MS at this rate.
+void audiodsp_multiply_set_sample_rate(audiodsp_multiply_config_t *config,
+    uint32_t sample_rate);
+
+void audiodsp_multiply_state_clear(audiodsp_multiply_state_t *state);
+
 // out[] = a[] blended toward a[]*b[] by `mix`, over interleaved stereo
-// frames. `out` may alias `a`; the arithmetic is sample by sample.
+// frames. `out` may alias `a`; the arithmetic is sample by sample. With a
+// `state`, a move of `mix` walks over `config->ramp_frames` frames, one step a
+// frame, the run after it was set; NULL takes `mix` at once.
 void audiodsp_multiply_process_s16(const audiodsp_multiply_config_t *config,
-    int16_t *out, const int16_t *a, const int16_t *b, uint32_t frames);
+    audiodsp_multiply_state_t *state, int16_t *out, const int16_t *a,
+    const int16_t *b, uint32_t frames);
 
 // What to write when there is no modulator to multiply by: the signal,
 // untouched, whatever `mix` says. A modulator that is absent or has run dry

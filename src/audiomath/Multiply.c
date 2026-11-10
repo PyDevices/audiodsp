@@ -45,6 +45,8 @@ static mp_obj_t audiomath_multiply_make_new(const mp_obj_type_t *type,
     audiodsp_multiply_config_init(&self->config);
     audiodsp_multiply_set_channel_count(&self->config,
         (uint32_t)self->base.channel_count);
+    audiodsp_multiply_set_sample_rate(&self->config, self->base.sample_rate);
+    audiodsp_multiply_state_clear(&self->state);
 
     if (args[ARG_source].u_obj != mp_const_none) {
         audiosample_base_t *sample = audiosample_check(args[ARG_source].u_obj);
@@ -178,7 +180,7 @@ static audioio_get_buffer_result_t audiomath_multiply_get_buffer(
             if (run > self->pending_modulator_frames) {
                 run = self->pending_modulator_frames;
             }
-            audiodsp_multiply_process_s16(&self->config,
+            audiodsp_multiply_process_s16(&self->config, &self->state,
                 &self->buffer[produced * self->base.channel_count],
                 self->pending_source,
                 self->pending_modulator, run);
@@ -208,12 +210,14 @@ static void audiomath_multiply_reset_buffer(mp_obj_t self_in,
     bool single_channel_output, uint8_t channel) {
     (void)single_channel_output;
     (void)channel;
-    (void)self_in;
-    // Nothing to clear: the product holds nothing between frames. The frames
-    // already taken from the source and from the modulator are kept, the rule
-    // CircuitPython's effects follow for a host reset: neither input was
-    // reset, so dropping them would skip that much of it and shift the
-    // modulator against the source.
+    audiomath_multiply_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    // The product holds nothing between frames; only a walk of `mix` in
+    // progress is cleared, so the next block lands at `mix` as it stands.
+    // The frames already taken from the source and from the modulator are
+    // kept, the rule CircuitPython's effects follow for a host reset: neither
+    // input was reset, so dropping them would skip that much of it and shift
+    // the modulator against the source.
+    audiodsp_multiply_state_clear(&self->state);
 }
 
 // `deinit()` releases what this binding holds and marks the node
