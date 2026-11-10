@@ -747,7 +747,7 @@ Goal: keep this list short. Python-level API and behavior match CP unless
 noted here.
 
 Six of the entries below are upstream bugs rather than divergences, written up
-in [upstream-reports/](../upstream-reports/). **Five have been filed with
+in [upstream-reports/](https://github.com/PyDevices/audiodsp/tree/main/docs/upstream-reports). **Five have been filed with
 CircuitPython and four are merged** (see that directory's README for the
 issue and PR numbers): peaking-eq-sign, dds-oscillator-off-by-one,
 distortion-soft-clip-union and biquad-reset are fixed upstream;
@@ -958,7 +958,7 @@ MicroPython, unrelated to any ported module).
 
 ## Phase 7: `synthtools` end-to-end acceptance test
 
-[`tests/vendor/synthtools`](../../tests/vendor/synthtools/) is todbot's
+[`tests/vendor/synthtools`](https://github.com/PyDevices/audiodsp/tree/main/tests/vendor/synthtools) is todbot's
 [`CircuitPython_SynthTools`](https://github.com/todbot/CircuitPython_SynthTools)
 (MIT, commit recorded in [`tests/vendor/SYNTHTOOLS_COMMIT.txt`](../../tests/vendor/SYNTHTOOLS_COMMIT.txt)), vendored
 unmodified -- the `synthtools/` package only, not `examples/`/`tests/`/
@@ -3555,7 +3555,7 @@ group delay 0 samples at x1, 2.2 (46 us) at x2, 3.3 (69 us) at x4, 3.9 (80
 us) at x8, with the magnitude response flat to within 0.001 dB from 200 Hz to
 18 kHz. It is small -- a linear-phase FIR half-band steep enough for this
 transition would be several times that -- but it is not zero and it is not an
-integer, so `audioshaper.GROUP_DELAY_SAMPLES` carries the table and a
+integer, so `audioshaper.GROUP_DELAY_SAMPLES` (a constant of the CPython build only) carries the table and a
 component reporting `latency_samples` reports the entry for the factor it
 built with.
 
@@ -3606,7 +3606,7 @@ Phase 0 sketch carried would have been a byte of state nothing reads.
   `audiomixer.Mixer` does sample by sample with a saturating signed add
   (`src/audiomixer/Mixer.c:216-230`). No surviving claimant needs a stream
   here, and keeping the kernel free of `mp_obj` is what lets one golden hash
-  cover every interpreter -- the arithmetic all lives in [`src/shared/`](../../src/shared/), so
+  cover every interpreter -- the arithmetic all lives in [`src/shared/`](https://github.com/PyDevices/audiodsp/tree/main/src/shared), so
   two interpreters disagreeing would itself be the finding.
 - **There is no `pre_filter_hz`.** Vision section 6 says the input filter is
   the class's to compose, and `audiofilters.Filter` with a `synthio.Biquad`
@@ -4274,7 +4274,7 @@ the routes `play()` cannot see. **Upstream still spins**, which is why
 [`tests/parity/mixer_short_loop_probe.py`](../../tests/parity/mixer_short_loop_probe.py) is not in `verify_dsp.py`'s `PROBES`:
 the oracle would hang the three-way rather than report a difference.
 `audiomixer` is a stock CircuitPython module and not part of
-[`src/circuitpython_spike/`](../../src/circuitpython_spike/), so per this repository's rule the fix lands on the
+[`src/circuitpython_spike/`](https://github.com/PyDevices/audiodsp/tree/main/src/circuitpython_spike), so per this repository's rule the fix lands on the
 MicroPython and CPython targets only and the oracle is left alone.
 
 ### Refused rather than padded
@@ -4540,7 +4540,7 @@ public surface, and is written down here rather than assumed away.
 does not need one: its playback layer already pulls the graph natively, from
 its own audio thread, so a second pull loop would be a second owner of the
 same nodes. The module is therefore **absent from a CircuitPython build** —
-`copy_manifest.txt` names none of [`src/audiopump/`](../../src/audiopump/) — and absent from the
+`copy_manifest.txt` names none of [`src/audiopump/`](https://github.com/PyDevices/audiodsp/tree/main/src/audiopump) — and absent from the
 **CPython wheel**, which excludes it rather than stubbing it, because it is a
 MicroPython C module through and through (`MP_REGISTER_MODULE`, `mp_obj_t`, a
 VM root pointer array) and a desktop Python program has threads of its own.

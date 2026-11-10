@@ -70,7 +70,7 @@ matters is that no independent implementation exists to compare against today.
 
 **1. Three-target agreement, with nothing stored.** The CPython extension,
 desktop MicroPython, and the patched CircuitPython build must render a probe
-identically. All three compile the same kernel under [`src/shared/`](../../src/shared/), so this is
+identically. All three compile the same kernel under [`src/shared/`](https://github.com/PyDevices/audiodsp/tree/main/src/shared), so this is
 a real check on the three compilations and on anything that is
 architecture-dependent, undefined, or width-sensitive — the class of defect that
 found the flanger overflow. It cannot be laundered, because there is no file to
@@ -102,7 +102,7 @@ decision that must be written there, or it is a bug.
 ## What a divergence means now
 
 * **CP-shared node, we differ from CircuitPython.** Either a bug of ours, or a
-  bug of theirs worth an upstream report ([`docs/upstream-reports/`](../upstream-reports/)), or a
+  bug of theirs worth an upstream report ([`docs/upstream-reports/`](https://github.com/PyDevices/audiodsp/tree/main/docs/upstream-reports)), or a
   deliberate departure that goes in [`docs/how-it-works/upstream-diff.md`](upstream-diff.md). Three outcomes, and
   choosing between them is the work. What it is never is "re-record ours".
 * **Our own node, the three targets disagree.** Ours, always. One of the three

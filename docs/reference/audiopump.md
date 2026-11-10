@@ -108,3 +108,11 @@ platform driver, and `audiopump.driver()` tells you which one bound:
 all NULLs, which means one thread and no hardware, and that is exactly how
 the WebAssembly build runs. Writing a driver for a platform that has none yet
 is [the pump-port guide](../how-it-works/pump-ports.md).
+
+## Names and signatures
+
+Generated from [`audiopump.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiopump/audiopump.pyi); the file reads on its own.
+
+```{eval-rst}
+.. automodule:: audiopump
+```

@@ -20,7 +20,7 @@ Verified present on `main` 2026-08-27 (four sites in
 
 ---
 
-### `synthio` oscillator wraps one sample late and reads past the end of the waveform
+## `synthio` oscillator wraps one sample late and reads past the end of the waveform
 
 `shared-module/synthio/__init__.c`, in `synthio_synth_synthesize()`:
 
@@ -60,7 +60,7 @@ one drum-machine sequence rendered differently under `PYTHONMALLOC=default`,
 `malloc` and `debug`, and changed again when unrelated objects were allocated
 first.
 
-#### Fix
+### Fix
 
 ```diff
      for (uint16_t i = 0; i < dur; i++) {
@@ -93,7 +93,7 @@ That reduces into `[0, lim)` and *then* adds `offset`, so with a non-zero
 the loop on the very next sample. Reducing into `[offset, lim)` directly would
 be the matching change.
 
-#### Repro
+### Repro
 
 Deterministic, and stays inside the buffer, by making the loop end short of
 the buffer end: the loop is 256 silent samples and sample 256 is a marker the

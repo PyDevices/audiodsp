@@ -17,7 +17,7 @@ was captured.
 
 ---
 
-### `audiospeed_rate_to_fp` truncates to 16.16, so a rate just under a step loses a whole LSB
+## `audiospeed_rate_to_fp` truncates to 16.16, so a rate just under a step loses a whole LSB
 
 `shared-module/audiospeed/__init__.c`:
 
@@ -51,7 +51,7 @@ static void calculate_rate(audiospeed_base_t *self, uint32_t sample_rate) {
 so a `Resampler` binding 48000 into 44100 stores 71331 where 71331.918… wants
 71332.
 
-#### Why it is worth a character
+### Why it is worth a character
 
 A caller that computes a rate rather than typing one is the common case —
 `fs / some_hz`, an interval as `2 ** (semitones / 12)`, or the reciprocal of a
@@ -67,7 +67,7 @@ away from what went in rather than 0. At 48 kHz and 22.05 kHz the same knob
 happens to land exactly on 1.0, so the same code is an identity there — which
 is what makes it look like a sample-rate bug rather than a rounding one.
 
-#### Fix
+### Fix
 
 ```diff
  uint32_t audiospeed_rate_to_fp(mp_obj_t rate_obj) {
@@ -88,7 +88,7 @@ and, in `Resampler.c`:
 needs no sign test. The range check is unaffected: 1000.0 rounds to 65536000,
 which is what it truncated to as well.
 
-#### Repro
+### Repro
 
 ```python
 # audiospeed.SpeedChanger.rate should come back as close to what was asked

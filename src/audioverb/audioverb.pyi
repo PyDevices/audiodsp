@@ -36,9 +36,11 @@ class _AudioSample(Protocol):
 class Tank:
     """A plate reverberator, played like any audio sample.
 
-    Construction fixes the allocation and the topology: ``sample_rate``,
-    ``channel_count``, ``max_predelay_ms``, ``delays`` and ``taps``. `set`
-    moves the rest, while the node plays and without emptying the lines.
+    Construction fixes the allocation: ``sample_rate``, ``channel_count`` and
+    ``max_predelay_ms``. It also takes the network, ``delays`` and ``taps``.
+    `set` moves every other option while the node plays and without emptying
+    the lines; giving it ``delays`` or ``taps`` cuts a new network, which
+    does empty them.
     Every filter is out of the path at zero, so a ``Tank()`` given nothing
     else is that network with nothing added to it.
 

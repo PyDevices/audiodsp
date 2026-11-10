@@ -27,10 +27,12 @@ have. Start with install, then your first program.
 ## Reference
 
 - [The modules](reference/modules.md): what ships, and where each is documented.
-- [Filters and effects](reference/filters-and-effects.md): `audiobiquad`, `audiodynamics`, `audioecho`, `audioshaper`, `audioladder`, `audioverb`.
-- [Sources and synthesis](reference/sources-and-synthesis.md): `audiooscillator`, `audiomodal`, `audiograph`.
+- [Sources and synthesis](reference/sources-and-synthesis.md): `audiocore`, `audiomp3`, `synthio`, `audiooscillator`, `audiomodal`, `audiosampler`, `audiograph`.
+- [Filters and effects](reference/filters-and-effects.md): `audiobiquad`, `audiodynamics`, `audioecho`, `audioshaper`, `audioladder`, `audioverb`, `audiofilters`, `audiodelays`, `audiofreeverb`, `audiospeed`, `audioconvolve`.
+- [Mixing and routing](reference/mixing-and-routing.md): `audiomixer`, `audioroute`.
+- [Analysis and utilities](reference/analysis-and-utilities.md): `audiometer`, `audiofeatures`, `audiomath`.
 - [audiopump](reference/audiopump.md): status, builds, sources.
-- [Vorbis](reference/vorbis.md): the C interface, memory and tests.
+- [Vorbis](reference/vorbis.md): `audiovorbis`, the C interface, memory and tests.
 
 ## How it works
 
@@ -50,4 +52,59 @@ have. Start with install, then your first program.
 
 - [Changelog](changelog.md): what changed in each release.
 
-[Roadmap](../ROADMAP.md) · [Contributing](../CONTRIBUTING.md)
+[Roadmap](https://github.com/PyDevices/audiodsp/blob/main/ROADMAP.md) · [Contributing](https://github.com/PyDevices/audiodsp/blob/main/CONTRIBUTING.md)
+
+```{toctree}
+:hidden:
+
+changelog
+get-started/first-program
+get-started/install
+guides/change-without-a-click
+guides/decode-vorbis
+guides/filter-a-sound
+guides/meter-levels
+guides/play-computed-audio
+guides/play-recorded-notes
+guides/run-the-audio-pump
+guides/speech-features
+guides/swap-what-plays
+guides/use-threads
+how-it-works/additions
+how-it-works/audiograph
+how-it-works/correctness-standard
+how-it-works/drift-resampler
+how-it-works/index
+how-it-works/parity-gates
+how-it-works/pump-ports
+how-it-works/sound-stability
+how-it-works/upstream-diff
+how-it-works/upstream-sync
+how-it-works/wheels-and-platforms
+porting-plan
+reference/analysis-and-utilities
+reference/audiopump
+reference/filters-and-effects
+reference/mixing-and-routing
+reference/modules
+reference/sources-and-synthesis
+reference/vorbis
+upstream-reports/README
+upstream-reports/biquad-band-edges
+upstream-reports/biquad-reset
+upstream-reports/dds-oscillator-off-by-one
+upstream-reports/distortion-overdrive-drive
+upstream-reports/distortion-soft-clip-union
+upstream-reports/peaking-eq-sign
+upstream-reports/prs/biquad-reset/PR
+upstream-reports/prs/dds-oscillator-off-by-one/PR
+upstream-reports/prs/distortion-soft-clip-union/PR
+upstream-reports/prs/flanger-int32-overflow/PR
+upstream-reports/prs/peaking-eq-sign/PR
+upstream-reports/prs/speedchanger-phase-carry/PR
+upstream-reports/prs/speedchanger-rate-rounding/PR
+upstream-reports/prs/synthio-note-repress-zero-level/PR
+upstream-reports/prs/synthio-note-repress-zero-level/review-reply-relic-se
+upstream-reports/speedchanger-phase-carry
+upstream-reports/speedchanger-rate-rounding
+```

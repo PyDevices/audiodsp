@@ -29,7 +29,7 @@ Verified present on `main` 2026-08-27 (`BIQUAD_SHIFT` is still 15,
 
 ---
 
-### `synthio.Biquad` is inaccurate below ~300 Hz and above ~16 kHz
+## `synthio.Biquad` is inaccurate below ~300 Hz and above ~16 kHz
 
 A biquad asked for a corner near either end of the audio band is not the
 filter that was asked for, and it fails silently — a `LOW_PASS` at 50 Hz
@@ -39,7 +39,7 @@ nothing.
 There are **two independent causes** and neither can be fixed alone, which is
 why they are in one report.
 
-#### Cause 1: Q15 coefficients in an int32 accumulator
+### Cause 1: Q15 coefficients in an int32 accumulator
 
 `shared-module/synthio/Biquad.h`:
 
@@ -88,7 +88,7 @@ back into it, so half an LSB of rounding is not half an LSB by the time it
 comes round again. This is what takes a 50 Hz low-pass from "wrong" to
 "silent", and what makes a 30 Hz high-pass *gain* rather than merely mis-sit.
 
-#### Cause 2: `fast_sincos()` fits one polynomial to two functions
+### Cause 2: `fast_sincos()` fits one polynomial to two functions
 
 ```c
 #define FOUR_OVER_PI (4 / M_PI)
@@ -134,7 +134,7 @@ precision by default (`py/circuitpy_mpconfig.h`,
 there than in the double-precision figures above — float epsilon alone costs
 about 3.5 % at 100 Hz before the polynomial's error is counted.
 
-#### What it measures
+### What it measures
 
 One biquad, 48 kHz, Q 0.707 unless stated, on a build of `main`. A corner
 should read −3.01 dB and a passband 0.00:
@@ -190,7 +190,7 @@ for exact replication and for instrument-grade fidelity below 100 Hz. It is
 worth reporting as a limitation with a fix and a cost, which is what this
 document is — not as an alarm.
 
-#### Why both causes have to go together
+### Why both causes have to go together
 
 Turning each cause off in the closed form, at 48 kHz:
 
@@ -217,7 +217,7 @@ the build gives silence, and −4.71 at 30 Hz where the build gives +9.03. The
 difference is the whole-sample feedback state described above, which a
 transfer function cannot express.)
 
-#### A fix, and what it costs
+### A fix, and what it costs
 
 This is what we did in a downstream port of these files. Offering it as a
 starting point rather than a patch to take, because the cost below is real
@@ -263,7 +263,7 @@ Step 3 on its own is nearly free on every core, and it is the entire fix above
 16 kHz — so it is worth considering separately even if steps 1 and 2 are not
 wanted.
 
-#### Repro
+### Repro
 
 ```python
 # What a biquad does at the ends of the audio band.

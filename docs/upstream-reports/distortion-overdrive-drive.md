@@ -18,7 +18,7 @@ Verified present on `main` 2026-08-27.
 
 ---
 
-### `audiofilters.Distortion`: `drive` has no effect in OVERDRIVE mode
+## `audiofilters.Distortion`: `drive` has no effect in OVERDRIVE mode
 
 `shared-module/audiofilters/Distortion.c`:
 
@@ -58,7 +58,7 @@ We took the first option downstream (as pre-gain, with the level put back so
 the historical default stays bit-identical), but a docs fix would have saved
 us the measurement, and either is fine from out here.
 
-#### Repro
+### Repro
 
 ```python
 import array, math

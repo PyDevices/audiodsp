@@ -50,7 +50,7 @@ to turn up.
 3. For each commit, find the same code here. A file under `src/<module>/`
    holds upstream's `shared-module` and `shared-bindings` files merged, with
    a `// --- from ...` line where each begins. Arithmetic that both bindings
-   run lives in [`src/shared/`](../../src/shared/), and the CPython target's copy of the module
+   run lives in [`src/shared/`](https://github.com/PyDevices/audiodsp/tree/main/src/shared), and the CPython target's copy of the module
    is `src/cpython/<module>.py` beside `_audiodsp.c`. A fix usually lands in
    two or three of those places.
 4. Take each fix in upstream's own words where the code is still upstream's,
@@ -59,7 +59,7 @@ to turn up.
    all, in both the native module and the CPython target. Leave out only what
    the list of deliberate differences below says this port does otherwise,
    and say which in the pull request.
-5. Add a probe under [`tests/parity/`](../../tests/parity/) whose output changes with each fix or
+5. Add a probe under [`tests/parity/`](https://github.com/PyDevices/audiodsp/tree/main/tests/parity) whose output changes with each fix or
    addition, and add it to `verify_dsp.py`. A probe CPython can't run (no `audiomp3`, say)
    can't be compared there, because CI has only CPython and MicroPython; have
    it check itself against the oracle's answers and run it in
@@ -211,7 +211,7 @@ a resync should take upstream's version. Each entry links to its reasons.
   `shared-bindings` files for that class merged into one, docstrings (`//|`)
   dropped. The per-sample loops of the effects live in `src/shared/` so the
   CPython target runs the same C.
-- **The CPython target** ([`src/cpython/`](../../src/cpython/)) is a second implementation, held to
+- **The CPython target** ([`src/cpython/`](https://github.com/PyDevices/audiodsp/tree/main/src/cpython)) is a second implementation, held to
   the native bytes by `verify_dsp.py` rather than by sharing upstream's code.
 - **`attr, cp_compat_attr`** on every type, because mainline MicroPython
   needs it to call a property

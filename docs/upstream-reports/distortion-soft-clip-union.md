@@ -23,7 +23,7 @@ Verified present on `main` 2026-08-27.
 
 ---
 
-### `audiofilters.Distortion(soft_clip=False)` enables soft clipping
+## `audiofilters.Distortion(soft_clip=False)` enables soft clipping
 
 `shared-bindings/audiofilters/Distortion.c`. The argument is declared as a
 bool:
@@ -85,7 +85,7 @@ in one script on one binary I get `True` and in another, on the same binary, I
 get `False`. It also varies by target — this is how we originally found it,
 building for wasm32 where even the *default* read as `True`.
 
-#### Fix
+### Fix
 
 ```diff
          mode,
@@ -94,7 +94,7 @@ building for wasm32 where even the *default* read as `True`.
          args[ARG_mix].u_obj,
 ```
 
-#### Repro
+### Repro
 
 ```python
 # soft_clip is declared MP_ARG_BOOL and read back through .u_obj, so what you

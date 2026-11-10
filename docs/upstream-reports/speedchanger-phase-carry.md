@@ -18,7 +18,7 @@ output stops depending on the source's block size at all.
 
 ---
 
-### `audiospeed_fetch_source_buffer` resets the phase, so a `SpeedChanger` drifts and only renders correctly when the rate divides the buffer length
+## `audiospeed_fetch_source_buffer` resets the phase, so a `SpeedChanger` drifts and only renders correctly when the rate divides the buffer length
 
 `shared-module/audiospeed/__init__.c`:
 
@@ -54,7 +54,7 @@ rate divides the buffer length exactly. At `rate` 1.8433 with a 256-frame
 upstream, 0.2 of a frame is dropped every 139 output frames; at `rate` 6 with
 the same upstream, four whole frames are dropped every 43.
 
-#### What it sounds like
+### What it sounds like
 
 A `SpeedChanger` pair used as a sample-and-hold — decimate at N, restore at 1/N,
 which is how a lo-fi rate reducer is built out of this module — is the clearest
@@ -82,7 +82,7 @@ miss: at N = 4 over 256-frame buffers, and at the 2.0 / 1.0 / 0.5 a `Resampler`
 is usually bound to, the accumulator lands on the boundary every time and the
 output is correct.
 
-#### Fix
+### Fix
 
 Subtract what the previous buffer held instead of zeroing, and let the caller
 ask the accumulator where it is rather than assuming frame 0:
@@ -145,7 +145,7 @@ the guard is worth having either way.
 `audiospeed_reset_buffer` should keep zeroing the phase: it resets the source as
 well, so the stream genuinely restarts there.
 
-#### Repro
+### Repro
 
 ```python
 # What a SpeedChanger renders should not depend on the block size of the node
