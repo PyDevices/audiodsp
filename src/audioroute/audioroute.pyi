@@ -88,7 +88,12 @@ class MidSide:
 
     At a width of 1.0 the output is the input exactly, so the node can stay in
     a chain that does not use it. A mono node copies its input, since a mono
-    signal has no difference to scale.
+    signal has no difference to scale. The node keeps no state and adds no
+    latency.
+
+    It also suits the drive classes. A nonlinearity applied to a stereo pair
+    intermodulates its channels, so a saturator that wants to keep its image
+    drives the mid and leaves the side alone.
 
     Args:
         source: The stream to process, or None to set it later with `play`.

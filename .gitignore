@@ -26,3 +26,6 @@ dist/
 *.o
 *.a
 .deps/
+
+# Built documentation
+docs/_build/

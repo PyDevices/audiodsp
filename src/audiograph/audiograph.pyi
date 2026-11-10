@@ -13,26 +13,26 @@ what lets a six-voice polysynth play in real time on an ESP32-P4. It is the
 same C on CPython, MicroPython and CircuitPython, so a patch built and
 listened to on the desktop renders the same samples on the board.
 
-```python
-import audiograph as ag
+Example::
 
-g = ag.Graph(sample_rate=48000, frames=128, channel_count=2)
-pitch, gate, env, saw, vcf, out = (g.buffer() for _ in range(6))
+    import audiograph as ag
 
-g.add(ag.CONST, 0, (), pitch)               # the key, in octaves from C4
-key = g.add(ag.CONST, 0, (), gate)
-g.add(ag.ENV, 0, (gate,), env)
-osc = g.add(ag.OSC, 0, (pitch, None, None, None), saw)
-g.set(osc, ag.OSC_WAVEFORM, 1)              # a sawtooth
-lad = g.add(ag.LADDER, 0, (saw, env), vcf)  # the envelope sweeps the cutoff
-g.set(lad, ag.LADDER_CUTOFF_HZ, 600.0)
-g.add(ag.VCA, 0, (vcf, env, None), out)
-g.add(ag.OUT, ag.ALWAYS, (out, out), None)
+    g = ag.Graph(sample_rate=48000, frames=128, channel_count=2)
+    pitch, gate, env, saw, vcf, out = (g.buffer() for _ in range(6))
 
-pcm = bytearray(128 * 2 * 2)
-g.set(key, 0, ag.UNIT)                      # key down
-sounding = g.run(pcm, 0)                    # one block into pcm
-```
+    g.add(ag.CONST, 0, (), pitch)               # the key, in octaves from C4
+    key = g.add(ag.CONST, 0, (), gate)
+    g.add(ag.ENV, 0, (gate,), env)
+    osc = g.add(ag.OSC, 0, (pitch, None, None, None), saw)
+    g.set(osc, ag.OSC_WAVEFORM, 1)              # a sawtooth
+    lad = g.add(ag.LADDER, 0, (saw, env), vcf)  # the envelope sweeps the cutoff
+    g.set(lad, ag.LADDER_CUTOFF_HZ, 600.0)
+    g.add(ag.VCA, 0, (vcf, env, None), out)
+    g.add(ag.OUT, ag.ALWAYS, (out, out), None)
+
+    pcm = bytearray(128 * 2 * 2)
+    g.set(key, 0, ag.UNIT)                      # key down
+    sounding = g.run(pcm, 0)                    # one block into pcm
 
 A graph owns ``buffers`` blocks of ``frames`` signed 16-bit samples and a
 table of up to ``nodes`` nodes. Every node reads some buffers, writes one,

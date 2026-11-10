@@ -1,7 +1,7 @@
 # Drafts for adafruit/circuitpython
 
 Three contributions are **prepared and unfiled**, waiting on the maintainer. Each has a
-directory under [prs/](prs/) holding a patch that applies to the `10.3.0` tag
+directory under [prs/](https://github.com/PyDevices/audiodsp/tree/main/docs/upstream-reports/prs) holding a patch that applies to the `10.3.0` tag
 and to the `main` tip (`268a168d`, 2026-09-17 — the files involved are
 byte-identical between the two), a paste-ready title and body, the repro
 scripts, and the publish commands.

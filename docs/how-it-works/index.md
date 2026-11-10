@@ -47,14 +47,14 @@ For a new pump port, [the pump-port guide](pump-ports.md) is authoritative.
 
 | Path | Purpose |
 |---|---|
-| [`src/audiocore/`](../../src/audiocore/), [`src/synthio/`](../../src/synthio/), [`src/audiomixer/`](../../src/audiomixer/) | Core CircuitPython-compatible source, synthesis, and mixing modules. |
+| [`src/audiocore/`](https://github.com/PyDevices/audiodsp/tree/main/src/audiocore), [`src/synthio/`](https://github.com/PyDevices/audiodsp/tree/main/src/synthio), [`src/audiomixer/`](https://github.com/PyDevices/audiodsp/tree/main/src/audiomixer) | Core CircuitPython-compatible source, synthesis, and mixing modules. |
 | `src/audio*/` | Effects, DSP, routing, and audio utility modules compiled into native targets. |
-| [`src/audiopump/`](../../src/audiopump/) | Portable pump loop, rings, events, taps, and lifecycle guards. |
-| [`src/shared/`](../../src/shared/) | DSP and sample-protocol C shared by the MicroPython and CPython targets. |
-| [`src/cp_compat/`](../../src/cp_compat/) | Small CircuitPython compatibility shims needed by the MicroPython port. |
-| [`src/cpython/`](../../src/cpython/) | `_audiodsp` extension plus top-level Python wrappers for CPython. |
-| [`lib/audiodsp_util/`](../../lib/audiodsp_util/) | Cross-runtime `float32()` helpers for settings derived in Python. |
-| [`lib/audiorender/`](../../lib/audiorender/) | Desktop-only, NumPy-based offline composition renderer. |
+| [`src/audiopump/`](https://github.com/PyDevices/audiodsp/tree/main/src/audiopump) | Portable pump loop, rings, events, taps, and lifecycle guards. |
+| [`src/shared/`](https://github.com/PyDevices/audiodsp/tree/main/src/shared) | DSP and sample-protocol C shared by the MicroPython and CPython targets. |
+| [`src/cp_compat/`](https://github.com/PyDevices/audiodsp/tree/main/src/cp_compat) | Small CircuitPython compatibility shims needed by the MicroPython port. |
+| [`src/cpython/`](https://github.com/PyDevices/audiodsp/tree/main/src/cpython) | `_audiodsp` extension plus top-level Python wrappers for CPython. |
+| [`lib/audiodsp_util/`](https://github.com/PyDevices/audiodsp/tree/main/lib/audiodsp_util) | Cross-runtime `float32()` helpers for settings derived in Python. |
+| [`lib/audiorender/`](https://github.com/PyDevices/audiodsp/tree/main/lib/audiorender) | Desktop-only, NumPy-based offline composition renderer. |
 | `micropython.mk`, `micropython.cmake` | User-module build glue for Make and CMake MicroPython ports. |
 | `tests/` | CPython fixtures, in-repository parity gates, and parity tools that need sibling checkouts. |
 | `docs/` | Guides, reference, and these architecture pages. |
@@ -97,7 +97,7 @@ Most deep parity checks need the sibling repositories checked out beside
 this one, built interpreters, and the fixed CircuitPython oracle. They are
 not a standalone contributor prerequisite. The repository's CI covers CPython
 fixture tests and committed in-repository parity gates; `python -m flake8` is
-the local lint gate. [CONTRIBUTING.md](../../CONTRIBUTING.md) has the rules:
+the local lint gate. [CONTRIBUTING.md](https://github.com/PyDevices/audiodsp/blob/main/CONTRIBUTING.md) has the rules:
 don't modify the CircuitPython oracle, don't casually update parity goldens,
 and don't move the dependency pins.
 

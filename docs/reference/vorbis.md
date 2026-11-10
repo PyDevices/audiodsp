@@ -51,7 +51,7 @@ link that doesn't.
 ## The decoder, and decoding from C
 
 The decoding is Xiph's Tremor, the lowmem branch: integer-only, BSD-3-Clause,
-carried in [third_party/tremor](../../third_party/tremor) with a few small changes
+carried in [third_party/tremor](https://github.com/PyDevices/audiodsp/tree/main/third_party/tremor) with a few small changes
 with its [ORIGIN.txt](../../third_party/tremor/ORIGIN.txt). It is compiled as one
 translation unit, [src/shared/audiodsp_vorbis.c](../../src/shared/audiodsp_vorbis.c),
 which:
@@ -149,3 +149,9 @@ C library that doesn't, so leave it the room above.
 - [tests/parity/vorbis_symbols_check.py](../../tests/parity/vorbis_symbols_check.py)
   compiles the decoder alone and fails on any global symbol outside
   `audiodsp_`; `--fault` plants one.
+
+## Names and signatures
+
+```{eval-rst}
+.. automodule:: audiovorbis
+```

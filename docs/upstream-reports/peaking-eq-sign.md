@@ -14,7 +14,7 @@ the repro also runs on a board with the `get_buffer` loop replaced by an
 
 ---
 
-### `synthio.Biquad` PEAKING_EQ has the wrong sign on `b2`
+## `synthio.Biquad` PEAKING_EQ has the wrong sign on `b2`
 
 `shared-module/synthio/Biquad.c`, in `common_hal_synthio_biquad_tick()`:
 
@@ -60,7 +60,7 @@ the one mode a synthesis library rarely reaches for.
 It reaches `synthio.Note.filter` as well as `audiofilters.Filter` — the
 coefficients are shared.
 
-#### Fix
+### Fix
 
 ```diff
          case SYNTHIO_PEAKING_EQ:
@@ -74,7 +74,7 @@ coefficients are shared.
              break;
 ```
 
-#### Measured
+### Measured
 
 On a build of `main`, a +6 dB bell at 1 kHz / Q 1 / 48 kHz:
 
@@ -88,7 +88,7 @@ and a −6 dB cut reads −6.00 dB at centre after the fix. The +21.39 agrees wi
 the closed form `1 + alpha*A/(1 - cos W0)` = +21.40 dB to within the Q15
 coefficient rounding.
 
-#### Repro
+### Repro
 
 ```python
 # A peaking bell should be unity at DC and at Nyquist, and hit its own gain

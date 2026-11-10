@@ -16,7 +16,7 @@ practice as well as in diff.
 
 ---
 
-### `synthio_biquad_filter_reset()` only clears half the filter state
+## `synthio_biquad_filter_reset()` only clears half the filter state
 
 `shared-module/synthio/Biquad.h`:
 
@@ -58,7 +58,7 @@ start something quiet, and the first few milliseconds carry a burst of the old
 sound. On a `synthio.Note`, a re-pressed note briefly inherits the last one's
 filter tail.
 
-#### Fix
+### Fix
 
 ```diff
  void synthio_biquad_filter_reset(biquad_filter_state *st) {
@@ -67,7 +67,7 @@ filter tail.
  }
 ```
 
-#### Measured
+### Measured
 
 800 Hz low-pass, fed a 200 Hz tone at 30000 for four blocks, then
 `reset_buffer`, then pure silence. Peak of the first block of "silence":
@@ -81,7 +81,7 @@ First eight samples before the fix: `28082, 28041, 27761, 26946, 25968,
 24859, 23648, 22362` — a clean exponential decay, which is the filter ringing
 down from a state that should have been zeroed.
 
-#### Repro
+### Repro
 
 ```python
 # audiofilters.Filter.reset_buffer() should leave no audio behind.
