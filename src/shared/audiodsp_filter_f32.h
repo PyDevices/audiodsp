@@ -46,6 +46,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "shared/audiodsp_level_ramp.h"
+
 //: Frames one output block carries. The same 256 audiodynamics, audiomath and
 //: audioecho use, so a chain built out of several of them moves in one block
 //: size.
@@ -185,6 +187,10 @@ typedef struct {
     // False until the first block, which takes the config as it stands --
     // what the node was built with is not a move.
     bool primed;
+    // `mix` as the output stands, walking to a new value over `ramp_ms`
+    // (rounded to the nearest frame) instead of stepping there. A reset
+    // clears it with the rest, so the first block after one lands at once.
+    audiodsp_level_ramp_t mix_ramp;
 } audiodsp_biquad_f32_state_t;
 
 //: How long a coefficient move takes unless AUDIODSP_BIQUAD_F32_OPT_RAMP says
@@ -264,6 +270,9 @@ typedef struct {
     // block-rate step is what makes the ported phaser's sweep buzz.
     float coefficient;
     bool primed;
+    // `mix` as the output stands, walking to a new value over
+    // AUDIODSP_LEVEL_RAMP_MS instead of stepping there. A reset clears it.
+    audiodsp_level_ramp_t mix_ramp;
 } audiodsp_allpass_f32_state_t;
 
 void audiodsp_allpass_f32_config_init(audiodsp_allpass_f32_config_t *config,

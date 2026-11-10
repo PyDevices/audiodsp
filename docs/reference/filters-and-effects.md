@@ -5,6 +5,12 @@ introduction to the biquad, see [Filter a sound](../guides/filter-a-sound.md).
 The reasons these exist beside CircuitPython's own modules are in
 [Additions beyond CircuitPython](../how-it-works/additions.md).
 
+A level moved on a playing node walks to its new value in a straight line
+over 20 ms instead of stepping, so turning it in one call doesn't click: the
+`mix` of `Biquad`, `AllPass`, `Waveshaper` and `FeedbackDelay`, the
+Waveshaper's `post_gain` and the Dynamics node's `makeup_db`. A node that
+hasn't played yet, or has just been reset, takes its levels at once.
+
 ## `audiobiquad`
 
 
@@ -21,7 +27,7 @@ When a `Biquad`'s `frequency`, `Q`, `gain_db` or `mode` changes while it plays,
 it glides to the new filter over about 20 ms instead of jumping, so a preset
 change that drops the corner from 20 kHz to 20 Hz doesn't thump. A block input
 glides the same way, so an LFO on `frequency` arrives about a block late.
-`mix` still moves at once, and so does a filter that hasn't played yet.
+A filter that hasn't played yet takes its new settings at once.
 
 `mode` is one of `LOW_PASS`, `HIGH_PASS`, `BAND_PASS`, `NOTCH`,
 `PEAKING_EQ`, `LOW_SHELF`, `HIGH_SHELF` — numbered exactly as

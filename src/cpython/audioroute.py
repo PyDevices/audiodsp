@@ -310,6 +310,9 @@ class Port(_AudioSample):
             raise ValueError("a Port needs a source")
         self._deinited = False
         self._source = source
+        self._switch_to = None
+        self._switch_left = 0
+        self._pulled = False
         self._adopt(source)
 
     def _adopt(self, sample):
@@ -335,16 +338,41 @@ class Port(_AudioSample):
         self._check()
         return self._source
 
-    def play(self, sample, *, loop=False):
+    def play(self, sample, *, loop=False, after=0):
         """Re-point the port. On the native build this is the swap the pump
-        lock protects; here there is no pump, so it is one store."""
+        lock protects; here there is no pump, so it is one store.
+
+        With `after` a number of frames, the port plays what it plays now
+        for that many more frames and switches at the start of the next
+        pull: time for a level the old source is walking to land before the
+        new one takes over. Until that pull, `source` is still the old one,
+        and a `play()` replaces the switch that was waiting. A port nothing
+        has pulled since it was pointed at what it plays now switches at
+        once: that has not started, so there is nothing to finish. Pointed
+        at the same source again, the port has not started anything new."""
         self._check()
         if sample is None:
             raise ValueError("a Port needs a source")
+        after = int(after)
+        if after < 0:
+            raise ValueError("after must be 0 or more")
         for field in ("sample_rate", "bits_per_sample", "channel_count",
                       "samples_signed"):
             if getattr(sample, field) != getattr(self, field):
                 raise ValueError("The sample's %s does not match" % field)
+        if after and self._pulled:
+            self._switch_to = sample
+            self._switch_left = after
+            return
+        self._switch_to = None
+        self._switch_left = 0
+        self._switch(sample)
+
+    def _switch(self, sample):
+        if sample is not self._source:
+            # The same source again goes on playing the same stream, so
+            # whether it has started stands.
+            self._pulled = False
         self._source = sample
         self.single_buffer = bool(getattr(sample, "single_buffer", False))
         self.max_buffer_length = int(getattr(sample, "max_buffer_length", 0))
@@ -353,6 +381,8 @@ class Port(_AudioSample):
         # Releasing a port releases the reference, not the graph: the nodes
         # behind it belong to the class that built them.
         self._source = None
+        self._switch_to = None
+        self._switch_left = 0
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         self._check()
@@ -367,10 +397,24 @@ class Port(_AudioSample):
         self._check()
         if self._source is None:
             return GET_BUFFER_ERROR, memoryview(b"")
+        first = not single_channel_output or audio_channel == 0
+        if first and self._switch_to is not None and not self._switch_left:
+            waiting = self._switch_to
+            self._switch_to = None
+            self._switch(waiting)
         # `_borrow`, not `get_buffer`: the native hands back the source's own
         # pointer, so a copy here would make this target's borrowers see a
         # snapshot the native ones do not. See `audiocore._AudioSample._publish`.
-        return _borrow(self._source, single_channel_output, audio_channel)
+        result, data = _borrow(self._source, single_channel_output,
+                               audio_channel)
+        self._pulled = True
+        if first and self._switch_to is not None:
+            width = self.bits_per_sample // 8
+            if not single_channel_output:
+                width *= self.channel_count
+            frames = getattr(data, "nbytes", len(data)) // width
+            self._switch_left -= min(frames, self._switch_left)
+        return result, data
 
 
 __all__ = ("MidSide", "Port", "Splitter", "SplitterTap")

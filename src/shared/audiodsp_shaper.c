@@ -289,9 +289,20 @@ void audiodsp_shaper_process_s16(const audiodsp_shaper_config_t *config,
     uint32_t frames) {
     const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
     const uint32_t stages = config->stages;
-    const float wet_gain = config->mix;
-    const float dry_gain = 1.0f - config->mix;
+    const uint32_t ramp = audiodsp_level_ramp_frames(config->sample_rate,
+        AUDIODSP_LEVEL_RAMP_MS);
+    audiodsp_level_ramp_aim(&state->post_ramp, config->post_gain, ramp);
+    audiodsp_level_ramp_aim(&state->mix_ramp, config->mix, ramp);
+    float post_gain = config->post_gain;
+    float wet_gain = config->mix;
+    float dry_gain = 1.0f - config->mix;
     for (uint32_t frame = 0; frame < frames; ++frame) {
+        if (audiodsp_level_ramp_moving(&state->post_ramp) ||
+            audiodsp_level_ramp_moving(&state->mix_ramp)) {
+            post_gain = audiodsp_level_ramp_next(&state->post_ramp);
+            wet_gain = audiodsp_level_ramp_next(&state->mix_ramp);
+            dry_gain = 1.0f - wet_gain;
+        }
         for (uint32_t channel = 0; channel < channels; ++channel) {
             const int16_t raw = in[frame * channels + channel];
             if (raw != 0) {
@@ -330,7 +341,7 @@ void audiodsp_shaper_process_s16(const audiodsp_shaper_config_t *config,
                         oversampled[i * 2u + 1u]);
                 }
             }
-            const float wet = oversampled[0] * config->post_gain * 32768.0f;
+            const float wet = oversampled[0] * post_gain * 32768.0f;
             out[frame * channels + channel] =
                 to_s16(dry_gain * source + wet_gain * wet);
         }

@@ -278,6 +278,8 @@ void audiodsp_dynamics_clear_detector(audiodsp_dynamics_state_t *state) {
     state->smoothed_gain = 0.0f;
     state->gain_smooth_primed = false;
     memset(state->peak_history, 0, sizeof(state->peak_history));
+    // The makeup gain's walk: a fresh node takes its makeup whole.
+    audiodsp_level_ramp_clear(&state->makeup_ramp);
     audiodsp_dynamics_clear_extras(state);
 }
 
@@ -531,7 +533,11 @@ void audiodsp_dynamics_process_s16_key(const audiodsp_dynamics_config_t *config,
         ? audiodsp_dynamics_db_to_gain(config->threshold_db) : 0.0f;
 
     const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    audiodsp_level_ramp_aim(&state->makeup_ramp, config->makeup_gain,
+        audiodsp_level_ramp_frames(config->sample_rate,
+            AUDIODSP_LEVEL_RAMP_MS));
     while (frames-- != 0) {
+        const float makeup = audiodsp_level_ramp_next(&state->makeup_ramp);
         float source[2] = {0.0f, 0.0f};
         for (uint32_t channel = 0; channel < channels; ++channel) {
             source[channel] = (float)input[channel] / 32768.0f;
@@ -759,7 +765,7 @@ void audiodsp_dynamics_process_s16_key(const audiodsp_dynamics_config_t *config,
                                       : config->sustain_gain_db * -norm;
             }
             state->gain_reduction_db = gain_db;
-            gain = audiodsp_dynamics_db_to_gain(gain_db) * config->makeup_gain;
+            gain = audiodsp_dynamics_db_to_gain(gain_db) * makeup;
         } else if (gate_machine) {
             // Closed -> attack -> hold -> decay, on the same peak level. Once
             // ATTACK has been entered it runs to unity whatever the key does
@@ -807,7 +813,7 @@ void audiodsp_dynamics_process_s16_key(const audiodsp_dynamics_config_t *config,
             }
             state->gain_reduction_db =
                 audiodsp_dynamics_gain_to_db(state->gate_gain);
-            gain = state->gate_gain * config->makeup_gain;
+            gain = state->gate_gain * makeup;
         } else {
             const bool rising = level > state->envelope;
             float coef = rising ? config->attack_coef : config->release_coef;
@@ -841,7 +847,7 @@ void audiodsp_dynamics_process_s16_key(const audiodsp_dynamics_config_t *config,
             }
             const float gain_db = dynamics_gain_db(config, env_db);
             state->gain_reduction_db = gain_db;
-            gain = audiodsp_dynamics_db_to_gain(gain_db) * config->makeup_gain;
+            gain = audiodsp_dynamics_db_to_gain(gain_db) * makeup;
         }
         // The gain smoother sits here, after every one of the gain
         // computers above and before the multiply, so one place covers all

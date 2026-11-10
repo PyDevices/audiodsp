@@ -81,13 +81,27 @@ static mp_obj_t audioroute_port_make_new(const mp_obj_type_t *type,
     audioroute_port_obj_t *self = mp_obj_malloc(audioroute_port_obj_t, type);
     audioroute_port_adopt_format(self, sample);
     self->source = args[ARG_source].u_obj;
+    self->switch_to = MP_OBJ_NULL;
+    self->switch_left = 0;
+    self->pulled = false;
     return MP_OBJ_FROM_PTR(self);
 }
 
-//|     def play(self, sample: circuitpython_typing.AudioSample) -> None:
+//|     def play(self, sample: circuitpython_typing.AudioSample, *,
+//|              loop: bool = False, after: int = 0) -> None:
 //|         """Re-point the wire. Whatever holds this ``Port`` now hears
 //|         ``sample``, without being told and without changing what it
-//|         holds."""
+//|         holds.
+//|
+//|         With ``after`` a number of frames, the port plays what it plays
+//|         now for that many more frames and switches at the start of the
+//|         next pull: time for a level the old source is walking to land
+//|         before the new one takes over. Until that pull ``source`` is still
+//|         the old one, and a ``play()`` replaces the switch that was
+//|         waiting. A port nothing has pulled since it was pointed at what
+//|         it plays now switches at once: that has not started, so there is
+//|         nothing to finish. Pointed at the same source again, the port has
+//|         not started anything new."""
 //|         ...
 //
 // Re-point the port. This is the whole node.
@@ -102,11 +116,26 @@ static mp_obj_t audioroute_port_make_new(const mp_obj_type_t *type,
 //
 // `play` rather than `retarget` or `source =` because that is the verb the
 // whole palette already uses for "this is what you play now".
-static mp_obj_t audioroute_port_play(mp_obj_t self_in, mp_obj_t sample_in) {
-    audioroute_port_obj_t *self = MP_OBJ_TO_PTR(self_in);
+static mp_obj_t audioroute_port_play(size_t n_args, const mp_obj_t *pos_args,
+    mp_map_t *kw_args) {
+    enum { ARG_sample, ARG_loop, ARG_after };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_sample, MP_ARG_OBJ | MP_ARG_REQUIRED, {.u_obj = MP_ROM_NONE} },
+        { MP_QSTR_loop, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false} },
+        { MP_QSTR_after, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
+    };
+    audioroute_port_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
+        MP_ARRAY_SIZE(allowed_args), allowed_args, args);
     audiosample_check_for_deinit(&self->base);
+    mp_obj_t sample_in = args[ARG_sample].u_obj;
     if (sample_in == mp_const_none) {
         mp_raise_ValueError(MP_ERROR_TEXT("a Port needs a source"));
+    }
+    const mp_int_t after = args[ARG_after].u_int;
+    if (after < 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("after must be 0 or more"));
     }
     // Refuses a rate, channel count, depth or signedness that differs. A
     // Component's output already has to match its source for the constructor
@@ -114,13 +143,17 @@ static mp_obj_t audioroute_port_play(mp_obj_t self_in, mp_obj_t sample_in) {
     // borrowed source -- passes; anything that would have been a different
     // format downstream is caught here instead of being heard.
     audiosample_must_match(&self->base, sample_in, false);
-    const audiosample_base_t *sample = MP_OBJ_TO_PTR(sample_in);
-    self->source = sample_in;
-    self->base.max_buffer_length = sample->max_buffer_length;
-    self->base.single_buffer = sample->single_buffer;
+    if (after > 0 && self->pulled) {
+        self->switch_to = sample_in;
+        self->switch_left = (uint32_t)after;
+        return mp_const_none;
+    }
+    self->switch_to = MP_OBJ_NULL;
+    self->switch_left = 0;
+    audioroute_port_switch(self, sample_in);
     return mp_const_none;
 }
-MP_DEFINE_CONST_FUN_OBJ_2(audioroute_port_play_obj, audioroute_port_play);
+MP_DEFINE_CONST_FUN_OBJ_KW(audioroute_port_play_obj, 1, audioroute_port_play);
 
 //|     source: circuitpython_typing.AudioSample
 //|     """What the port is playing right now. Read-only: `play` is how it
@@ -152,6 +185,8 @@ static mp_obj_t audioroute_port_deinit(mp_obj_t self_in) {
     audioroute_port_obj_t *self = MP_OBJ_TO_PTR(self_in);
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
+    self->switch_to = MP_OBJ_NULL;
+    self->switch_left = 0;
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(audioroute_port_deinit_obj, audioroute_port_deinit);

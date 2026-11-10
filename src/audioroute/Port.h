@@ -47,6 +47,16 @@ typedef struct {
     //: native. One byte, read and written on whichever thread is pulling,
     //: under the lock the funnel already holds.
     bool in_pull;
+    //: A switch `play(sample, after=frames)` left waiting: `switch_to` takes
+    //: over at the start of the first pull after `switch_left` more frames
+    //: have been pulled through the port. MP_OBJ_NULL when
+    //: none is waiting. Read and written under the pump lock.
+    mp_obj_t switch_to;
+    uint32_t switch_left;
+    //: Whether the port has been pulled since it was pointed at its
+    //: source (a `play()` of the same source again keeps it): a
+    //: `play(sample, after=frames)` on one that has not switches at once.
+    bool pulled;
 } audioroute_port_obj_t;
 
 extern const mp_obj_type_t audioroute_port_type;

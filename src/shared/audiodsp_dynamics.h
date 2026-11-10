@@ -18,6 +18,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "shared/audiodsp_level_ramp.h"
+
 typedef enum {
     AUDIODSP_DYNAMICS_COMPRESS = 0,
     AUDIODSP_DYNAMICS_LIMIT = 1,
@@ -246,6 +248,10 @@ typedef struct {
     // reset.
     float smoothed_gain;
     bool gain_smooth_primed;
+    // The makeup gain as the output stands, walking to a new `makeup_db`
+    // over AUDIODSP_LEVEL_RAMP_MS instead of stepping there. A reset clears
+    // it, with the detector (audiodsp_dynamics_clear_detector).
+    audiodsp_level_ramp_t makeup_ramp;
 } audiodsp_dynamics_state_t;
 
 //: Where the gate's four-stage envelope is. CLOSED sits at the floor, ATTACK

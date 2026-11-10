@@ -20,9 +20,10 @@ the PCM, so the interpreters are held to the same bytes and to the right ones:
   the node plays exactly what a node built at that delay plays.
 - **mix**: mix taken to 0 and brought back. While it is 0 the input passes
   through untouched. A node whose loop runs on at a mix of 0 then plays
-  exactly what a node left at that mix plays. `Echo` is upstream's and holds
-  its line still instead: what it plays after is what a node fed the same
-  source with the muted stretch cut out plays.
+  exactly what a node left at that mix plays. `FeedbackDelay` walks a mix
+  move over 20 ms, so both hold from where its walk lands. `Echo` is
+  upstream's and holds its line still instead: what it plays after is what a
+  node fed the same source with the muted stretch cut out plays.
 - **settings**: several settings before one pull. Settings split over several
   calls land as one call does, two settings land the same in either order, and
   a value set and replaced before the pull leaves no trace.
@@ -110,6 +111,7 @@ class FeedbackDelay:
     delay = 160                 # 20 ms at 8 kHz
     runs_on_at_mix_0 = True
     has_slew = True
+    mix_walk = 160              # a mix move walks over 20 ms
 
     def make(self, feedback=0.5, mix=0.5, delay_ms=20.0, **extra):
         return module.FeedbackDelay(
@@ -293,8 +295,14 @@ def mix_event(kind):
     kind.set(node, mix=0.375)
     back = pulls(node, 8)
     print(tag, [checksum(b) for b in before + muted + back])
+    # A node whose mix walks reaches the input once the walk has landed,
+    # and walks back from it.
+    walk = getattr(kind, "mix_walk", 0)
     check(tag + " passes the input at 0",
-          b"".join(muted) == bytes(values[BLOCK:BLOCK * 4]))
+          b"".join(muted)[walk * 2:] == bytes(values[BLOCK + walk:BLOCK * 4]))
+    if walk:
+        check(tag + " walks to 0",
+              b"".join(muted)[:walk * 2] != bytes(values[BLOCK:BLOCK + walk]))
     if kind.runs_on_at_mix_0:
         reference_values = values
         offset = 4
@@ -308,7 +316,10 @@ def mix_event(kind):
     reference.play(raw(reference_values))
     expected = pulls(reference, offset + 8)
     check(tag + " comes back where the loop is",
-          back == expected[offset:])
+          b"".join(back)[walk * 2:] == b"".join(expected[offset:])[walk * 2:])
+    if walk:
+        check(tag + " walks back",
+              b"".join(back)[:walk * 2] != b"".join(expected[offset:])[:walk * 2])
     node.deinit()
     reference.deinit()
 
