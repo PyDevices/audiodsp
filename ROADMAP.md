@@ -18,9 +18,6 @@ audio pump holding up under live use such as a stompbox or a stage rig.
 
 ## Housekeeping
 
-- `.pyi` stubs for the modules that lack one (`audiobiquad`, `audiodelays`,
-  `audiodynamics`, `audioecho`, `audiofilters`, `audiofreeverb`, `audiograph`,
-  `audioladder`, `audiomixer`, `audioshaper`, `audiospeed`, `audioverb`).
 - The CircuitPython glue's folder takes a lasting name (`src/circuitpython_spike/`
   becomes `src/circuitpython/`).
 - `audiocore`, `audiomp3`, `audiopump` and `synthio` report a `__revision__`
