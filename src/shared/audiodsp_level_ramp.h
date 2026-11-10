@@ -65,7 +65,8 @@ static inline void audiodsp_level_ramp_aim(audiodsp_level_ramp_t *ramp,
         ramp->primed = true;
         return;
     }
-    if (target == ramp->target) {
+    // Not ==: CircuitPython builds with -Werror=float-equal.
+    if (!(target < ramp->target || target > ramp->target)) {
         return;
     }
     ramp->target = target;
