@@ -53,8 +53,9 @@ def fetch_mp3():
     no shell. An sdist already carries the sources and skips this.
     """
     lock = (HERE / "DEPENDENCIES.lock").read_text().split("\n")
-    name, url, rev = next(line.split() for line in lock
-                          if line.strip() and not line.startswith("#"))
+    name, url, rev = next(fields for fields in (line.split() for line in lock
+                                                if line.strip() and not line.startswith("#"))
+                          if fields[0] == "mp3")
     dest = HERE / ".deps" / name
 
     def git(*args):
