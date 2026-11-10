@@ -83,7 +83,7 @@ def spawn(
     """Start pulling a graph on a thread of its own.
 
     Only one pump can run at a time; call `shutdown` before spawning another.
-    A graph made of a `audiocore.WaveFile`, `audiomp3.MP3Decoder` or
+    A graph made of an `audiocore.WaveFile`, `audiomp3.MP3Decoder` or
     `audiovorbis.VorbisDecoder` is refused, because those read their files
     through the interpreter inside the pull: fill a `Ring` from the
     interpreter instead.
