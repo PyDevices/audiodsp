@@ -21,6 +21,12 @@ layer already pulls from its own audio thread.
 
 from typing import Protocol, Self
 
+__version__: str
+"""The audiodsp release this module came from."""
+__revision__: str
+"""Which source this build was made from, from `git describe`: a release tag,
+or the nearest one and the commit. "unknown" when the build had no git."""
+
 class _AudioSample(Protocol):
     @property
     def sample_rate(self) -> int: ...

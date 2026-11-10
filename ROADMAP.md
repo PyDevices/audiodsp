@@ -18,9 +18,6 @@ audio pump holding up under live use such as a stompbox or a stage rig.
 
 - The CircuitPython glue's folder takes a lasting name (`src/circuitpython_spike/`
   becomes `src/circuitpython/`).
-- `audiocore`, `audiomp3`, `audiopump` and `synthio` report a `__revision__`
-  like the other modules, so a board can say which source each was built from
-  (today those four have none on MicroPython).
 
 Bugs, and things you need that don't work yet, go to
 [issues](https://github.com/PyDevices/audiodsp/issues).

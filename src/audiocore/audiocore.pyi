@@ -17,6 +17,12 @@ of nodes produces.
 
 from typing import Self
 
+__version__: str
+"""The audiodsp release this module came from."""
+__revision__: str
+"""Which source this build was made from, from `git describe`: a release tag,
+or the nearest one and the commit. "unknown" when the build had no git."""
+
 class RawSample:
     """Plays a buffer of raw PCM samples that you provide.
 

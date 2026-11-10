@@ -18,6 +18,12 @@ Beyond CircuitPython's own API this build adds `lfo_tick`,
 from array import array
 from typing import BinaryIO, Protocol, Self, Sequence, Union
 
+__version__: str
+"""The audiodsp release this module came from."""
+__revision__: str
+"""Which source this build was made from, from `git describe`: a release tag,
+or the nearest one and the commit. "unknown" when the build had no git."""
+
 # Types the API takes. They are for the type checker and are not importable
 # from the module.
 _ReadableBuffer = Union[bytes, bytearray, memoryview, array[int]]

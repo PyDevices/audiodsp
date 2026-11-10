@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "cp_compat/argcheck.h"
+#include "cp_compat/audiodsp_build.h"
 #include "cp_compat/enum.h"
 #include "cp_compat/namedtuple.h"
 #include "cp_compat/objproperty.h"
@@ -702,6 +703,7 @@ MP_DEFINE_CONST_FUN_OBJ_VAR(synthio_lfo_tick_obj, 1, synthio_lfo_tick);
 
 static const mp_rom_map_elem_t synthio_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_synthio) },
+    AUDIODSP_BUILD_GLOBALS,
     { MP_ROM_QSTR(MP_QSTR_Biquad), MP_ROM_PTR(&synthio_biquad_type_obj) },
     { MP_ROM_QSTR(MP_QSTR_FilterMode), MP_ROM_PTR(&synthio_filter_mode_type) },
     { MP_ROM_QSTR(MP_QSTR_Math), MP_ROM_PTR(&synthio_math_type) },
