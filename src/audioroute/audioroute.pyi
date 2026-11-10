@@ -168,14 +168,25 @@ class Port:
     @property
     def source(self) -> _AudioSample:
         """The stream the port is passing through now."""
-    def play(self, source: _AudioSample, /) -> None:
+    def play(self, source: _AudioSample, /, *, after: int = 0) -> None:
         """Point the port at a different source. It takes effect between
         blocks, and the player does not need to stop.
 
+        Args:
+            source: The stream to pass through from now on.
+            after: Frames to keep playing the current source first. The port
+                switches at the start of the first pull after that many
+                frames have played, which gives a level the old source is
+                walking time to land. Until then `source` is still the old
+                one, and another `play` replaces the switch that was waiting.
+                A port nothing has pulled since it was pointed at what it
+                plays switches at once, and so does ``after=0``.
+
         Raises:
             TypeError: ``source`` is not an audio sample.
-            ValueError: ``source`` is None, or its sample rate, channel count,
-                bit depth or signedness differs from the port's.
+            ValueError: ``source`` is None, ``after`` is negative, or the
+                source's sample rate, channel count, bit depth or signedness
+                differs from the port's.
         """
     def deinit(self) -> None:
         """Let go of the source and release the port; the source itself is

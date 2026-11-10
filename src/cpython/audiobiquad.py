@@ -47,7 +47,8 @@ processed chunk, exactly as `audiofilters.Filter` reads its own.
 A `Biquad` whose `frequency`, `Q`, `gain_db` or `mode` changes while it is
 playing walks to the new filter over about 20 ms rather than stepping, so a
 jump in one call does not ring its old memory through the new section at
-full scale (audiocomponents#162). `mix` is not walked.
+full scale (audiocomponents#162). A `mix` move on either node walks to
+the new blend in a straight line over 20 ms.
 
 Two things this does that the ported nodes cannot:
 

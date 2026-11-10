@@ -17,6 +17,19 @@ port.play(bitcrusher)           # heard on the next block; nothing rewires
 port.source                     # what it is playing right now
 ```
 
+To switch once the old source has had time to finish something, such as a
+level walking down over 20 ms, give `after` a number of frames. The port
+keeps playing what it plays for that many more frames and switches at the
+start of the next pull. Until then `source` is still the old one, and a
+`play()` replaces the waiting switch. A port nothing has pulled since it was
+pointed at what it plays now switches at once, since that hasn't started.
+Pointing it at the same source again doesn't count as a new start.
+
+```python
+mixer.voice[0].level = 0.0      # walks down over 960 frames
+port.play(dry, after=960 + 256) # switches once the walk has landed
+```
+
 
 `Port` has no `stop()`, deliberately — a port always has a source. A port
 pulled while it is already inside itself, which is what a component wrapping

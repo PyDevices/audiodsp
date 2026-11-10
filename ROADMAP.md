@@ -12,9 +12,6 @@ audio pump holding up under live use such as a stompbox or a stage rig.
   sample rather than at the top of the next block.
 - An LC3 codec module beside `audiomp3`, frame by frame: encode PCM to one
   frame, decode a frame (or a lost one) to PCM. Leaves room for LE Audio later.
-- A level ramp on `audiomixer` voices: a level move ramps over a set number of
-  frames instead of stepping, so an effect can fade its wet path in or out
-  without a click when you switch it in mid-note.
 - `audiopump.DriftResampler` converting down as well as up, with its filter's
   cutoff following the output rate, so a 48 kHz stream can play on a
   44.1 kHz output.

@@ -34,6 +34,7 @@ its own output.
 | R14 | A Port re-points only to a matching source, and forwards a reset | raises / exact |
 | R15 | A mono tap's buffer is the tap's own: its next pull rewrites it | exact |
 | R16 | `Splitter.clear()` drops what nobody read, and reads nothing | exact, frame for frame |
+| R17 | `Port.play(after=)` plays the old source on for that many frames and switches at the start of the next pull; one nothing has pulled since it was pointed at its source switches at once, and pointing it at the same source again is not a new start | exact, pull for pull |
 
 R7 is this module's form of the identity trait
 (`docs/how-it-works/correctness-standard.md`): an exact answer through the DSP rather than a
@@ -399,6 +400,45 @@ class PortTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             audioroute.Port(None)
         self.assertIs(port.source, second)
+
+    def test_play_after_waits_for_the_frames(self):
+        """R17: the switch waits for `after` frames, then for the next
+        pull; `source` is the old one until then, a `play()` before then
+        replaces it, and a port nothing has pulled switches at once. A
+        `play()` of the source it already plays is not a new start."""
+        def constant(value):
+            return audiocore.RawSample(array("h", [value] * 512),
+                                       sample_rate=SAMPLE_RATE,
+                                       channel_count=2)
+
+        def firsts(port, pulls):
+            return [array("h", bytes(audiocore.get_buffer(port)[1]))[0]
+                    for _ in range(pulls)]
+
+        a, b, c = constant(1000), constant(2000), constant(3000)
+        port = audioroute.Port(a)
+        port.play(b, after=300)
+        self.assertIs(port.source, b)
+        port = audioroute.Port(a)
+        firsts(port, 1)
+        port.play(b, after=256)
+        self.assertEqual(firsts(port, 1), [1000])
+        self.assertIs(port.source, a)
+        self.assertEqual(firsts(port, 2), [2000, 2000])
+        port = audioroute.Port(a)
+        firsts(port, 1)
+        port.play(b, after=300)
+        firsts(port, 1)
+        port.play(c, after=300)
+        self.assertEqual(firsts(port, 3), [1000, 1000, 3000])
+        port = audioroute.Port(a)
+        firsts(port, 1)
+        port.play(a)
+        port.play(b, after=256)
+        self.assertIs(port.source, a)
+        self.assertEqual(firsts(port, 2), [1000, 2000])
+        with self.assertRaises(ValueError):
+            port.play(a, after=-1)
 
     def test_deinit_lets_the_source_go(self):
         port = audioroute.Port(source())

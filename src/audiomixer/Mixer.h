@@ -32,6 +32,11 @@ typedef struct {
     // entry rather than mixing a voice the outer pull is still using
     // (audiodsp#178).
     bool in_pull;
+    // Not upstream: how many frames a voice's level or pan move takes, in a
+    // straight line, instead of waiting for a zero crossing. 0, the default,
+    // is CircuitPython's behaviour. See docs/how-it-works/upstream-diff.md,
+    // "A level ramp on Mixer voices".
+    uint32_t level_ramp;
     mp_obj_tuple_t *voice_tuple;
     mp_obj_t voice[];
 } audiomixer_mixer_obj_t;

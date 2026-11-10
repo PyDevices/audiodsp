@@ -75,6 +75,7 @@ void common_hal_audiomixer_mixer_construct(audiomixer_mixer_obj_t *self,
     uint32_t sample_rate) {
     self->len = buffer_size / 2 / sizeof(uint32_t) * sizeof(uint32_t);
     self->in_pull = false;
+    self->level_ramp = 0;
 
     self->first_buffer = m_malloc(self->len);
     if (self->first_buffer == NULL) {
@@ -164,6 +165,33 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_get_voice_obj, audiomixer_mixe
 MP_PROPERTY_GETTER(audiomixer_mixer_voice_obj,
     (mp_obj_t)&audiomixer_mixer_get_voice_obj);
 
+// Not upstream: Mixer.level_ramp, the frames a voice's level or pan move
+// takes. See docs/how-it-works/upstream-diff.md, "A level ramp on Mixer voices".
+#define AUDIOMIXER_LEVEL_RAMP_MAX (1 << 24)
+
+static mp_obj_t audiomixer_mixer_obj_get_level_ramp(mp_obj_t self_in) {
+    audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    check_for_deinit(self);
+    return mp_obj_new_int_from_uint(self->level_ramp);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiomixer_mixer_get_level_ramp_obj, audiomixer_mixer_obj_get_level_ramp);
+
+static mp_obj_t audiomixer_mixer_obj_set_level_ramp(mp_obj_t self_in, mp_obj_t frames_in) {
+    audiomixer_mixer_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    check_for_deinit(self);
+    mp_int_t frames = mp_arg_validate_int_range(mp_obj_get_int(frames_in), 0,
+        AUDIOMIXER_LEVEL_RAMP_MAX, MP_QSTR_level_ramp);
+    audiodsp_pump_lock_acquire();
+    self->level_ramp = (uint32_t)frames;
+    audiodsp_pump_lock_release();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(audiomixer_mixer_set_level_ramp_obj, audiomixer_mixer_obj_set_level_ramp);
+
+MP_PROPERTY_GETSET(audiomixer_mixer_level_ramp_obj,
+    (mp_obj_t)&audiomixer_mixer_get_level_ramp_obj,
+    (mp_obj_t)&audiomixer_mixer_set_level_ramp_obj);
+
 static mp_obj_t audiomixer_mixer_obj_play(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_sample, ARG_voice, ARG_loop };
     static const mp_arg_t allowed_args[] = {
@@ -215,6 +243,7 @@ static const mp_rom_map_elem_t audiomixer_mixer_locals_dict_table[] = {
     // Properties
     { MP_ROM_QSTR(MP_QSTR_playing), MP_ROM_PTR(&audiomixer_mixer_playing_obj) },
     { MP_ROM_QSTR(MP_QSTR_voice), MP_ROM_PTR(&audiomixer_mixer_voice_obj) },
+    { MP_ROM_QSTR(MP_QSTR_level_ramp), MP_ROM_PTR(&audiomixer_mixer_level_ramp_obj) },
     AUDIOSAMPLE_FIELDS,
 };
 static MP_DEFINE_CONST_DICT(audiomixer_mixer_locals_dict, audiomixer_mixer_locals_dict_table);
@@ -323,6 +352,32 @@ static inline uint32_t copy8msb(uint32_t val) {
 
 #define ALMOST_ONE (MICROPY_FLOAT_CONST(32767.) / 32768)
 
+// Not upstream: one step of a level move's straight-line walk (Mixer.level_ramp).
+// The last step lands on the target exactly, whatever the division dropped.
+static inline void audiomixer_level_ramp_step(audiomixer_level_ramp_t *ramp,
+    int32_t *active_lo, int32_t *active_hi) {
+    ramp->lo += ramp->step_lo;
+    ramp->hi += ramp->step_hi;
+    if (--ramp->left == 0) {
+        ramp->lo = ramp->target_lo << 15;
+        ramp->hi = ramp->target_hi << 15;
+    }
+    *active_lo = ramp->lo >> 15;
+    *active_hi = ramp->hi >> 15;
+}
+
+// Every packed word the mix-down scales takes its level from here: a step of
+// the walk while a level move is ramping, else CircuitPython's wait for a zero
+// crossing. With level_ramp 0, `ramp.left` is always 0.
+#define MIX_LEVEL_STEP(word, last, alo, ahi, plo, phi) \
+    do { \
+        if (ramp.left) { \
+            audiomixer_level_ramp_step(&ramp, (alo), (ahi)); \
+        } else { \
+            audiodsp_assign_packed_level((word), (last), (alo), (ahi), (plo), (phi)); \
+        } \
+    } while (0)
+
 static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
     audiomixer_mixervoice_obj_t *voice, bool voices_active,
     uint32_t *word_buffer, uint32_t length) {
@@ -429,6 +484,37 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
         int32_t active_hi_level = voice->active_hi_level;
         uint32_t last_word = 0;
 
+        // Not upstream: with level_ramp set, a move walks to its new level in
+        // a straight line instead (docs/how-it-works/upstream-diff.md, "A
+        // level ramp on Mixer voices"). One step per packed word: a word is a
+        // frame in a stereo mixer and two frames in a mono one. A voice's first
+        // level lands as CircuitPython's does; the walk starts from the next.
+        audiomixer_level_ramp_t ramp = voice->ramp;
+        if (self->level_ramp == 0) {
+            ramp.left = 0;
+            voice->ramp_primed = false;
+        } else if (!voice->ramp_primed) {
+            ramp.left = 0;
+            ramp.target_lo = pending_lo_level;
+            ramp.target_hi = pending_hi_level;
+            voice->ramp_primed = true;
+        } else if (pending_lo_level != ramp.target_lo || pending_hi_level != ramp.target_hi) {
+            if (ramp.left == 0) {
+                ramp.lo = active_lo_level << 15;
+                ramp.hi = active_hi_level << 15;
+            }
+            uint32_t steps = self->level_ramp;
+            if (self->base.channel_count == 1) {
+                steps = (steps + 1) / 2;
+            }
+            ramp.target_lo = pending_lo_level;
+            ramp.target_hi = pending_hi_level;
+            ramp.left = steps;
+            ramp.step_lo = ((pending_lo_level << 15) - ramp.lo) / (int32_t)steps;
+            ramp.step_hi = ((pending_hi_level << 15) - ramp.hi) / (int32_t)steps;
+        }
+        const bool ramping = ramp.left != 0;
+
         // First active voice gets copied over verbatim.
         if (!voices_active) {
             if (MP_LIKELY(self->base.bits_per_sample == 16)) {
@@ -436,17 +522,17 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                     if (MP_LIKELY(self->base.channel_count == sample->channel_count)) {
                         for (uint32_t i = 0; i < n; i++) {
                             uint32_t word = src[i];
-                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = mult16signed(word, active_lo_level, active_hi_level);
                         }
                     } else {
                         for (uint32_t i = 0; i + 1 < n; i += 2) {
                             uint32_t word = src[i >> 1];
                             uint32_t word_lsb = copy16lsb(word);
-                            audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = mult16signed(word_lsb, active_lo_level, active_hi_level);
                             word = copy16msb(word);
-                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i + 1] = mult16signed(word, active_lo_level, active_hi_level);
                         }
                     }
@@ -455,7 +541,7 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                         for (uint32_t i = 0; i < n; i++) {
                             uint32_t word = src[i];
                             word = tosigned16(word);
-                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = mult16signed(word, active_lo_level, active_hi_level);
                         }
                     } else {
@@ -463,10 +549,10 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                             uint32_t word = src[i >> 1];
                             word = tosigned16(word);
                             uint32_t word_lsb = copy16lsb(word);
-                            audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = mult16signed(word_lsb, active_lo_level, active_hi_level);
                             word = copy16msb(word);
-                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i + 1] = mult16signed(word, active_lo_level, active_hi_level);
                         }
                     }
@@ -480,7 +566,7 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                         if (MP_LIKELY(!self->base.samples_signed)) {
                             word = tosigned16(word);
                         }
-                        audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         word = mult16signed(word, active_lo_level, active_hi_level);
                         hword_buffer[i] = pack8(word);
                     }
@@ -491,10 +577,10 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                             word = tosigned16(word);
                         }
                         uint32_t word_lsb = copy16lsb(word);
-                        audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        MIX_LEVEL_STEP(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         hword_buffer[i] = pack8(mult16signed(word_lsb, active_lo_level, active_hi_level));
                         word = copy16msb(word);
-                        audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         hword_buffer[i + 1] = pack8(mult16signed(word, active_lo_level, active_hi_level));
                     }
                 }
@@ -505,17 +591,17 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                     if (MP_LIKELY(self->base.channel_count == sample->channel_count)) {
                         for (uint32_t i = 0; i < n; i++) {
                             uint32_t word = src[i];
-                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = add16signed(mult16signed(word, active_lo_level, active_hi_level), word_buffer[i]);
                         }
                     } else {
                         for (uint32_t i = 0; i + 1 < n; i += 2) {
                             uint32_t word = src[i >> 1];
                             uint32_t word_lsb = copy16lsb(word);
-                            audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = add16signed(mult16signed(word_lsb, active_lo_level, active_hi_level), word_buffer[i]);
                             word = copy16msb(word);
-                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i + 1] = add16signed(mult16signed(word, active_lo_level, active_hi_level), word_buffer[i + 1]);
                         }
                     }
@@ -524,7 +610,7 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                         for (uint32_t i = 0; i < n; i++) {
                             uint32_t word = src[i];
                             word = tosigned16(word);
-                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = add16signed(mult16signed(word, active_lo_level, active_hi_level), word_buffer[i]);
                         }
                     } else {
@@ -532,10 +618,10 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                             uint32_t word = src[i >> 1];
                             word = tosigned16(word);
                             uint32_t word_lsb = copy16lsb(word);
-                            audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i] = add16signed(mult16signed(word_lsb, active_lo_level, active_hi_level), word_buffer[i]);
                             word = copy16msb(word);
-                            audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                            MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                             word_buffer[i + 1] = add16signed(mult16signed(word, active_lo_level, active_hi_level), word_buffer[i + 1]);
                         }
                     }
@@ -549,7 +635,7 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                         if (MP_LIKELY(!self->base.samples_signed)) {
                             word = tosigned16(word);
                         }
-                        audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         word = mult16signed(word, active_lo_level, active_hi_level);
                         word = add16signed(word, unpack8(hword_buffer[i]));
                         hword_buffer[i] = pack8(word);
@@ -561,10 +647,10 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                             word = tosigned16(word);
                         }
                         uint32_t word_lsb = copy16lsb(word);
-                        audiodsp_assign_packed_level(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        MIX_LEVEL_STEP(word_lsb, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         hword_buffer[i] = pack8(add16signed(mult16signed(word_lsb, active_lo_level, active_hi_level), unpack8(hword_buffer[i])));
                         word = copy16msb(word);
-                        audiodsp_assign_packed_level(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
+                        MIX_LEVEL_STEP(word, &last_word, &active_lo_level, &active_hi_level, pending_lo_level, pending_hi_level);
                         hword_buffer[i + 1] = pack8(add16signed(mult16signed(word, active_lo_level, active_hi_level), unpack8(hword_buffer[i + 1])));
                     }
                 }
@@ -583,8 +669,20 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
         // Force the active level to match the pending level in the case that the conditions of a
         // zero crossing weren't met within the last `SYNTHIO_MAX_DUR` frames. Will ensure minimal
         // delay in level or panning changes at the potential expensive of an audible pop.
-        voice->active_lo_level = pending_lo_level;
-        voice->active_hi_level = pending_hi_level;
+        //
+        // Not upstream: a walk in progress keeps its place instead, and goes on
+        // in the next stretch.
+        if (ramping) {
+            voice->ramp = ramp;
+            voice->active_lo_level = active_lo_level;
+            voice->active_hi_level = active_hi_level;
+        } else {
+            voice->ramp.left = 0;
+            voice->ramp.target_lo = ramp.target_lo;
+            voice->ramp.target_hi = ramp.target_hi;
+            voice->active_lo_level = pending_lo_level;
+            voice->active_hi_level = pending_hi_level;
+        }
     }
 
     if (length && !voices_active) {

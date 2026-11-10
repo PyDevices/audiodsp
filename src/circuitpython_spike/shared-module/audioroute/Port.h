@@ -29,7 +29,19 @@ typedef struct {
     //: What the port currently plays. One aligned word, so a pull either
     //: reads the whole old source or the whole new one.
     mp_obj_t source;
+    //: A switch `play(sample, after=frames)` left waiting: `switch_to` takes
+    //: over at the start of the first pull after `switch_left` more frames
+    //: have been pulled through the port. MP_OBJ_NULL when
+    //: none is waiting.
+    mp_obj_t switch_to;
+    uint32_t switch_left;
+    //: Whether the port has been pulled since it was pointed at its
+    //: source (a `play()` of the same source again keeps it): a
+    //: `play(sample, after=frames)` on one that has not switches at once.
+    bool pulled;
 } audioroute_port_obj_t;
+
+void audioroute_port_switch(audioroute_port_obj_t *self, mp_obj_t sample);
 
 void audioroute_port_reset_buffer(audioroute_port_obj_t *self,
     bool single_channel_output, uint8_t channel);

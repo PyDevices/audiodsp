@@ -62,6 +62,45 @@ def _scale_s16_levels_py(data, active_lo, active_hi, pending_lo, pending_hi, for
 #: Python loop above. The two are byte-identical.
 _scale_s16_levels = getattr(_audiodsp, "scale_s16_levels", _scale_s16_levels_py)
 
+#: The most frames `Mixer.level_ramp` takes, as `src/audiomixer/Mixer.c` has it.
+_LEVEL_RAMP_MAX = 1 << 24
+
+
+def _trunc_div(numerator, denominator):
+    """C's `/` on int32: the quotient truncated toward zero."""
+    quotient = abs(numerator) // denominator
+    return quotient if numerator >= 0 else -quotient
+
+
+def _ramp_s16_levels(data, ramp):
+    """Scale int16 pairs while a level move walks (`Mixer.level_ramp`).
+
+    One step of the walk per pair, which is one packed word in
+    `src/audiomixer/Mixer.c`, the authority this mirrors
+    (`audiomixer_level_ramp_step`). `ramp` is the voice's
+    [lo, hi, step_lo, step_hi, target_lo, target_hi, left], updated in place.
+    Returns the scaled bytes for the pairs the walk covers, and how many bytes
+    of `data` that was.
+    """
+    import array
+    samples = array.array("h")
+    pairs = min(ramp[6], len(data) // 4)
+    samples.frombytes(data[:pairs * 4])
+    lo, hi, step_lo, step_hi, target_lo, target_hi, left = ramp
+    for index in range(0, pairs * 2, 2):
+        lo += step_lo
+        hi += step_hi
+        left -= 1
+        if left == 0:
+            lo = target_lo << 15
+            hi = target_hi << 15
+        mul_lo = lo >> 15
+        mul_hi = hi >> 15
+        samples[index] = max(-32768, min(32767, (samples[index] * mul_lo) >> 15))
+        samples[index + 1] = max(-32768, min(32767, (samples[index + 1] * mul_hi) >> 15))
+    ramp[0], ramp[1], ramp[6] = lo, hi, left
+    return samples.tobytes(), pairs * 4
+
 
 def _source_chunk(sample):
     """The block a voice will mix from -- BORROWED from the source, not copied.
@@ -96,6 +135,13 @@ class MixerVoice:
         # a fresh voice, as CircuitPython's zero-initialised
         # active_lo_level/active_hi_level are, and never cleared thereafter.
         self._active_level = (0, 0)
+        # Not upstream: the walk a level move takes when the Mixer's
+        # level_ramp is set, [lo, hi, step_lo, step_hi, target_lo, target_hi,
+        # left] as `audiomixer_level_ramp_t` has it, and whether the voice has
+        # rendered once with the ramp on (its first level lands as
+        # CircuitPython's does).
+        self._ramp = [0, 0, 0, 0, 0, 0, 0]
+        self._ramp_primed = False
 
     @property
     def playing(self): return self._sample is not None
@@ -162,7 +208,25 @@ class Mixer(_AudioSample):
         self.buffer_size = int(buffer_size)
         self._render_size = self.buffer_size // 2 // 4 * 4
         self.voice = tuple(MixerVoice(self) for _ in range(voice_count))
+        self._level_ramp = 0
         self._deinited = False
+
+    @property
+    def level_ramp(self):
+        """How many frames a voice's level or pan move takes, in a straight
+        line. 0, the default, waits for a zero crossing, as CircuitPython's
+        Mixer does. Not in CircuitPython; see
+        docs/how-it-works/upstream-diff.md, "A level ramp on Mixer voices"."""
+        self._check()
+        return self._level_ramp
+
+    @level_ramp.setter
+    def level_ramp(self, frames):
+        self._check()
+        frames = int(frames)
+        if not 0 <= frames <= _LEVEL_RAMP_MAX:
+            raise ValueError("level_ramp must be %d-%d" % (0, _LEVEL_RAMP_MAX))
+        self._level_ramp = frames
 
     @property
     def playing(self): return any(voice.playing for voice in self.voice)
@@ -285,6 +349,41 @@ class Mixer(_AudioSample):
                     left = (left_scale * level) >> 15
                     right = (right_scale * level) >> 15
                 pending = (left, right)
+                # Not upstream: with level_ramp set, a move walks to its new
+                # level in a straight line, one step per int16 pair, which is
+                # one packed word in Mixer.c. A voice's first level lands as
+                # CircuitPython's does; the walk starts from the next.
+                ramp = voice._ramp
+                if not self._level_ramp:
+                    ramp[6] = 0
+                    voice._ramp_primed = False
+                elif not voice._ramp_primed:
+                    ramp[6] = 0
+                    ramp[4], ramp[5] = pending
+                    voice._ramp_primed = True
+                elif pending != (ramp[4], ramp[5]):
+                    if not ramp[6]:
+                        ramp[0] = voice._active_level[0] << 15
+                        ramp[1] = voice._active_level[1] << 15
+                    steps = self._level_ramp
+                    if self.channel_count == 1:
+                        steps = (steps + 1) // 2
+                    ramp[4], ramp[5] = pending
+                    ramp[6] = steps
+                    ramp[2] = _trunc_div((left << 15) - ramp[0], steps)
+                    ramp[3] = _trunc_div((right << 15) - ramp[1], steps)
+                if ramp[6]:
+                    walked, taken = _ramp_s16_levels(data, ramp)
+                    rest = data[taken:]
+                    if ramp[6]:
+                        voice._active_level = (ramp[0] >> 15, ramp[1] >> 15)
+                        chunks.append(walked + rest)
+                        continue
+                    voice._active_level = pending
+                    if rest and pending != (_UNITY_Q15, _UNITY_Q15):
+                        rest = _scale_s16_levels(rest, *pending, *pending, ())
+                    chunks.append(walked + rest)
+                    continue
                 if (voice._active_level == (_UNITY_Q15, _UNITY_Q15)
                         and left == _UNITY_Q15 and right == _UNITY_Q15):
                     # Unity on both channels, now and pending: `(x * 32768)

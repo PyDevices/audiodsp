@@ -59,6 +59,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "shared/audiodsp_level_ramp.h"
+
 //: Frames one output block carries. The same 256 audiodynamics and audiomath
 //: use, so a chain built out of several of them moves in one block size.
 #define AUDIODSP_FEEDBACK_DELAY_FRAMES 256u
@@ -245,6 +247,10 @@ typedef struct {
     // the state (audiodsp#180).
     bool resting;
     uint32_t quiet_frames;
+    // `mix` as the output stands, walking to a new value over
+    // AUDIODSP_LEVEL_RAMP_MS instead of stepping there. A reset clears it,
+    // so the first block after one lands at `mix` as a fresh node's does.
+    audiodsp_level_ramp_t mix_ramp;
 } audiodsp_feedback_delay_state_t;
 
 //: How long a change of `wow_depth_ms` takes to land by default: 20 ms, a

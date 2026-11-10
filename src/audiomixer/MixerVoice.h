@@ -19,6 +19,20 @@
 #include "audiomixer/Mixer.h"
 #include "synthio/block.h"
 
+// Not upstream: a level move walking in a straight line (Mixer.level_ramp).
+// `lo` and `hi` are the level now, Q15 shifted up 15 more bits so a step
+// smaller than one Q15 unit still adds up; `left` counts the steps to go, one
+// per packed word the mix-down scales.
+typedef struct {
+    int32_t lo;
+    int32_t hi;
+    int32_t step_lo;
+    int32_t step_hi;
+    int32_t target_lo;
+    int32_t target_hi;
+    uint32_t left;
+} audiomixer_level_ramp_t;
+
 typedef struct {
     mp_obj_base_t base;
     audiomixer_mixer_obj_t *parent;
@@ -34,6 +48,11 @@ typedef struct {
     // cannot step the waveform mid-cycle and click.
     int32_t active_lo_level;
     int32_t active_hi_level;
+    // Not upstream: the walk a level move takes when the Mixer's level_ramp
+    // is set. `ramp_primed` is false until the voice has rendered once with
+    // the ramp on, so its first level lands as CircuitPython's does.
+    audiomixer_level_ramp_t ramp;
+    bool ramp_primed;
 } audiomixer_mixervoice_obj_t;
 
 extern const mp_obj_type_t audiomixer_mixervoice_type;

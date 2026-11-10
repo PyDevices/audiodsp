@@ -469,25 +469,10 @@ static uint32_t biquad_process_move(audiodsp_biquad_f32_state_t *state,
     return run;
 }
 
-void audiodsp_biquad_f32_process_s16(const audiodsp_biquad_f32_config_t *config,
-    audiodsp_biquad_f32_state_t *state, int16_t *out, const int16_t *in,
-    uint32_t frames) {
-    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
-    const float mix = config->mix;
-    const float dry = 1.0f - mix;
-    if (!state->primed) {
-        biquad_take(state, config);
-        state->primed = true;
-    } else if (biquad_moved(state, config)) {
-        biquad_begin_move(config, state, channels);
-    }
-    if (state->ramp_left != 0u) {
-        const uint32_t done = biquad_process_move(state, channels, dry, mix,
-            out, in, frames);
-        out += (size_t)done * channels;
-        in += (size_t)done * channels;
-        frames -= done;
-    }
+// Up to `frames` frames of the section in force, direct form.
+static void biquad_process_steady(const audiodsp_biquad_f32_config_t *config,
+    audiodsp_biquad_f32_state_t *state, uint32_t channels, float dry,
+    float mix, int16_t *out, const int16_t *in, uint32_t frames) {
     const float b0 = config->b0, b1 = config->b1, b2 = config->b2;
     const float a1 = config->a1, a2 = config->a2;
     for (uint32_t frame = 0; frame < frames; ++frame) {
@@ -507,6 +492,48 @@ void audiodsp_biquad_f32_process_s16(const audiodsp_biquad_f32_config_t *config,
             out[index] = to_s16(dry * x0 + mix * y0);
         }
     }
+}
+
+// Up to `frames` frames at one mix: through a coefficient walk while one
+// runs, then the section in force.
+static void biquad_process_at(const audiodsp_biquad_f32_config_t *config,
+    audiodsp_biquad_f32_state_t *state, uint32_t channels, float dry,
+    float mix, int16_t *out, const int16_t *in, uint32_t frames) {
+    if (state->ramp_left != 0u) {
+        const uint32_t done = biquad_process_move(state, channels, dry, mix,
+            out, in, frames);
+        out += (size_t)done * channels;
+        in += (size_t)done * channels;
+        frames -= done;
+    }
+    biquad_process_steady(config, state, channels, dry, mix, out, in, frames);
+}
+
+void audiodsp_biquad_f32_process_s16(const audiodsp_biquad_f32_config_t *config,
+    audiodsp_biquad_f32_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames) {
+    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    if (!state->primed) {
+        biquad_take(state, config);
+        state->primed = true;
+    } else if (biquad_moved(state, config)) {
+        biquad_begin_move(config, state, channels);
+    }
+    audiodsp_level_ramp_aim(&state->mix_ramp, config->mix,
+        audiodsp_level_ramp_frames(config->sample_rate, config->ramp_ms));
+    // While the mix walks, a frame at a time at the walk's mix; then the
+    // rest of the block at the mix in force, which is the config's.
+    while (frames != 0u && audiodsp_level_ramp_moving(&state->mix_ramp)) {
+        const float mix = audiodsp_level_ramp_next(&state->mix_ramp);
+        biquad_process_at(config, state, channels, 1.0f - mix, mix, out, in,
+            1u);
+        out += channels;
+        in += channels;
+        --frames;
+    }
+    const float mix = config->mix;
+    biquad_process_at(config, state, channels, 1.0f - mix, mix, out, in,
+        frames);
 }
 
 // -------------------------------------------------------------- all-pass --
@@ -590,6 +617,7 @@ void audiodsp_allpass_f32_state_init(audiodsp_allpass_f32_state_t *state,
     state->loop[0] = state->loop[1] = 0.0f;
     state->coefficient = 0.0f;
     state->primed = false;
+    audiodsp_level_ramp_clear(&state->mix_ramp);
     if (state->stage_state != NULL) {
         memset(state->stage_state, 0,
             (size_t)state->stage_state_count * sizeof(float));
@@ -614,8 +642,11 @@ void audiodsp_allpass_f32_process_s16(
         }
         return;
     }
-    const float mix = config->mix;
-    const float dry = 1.0f - mix;
+    audiodsp_level_ramp_aim(&state->mix_ramp, config->mix,
+        audiodsp_level_ramp_frames(config->sample_rate,
+            AUDIODSP_LEVEL_RAMP_MS));
+    float mix = config->mix;
+    float dry = 1.0f - mix;
     const float feedback = config->feedback;
     const float target = config->coefficient;
     // The block's value arrives at the block boundary; the coefficient walks
@@ -632,6 +663,10 @@ void audiodsp_allpass_f32_process_s16(
     for (uint32_t frame = 0; frame < frames; ++frame) {
         const float c = coefficient;
         coefficient += step;
+        if (audiodsp_level_ramp_moving(&state->mix_ramp)) {
+            mix = audiodsp_level_ramp_next(&state->mix_ramp);
+            dry = 1.0f - mix;
+        }
         for (uint32_t channel = 0; channel < channels; ++channel) {
             const size_t index = (size_t)frame * channels + channel;
             const float source = (float)in[index];

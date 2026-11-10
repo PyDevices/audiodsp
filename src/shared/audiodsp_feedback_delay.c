@@ -362,6 +362,7 @@ void audiodsp_feedback_delay_state_init(audiodsp_feedback_delay_state_t *state,
     memset(state->band_now, 0, sizeof(state->band_now));
     state->resting = false;
     state->quiet_frames = 0;
+    audiodsp_level_ramp_clear(&state->mix_ramp);
 }
 
 void audiodsp_feedback_delay_reset(audiodsp_feedback_delay_state_t *state,
@@ -800,8 +801,11 @@ static void feedback_delay_run(
     audiodsp_feedback_delay_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {
     const uint32_t length = config->line_frames;
-    const float dry = 2.0f - config->mix < 1.0f ? 2.0f - config->mix : 1.0f;
-    const float wet = config->mix < 1.0f ? config->mix : 1.0f;
+    audiodsp_level_ramp_aim(&state->mix_ramp, config->mix,
+        audiodsp_level_ramp_frames(config->sample_rate,
+            AUDIODSP_LEVEL_RAMP_MS));
+    float dry = 2.0f - config->mix < 1.0f ? 2.0f - config->mix : 1.0f;
+    float wet = config->mix < 1.0f ? config->mix : 1.0f;
     const float direct = 1.0f - config->cross_feed;
     const float crossed = config->cross_feed;
     const float slew = config->delay_slew_frames;
@@ -961,6 +965,11 @@ static void feedback_delay_run(
     // The last frame's tap per channel, for the damping landing below.
     float tapped[2] = { 0.0f, 0.0f };
     for (uint32_t frame = 0; frame < frames; ++frame) {
+        if (audiodsp_level_ramp_moving(&state->mix_ramp)) {
+            const float mix = audiodsp_level_ramp_next(&state->mix_ramp);
+            dry = 2.0f - mix < 1.0f ? 2.0f - mix : 1.0f;
+            wet = mix < 1.0f ? mix : 1.0f;
+        }
         if (band_moving) {
             if (frame + 1u == frames) {
                 memcpy(state->band_now, config->band_coef,

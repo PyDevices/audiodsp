@@ -51,6 +51,9 @@ static mp_obj_t audioroute_port_make_new(const mp_obj_type_t *type,
     // mp_obj_malloc does not zero, and a garbage byte here would be a port
     // that refuses its first pull for no reason anybody could reproduce.
     self->in_pull = false;
+    self->switch_to = MP_OBJ_NULL;
+    self->switch_left = 0;
+    self->pulled = false;
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -66,11 +69,48 @@ static mp_obj_t audioroute_port_make_new(const mp_obj_type_t *type,
 // `play` rather than `retarget` or `source =` because that is the verb the
 // whole palette already uses for "this is what you play now" -- every node
 // audiodsp ports and every node it wrote has one.
-static mp_obj_t audioroute_port_play(mp_obj_t self_in, mp_obj_t sample_in) {
-    audioroute_port_obj_t *self = MP_OBJ_TO_PTR(self_in);
+//
+// `after` (not upstream of anything; this node is audiodsp's own): the frames
+// the port goes on playing what it plays now before it switches, at the start
+// of the next pull -- time for a level the old source is walking to land
+// before the new one takes over. Until that pull `source` is still the old
+// one, and a `play()` replaces the switch that was waiting. A port nothing
+// has pulled since it was pointed at what it plays now switches at once: that
+// has not started, so there is nothing to finish. Pointed at the same source
+// again, the port has not started anything new.
+static void audioroute_port_switch(audioroute_port_obj_t *self,
+    mp_obj_t sample_in) {
+    const audiosample_base_t *sample = MP_OBJ_TO_PTR(sample_in);
+    // The same source again goes on playing the same stream, so whether
+    // it has started stands.
+    if (self->source != sample_in) {
+        self->pulled = false;
+    }
+    self->source = sample_in;
+    self->base.max_buffer_length = sample->max_buffer_length;
+    self->base.single_buffer = sample->single_buffer;
+}
+
+static mp_obj_t audioroute_port_play(size_t n_args, const mp_obj_t *pos_args,
+    mp_map_t *kw_args) {
+    enum { ARG_sample, ARG_loop, ARG_after };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_sample, MP_ARG_OBJ | MP_ARG_REQUIRED, {.u_obj = MP_ROM_NONE} },
+        { MP_QSTR_loop, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false} },
+        { MP_QSTR_after, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
+    };
+    audioroute_port_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
+        MP_ARRAY_SIZE(allowed_args), allowed_args, args);
     audiosample_check_for_deinit(&self->base);
+    mp_obj_t sample_in = args[ARG_sample].u_obj;
     if (sample_in == mp_const_none) {
         mp_raise_ValueError(MP_ERROR_TEXT("a Port needs a source"));
+    }
+    const mp_int_t after = args[ARG_after].u_int;
+    if (after < 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("after must be 0 or more"));
     }
     // Refuses a rate, channel count, depth or signedness that differs. A
     // Component's output already has to match its source for the constructor
@@ -78,18 +118,20 @@ static mp_obj_t audioroute_port_play(mp_obj_t self_in, mp_obj_t sample_in) {
     // borrowed source -- passes; anything that would have been a different
     // format downstream is caught here instead of being heard.
     audiosample_must_match(&self->base, sample_in, false);
-    const audiosample_base_t *sample = MP_OBJ_TO_PTR(sample_in);
-    const uint32_t max_buffer_length = sample->max_buffer_length;
-    const bool single_buffer = sample->single_buffer;
 
     audiodsp_pump_lock_acquire();
-    self->source = sample_in;
-    self->base.max_buffer_length = max_buffer_length;
-    self->base.single_buffer = single_buffer;
+    if (after > 0 && self->pulled) {
+        self->switch_to = sample_in;
+        self->switch_left = (uint32_t)after;
+    } else {
+        self->switch_to = MP_OBJ_NULL;
+        self->switch_left = 0;
+        audioroute_port_switch(self, sample_in);
+    }
     audiodsp_pump_lock_release();
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_2(audioroute_port_play_obj,
+static MP_DEFINE_CONST_FUN_OBJ_KW(audioroute_port_play_obj, 1,
     audioroute_port_play);
 
 // Zero copy, and that is the point: the source's own pointer, its own length
@@ -101,6 +143,15 @@ static audioio_get_buffer_result_t audioroute_port_get_buffer(
     mp_obj_t self_in, bool single_channel_output, uint8_t channel,
     uint8_t **buffer, uint32_t *buffer_length) {
     audioroute_port_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    // A switch left waiting whose frames have all been handed on happens
+    // here, before this pull reads anything. Until then `source` is still
+    // the old one, so a `play()` that comes first finds nothing switched.
+    const bool counts = !single_channel_output || channel == 0;
+    if (counts && self->switch_to != MP_OBJ_NULL && self->switch_left == 0u) {
+        mp_obj_t waiting = self->switch_to;
+        self->switch_to = MP_OBJ_NULL;
+        audioroute_port_switch(self, waiting);
+    }
     // One read of one word. Whatever `play()` does to it, this sees one of
     // the two values and never half of either.
     mp_obj_t source = self->source;
@@ -138,6 +189,19 @@ static audioio_get_buffer_result_t audioroute_port_get_buffer(
     const audioio_get_buffer_result_t got = audiosample_get_buffer(source,
         single_channel_output, channel, buffer, buffer_length);
     self->in_pull = false;
+    self->pulled = true;
+    // A switch left waiting counts the frames this pull handed on, once a
+    // block (channel 0 of a single-channel pull); the next pull after its
+    // count runs out makes it.
+    if (counts && self->switch_to != MP_OBJ_NULL) {
+        uint32_t width = self->base.bits_per_sample / 8u;
+        if (!single_channel_output) {
+            width *= self->base.channel_count;
+        }
+        const uint32_t frames = width ? *buffer_length / width : 0u;
+        self->switch_left -= frames < self->switch_left ? frames
+                                                        : self->switch_left;
+    }
     return got;
 }
 
@@ -200,6 +264,8 @@ static mp_obj_t audioroute_port_deinit(mp_obj_t self_in) {
     audiodsp_pump_lock_acquire();
     audiosample_mark_deinit(&self->base);
     self->source = mp_const_none;
+    self->switch_to = MP_OBJ_NULL;
+    self->switch_left = 0;
     audiodsp_pump_lock_release();
     return mp_const_none;
 }
@@ -221,8 +287,12 @@ static MP_DEFINE_CONST_DICT(audioroute_port_locals,
 // audiodsp#112: the pump refuses a file-backed source at handover,
 // and the protocol had no way to look past the tail.
 static mp_obj_t audioroute_port_sources(mp_obj_t self_in, uint8_t index) {
-    return index == 0 ? ((audioroute_port_obj_t *)MP_OBJ_TO_PTR(self_in))->source
-                      : MP_OBJ_NULL;
+    const audioroute_port_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (index == 0) {
+        return self->source;
+    }
+    // A switch left waiting is a source too: a graph walk has to reach it.
+    return index == 1 ? self->switch_to : MP_OBJ_NULL;
 }
 
 static const audiosample_p_t audioroute_port_proto = {

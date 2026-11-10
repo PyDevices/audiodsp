@@ -5,6 +5,48 @@ CircuitPython, newest first. For the current list of deliberate differences,
 and how and when to resync with upstream, start at
 [upstream-sync.md](upstream-sync.md).
 
+## A level ramp on Mixer voices
+
+`audiomixer.Mixer.level_ramp` is new here; CircuitPython's Mixer doesn't have
+it. Set it to a number of frames and a voice's level or pan move walks from
+the old level to the new one in a straight line over that many frames. Left
+at 0, the default, the Mixer is CircuitPython's to the byte.
+
+```python
+mixer.level_ramp = 960          # 20 ms at 48 kHz
+mixer.voice[0].level = 0.0      # walks down over the next 960 frames
+mixer.voice[1].level = 1.0      # walks up over the same frames
+```
+
+CircuitPython 10.3.0 holds a level move until the voice's next zero crossing,
+so a move can't step a single waveform mid-cycle. That isn't enough for a
+crossfade. A dry voice and a wet one cross zero at different moments, and a
+voice whose signal never crosses zero (a lopsided shaper's output, a DC
+offset) waits until the end of a stretch of its source and then lands at
+once. Either way the sum steps, and a crossfade moved in one call can click.
+The walk lives in the node because it has to move once a sample, and Python
+only runs when a control is called.
+
+How it walks, in [`src/audiomixer/Mixer.c`](../../src/audiomixer/Mixer.c):
+
+- One step per packed 32-bit word the mix-down scales: a frame in a stereo
+  Mixer, two frames in a mono one. The level is held as Q15 shifted up 15
+  more bits, so a step smaller than one Q15 unit still adds up, and the last
+  step lands exactly on the level asked for.
+- A voice's first level, the one it starts at, lands as CircuitPython's does.
+  The walk starts from the next move, so a fresh Mixer's first block is the
+  same bytes with the ramp on or off.
+- A move made during a walk starts a new walk from where the level stands.
+- Level and pan are read once per stretch, as before. A level driven by a
+  `synthio.LFO` starts a new walk each time it's read, so it follows the LFO
+  a walk behind.
+
+The CPython twin walks one int16 pair at a time, which is the same word.
+[`tests/test_cpython_audiomixer_level_ramp.py`](../../tests/test_cpython_audiomixer_level_ramp.py)
+holds the walk's shape, and `mixer_level_ramp_probe.py` holds MicroPython and
+CPython to the same bytes through `verify_dsp.py`. CircuitPython doesn't run
+it, because its Mixer has no `level_ramp`.
+
 ## `audiosampler`: a sample player, because a Mixer voice cannot change pitch
 
 Nothing in CircuitPython does this. `audiomixer.MixerVoice` pulls a *source*

@@ -62,6 +62,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "shared/audiodsp_level_ramp.h"
+
 //: Frames one output block carries. The same 256 audiodynamics, audiomath and
 //: audioecho use, so a chain built out of several of them moves in one block
 //: size.
@@ -170,6 +172,12 @@ typedef struct {
     //: AUDIODSP_SHAPER_FRAMES. Read only by audiodsp_shaper_recentre, so it
     //: moves no rendered byte.
     uint32_t quiet[2];
+    //: `post_gain` and `mix` as the output stands, walking to a new value
+    //: over AUDIODSP_LEVEL_RAMP_MS instead of stepping there. A reset clears
+    //: them, as it clears everything a fresh node starts without: the first
+    //: block after it lands at the controls as they stand.
+    audiodsp_level_ramp_t post_ramp;
+    audiodsp_level_ramp_t mix_ramp;
 } audiodsp_shaper_state_t;
 
 void audiodsp_shaper_config_init(audiodsp_shaper_config_t *config,
