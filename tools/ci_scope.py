@@ -51,8 +51,12 @@ RULES = (
     (".github/workflows/publish-release-packages.yml", ()),
     (".github/workflows/tag-release.yml", ()),
     # A type stub reaches the wheel, which carries it, and the test that holds
-    # it to its module. The Stubs workflow runs mypy over it on its own.
-    ("src/*/*.pyi", ("unit", "wheels")),
+    # it to its module. That test compares every stub with the module built
+    # into MicroPython, and the interpreter build is the only job that has one,
+    # so a stub or the test also reaches "build". The Stubs workflow runs mypy
+    # over a stub on its own.
+    ("src/*/*.pyi", ("unit", "wheels", "build")),
+    ("tests/test_stubs_match_modules.py", ("lint", "unit", "build")),
     # flake8 reads the examples; nothing else does.
     ("examples/**", ("lint",)),
     (".flake8", ("lint",)),

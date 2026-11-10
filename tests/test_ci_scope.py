@@ -39,8 +39,10 @@ class Rules(unittest.TestCase):
         self.assertEqual(self.jobs(".github/workflows/lint.yml"), {"lint"})
         self.assertEqual(self.jobs(".github/workflows/prepare-release.yml"), set())
 
-    def test_a_stub_reaches_the_tests_and_the_wheel_not_the_firmware_build(self):
-        self.assertEqual(self.jobs("src/audiometer/audiometer.pyi"), {"unit", "wheels"})
+    def test_a_stub_reaches_the_tests_the_wheel_and_the_interpreter_build(self):
+        # The comparison with the MicroPython module runs only in the build.
+        self.assertEqual(self.jobs("src/audiometer/audiometer.pyi"), {"unit", "wheels", "build"})
+        self.assertEqual(self.jobs("tests/test_stubs_match_modules.py"), {"lint", "unit", "build"})
         self.assertEqual(self.jobs(".github/workflows/stubs.yml"), set())
 
     def test_the_sources_packaging_and_unknown_files_reach_everything(self):
