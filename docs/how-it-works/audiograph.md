@@ -53,7 +53,9 @@ frames at most.
 
 `set(node, index, value)` stores a parameter and marks the node to derive
 its kernel's settings before the next run; `get(node, index)` reads one
-back. A parameter that has not changed costs nothing per block, so a held
+back. A change takes effect at the top of the next block, never inside one,
+so a note or a knob move lands within one block of when it was set: at most
+256 frames, which is 5.3 ms at 48 kHz. A parameter that has not changed costs nothing per block, so a held
 note is one `run()` and nothing else. `reset(node)` clears a node's running
 state (the kernel's reset); `read(buffer, dst)` and `write(buffer, src)`
 copy a block out of or into the graph, so Python can feed a buffer from
