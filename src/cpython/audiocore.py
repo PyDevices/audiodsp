@@ -6,7 +6,10 @@
 
 import wave
 
-import _audiodsp  # noqa: F401 - verifies that the native runtime is present
+import _audiodsp
+
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
 
 GET_BUFFER_DONE = 0
 GET_BUFFER_MORE_DATA = 1

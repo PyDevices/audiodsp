@@ -44,6 +44,9 @@ from audiocore import (
     GET_BUFFER_ERROR, GET_BUFFER_MORE_DATA, _AudioSample, _borrow,
 )
 
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
+
 _fnv = _audiodsp.fnv1a64
 
 STATUS_WORDS = 34

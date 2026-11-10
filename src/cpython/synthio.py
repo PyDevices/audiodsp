@@ -14,6 +14,9 @@ import threading
 import _audiodsp
 from audiocore import GET_BUFFER_MORE_DATA, _AudioSample
 
+__version__ = _audiodsp.__version__
+__revision__ = _audiodsp.__revision__
+
 waveform_max_length = 16384
 _DEFAULT_WAVEFORM = array("h", (-32768, 32767))
 _MIDI_BASE_FREQUENCIES = (8372, 8870, 9397, 9956, 10548, 11175, 11840,
