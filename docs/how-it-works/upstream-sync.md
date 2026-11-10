@@ -14,7 +14,7 @@ The reasons behind each difference, with their measurements, are in
 
 ## When
 
-**Resync whenever the oracle pin moves.** The pin is `CIRCUITPYTHON_ORACLE`
+**Resync whenever the oracle pin moves.** The pin is the `circuitpython` line of `DEPENDENCIES.lock`
 at the repository root, and every CircuitPython-compatible gate is measured
 against the release it names. Moving the pin and resyncing are one change: the
 resync takes every fix and every addition upstream made between the old pin

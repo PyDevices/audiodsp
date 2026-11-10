@@ -120,7 +120,7 @@ hardware layer. The modules you import did not change. The helper package is
 
 The committed synthesis, mixer, MIDI, streaming and effects fixtures match
 CircuitPython 11.0.0-alpha.2 PCM byte-for-byte, built at the same voice
-ceiling this port ships (the pin is in `CIRCUITPYTHON_ORACLE`). Import and API
+ceiling this port ships (the pin is the `circuitpython` line of `DEPENDENCIES.lock`). Import and API
 smoke success is not used as a substitute for those comparisons. The
 playback-facing pull protocol (`audiocore.get_buffer` and `reset_buffer`) is
 consumed by `pydevices`' `lib/audiodev` package (`AudioOut` in

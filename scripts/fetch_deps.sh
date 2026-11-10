@@ -14,6 +14,8 @@ MODE="${1:-fetch}"
 rc=0
 while read -r name url rev; do
     [[ "$name" =~ ^#|^$ ]] && continue
+    # The CircuitPython oracle is a pin to test against, not a source to build.
+    [[ "$name" == circuitpython ]] && continue
     dir="$DEPS/$name"
     if [[ "$MODE" == "--check" ]]; then
         have=$(git -C "$dir" rev-parse HEAD 2>/dev/null || echo missing)

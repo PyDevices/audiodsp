@@ -55,8 +55,8 @@ what each module is held to.
 
 ## Rules that keep the port honest
 
-- **Don't modify the CircuitPython oracle.** The tag in `CIRCUITPYTHON_ORACLE`
-  is what every parity golden is measured against. Edit CircuitPython's own
+- **Don't modify the CircuitPython oracle.** The `circuitpython` line in
+  `DEPENDENCIES.lock` is what every parity golden is measured against. Edit CircuitPython's own
   sources for it and parity quietly means something else. Moving the pin is a
   resync with upstream, done deliberately: see
   [Keeping in step with upstream](docs/how-it-works/upstream-sync.md).
@@ -65,7 +65,7 @@ what each module is held to.
   never shadow or rewrite one of CircuitPython's.
 - **Don't re-capture a parity golden casually.** A fix that is right can still
   change one; say what independent evidence shows it is right.
-- **Don't move the dependency pins** (`DEPENDENCIES.lock`, `CIRCUITPYTHON_ORACLE`)
+- **Don't move the dependency pins** (`DEPENDENCIES.lock`, which holds the CircuitPython oracle too)
   without saying why.
 - **A fix for a bug that also exists upstream** goes in this repository's
   targets only, recorded in

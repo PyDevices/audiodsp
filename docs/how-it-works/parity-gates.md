@@ -9,7 +9,7 @@ to is in [the correctness standard](correctness-standard.md).
 
 ## The oracle binary
 
-CircuitPython at the tag in `CIRCUITPYTHON_ORACLE` is the oracle every
+CircuitPython at the commit on the `circuitpython` line of `DEPENDENCIES.lock` is the oracle every
 CircuitPython-shared parity golden is measured against. Build it as
 CircuitPython's unix coverage variant with `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64`
 and this repository as its only audio user C module (`circuitpython.mk`), at

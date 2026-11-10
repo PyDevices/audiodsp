@@ -338,7 +338,7 @@ in audiocomponents' parity sequences on CPython and on MicroPython.
 
 The oracle moved from 10.3.0 to 11.0.0-alpha.1 (520805e12) on 2026-10-08,
 with the binary at `bin/circuitpython-oracle-11.0.0-alpha.1`
-(`CIRCUITPYTHON_ORACLE`, [`tests/test_voice_ceiling_consistency.py`](../../tests/test_voice_ceiling_consistency.py)). It moved
+(the `circuitpython` line of `DEPENDENCIES.lock`, [`tests/test_voice_ceiling_consistency.py`](../../tests/test_voice_ceiling_consistency.py)). It moved
 to take upstream's 6dddbda87, "audiodelays, audiofilters, audiofreeverb:
 buffer lengths and silence fills", which this port now has in full:
 
