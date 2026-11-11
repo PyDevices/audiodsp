@@ -1,3 +1,7 @@
+## v0.6.16.dev2 (2026-11-11)
+
+- audiomath.Multiply: a mix move walks over 20 ms (#411)
+
 ## v0.6.16.dev1 (2026-11-10)
 
 - docs: generate the module reference from the type stubs (#407)
