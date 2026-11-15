@@ -179,7 +179,8 @@ typedef struct {
     float svf_g, svf_k, svf_m0, svf_m1, svf_m2;
     bool svf_valid;
     // While a move runs: the walk's position, its per-frame steps, and the
-    // integrators. `ramp_left` frames remain.
+    // integrators. `ramp_left` frames remain. `m1` here is the band mix
+    // over `k`, which walks in a straight line while `k` walks by ratio.
     float g, k, m0, m1, m2;
     float g_step, k_step, m0_step, m1_step, m2_step;
     float ic1[2], ic2[2];

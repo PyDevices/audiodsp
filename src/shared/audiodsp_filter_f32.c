@@ -397,7 +397,7 @@ static void biquad_begin_move(const audiodsp_biquad_f32_config_t *config,
             state->g = state->svf_g;
             state->k = state->svf_k;
             state->m0 = state->svf_m0;
-            state->m1 = state->svf_m1;
+            state->m1 = state->svf_m1 / state->svf_k;
             state->m2 = state->svf_m2;
         }
     }
@@ -421,8 +421,14 @@ static void biquad_begin_move(const audiodsp_biquad_f32_config_t *config,
         (double)config->svf_g / (double)state->g, shift);
     state->k_step = (float)biquad_root_chain(
         (double)config->svf_k / (double)state->k, shift);
+    // The band mix walks as a share of k. A notch, a band-pass and a
+    // high-pass mix the band at a fixed multiple of k: walked on its own, in
+    // a straight line while k walks by ratio, the two part company halfway
+    // and a 500 Hz notch walked from Q 12 to 0.5 stood 3.2 times its input
+    // at the corner. As a share of k they keep their shape all the way.
     state->m0_step = (config->svf_m0 - state->m0) / (float)frames;
-    state->m1_step = (config->svf_m1 - state->m1) / (float)frames;
+    state->m1_step = (config->svf_m1 / config->svf_k - state->m1) /
+        (float)frames;
     state->m2_step = (config->svf_m2 - state->m2) / (float)frames;
     state->ramp_left = frames;
 }
@@ -435,25 +441,36 @@ static uint32_t biquad_process_move(audiodsp_biquad_f32_state_t *state,
     const uint32_t run = frames < state->ramp_left ? frames : state->ramp_left;
     float g = state->g, k = state->k;
     float m0 = state->m0, m1 = state->m1, m2 = state->m2;
+    // While k rises (Q falls) the band memory shrinks with it, so k times
+    // the band, which is what a notch, a band-pass and a high-pass hand out,
+    // stays where it was rather than rising with k. Left alone, a high-Q
+    // band holds Q times its input, and a 20 ms walk to a low Q reads that
+    // through the new k before it has time to decay: a 50 Hz notch walked
+    // from Q 12 to 0.5 rose from a third of its input to the rail. Shrinking
+    // only ever takes energy out, so the walk stays bounded; while k falls
+    // the memory is left to grow at the filter's own pace.
+    const float shrink = state->k_step > 1.0f ? 1.0f / state->k_step : 1.0f;
     for (uint32_t frame = 0; frame < run; ++frame) {
         g *= state->g_step;
         k *= state->k_step;
         m0 += state->m0_step;
         m1 += state->m1_step;
         m2 += state->m2_step;
+        const float band = m1 * k;
         const float s1 = 1.0f / (1.0f + g * (g + k));
         const float s2 = g * s1;
         const float s3 = g * s2;
         for (uint32_t channel = 0; channel < channels; ++channel) {
             const size_t index = (size_t)frame * channels + channel;
             const float x0 = (float)in[index];
-            const float ic1 = state->ic1[channel], ic2 = state->ic2[channel];
+            const float ic1 = state->ic1[channel] * shrink;
+            const float ic2 = state->ic2[channel];
             const float v3 = x0 - ic2;
             const float v1 = s1 * ic1 + s2 * v3;
             const float v2 = ic2 + s2 * ic1 + s3 * v3;
             state->ic1[channel] = flush(2.0f * v1 - ic1);
             state->ic2[channel] = flush(2.0f * v2 - ic2);
-            const float y0 = m0 * x0 + m1 * v1 + m2 * v2;
+            const float y0 = m0 * x0 + band * v1 + m2 * v2;
             out[index] = to_s16(dry * x0 + mix * y0);
         }
     }
