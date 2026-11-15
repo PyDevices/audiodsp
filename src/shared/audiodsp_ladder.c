@@ -101,6 +101,10 @@ static void ladder_update_coefficients(audiodsp_ladder_config_t *config) {
     config->cutoff_scale = config->cutoff_octaves * (1.0f / 32768.0f);
     config->pi_over_rate = AUDIODSP_LADDER_PI / rate;
     config->cutoff_max = rate * 0.49f;
+    // Counted at the output rate: a walk is so many frames of what the
+    // node hands out, whatever it runs at inside.
+    config->ramp_frames = (uint32_t)(config->ramp_ms *
+        (float)config->sample_rate * (1.0f / 1000.0f) + 0.5f);
     ++config->revision;
 }
 
@@ -149,6 +153,9 @@ void audiodsp_ladder_config_init(audiodsp_ladder_config_t *config,
     // Ten octaves for a full-scale input, the same as audiooscillator's
     // pitch input, so one wire moves an oscillator and a filter alike.
     config->cutoff_octaves = 10.0f;
+    // Off by default: a move lands at once, as it always has.
+    config->ramp_ms = 0.0f;
+    config->ramp_frames = 0;
     config->revision = 0;
     config->poles = (uint8_t)AUDIODSP_LADDER_STAGES;
     // 2x by default. The filter is nonlinear, so it makes harmonics of
@@ -226,6 +233,13 @@ void audiodsp_ladder_configure(audiodsp_ladder_config_t *config,
             // same band `cutoff_hz` is.
             config->cutoff_octaves = value;
             break;
+        case AUDIODSP_LADDER_OPT_RAMP_MS:
+            // Up to a second. A move of the cutoff, resonance, drive,
+            // passband_comp or mix walks there over this long instead of
+            // landing at once, which steps the output. poles and
+            // oversample are switches and still land at once.
+            config->ramp_ms = clampf(value, 0.0f, 1000.0f);
+            break;
     }
     ladder_update_coefficients(config);
 }
@@ -247,6 +261,13 @@ void audiodsp_ladder_state_init(audiodsp_ladder_state_t *state) {
     // coefficients.
     state->cutoff_last = INT32_MIN;
     state->cutoff_revision = 0;
+    // The first block plays the settings as they stand: a new or reset node
+    // has nothing to walk from.
+    state->walk_left = 0;
+    state->walk_total = 0;
+    state->walk_revision = 0;
+    state->walk_octaves = 0.0f;
+    state->walk_primed = false;
 }
 
 void audiodsp_ladder_reset(audiodsp_ladder_state_t *state) {
@@ -475,12 +496,155 @@ void audiodsp_ladder_process_s16(const audiodsp_ladder_config_t *config,
     audiodsp_ladder_process_cutoff_s16(config, state, out, in, frames, NULL, 1);
 }
 
-void audiodsp_ladder_process_cutoff_s16(const audiodsp_ladder_config_t *config,
+static void ladder_frames(const audiodsp_ladder_config_t *config,
     audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames, const int16_t *cutoff, uint32_t cutoff_stride) {
     if (config->channel_count == 1u) {
         ladder_block(config, state, out, in, frames, cutoff, cutoff_stride, 1u);
     } else {
         ladder_block(config, state, out, in, frames, cutoff, cutoff_stride, 2u);
+    }
+}
+
+// log2(x) for a normal x > 0 with the same bits on every target, as
+// audiodsp_exp2_poly() is: the exponent exactly, read from the float's own
+// bits rather than libm's frexpf, and the mantissa's through the atanh
+// series, s = (m - 1)/(m + 1) being at most a third there. Six terms leave
+// the error near 1e-7 of an octave, and a walk lands on the configured set
+// itself at its end however small the error. The cutoff is clamped to 1 Hz
+// and up before it gets here, so x is never zero or subnormal.
+static float ladder_log2(float x) {
+    union { float f; uint32_t i; } bits = {.f = x};
+    const int exponent = (int)((bits.i >> 23) & 0xffu) - 127;
+    // The same mantissa with an exponent of 0: [1, 2).
+    bits.i = (bits.i & 0x007fffffu) | 0x3f800000u;
+    const float mantissa = bits.f;
+    const float s = (mantissa - 1.0f) / (mantissa + 1.0f);
+    const float s2 = s * s;
+    const float series = s * (1.0f + s2 * (1.0f / 3.0f + s2 * (1.0f / 5.0f
+        + s2 * (1.0f / 7.0f + s2 * (1.0f / 9.0f + s2 * (1.0f / 11.0f))))));
+    // 2 / ln(2): atanh is half a natural log.
+    return (float)exponent + series * 2.88539008f;
+}
+
+static void ladder_point_of(const audiodsp_ladder_config_t *config,
+    audiodsp_ladder_walk_point_t *point) {
+    point->cutoff_hz = clampf(config->cutoff_hz, 1.0f, config->cutoff_max);
+    point->resonance = config->resonance;
+    point->drive = config->drive;
+    point->passband_comp = config->passband_comp;
+    point->mix = config->mix;
+}
+
+// Not ==: CircuitPython builds with -Werror=float-equal.
+static bool ladder_same(float a, float b) {
+    return !(a < b || a > b);
+}
+
+static bool ladder_point_equal(const audiodsp_ladder_walk_point_t *a,
+    const audiodsp_ladder_walk_point_t *b) {
+    return ladder_same(a->cutoff_hz, b->cutoff_hz) &&
+           ladder_same(a->resonance, b->resonance) &&
+           ladder_same(a->drive, b->drive) &&
+           ladder_same(a->passband_comp, b->passband_comp) &&
+           ladder_same(a->mix, b->mix);
+}
+
+// The config one step of a walk plays: `config` with the walked settings
+// at `point`. The coefficients come the cutoff input's way, as a series
+// rather than tanf(), so a walk renders the same bits on every target.
+static void ladder_walk_config(const audiodsp_ladder_config_t *config,
+    const audiodsp_ladder_walk_point_t *point,
+    audiodsp_ladder_config_t *step) {
+    *step = *config;
+    step->cutoff_hz = point->cutoff_hz;
+    step->resonance = point->resonance;
+    step->drive = point->drive;
+    step->passband_comp = point->passband_comp;
+    step->mix = point->mix;
+    step->output_gain = 1.0f + point->passband_comp * point->resonance;
+    const float w = clampf(point->cutoff_hz, 1.0f, config->cutoff_max) *
+        config->pi_over_rate;
+    const float sine = ladder_sin(w);
+    ladder_finish_coeffs(&step->coeffs, point->resonance,
+        sine / (sine + ladder_cos(w)));
+}
+
+void audiodsp_ladder_process_cutoff_s16(const audiodsp_ladder_config_t *config,
+    audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames, const int16_t *cutoff, uint32_t cutoff_stride) {
+    if (config->ramp_frames == 0u || !state->walk_primed) {
+        // No walk asked for, or the first block: the settings as they are.
+        ladder_point_of(config, &state->walk_now);
+        state->walk_to = state->walk_now;
+        state->walk_left = 0;
+        state->walk_revision = config->revision;
+        state->walk_primed = true;
+        ladder_frames(config, state, out, in, frames, cutoff, cutoff_stride);
+        return;
+    }
+    if (config->revision != state->walk_revision) {
+        state->walk_revision = config->revision;
+        audiodsp_ladder_walk_point_t target;
+        ladder_point_of(config, &target);
+        if (!ladder_point_equal(&target, &state->walk_to)) {
+            // From wherever the last walk had got to, so a move during a
+            // walk turns there rather than jumping back.
+            state->walk_from = state->walk_now;
+            state->walk_to = target;
+            state->walk_octaves = ladder_log2(target.cutoff_hz) -
+                ladder_log2(state->walk_from.cutoff_hz);
+            state->walk_left = config->ramp_frames;
+            state->walk_total = config->ramp_frames;
+        }
+    }
+    const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
+    uint32_t done = 0;
+    while (state->walk_left != 0u && done < frames) {
+        uint32_t step = frames - done;
+        if (step > AUDIODSP_LADDER_WALK_STEP) {
+            step = AUDIODSP_LADDER_WALK_STEP;
+        }
+        if (step > state->walk_left) {
+            step = state->walk_left;
+        }
+        state->walk_left -= step;
+        audiodsp_ladder_walk_point_t *now = &state->walk_now;
+        const audiodsp_ladder_walk_point_t *from = &state->walk_from;
+        const audiodsp_ladder_walk_point_t *to = &state->walk_to;
+        if (state->walk_left == 0u) {
+            *now = *to;
+        } else {
+            // Where the walk stands at the end of this step.
+            const float t = 1.0f -
+                (float)state->walk_left / (float)state->walk_total;
+            now->cutoff_hz = from->cutoff_hz *
+                audiodsp_exp2_poly(t * state->walk_octaves);
+            now->resonance = from->resonance +
+                (to->resonance - from->resonance) * t;
+            now->drive = from->drive + (to->drive - from->drive) * t;
+            now->passband_comp = from->passband_comp +
+                (to->passband_comp - from->passband_comp) * t;
+            now->mix = from->mix + (to->mix - from->mix) * t;
+        }
+        audiodsp_ladder_config_t walked;
+        ladder_walk_config(config, now, &walked);
+        // The cutoff input's cached set was derived from other settings.
+        state->cutoff_last = INT32_MIN;
+        ladder_frames(&walked, state, &out[done * channels],
+            &in[done * channels], step,
+            cutoff != NULL ? &cutoff[done * cutoff_stride] : NULL,
+            cutoff_stride);
+        done += step;
+        if (state->walk_left == 0u) {
+            // Landed: from here on the configured set itself.
+            state->cutoff_last = INT32_MIN;
+        }
+    }
+    if (done < frames) {
+        ladder_frames(config, state, &out[done * channels],
+            &in[done * channels], frames - done,
+            cutoff != NULL ? &cutoff[done * cutoff_stride] : NULL,
+            cutoff_stride);
     }
 }

@@ -58,7 +58,22 @@ typedef enum {
     AUDIODSP_LADDER_OPT_OVERSAMPLE,
     AUDIODSP_LADDER_OPT_MIX,
     AUDIODSP_LADDER_OPT_CUTOFF_OCTAVES,
+    AUDIODSP_LADDER_OPT_RAMP_MS,
 } audiodsp_ladder_option_t;
+
+//: Frames between two steps of a walk (`ramp_ms`): the settings move once
+//: every this many frames, a straight line from where they stood.
+#define AUDIODSP_LADDER_WALK_STEP 8u
+
+//: The settings a walk moves. The cutoff walks evenly in pitch, the rest in
+//: a straight line.
+typedef struct {
+    float cutoff_hz;
+    float resonance;
+    float drive;
+    float passband_comp;
+    float mix;
+} audiodsp_ladder_walk_point_t;
 
 //: What the per-sample loop reads that the cutoff moves. Held apart so the
 //: cutoff input can derive a set of its own every sample, through the same
@@ -95,6 +110,11 @@ typedef struct {
     float mix;
     // Octaves the cutoff moves for a full-scale cutoff input.
     float cutoff_octaves;
+    // How long a move of the cutoff, resonance, drive, passband_comp or mix
+    // takes to walk there, in milliseconds; 0 lands it at once. And that
+    // time in frames at this sample rate.
+    float ramp_ms;
+    uint32_t ramp_frames;
     uint8_t poles;
     uint8_t oversample;
     // --- derived, all computed in ladder_update_coefficients() ---
@@ -132,6 +152,19 @@ typedef struct {
     int32_t cutoff_last;
     uint32_t cutoff_revision;
     audiodsp_ladder_coeffs_t cutoff_coeffs;
+    // A walk (`ramp_ms`): where the settings stand, where they left from and
+    // are going, the frames left and in all, and the config revision the
+    // target was read at. Not primed until the first block, which plays the
+    // settings as they are, as a new node does.
+    audiodsp_ladder_walk_point_t walk_now;
+    audiodsp_ladder_walk_point_t walk_from;
+    audiodsp_ladder_walk_point_t walk_to;
+    // Octaves from walk_from's cutoff to walk_to's.
+    float walk_octaves;
+    uint32_t walk_left;
+    uint32_t walk_total;
+    uint32_t walk_revision;
+    bool walk_primed;
 } audiodsp_ladder_state_t;
 
 void audiodsp_ladder_config_init(audiodsp_ladder_config_t *config,

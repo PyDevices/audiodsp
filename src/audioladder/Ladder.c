@@ -27,6 +27,7 @@ static const ladder_option_name_t ladder_option_names[] = {
     { MP_QSTR_oversample, AUDIODSP_LADDER_OPT_OVERSAMPLE },
     { MP_QSTR_mix, AUDIODSP_LADDER_OPT_MIX },
     { MP_QSTR_cutoff_octaves, AUDIODSP_LADDER_OPT_CUTOFF_OCTAVES },
+    { MP_QSTR_ramp_ms, AUDIODSP_LADDER_OPT_RAMP_MS },
 };
 
 // Every option is read and checked into a copy of the config before

@@ -2116,7 +2116,7 @@ static PyObject *ladder_state_configure(audiodsp_ladder_object_t *self,
     double value;
     if (!PyArg_ParseTuple(args, "id:configure", &option, &value)) return NULL;
     if (option < AUDIODSP_LADDER_OPT_CUTOFF_HZ ||
-        option > AUDIODSP_LADDER_OPT_CUTOFF_OCTAVES) {
+        option > AUDIODSP_LADDER_OPT_RAMP_MS) {
         PyErr_SetString(PyExc_ValueError, "unknown ladder option");
         return NULL;
     }

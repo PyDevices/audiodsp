@@ -519,3 +519,121 @@ class BlockSizeTest(unittest.TestCase):
                 audioladder.Ladder(buffer_size=size)
         self.assertEqual(audioladder.Ladder(
             channel_count=1, buffer_size=128).max_buffer_length, 128)
+
+
+class RampTest(unittest.TestCase):
+    """`ramp_ms` walks a move of the cutoff, resonance, drive, passband_comp
+    or mix instead of landing it at once, which steps the output.
+
+    A step is measured the way the effects' lifecycle checks measure it: the
+    largest jump between two neighbouring samples in the 25 ms after the
+    move, against 1.5 times the largest jump the filter makes on its own,
+    before the move or once it has settled. A triangle goes in, so the input
+    itself never jumps.
+    """
+
+    RATE = 48000
+    AT = 12 * BLOCK
+    FRAMES = 48 * BLOCK
+
+    def _triangle(self):
+        values = array("h", [0] * (self.FRAMES * 2))
+        for frame in range(self.FRAMES):
+            place = frame % 480
+            if place < 120:
+                value = place * 50
+            elif place < 360:
+                value = 12000 - place * 50
+            else:
+                value = place * 50 - 24000
+            values[2 * frame] = values[2 * frame + 1] = value
+        return values
+
+    def _render(self, ramp_ms, start, end):
+        node = audioladder.Ladder(sample_rate=self.RATE, ramp_ms=ramp_ms,
+                                  **start)
+        node.play(audiocore.RawSample(self._triangle(), sample_rate=self.RATE,
+                                      channel_count=2))
+        left = []
+        for block in range(self.FRAMES // BLOCK):
+            if block * BLOCK == self.AT:
+                node.set(**end)
+            data = array("h")
+            data.frombytes(bytes(audiocore.get_buffer(node)[1]))
+            left.extend(data[0::2])
+        return left
+
+    @staticmethod
+    def _step(samples, start, end):
+        return max(abs(samples[index] - samples[index - 1])
+                   for index in range(max(start, 1), end))
+
+    def _verdict(self, ramp_ms, start, end):
+        out = self._render(ramp_ms, start, end)
+        near = self._step(out, self.AT, self.AT + self.RATE // 40)
+        own = max(self._step(out, 1, self.AT),
+                  self._step(out, self.AT + self.RATE // 20, len(out)))
+        return near, own
+
+    MOVES = (
+        ("cutoff up", dict(cutoff_hz=200.0), dict(cutoff_hz=8000.0)),
+        ("resonance", dict(cutoff_hz=1000.0, resonance=0.5),
+         dict(resonance=4.0)),
+        ("mix", dict(cutoff_hz=300.0, mix=1.0), dict(mix=0.0)),
+    )
+
+    def test_a_move_without_a_ramp_steps(self):
+        """The control: each move below does step when it lands at once, so
+        the walk is what keeps it from stepping."""
+        for name, start, end in self.MOVES:
+            with self.subTest(move=name):
+                near, own = self._verdict(0.0, start, end)
+                self.assertGreater(near, own * 3 // 2)
+
+    def test_a_move_with_a_ramp_walks(self):
+        for name, start, end in self.MOVES:
+            with self.subTest(move=name):
+                near, own = self._verdict(20.0, start, end)
+                self.assertLessEqual(near, own * 3 // 2)
+
+    def test_the_walk_lands_on_the_setting(self):
+        """Past the walk, a walked node renders what a node that jumped
+        renders, to within a count, so the walk is not a detour."""
+        start, end = dict(cutoff_hz=200.0), dict(cutoff_hz=8000.0)
+        walked = self._render(20.0, start, end)
+        jumped = self._render(0.0, start, end)
+        tail = self.AT + self.RATE // 4
+        self.assertLessEqual(max(abs(a - b) for a, b in
+                                 zip(walked[tail:], jumped[tail:])), 1)
+
+    def test_a_move_during_a_walk_turns_where_it_stands(self):
+        """A second move 5 ms into a walk back to where it started: the
+        output never steps, where a walk restarted from the old target
+        would jump back."""
+        node = audioladder.Ladder(sample_rate=self.RATE, ramp_ms=20.0,
+                                  cutoff_hz=200.0)
+        node.play(audiocore.RawSample(self._triangle(), sample_rate=self.RATE,
+                                      channel_count=2))
+        left = []
+        for block in range(self.FRAMES // BLOCK):
+            if block * BLOCK == self.AT:
+                node.set(cutoff_hz=8000.0)
+            elif block * BLOCK == self.AT + BLOCK:
+                node.set(cutoff_hz=200.0)
+            data = array("h")
+            data.frombytes(bytes(audiocore.get_buffer(node)[1]))
+            left.extend(data[0::2])
+        near = self._step(left, self.AT, self.AT + self.RATE // 20)
+        own = self._step(left, 1, self.AT)
+        self.assertLessEqual(near, max(own, 1) * 3)
+
+    def test_it_clamps_and_takes_no_time_at_0(self):
+        """0 is the default and lands a move at the next block, as before."""
+        start, end = dict(cutoff_hz=200.0), dict(cutoff_hz=8000.0)
+        self.assertEqual(self._render(0.0, start, end),
+                         self._render(-5.0, start, end))
+        node = audioladder.Ladder(sample_rate=self.RATE, ramp_ms=1e9)
+        node.play(audiocore.RawSample(self._triangle(), sample_rate=self.RATE,
+                                      channel_count=2))
+        self.assertEqual(len(bytes(audiocore.get_buffer(node)[1])),
+                         BLOCK * 4)

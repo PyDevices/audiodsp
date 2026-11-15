@@ -82,6 +82,13 @@ class Ladder:
             default is 1.
         cutoff_octaves: How many octaves a full-scale `modulate` input moves
             the cutoff, of either sign. The default is 10.
+        ramp_ms: How long a change of ``cutoff_hz``, ``resonance``,
+            ``drive``, ``passband_comp`` or ``mix`` takes to arrive, 0 to
+            1000 ms, clamped. The cutoff walks evenly in pitch and the rest
+            in a straight line, a step every 8 frames, so a jump does not
+            click. A change during a walk turns from where the walk stands.
+            The default is 0, which lands a change at the next block.
+            ``poles`` and ``oversample`` always land at once.
         cutoff: A stream to read the cutoff from, as for `modulate`.
 
     Raises:
@@ -104,6 +111,7 @@ class Ladder:
         oversample: int = 2,
         mix: float = 1.0,
         cutoff_octaves: float = 10.0,
+        ramp_ms: float = 0.0,
         cutoff: _AudioSample | None = None,
     ) -> None: ...
     sample_rate: int
@@ -127,11 +135,13 @@ class Ladder:
         oversample: int = ...,
         mix: float = ...,
         cutoff_octaves: float = ...,
+        ramp_ms: float = ...,
     ) -> None:
         """Change options while the filter plays.
 
         The cutoff moves once a block, which is plenty for an envelope or a
-        knob. Swept by an audio-rate signal that way, it is heard as a
+        knob; with ``ramp_ms`` set, a move walks there over that long instead
+        of landing at the next block. Swept by an audio-rate signal that way, it is heard as a
         staircase, a buzz at the block rate; use `modulate` for that. All the
         options given change together or not at all.
 
@@ -144,6 +154,7 @@ class Ladder:
             oversample: As for the constructor.
             mix: As for the constructor.
             cutoff_octaves: As for the constructor.
+            ramp_ms: As for the constructor.
 
         Raises:
             TypeError: An unknown option was given.
