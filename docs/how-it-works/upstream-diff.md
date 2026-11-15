@@ -5,6 +5,42 @@ CircuitPython, newest first. For the current list of deliberate differences,
 and how and when to resync with upstream, start at
 [upstream-sync.md](upstream-sync.md).
 
+## A mix ramp on `audiodelays.Flanger`
+
+`audiodelays.Flanger.mix_ramp` is new here; CircuitPython's Flanger doesn't
+have it. Set it to a number of frames and a `mix` move walks from the old mix
+to the new one in a straight line over that many frames, the way
+[`Mixer.level_ramp`](#a-level-ramp-on-mixer-voices) walks a voice. Left at 0,
+the default, the Flanger is CircuitPython's to the byte.
+
+```python
+flanger.mix_ramp = 960          # 20 ms at 48 kHz
+flanger.mix = 1.0               # walks up over the next 960 frames
+```
+
+Without it, a mix taken from 0 to 1 in one call steps the output by the gap
+between the dry and the wet signal on the next frame: on a 100 Hz triangle at
+5000, a step of about 4400 where the signal's own step is about 100.
+
+How it walks, in [`src/shared/audiodsp_flanger.c`](../../src/shared/audiodsp_flanger.c):
+
+- One step per frame, in integers, landing exactly on the mix asked for.
+- The first block's mix lands at once, so a fresh Flanger's first block is the
+  same bytes with the ramp on or off. A reset clears a walk under way.
+- A move made during a walk starts a new walk from where the mix stands.
+- Upstream passes the source through untouched at a mix of 1% or less. A walk
+  fades through that zone instead of switching to the source on the way, and
+  the switch applies again once the walk lands.
+
+`audioverb.Tank` is this port's own, so its mix walks over 20 ms always, as
+`audioecho.FeedbackDelay`'s does (both through
+[`shared/audiodsp_level_ramp.h`](../../src/shared/audiodsp_level_ramp.h)).
+Recutting its lines keeps a walk under way.
+
+[`tests/test_cpython_node_level_ramps.py`](../../tests/test_cpython_node_level_ramps.py)
+holds both walks' shape on the CPython twin, and `node_level_ramp_probe.py`
+holds MicroPython and CPython to the same bytes through `verify_dsp.py`.
+
 ## A level ramp on Mixer voices
 
 `audiomixer.Mixer.level_ramp` is new here; CircuitPython's Mixer doesn't have

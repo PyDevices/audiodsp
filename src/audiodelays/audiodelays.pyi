@@ -262,6 +262,14 @@ class Flanger:
     """How much of the delayed signal feeds back."""
     mix: _BlockInput
     """The balance from the dry signal (0.0) to the delayed one (1.0)."""
+    mix_ramp: int
+    """How many frames a change of `mix` walks over, 0 to 96000. With 0,
+    the default, a change lands at the next block, as CircuitPython's
+    flanger does. Set, a change walks from where the mix stands to the new
+    value in a straight line over that many frames, so a jump doesn't click:
+    960 is 20 ms at 48 kHz. A move during a walk starts a new walk from where
+    it stands. A new node's first mix, and the first after a reset, land at
+    once. Not in CircuitPython."""
     invert: bool
     """Whether the delayed signal is inverted."""
     sample_rate: int

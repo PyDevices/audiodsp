@@ -42,6 +42,8 @@ typedef struct {
     int16_t *delay_buffer;
     uint32_t delay_buffer_frames;
     audiodsp_flanger_state_t flanger;
+    // Not upstream: the frames a mix move walks over (Flanger.mix_ramp).
+    uint32_t mix_ramp;
 
     mp_obj_t sample;
 } audiodelays_flanger_obj_t;

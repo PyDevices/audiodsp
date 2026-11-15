@@ -390,6 +390,14 @@ void audiodsp_tank_state_init(audiodsp_tank_state_t *state,
     state->mod_cosine = 1.0f;
     state->resting = false;
     state->quiet_frames = 0;
+    audiodsp_level_ramp_clear(&state->mix_ramp);
+}
+
+void audiodsp_tank_state_recut(audiodsp_tank_state_t *state,
+    const audiodsp_tank_config_t *config, int16_t *buffer) {
+    const audiodsp_level_ramp_t mix_ramp = state->mix_ramp;
+    audiodsp_tank_state_init(state, config, buffer);
+    state->mix_ramp = mix_ramp;
 }
 
 void audiodsp_tank_reset(audiodsp_tank_state_t *state,
@@ -578,8 +586,11 @@ static void tank_run(const audiodsp_tank_config_t *config,
     audiodsp_tank_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {
     const uint32_t channels = config->channel_count == 1u ? 1u : 2u;
-    const float dry = 2.0f - config->mix < 1.0f ? 2.0f - config->mix : 1.0f;
-    const float wet = config->mix < 1.0f ? config->mix : 1.0f;
+    audiodsp_level_ramp_aim(&state->mix_ramp, config->mix,
+        audiodsp_level_ramp_frames(config->sample_rate,
+            AUDIODSP_LEVEL_RAMP_MS));
+    float dry = 2.0f - config->mix < 1.0f ? 2.0f - config->mix : 1.0f;
+    float wet = config->mix < 1.0f ? config->mix : 1.0f;
     const float decay = config->decay;
     const float g_input_1 = config->diffusion;
     const float g_input_2 = config->diffusion * AUDIODSP_TANK_INPUT_DIFFUSION_2;
@@ -592,6 +603,11 @@ static void tank_run(const audiodsp_tank_config_t *config,
     const uint32_t predelay_length = config->predelay_frames_max;
 
     for (uint32_t frame = 0; frame < frames; ++frame) {
+        if (audiodsp_level_ramp_moving(&state->mix_ramp)) {
+            const float mix = audiodsp_level_ramp_next(&state->mix_ramp);
+            dry = 2.0f - mix < 1.0f ? 2.0f - mix : 1.0f;
+            wet = mix < 1.0f ? mix : 1.0f;
+        }
         // Rotate the modulation oscillator one step. Updating the sine first
         // and feeding the new value back into the cosine is what keeps this
         // stable indefinitely; the naive pair drifts in amplitude. The two

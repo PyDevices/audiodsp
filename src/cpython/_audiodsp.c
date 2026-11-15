@@ -2597,7 +2597,7 @@ static PyObject *tank_state_recut(audiodsp_tank_object_t *self,
         memset(lines, 0, (size_t)samples * sizeof(int16_t));
     }
     self->config = recut;
-    audiodsp_tank_state_init(&self->state, &self->config, lines);
+    audiodsp_tank_state_recut(&self->state, &self->config, lines);
     Py_RETURN_NONE;
 }
 

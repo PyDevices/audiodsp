@@ -311,7 +311,7 @@ static mp_obj_t audioverb_tank_set(size_t n_args, const mp_obj_t *args,
         if (lines == old_lines) {
             memset(lines, 0, (size_t)samples * sizeof(int16_t));
         }
-        audiodsp_tank_state_init(&self->state, &self->config, lines);
+        audiodsp_tank_state_recut(&self->state, &self->config, lines);
     }
     audiodsp_pump_lock_release();
     if (lines != old_lines) {

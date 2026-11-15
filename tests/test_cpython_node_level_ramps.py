@@ -5,8 +5,9 @@
 """A node's level control walks to a new value over 20 ms instead of stepping.
 
 The Waveshaper's `mix` and `post_gain`, the Biquad's and the AllPass's `mix`,
-the Dynamics node's makeup, the FeedbackDelay's `mix` and the Multiply's
-`mix` each scale a signal
+the Dynamics node's makeup, the FeedbackDelay's `mix`, the Multiply's
+`mix`, the Tank's `mix`, and the Flanger's `mix` with `mix_ramp` set each
+scale a signal
 the node has already worked out. Moved on a playing node, each walks there in
 a straight line over 20 ms (`audiodsp_level_ramp.h`), so the move cannot click.
 None of these controls feeds the node's own state, so the walked output is
@@ -18,10 +19,11 @@ one at the new. That is what this holds them to.
 | a move walks in a straight line and lands | for each control, mono and stereo, at 48 and 22.05 kHz: up to the move, the bytes of a node that stayed at the old value; for 20 ms after it, that node's frame plus `(i + 1) / n` of the way to a node built at the new value, to within 2 LSB; from then on, that node's bytes exactly |
 | a control set before the first pull is not walked | a node built at the old value and moved before anything pulled it renders the bytes of one built at the new value |
 | a reset clears the walk | a node reset halfway through a walk renders, from the reset on, the bytes of a node built at the new value and reset at the same pull |
+| the Flanger without `mix_ramp` | at 0, the default, a move lands at the next pull: the bytes of the old node up to it and of the new one from it, as CircuitPython's flanger does |
 
-The C in `src/shared` is the authority; this target runs the same C, so the
-native builds are held to the same bytes by
-`tests/parity/node_level_ramp_probe.py`.
+The C in `src/shared` is the authority; this target runs the same C, apart
+from the Flanger's Python twin, so the native builds are held to the same
+bytes by `tests/parity/node_level_ramp_probe.py`.
 
     python -m unittest tests.test_cpython_node_level_ramps
 """
@@ -32,10 +34,12 @@ from array import array
 
 import audiobiquad
 import audiocore
+import audiodelays
 import audiodynamics
 import audioecho
 import audiomath
 import audioshaper
+import audioverb
 
 MOVE_AT = 4
 PULLS = 16
@@ -111,6 +115,22 @@ def multiply(rate, channels, mix):
     return node
 
 
+def tank(rate, channels, mix):
+    return audioverb.Tank(sample_rate=rate, channel_count=channels,
+                          max_predelay_ms=10.0, decay=0.5, mix=mix)
+
+
+def flanger(rate, channels, mix, ramp=None):
+    """A Flanger walking its mix over 20 ms, or with `ramp` given, over
+    that many frames."""
+    node = audiodelays.Flanger(max_delay_ms=10, min_delay_ms=2.0, rate=0.5,
+                               depth=0.5, feedback=0.4, mix=mix,
+                               sample_rate=rate, channel_count=channels,
+                               buffer_size=512 * channels)
+    node.mix_ramp = (rate * 20 + 500) // 1000 if ramp is None else ramp
+    return node
+
+
 def _set(name):
     def move(node, value):
         node.set(**{name: value})
@@ -134,6 +154,8 @@ CASES = (
     ("dynamics makeup", dynamics, _set("makeup_db"), 0.0, 9.0),
     ("delay mix", delay, _set("mix"), 0.0, 1.0),
     ("multiply mix", multiply, _set("mix"), 1.0, 0.0),
+    ("tank mix", tank, _set("mix"), 0.0, 1.0),
+    ("flanger mix", flanger, _attr("mix"), 0.0, 1.0),
 )
 
 
@@ -207,6 +229,32 @@ class NodeLevelRamps(unittest.TestCase):
                 at = starts[MOVE_AT + 1] * channels
                 self.assertNotEqual(walked[:at], there[:at])
                 self.assertEqual(walked[at:], there[at:])
+
+    def test_the_flanger_without_mix_ramp_lands_at_once(self):
+        for rate in (48000, 22050):
+            for channels in (1, 2):
+                with self.subTest(rate=rate, channels=channels):
+                    held, starts = render(
+                        flanger(rate, channels, 0.0, ramp=0), rate,
+                        channels)
+                    there, _ = render(flanger(rate, channels, 1.0, ramp=0),
+                                      rate, channels)
+                    moved, _ = render(
+                        flanger(rate, channels, 0.0, ramp=0), rate,
+                        channels, (MOVE_AT, lambda node: _attr("mix")(
+                            node, 1.0)))
+                    at = starts[MOVE_AT] * channels
+                    self.assertEqual(moved[:at], held[:at])
+                    self.assertEqual(moved[at:], there[at:])
+
+    def test_mix_ramp_takes_0_to_96000_frames(self):
+        node = flanger(48000, 1, 0.5)
+        self.assertEqual(node.mix_ramp, 960)
+        node.mix_ramp = 96000
+        self.assertEqual(node.mix_ramp, 96000)
+        for frames in (-1, 96001):
+            with self.assertRaises(ValueError):
+                node.mix_ramp = frames
 
 
 if __name__ == "__main__":

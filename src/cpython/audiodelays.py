@@ -359,6 +359,11 @@ class PitchShift(_Effect):
         return result
 
 
+#: The most frames `Flanger.mix_ramp` takes, as `src/shared/audiodsp_flanger.h`
+#: has it.
+_FLANGER_MIX_RAMP_MAX = 96000
+
+
 class Flanger(_Effect):
     # A source with nothing to give ends the pull's stretch rather than
     # spinning the loop (a recorded deviation, docs/how-it-works/upstream-diff.md).
@@ -377,11 +382,40 @@ class Flanger(_Effect):
             "h", (0 for _ in range(self._delay_buffer_frames * self.channel_count)))
         self._write_pos = [0, 0]
         self._lfo_phase = [0, 0]
+        self._mix_ramp = 0
+        self._mix_walk = None
 
     def _reset_state(self):
         self._delay_buffer[:] = array("h", [0]) * len(self._delay_buffer)
         self._write_pos = [0, 0]
         self._lfo_phase = [0, 0]
+        self._mix_walk = None
+
+    @property
+    def mix_ramp(self):
+        """Not upstream: the frames a mix move walks over in a straight
+        line instead of landing at the next block. 0, the default, is
+        CircuitPython's node to the byte."""
+        return self._mix_ramp
+
+    @mix_ramp.setter
+    def mix_ramp(self, frames):
+        frames = int(frames)
+        if not 0 <= frames <= _FLANGER_MIX_RAMP_MAX:
+            raise ValueError("mix_ramp must be %d-%d"
+                             % (0, _FLANGER_MIX_RAMP_MAX))
+        self._mix_ramp = frames
+
+    def _mix_aim(self, mix):
+        """Hand the walk the block's mix, as `flanger_mix_aim` does, and
+        return it: [now, from, to, done, frames]. Before the first block
+        it is None, and the first mix lands at once."""
+        walk = self._mix_walk
+        if walk is None or not self._mix_ramp:
+            self._mix_walk = [mix, mix, mix, 0, 0]
+        elif mix != walk[2]:
+            self._mix_walk = [walk[0], walk[0], mix, 0, self._mix_ramp]
+        return self._mix_walk
 
     @staticmethod
     def _ms_to_frames_q16(ms, sample_rate, frames):
@@ -418,8 +452,25 @@ class Flanger(_Effect):
         frames = self._delay_buffer_frames
         line = self._delay_buffer
         output = array("h", (0 for _ in range(len(samples))))
+        walk = self._mix_aim(mix)
+        # A walk passes the 1 % wire without the switch
+        # (`audiodsp_flanger_process_s16`).
+        walking = False
         for index, sample in enumerate(samples):
             channel = 1 if (self.channel_count == 2 and index % 2 == 1) else 0
+            if channel == 0:
+                # One frame of the walk (`flanger_mix_step`).
+                if walk[4]:
+                    walk[3] += 1
+                    if walk[3] >= walk[4]:
+                        walk[0] = walk[2]
+                        walk[4] = 0
+                    else:
+                        moved = abs(walk[2] - walk[1]) * walk[3] // walk[4]
+                        walk[0] = (walk[1] + moved if walk[2] > walk[1]
+                                   else walk[1] - moved)
+                mix = walk[0]
+                walking = walk[4] != 0
             self._lfo_phase[channel] = (self._lfo_phase[channel] + phase_inc) & 0xffffffff
             tri = self._triangle(self._lfo_phase[channel])
             delay_q16 = (delay_min + ((delay_span * tri) >> 16)) & 0xffffffff
@@ -436,7 +487,7 @@ class Flanger(_Effect):
             wet = s0 + (((s1 - s0) * delay_frac) >> 16)
             line[plane + write] = _sat16(sample + _sat16(wet * feedback, 15), 0)
             self._write_pos[channel] = 0 if write + 1 == frames else write + 1
-            if mix <= 328:
+            if mix <= 328 and not walking:
                 word = sample
             else:
                 wet_word = _sat16(wet * mix, 15)

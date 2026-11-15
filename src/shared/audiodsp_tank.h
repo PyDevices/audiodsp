@@ -35,6 +35,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "shared/audiodsp_level_ramp.h"
+
 //: Frames one output block carries. The same 256 the rest of audiodsp's own
 //: nodes use, so a chain built out of several of them moves in one block size.
 #define AUDIODSP_TANK_FRAMES 256u
@@ -153,6 +155,11 @@ typedef struct {
     // the state (audiodsp#180).
     bool resting;
     uint32_t quiet_frames;
+    // `mix` as the output stands, walking to a new value over
+    // AUDIODSP_LEVEL_RAMP_MS instead of stepping there. A reset clears it,
+    // so the first block after one lands at `mix` as a fresh node's does; a
+    // re-cut keeps it, since the dry plays on through one.
+    audiodsp_level_ramp_t mix_ramp;
 } audiodsp_tank_state_t;
 
 // Installs Dattorro's own line lengths and output taps, scaled to
@@ -183,7 +190,7 @@ audiodsp_tank_status_t audiodsp_tank_set_taps(audiodsp_tank_config_t *config,
 // floats a tap; NULL keeps the table) applied, in the constructor's order.
 // The binding then allocates audiodsp_tank_buffer_samples(recut) (or clears
 // the buffer it has, when that is the same size), installs `recut` and calls
-// audiodsp_tank_state_init on it, so the network is exactly a newly built
+// audiodsp_tank_state_recut on it, so the network is exactly a newly built
 // one's while the node's source, and any source frames it holds, stay where
 // they are (audiodsp#169). Followed by audiodsp_tank_config_finish, since the
 // modulation depth's ceiling is a line length.
@@ -209,6 +216,11 @@ void audiodsp_tank_config_finish(audiodsp_tank_config_t *config);
 uint32_t audiodsp_tank_buffer_samples(const audiodsp_tank_config_t *config);
 
 void audiodsp_tank_state_init(audiodsp_tank_state_t *state,
+    const audiodsp_tank_config_t *config, int16_t *buffer);
+
+// audiodsp_tank_state_init for a re-cut: the network starts empty, and a
+// mix walk under way carries on, since the dry plays on through a re-cut.
+void audiodsp_tank_state_recut(audiodsp_tank_state_t *state,
     const audiodsp_tank_config_t *config, int16_t *buffer);
 
 // Clears every line and every filter. Like audioecho and unlike audiodynamics
