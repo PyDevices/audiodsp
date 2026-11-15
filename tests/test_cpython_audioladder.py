@@ -527,14 +527,15 @@ class RampTest(unittest.TestCase):
 
     A step is measured the way the effects' lifecycle checks measure it: the
     largest jump between two neighbouring samples in the 25 ms after the
-    move, against 1.5 times the largest jump the filter makes on its own,
-    before the move or once it has settled. A triangle goes in, so the input
-    itself never jumps.
+    move, against 1.5 times the largest jump the walked filter makes on its
+    own, before the move or once it has settled. A triangle goes in, so the
+    input itself never jumps. A jump measures against the walked render's
+    own steps too, since a resonant filter knocked by a jump keeps ringing.
     """
 
     RATE = 48000
     AT = 12 * BLOCK
-    FRAMES = 48 * BLOCK
+    FRAMES = 96 * BLOCK
 
     def _triangle(self):
         values = array("h", [0] * (self.FRAMES * 2))
@@ -571,8 +572,9 @@ class RampTest(unittest.TestCase):
     def _verdict(self, ramp_ms, start, end):
         out = self._render(ramp_ms, start, end)
         near = self._step(out, self.AT, self.AT + self.RATE // 40)
-        own = max(self._step(out, 1, self.AT),
-                  self._step(out, self.AT + self.RATE // 20, len(out)))
+        walked = self._render(20.0, start, end)
+        own = max(self._step(walked, 1, self.AT),
+                  self._step(walked, self.AT + self.RATE // 20, len(walked)))
         return near, own
 
     MOVES = (

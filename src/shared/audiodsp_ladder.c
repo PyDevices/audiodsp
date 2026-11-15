@@ -457,10 +457,14 @@ LADDER_INLINE void ladder_frame(const audiodsp_ladder_config_t *config,
 LADDER_INLINE void ladder_block(const audiodsp_ladder_config_t *config,
     audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames, const int16_t *cutoff, uint32_t cutoff_stride,
-    uint32_t channels) {
+    uint32_t channels, bool gliding, float mix_from) {
     const bool doubled = config->oversample >= 2u;
     const float drive = config->drive;
-    const float mix = config->mix;
+    // A walk moves the mix a little every frame, from `mix_from` to the
+    // config's mix on the last frame, rather than a stair of steps.
+    const float mix_step = gliding ? (config->mix - mix_from) / (float)frames
+        : 0.0f;
+    float mix = gliding ? mix_from : config->mix;
     const float gain = config->output_gain;
     ladder_lane_t lanes[2];
     for (uint32_t channel = 0; channel < channels; ++channel) {
@@ -482,6 +486,9 @@ LADDER_INLINE void ladder_block(const audiodsp_ladder_config_t *config,
                 coeffs = &state->cutoff_coeffs;
             }
         }
+        if (gliding) {
+            mix = frame + 1u == frames ? config->mix : mix + mix_step;
+        }
         ladder_frame(config, coeffs, lanes, &out[frame * channels],
             &in[frame * channels], channels, doubled, drive, mix, gain);
     }
@@ -500,9 +507,26 @@ static void ladder_frames(const audiodsp_ladder_config_t *config,
     audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames, const int16_t *cutoff, uint32_t cutoff_stride) {
     if (config->channel_count == 1u) {
-        ladder_block(config, state, out, in, frames, cutoff, cutoff_stride, 1u);
+        ladder_block(config, state, out, in, frames, cutoff, cutoff_stride, 1u,
+            false, 0.0f);
     } else {
-        ladder_block(config, state, out, in, frames, cutoff, cutoff_stride, 2u);
+        ladder_block(config, state, out, in, frames, cutoff, cutoff_stride, 2u,
+            false, 0.0f);
+    }
+}
+
+// A step of a walk: as ladder_frames(), with the mix gliding there from
+// `mix_from` frame by frame.
+static void ladder_walk_frames(const audiodsp_ladder_config_t *config,
+    audiodsp_ladder_state_t *state, int16_t *out, const int16_t *in,
+    uint32_t frames, const int16_t *cutoff, uint32_t cutoff_stride,
+    float mix_from) {
+    if (config->channel_count == 1u) {
+        ladder_block(config, state, out, in, frames, cutoff, cutoff_stride, 1u,
+            true, mix_from);
+    } else {
+        ladder_block(config, state, out, in, frames, cutoff, cutoff_stride, 2u,
+            true, mix_from);
     }
 }
 
@@ -612,6 +636,7 @@ void audiodsp_ladder_process_cutoff_s16(const audiodsp_ladder_config_t *config,
         audiodsp_ladder_walk_point_t *now = &state->walk_now;
         const audiodsp_ladder_walk_point_t *from = &state->walk_from;
         const audiodsp_ladder_walk_point_t *to = &state->walk_to;
+        const float mix_from = now->mix;
         if (state->walk_left == 0u) {
             *now = *to;
         } else {
@@ -631,10 +656,10 @@ void audiodsp_ladder_process_cutoff_s16(const audiodsp_ladder_config_t *config,
         ladder_walk_config(config, now, &walked);
         // The cutoff input's cached set was derived from other settings.
         state->cutoff_last = INT32_MIN;
-        ladder_frames(&walked, state, &out[done * channels],
+        ladder_walk_frames(&walked, state, &out[done * channels],
             &in[done * channels], step,
             cutoff != NULL ? &cutoff[done * cutoff_stride] : NULL,
-            cutoff_stride);
+            cutoff_stride, mix_from);
         done += step;
         if (state->walk_left == 0u) {
             // Landed: from here on the configured set itself.
