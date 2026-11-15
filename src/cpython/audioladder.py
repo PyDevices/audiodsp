@@ -83,6 +83,7 @@ _OPTIONS = {
     "oversample": 5,
     "mix": 6,
     "cutoff_octaves": 7,
+    "ramp_ms": 8,
 }
 
 #: The inputs `modulate()` connects.

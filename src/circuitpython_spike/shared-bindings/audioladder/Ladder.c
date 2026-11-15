@@ -37,6 +37,7 @@
 //|         oversample: int = 2,
 //|         mix: float = 1.0,
 //|         cutoff_octaves: float = 10.0,
+//|         ramp_ms: float = 0.0,
 //|     ) -> None:
 //|         """Create a ladder filter.
 //|
@@ -55,7 +56,10 @@
 //|         back less. ``mix`` is a plain crossfade, 0 a wire and 1 the
 //|         filter. ``buffer_size`` is the size in bytes of each block handed
 //|         out, as on the CircuitPython effects, from one frame to the
-//|         default of 256.
+//|         default of 256. ``ramp_ms``, 0 to 1000, walks a change of
+//|         ``cutoff_hz``, ``resonance``, ``drive``, ``passband_comp`` or
+//|         ``mix`` there over that long, so a jump does not click; at 0, the
+//|         default, a change lands at the next block.
 //|
 //|         ``cutoff`` is an audio input that moves the cutoff every sample,
 //|         for filter FM at an audio rate. Its first channel is read as a
@@ -84,6 +88,7 @@ static const ladder_option_name_t ladder_option_names[] = {
     { MP_QSTR_oversample, AUDIODSP_LADDER_OPT_OVERSAMPLE },
     { MP_QSTR_mix, AUDIODSP_LADDER_OPT_MIX },
     { MP_QSTR_cutoff_octaves, AUDIODSP_LADDER_OPT_CUTOFF_OCTAVES },
+    { MP_QSTR_ramp_ms, AUDIODSP_LADDER_OPT_RAMP_MS },
 };
 
 static void ladder_apply_kwargs(audioladder_ladder_obj_t *self,
