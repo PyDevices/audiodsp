@@ -92,6 +92,8 @@ void common_hal_audiodelays_flanger_construct(audiodelays_flanger_obj_t *self, u
 
     self->flanger.write_pos[0] = self->flanger.write_pos[1] = 0;
     self->flanger.lfo_phase[0] = self->flanger.lfo_phase[1] = 0;
+    audiodsp_flanger_mix_ramp_clear(&self->flanger);
+    self->mix_ramp = 0;
 }
 
 bool common_hal_audiodelays_flanger_deinited(audiodelays_flanger_obj_t *self) {
@@ -180,6 +182,7 @@ void audiodelays_flanger_reset_buffer(audiodelays_flanger_obj_t *self,
     memset(self->delay_buffer, 0, self->delay_buffer_frames * self->base.channel_count * sizeof(int16_t));
     self->flanger.write_pos[0] = self->flanger.write_pos[1] = 0;
     self->flanger.lfo_phase[0] = self->flanger.lfo_phase[1] = 0;
+    audiodsp_flanger_mix_ramp_clear(&self->flanger);
 }
 
 bool common_hal_audiodelays_flanger_get_playing(audiodelays_flanger_obj_t *self) {
@@ -299,7 +302,7 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
                 (int16_t *)self->sample_remaining_buffer, n, self->delay_buffer,
                 self->delay_buffer_frames, self->base.channel_count,
                 &self->flanger, delay_min, delay_span, phase_inc, feedback,
-                mix, self->invert);
+                mix, self->invert, self->mix_ramp);
             self->sample_remaining_buffer += (n * (self->base.bits_per_sample / 8));
             self->sample_buffer_length -= n;
         } else {
@@ -324,7 +327,7 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
             audiodsp_flanger_process_s16(conv_out, conv_in, n, self->delay_buffer,
                 self->delay_buffer_frames, self->base.channel_count,
                 &self->flanger, delay_min, delay_span, phase_inc, feedback,
-                mix, self->invert);
+                mix, self->invert, self->mix_ramp);
             for (uint32_t i = 0; i < n; i++) {
                 int32_t word = conv_out[i];
                 if (MP_LIKELY(self->base.bits_per_sample == 16)) {
@@ -497,6 +500,30 @@ MP_PROPERTY_GETSET(audiodelays_flanger_mix_obj,
     (mp_obj_t)&audiodelays_flanger_get_mix_obj,
     (mp_obj_t)&audiodelays_flanger_set_mix_obj);
 
+// Not upstream: Flanger.mix_ramp, the frames a mix move walks over in a
+// straight line instead of landing at the next block. 0, the default, is
+// CircuitPython's node to the byte (docs/how-it-works/upstream-diff.md).
+static mp_obj_t audiodelays_flanger_obj_get_mix_ramp(mp_obj_t self_in) {
+    audiodelays_flanger_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    check_for_deinit(self);
+    return mp_obj_new_int_from_uint(self->mix_ramp);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(audiodelays_flanger_get_mix_ramp_obj, audiodelays_flanger_obj_get_mix_ramp);
+
+static mp_obj_t audiodelays_flanger_obj_set_mix_ramp(mp_obj_t self_in, mp_obj_t frames_in) {
+    audiodelays_flanger_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    check_for_deinit(self);
+    mp_int_t frames = mp_arg_validate_int_range(mp_obj_get_int(frames_in), 0,
+        AUDIODSP_FLANGER_MIX_RAMP_MAX, MP_QSTR_mix_ramp);
+    self->mix_ramp = (uint32_t)frames;
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(audiodelays_flanger_set_mix_ramp_obj, audiodelays_flanger_obj_set_mix_ramp);
+
+MP_PROPERTY_GETSET(audiodelays_flanger_mix_ramp_obj,
+    (mp_obj_t)&audiodelays_flanger_get_mix_ramp_obj,
+    (mp_obj_t)&audiodelays_flanger_set_mix_ramp_obj);
+
 static mp_obj_t audiodelays_flanger_obj_get_invert(mp_obj_t self_in) {
     audiodelays_flanger_obj_t *self = MP_OBJ_TO_PTR(self_in);
     return mp_obj_new_bool(common_hal_audiodelays_flanger_get_invert(self));
@@ -572,6 +599,7 @@ static const mp_rom_map_elem_t audiodelays_flanger_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_depth), MP_ROM_PTR(&audiodelays_flanger_depth_obj) },
     { MP_ROM_QSTR(MP_QSTR_feedback), MP_ROM_PTR(&audiodelays_flanger_feedback_obj) },
     { MP_ROM_QSTR(MP_QSTR_mix), MP_ROM_PTR(&audiodelays_flanger_mix_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mix_ramp), MP_ROM_PTR(&audiodelays_flanger_mix_ramp_obj) },
     { MP_ROM_QSTR(MP_QSTR_invert), MP_ROM_PTR(&audiodelays_flanger_invert_obj) },
     { MP_ROM_QSTR(MP_QSTR_lfo_value), MP_ROM_PTR(&audiodelays_flanger_lfo_value_obj) },
     AUDIOSAMPLE_FIELDS,

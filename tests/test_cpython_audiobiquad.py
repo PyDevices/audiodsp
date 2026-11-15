@@ -565,6 +565,48 @@ class CoefficientMoveTest(unittest.TestCase):
 
 
 
+def q_move_peak(mode, hz, q_from, q_to, level=8000):
+    """The loudest the output gets, over the input's level, after a jump of
+    Q alone, on a triangle whose fundamental sits on the corner."""
+    lead = after = 9600
+    source = _triangle(lead + after, period=int(RAMP_RATE / hz), level=level)
+    state = _kernel(mode, hz, q_from)
+    _render(state, source[:lead])
+    state.configure(OPT_Q, q_to)
+    state.finish()
+    return max(abs(value) for value in _render(state, source[lead:])) / level
+
+
+class QMoveTest(unittest.TestCase):
+    """A jump of Q walks without the notch or the band swelling.
+
+    The walk moves k (1/Q) by ratio, and a notch, a band-pass and a
+    high-pass mix the band in at k times it. That mix used to walk in a
+    straight line on its own, parting from k halfway, and the band's memory,
+    Q times the input at a high Q, was read through the new k before it had
+    time to decay. A notch at 50 Hz walked from Q 12 to 0.5 went to the rail
+    from a third of its input, and one at 500 Hz to 3.2 times it; a
+    band-pass went to the rail at both. Measured after: the notch at most
+    1.18 times its input and the band-pass 2.06, at Q 30 to 0.7 and 50 Hz.
+    """
+
+    def test_a_falling_q_does_not_swell_the_output(self):
+        for mode, name, bar in ((audiobiquad.NOTCH, "Notch", 1.35),
+                                (audiobiquad.BAND_PASS, "BandPass", 2.5)):
+            for hz in (50.0, 500.0):
+                for q_from, q_to in ((12.0, 0.5), (30.0, 0.7)):
+                    with self.subTest(mode=name, hz=hz, q_from=q_from):
+                        self.assertLess(
+                            q_move_peak(mode, hz, q_from, q_to), bar)
+
+    def test_a_rising_q_does_not_either(self):
+        for mode, name in ((audiobiquad.NOTCH, "Notch"),
+                           (audiobiquad.BAND_PASS, "BandPass")):
+            for hz in (50.0, 500.0):
+                with self.subTest(mode=name, hz=hz):
+                    self.assertLess(q_move_peak(mode, hz, 0.5, 12.0), 1.0)
+
+
 def walk_frames(ramp=None, block=256):
     """Frames after a move before the output obeys the new section's recursion.
 

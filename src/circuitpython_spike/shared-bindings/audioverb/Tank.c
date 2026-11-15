@@ -332,7 +332,7 @@ static void tank_recut(audioverb_tank_obj_t *self, mp_obj_t delays,
     }
     memset(lines, 0, (size_t)samples * sizeof(int16_t));
     self->config = recut;
-    audiodsp_tank_state_init(&self->state, &self->config, lines);
+    audiodsp_tank_state_recut(&self->state, &self->config, lines);
     if (lines != old_lines) {
         m_del(int16_t, old_lines, old_samples);
     }

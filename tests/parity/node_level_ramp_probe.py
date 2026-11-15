@@ -10,9 +10,11 @@
     PORT  <case>  <first value of each pull>
 
 The Waveshaper's `mix` and `post_gain`, the Biquad's and the AllPass's `mix`,
-the Dynamics node's makeup, the FeedbackDelay's `mix` and the Multiply's
-`mix` walk a move over
-20 ms (`src/shared/audiodsp_level_ramp.h`). Each is moved on a playing node,
+the Dynamics node's makeup, the FeedbackDelay's `mix`, the Multiply's
+`mix` and the Tank's `mix` walk a move over
+20 ms (`src/shared/audiodsp_level_ramp.h`), and the Flanger's `mix` over
+its `mix_ramp` frames (`src/shared/audiodsp_flanger.c`; its CPython twin is
+Python, so this is where the two meet). Each is moved on a playing node,
 moved before the first pull, and moved and then reset halfway through the
 walk, mono and stereo, at 48 and 22.05 kHz. A Port told to switch `after`
 some frames switches at the start of the next pull once they have played,
@@ -25,11 +27,13 @@ from array import array
 
 import audiobiquad
 import audiocore
+import audiodelays
 import audiodynamics
 import audioecho
 import audiomath
 import audioroute
 import audioshaper
+import audioverb
 
 PULLS = 12
 MOVE_AT = 3
@@ -116,6 +120,20 @@ def multiply(rate, channels, name, value):
     return node
 
 
+def tank(rate, channels, name, value):
+    return audioverb.Tank(sample_rate=rate, channel_count=channels,
+                          max_predelay_ms=10.0, decay=0.5, mix=value)
+
+
+def flanger(rate, channels, name, value):
+    node = audiodelays.Flanger(max_delay_ms=10, min_delay_ms=2.0, rate=0.5,
+                               depth=0.5, feedback=0.4, mix=value,
+                               sample_rate=rate, channel_count=channels,
+                               buffer_size=512 * channels)
+    node.mix_ramp = (rate * 20 + 500) // 1000
+    return node
+
+
 def by_set(node, name, value):
     options = {name: value}
     node.set(**options)
@@ -133,6 +151,9 @@ CASES = (
     ("dynamics-makeup", dynamics, by_set, "makeup_db", 0.0, 9.0),
     ("delay-mix", delay, by_set, "mix", 0.0, 1.0),
     ("multiply-mix", multiply, by_set, "mix", 1.0, 0.0),
+    ("tank-mix", tank, by_set, "mix", 0.0, 1.0),
+    ("flanger-mix", flanger, by_attr, "mix", 0.0, 1.0),
+    ("flanger-mix-down", flanger, by_attr, "mix", 0.8, 0.0),
 )
 
 
