@@ -170,12 +170,24 @@ static int pumpsink_c_write(void *ctx, const uint8_t *data, size_t len) {
     return pumpsink_lie ? (int)len : (int)n;
 }
 
+static size_t pumpsink_c_space_cut;
+
+// space_cut(n): report n bytes less room than there is.
+static mp_obj_t pumpsink_space_cut(mp_obj_t n) {
+    pumpsink_c_space_cut = (size_t)mp_obj_get_int(n);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pumpsink_space_cut_obj, pumpsink_space_cut);
+
 static int pumpsink_c_space(void *ctx) {
     (void)ctx;
     if (pumpsink_c_closed) {
         return -1;
     }
-    return pumpsink_c_never || pumpsink_c_refuse ? 0 : (int)pumpsink_step;
+    // A probe may shrink what it reports, to stand for a ring partly full.
+    const size_t left = pumpsink_cap - pumpsink_len;
+    return pumpsink_c_never ? 0 : (int)(left > pumpsink_c_space_cut
+        ? left - pumpsink_c_space_cut : 0);
 }
 
 // c_sink(rate, channels, refuse=0, close_at=-1, never=False): the armed
@@ -190,6 +202,7 @@ static mp_obj_t pumpsink_c_sink(size_t n_args, const mp_obj_t *args) {
     pumpsink_c_close_at = close_at < 0 ? (size_t)-1 : (size_t)close_at;
     pumpsink_c_never = n_args > 4 && mp_obj_is_true(args[4]);
     pumpsink_c_closed = false;
+    pumpsink_c_space_cut = 0;
     const pcm_c_sink_t sink = {
         .magic = PCM_C_SINK_MAGIC,
         .version = PCM_C_SINK_VERSION,
@@ -211,6 +224,7 @@ static const mp_rom_map_elem_t pumpsink_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_taken), MP_ROM_PTR(&pumpsink_taken_obj) },
     { MP_ROM_QSTR(MP_QSTR_hot), MP_ROM_PTR(&pumpsink_hot_obj) },
     { MP_ROM_QSTR(MP_QSTR_c_sink), MP_ROM_PTR(&pumpsink_c_sink_obj) },
+    { MP_ROM_QSTR(MP_QSTR_space_cut), MP_ROM_PTR(&pumpsink_space_cut_obj) },
 };
 static MP_DEFINE_CONST_DICT(pumpsink_globals, pumpsink_globals_table);
 

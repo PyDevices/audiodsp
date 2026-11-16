@@ -54,6 +54,7 @@ STATUS_BYTES = STATUS_WORDS * 8
 
 # Why a service() call gave the thread back, packed as `blocks << 2 | why`.
 SERVICE_SHIFT = 2
+C_SINK = False
 SERVICE_MASK = 3
 SERVICE_MORE = 0
 SERVICE_FULL = 1
@@ -531,7 +532,8 @@ def pull(sample, blocks, status, sink=None, ring=None):
 
 
 def spawn(sample, blocks, status, sink=None, ring=None, core=-1, prio=21,
-          stack=16384, psram=False, timeout_ms=200, pace=False, loop=False):
+          stack=16384, psram=False, timeout_ms=200, pace=False, loop=False,
+          sink_room=0):
     """Adopt `sample` as the pump's tail. Returns -2: there is no thread.
 
     Not one block is pulled here. `service()` runs the loop; `core`, `prio`,

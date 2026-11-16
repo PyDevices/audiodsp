@@ -1568,7 +1568,9 @@ def csink(fault):
     did not keep). It closes mid-stream, and the pump must end with error 6
     instead of writing to it for ever (``--fault open`` never closes it). It
     never has room, and the pump must count a timeout and keep returning,
-    having written nothing (``--fault roomy`` gives it room). And a sink
+    having written nothing (``--fault roomy`` gives it room). With
+    ``sink_room`` it starts no block until the sink has drained that far
+    (``--fault eager`` leaves it out). And a sink
     whose format is not the graph's is refused, leaving a pump that can
     still be spawned.
     """
@@ -1614,6 +1616,28 @@ def csink(fault):
              "%d timeouts in 200 ms, 0 bytes, %d service calls" % (timeouts, calls)
              if starved else
              "%d timeouts, %d bytes, %d service calls" % (timeouts, len(got), calls)) and ok
+
+    # sink_room: no block starts until the sink reports that much room.
+    import _pumpsink as stub
+    held = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 120)
+    stub.arm(held, len(held))
+    block = status()
+    room = len(held) - 4096
+    audiopump.spawn(raw(), 1 << 30, block, sink=stub.c_sink(RATE, CHANNELS),
+                    loop=True, sink_room=0 if fault == "eager" else room)
+    stub.space_cut(8192)          # as if 8192 bytes were queued: too full
+    for _ in range(50):
+        audiopump.service(1)
+    waited = stub.taken()[0]
+    stub.space_cut(0)             # drained: one block may go
+    audiopump.service(1)
+    went = stub.taken()[0]
+    audiopump.shutdown()
+    paced = waited == 0 and went > 0
+    ok = say("csink: sink_room", paced,
+             "nothing written while the sink was too full, %d bytes once it drained" % went
+             if paced else
+             "%d bytes written while too full, %d after" % (waited, went)) and ok
 
     # The wrong format is refused, and the next spawn still works.
     got = bytearray(64)

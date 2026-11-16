@@ -49,6 +49,8 @@ SERVICE_PARKED: int
 """`service` result: the pump is parked."""
 SERVICE_DONE: int
 """`service` result: the pump has ended."""
+C_SINK: bool
+"""Whether `spawn` takes a C sink as ``sink``. False on CPython."""
 SERVICE_MASK: int
 """Mask for the reason in a `service` result: ``result & SERVICE_MASK``."""
 SERVICE_SHIFT: int
@@ -85,6 +87,7 @@ def spawn(
     timeout_ms: int = 200,
     pace: bool = False,
     loop: bool = False,
+    sink_room: int = 0,
 ) -> int:
     """Start pulling a graph on a thread of its own.
 
@@ -125,6 +128,10 @@ def spawn(
         pace: On a desktop, pull at the graph's own sample rate in real time.
         loop: Rewind the tail and carry on when it reports it is done, as
             ``audiobusio.I2SOut.play(sample, loop=True)`` does.
+        sink_room: For a C sink, the bytes of room it must have before the
+            pump writes a block. The pump then keeps the sink's capacity
+            less this much queued, which is the delay it adds, however large
+            the sink's own buffer is. 0 writes whenever anything fits.
 
     Returns:
         The core the thread runs on, or -1 when it has no core affinity, or -2
