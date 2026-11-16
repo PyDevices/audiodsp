@@ -124,7 +124,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #:
 #: MOVED 2026-10-08 to CircuitPython 11.0.0-alpha.1 (520805e12) for
 #: audiodsp#201, whose upstream fixes (6dddbda87) are first released there.
-#: Built by `build_interpreters.sh --only cp-oracle`, now micropython-pydevices'
+#: Built by `build_interpreters.sh --only cp-oracle`, now omnipython-builds'
 #: `build_mp.py --interpreter circuitpython`, at 64 voices with audiodsp at
 #: a948993 and CircuitPython's own `audiospeed`. Verified: it answers 64
 #: voices; `effects_component` matches the port byte for byte (re-captured in

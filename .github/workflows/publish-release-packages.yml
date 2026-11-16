@@ -67,7 +67,7 @@ jobs:
     # publishing-v12 (cut 2026-09-26) is the first publishing tag that carries
     # PyDevices/.github's caller-side PyPI change (#53: the coordinator's
     # pypi-gate job and its pypi-publish / dist-artifact / version outputs).
-    uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-v21
+    uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-v26
     with:
       build-kind: native-and-wasm
       distribution-name: omnipython-audiodsp
@@ -134,7 +134,7 @@ jobs:
     if: >-
       !cancelled() && needs.publish.outputs.pypi-publish == 'true'
     # Same placeholder as the publish job above: the same tag, both lines.
-    uses: PyDevices/.github/.github/workflows/reusable-report-pypi-result.yml@publishing-v21
+    uses: PyDevices/.github/.github/workflows/reusable-report-pypi-result.yml@publishing-v26
     with:
       distribution-name: omnipython-audiodsp
       version: ${{ needs.publish.outputs.version }}

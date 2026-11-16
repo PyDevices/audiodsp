@@ -25,7 +25,7 @@ There is no Python to freeze:
   boards by MIP from there. The opt-in ``AUDIODSP_FREEZE_LIBS`` switch that
   used to freeze this repository's copies went with them; a frozen copy
   would shadow the mip-installed one, and what is running would stop being
-  what was published - the trap ``pydevices``' own manifest refuses to walk
+  what was published - the trap ``omnipython``'s own manifest refuses to walk
   into.
 """
 

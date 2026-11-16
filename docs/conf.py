@@ -5,7 +5,7 @@
 """Sphinx configuration for the audiodsp documentation.
 
 Everything shared by the PyDevices documentation projects (theme, top bar,
-Markdown and docstring setup) comes from pydevices-docs.
+Markdown and docstring setup) comes from omnipython-docs.
 
 The module reference is written from the type stubs, ``src/<module>/<module>.pyi``,
 which list every name each native module exports. The build copies each stub
@@ -17,7 +17,7 @@ import re
 import sys
 from pathlib import Path
 
-from pydevices_docs import configure
+from omnipython_docs import configure
 
 globals().update(configure(
     "audiodsp", __file__,
