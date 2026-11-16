@@ -9,7 +9,7 @@ below 1e-20, so a tail decays to zero and stays there — and its all-pass
 feedback is not clamped to `0.1..0.9`, so zero is zero and a feedback-free
 phaser's notches are true nulls. It is also the one to reach for below about
 100 Hz, where the integer coefficients run out of resolution —
-[which filter, and why](../how-it-works/upstream-diff.md#which-filter-to-reach-for).
+[which filter, and why](../how-it-works/upstream-diff.md#low-frequency-filters-settle-at-zero).
 
 ```python
 import audiobiquad, synthio

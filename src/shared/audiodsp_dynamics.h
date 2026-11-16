@@ -131,7 +131,7 @@ typedef struct {
     uint32_t lookahead_frames;
     uint8_t true_peak;      // audiodsp_dynamics_true_peak_t
 
-    // --- the effects program's additions, every one of them default-off ---
+    // --- options added for the effect classes, every one of them default-off ---
     // The transient shaper's four detector time constants. They were literals
     // evaluated at process entry; the defaults here are those literals, so a
     // node that never sets them computes the same coefficients it always did.

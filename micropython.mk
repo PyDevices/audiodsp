@@ -1,9 +1,8 @@
 # MicroPython Make-based build glue for audiodsp (unix, windows).
 # For CMake-based ports (esp32, rp2, …), see micropython.cmake in this dir.
 #
-# Discovered via USER_C_MODULES pointing at the workspace directory that
-# contains this repo (its parent) — see the parent workspace's own build
-# script.
+# Discovered via USER_C_MODULES pointing at this repository, or at the
+# directory that contains it.
 
 # A CircuitPython tree builds this repository through circuitpython.mk instead:
 # CircuitPython already has audiocore, synthio, audiomixer and the effects
@@ -131,19 +130,19 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/shared/audiodsp_drift.c
 
 # --- module skeleton: empty `import <name>` targets for every top-level
-#     module this tree will grow into. Tiers add
+#     module this tree carries. Modules add
 #     real classes/functions by editing mpaudio_modules.c's globals tables
 #     directly, so this stays the single source of each module's contents.
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/mpaudio_modules.c
 
-# --- tier 1: audiocore (the audiosample protocol, RawSample, WaveFile) ---
+# --- audiocore (the audiosample protocol, RawSample, WaveFile) ---
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiocore/__init__.c \
     $(MPAUDIO_SRC_DIR)/audiocore/RawSample.c \
     $(MPAUDIO_SRC_DIR)/audiocore/WaveFile.c \
     $(MPAUDIO_SRC_DIR)/audiocore/module.c
 
-# --- tier 2: synthio (block layer, Math, LFO, Biquad, Note, Synthesizer,
+# --- synthio (block layer, Math, LFO, Biquad, Note, Synthesizer,
 #     MidiTrack) ---
 #
 # CIRCUITPY_SYNTHIO_MAX_CHANNELS: src/synthio/__init__.h defaults this to 2
@@ -161,14 +160,13 @@ SRC_USERMOD_C += \
 # a stolen note is one you hear cut short, a refused note never sounds at
 # all, and only the second is inaudible as a fault. Upstream
 # handles this per-port (ports/raspberrypi/mpconfigport.mk: 24,
-# ports/nordic: 12, ...); this workspace's CircuitPython parity oracle
-# (the parent workspace's circuitpython checkout, unix `coverage` variant,
-# bin/circuitpython) is itself built with 14
+# ports/nordic: 12, ...); this repository's CircuitPython parity oracle
+# (a circuitpython checkout's unix `coverage` variant, bin/circuitpython) is itself built with 14
 # (ports/unix/variants/coverage/mpconfigvariant.mk).
 # so this file matched that until 2026-09-03, when the ceiling moved to 64
 # (#31). The oracle stays at 14 and is not rebuilt, so material that crosses
 # 14 channels is non-parity by construction and declared as such in
-# docs/how-it-works/upstream-diff.md. Everything under 14 channels still byte-matches: the
+# docs/dev/upstream-record.md. Everything under 14 channels still byte-matches: the
 # mix-down limiter only reshapes samples past +/-28000, and all four parity
 # gates are byte-identical at 14, 36 and 56 (measured).
 #
@@ -192,24 +190,24 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/synthio/Synthesizer.c \
     $(MPAUDIO_SRC_DIR)/synthio/MidiTrack.c
 
-# --- tier 3: audiomixer (Mixer, MixerVoice) ---
+# --- audiomixer (Mixer, MixerVoice) ---
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiomixer/Mixer.c \
     $(MPAUDIO_SRC_DIR)/audiomixer/MixerVoice.c \
     $(MPAUDIO_SRC_DIR)/audiomixer/module.c
 
-# --- tier 4: effects (audiospeed) ---
+# --- effects (audiospeed) ---
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiospeed/Resampler.c \
     $(MPAUDIO_SRC_DIR)/audiospeed/SpeedChanger.c \
     $(MPAUDIO_SRC_DIR)/audiospeed/module.c
 
-# --- tier 4: effects (audiofreeverb) ---
+# --- effects (audiofreeverb) ---
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiofreeverb/Freeverb.c \
     $(MPAUDIO_SRC_DIR)/audiofreeverb/module.c
 
-# --- tier 4: effects (audiofilters) ---
+# --- effects (audiofilters) ---
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiofilters/__init__.c \
     $(MPAUDIO_SRC_DIR)/audiofilters/Filter.c \
@@ -217,7 +215,7 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiofilters/Phaser.c \
     $(MPAUDIO_SRC_DIR)/audiofilters/module.c
 
-# --- tier 4: effects (audiodelays) ---
+# --- effects (audiodelays) ---
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiodelays/Chorus.c \
     $(MPAUDIO_SRC_DIR)/audiodelays/Echo.c \
@@ -227,7 +225,7 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiodelays/PitchShift.c \
     $(MPAUDIO_SRC_DIR)/audiodelays/module.c
 
-# --- tier 6: audiodynamics (Dynamics, DYN_*), audioroute (Splitter,
+# --- audiodsp's own: audiodynamics (Dynamics, DYN_*), audioroute (Splitter,
 #     MidSide), audiomath (Multiply, SubOctave), audioecho
 #     (FeedbackDelay), audioladder (Ladder), audiooscillator (Oscillator),
 #     audioconvolve (Convolver),
@@ -252,7 +250,7 @@ SRC_USERMOD_C += \
 # and audiosampler plays a recorded buffer at a pitch through an
 # interpolator under an envelope, which a Mixer voice cannot (it pulls a
 # source at the source's own rate) and synthio cannot (a waveform there is
-# one cycle). See docs/how-it-works/upstream-diff.md.
+# one cycle). See docs/dev/upstream-record.md.
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiodynamics/Dynamics.c \
     $(MPAUDIO_SRC_DIR)/audiodynamics/module.c
@@ -266,7 +264,7 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiomath/Multiply.c \
     $(MPAUDIO_SRC_DIR)/audiomath/SubOctave.c \
     $(MPAUDIO_SRC_DIR)/audiomath/module.c
-# audiometer: band levels for a spectrum meter (media modules roadmap, Phase 6)
+# audiometer: band levels for a spectrum meter
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/shared/audiodsp_meter.c \
     $(MPAUDIO_SRC_DIR)/audiometer/module.c
@@ -309,22 +307,21 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/audiograph/Graph.c \
     $(MPAUDIO_SRC_DIR)/audiograph/module.c
 
-# --- tier 5: audiomp3 (MP3Decoder) ---
+# --- audiomp3 (MP3Decoder) ---
 #
-# lib/mp3: a cloned sibling dependency in the parent workspace (the upstream
-# adafruit/Adafruit_MP3 repo, pinned to the exact commit the parent
-# workspace's circuitpython checkout vendors in its own lib/mp3), not a
-# port. Its `src/` is the Helix
+# lib/mp3: a cloned dependency (the upstream adafruit/Adafruit_MP3 repo,
+# pinned in DEPENDENCIES.lock to the exact commit CircuitPython vendors in
+# its own lib/mp3), not a port. Its `src/` is the Helix
 # fixed-point MP3 decoder (RealNetworks, 2003), under RPSL 1.0/RCSL 1.0
 # per-file headers, NOT MIT; CircuitPython itself carries it unmodified
 # under those terms rather than relicensing it, and so does this port --
-# see docs/how-it-works/upstream-diff.md, "Tier 5 audiomp3: license" for the full check.
+# see docs/dev/upstream-record.md, "audiomp3: license" for the full check.
 # One local patch was needed on top of the pinned commit
-# (mp3/src/assembly.h in that sibling clone): its MSVC-only inline-asm branch
-# guards on `defined _WIN32`, which mingw-w64 GCC (this workspace's Windows
+# (mp3/src/assembly.h in that clone): its MSVC-only inline-asm branch
+# guards on `defined _WIN32`, which mingw-w64 GCC (the Windows
 # MicroPython target) also defines, so it now also excludes __GNUC__ and
 # falls through to the portable C path instead -- CircuitPython itself never
-# hits this, since it has no Windows port. See docs/how-it-works/upstream-diff.md for the
+# hits this, since it has no Windows port. See docs/dev/upstream-record.md for the
 # full patch rationale.
 # mp3dec.h picks its platform-specific fixed-point/asm path by matching a
 # closed list of (__GNUC__ + arch) combinations, with an explicit
@@ -335,7 +332,7 @@ SRC_USERMOD_C += \
 # already covered by the same __GNUC__ branches unix uses) both match a
 # named branch already and must NOT get this -- it would silently swap
 # their working platform-specific path for the portable fallback. Detect
-# the wasm port the same way the parent workspace's wasmbridge module does,
+# the wasm port by its directory,
 # since there's no other reliable way to ask "which port is this" from inside a
 # Make port's shared USER_C_MODULES glue.
 MPAUDIO_WASM_PORT := $(findstring /ports/webassembly,$(abspath $(CURDIR)))
@@ -357,7 +354,7 @@ ifeq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)
 MPAUDIO_MP3_SRC_DIR := $(abspath $(MPAUDIO_MOD_DIR)/../mp3/src)
 endif
 # Neither there: fetch our own pinned copy (DEPENDENCIES.lock, plus our
-# patches) into .deps/, the way a fresh clone outside any workspace builds.
+# patches) into .deps/, the way a fresh clone with nothing beside it builds.
 ifeq ($(wildcard $(MPAUDIO_MP3_SRC_DIR)/mp3dec.c),)
 ifneq ($(AUDIODSP_OPTIONAL_DEPS),1)
 $(info audiodsp: fetching Adafruit_MP3 into .deps/ (scripts/fetch_deps.sh))

@@ -14,7 +14,7 @@ its reset: after a reset, a Time move played repeats a fresh node did not
 puts both lanes' heads at the top, as construction does.
 
 CircuitPython builds upstream's own MultiTapDelay, which keeps the head; the
-departure is recorded in docs/how-it-works/upstream-diff.md.
+departure is recorded in docs/dev/upstream-record.md.
 """
 
 import unittest

@@ -1,5 +1,5 @@
 // audiometer: band levels for a spectrum meter, plus peak and RMS. audiodsp's
-// own (media modules roadmap, Phase 6); the engine is shared/audiodsp_meter.c.
+// own; the engine is shared/audiodsp_meter.c.
 //
 //   m = audiometer.Meter(bands=32, low_hz=35, high_hz=20000)
 //   m.feed(pcm, 48000, channel_count=2)       # from Python, anywhere

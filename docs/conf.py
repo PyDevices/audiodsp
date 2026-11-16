@@ -53,3 +53,6 @@ def _install_stubs(app):
 def setup(app):
     app.connect("builder-inited", _install_stubs)
     return {"version": "1", "parallel_read_safe": True, "parallel_write_safe": True}
+
+# docs/dev is contributor material, read on GitHub; it is not part of the site.
+globals()["exclude_patterns"].append("dev")

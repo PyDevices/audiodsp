@@ -69,7 +69,7 @@
 //|         four-point half-band estimate of the peak between samples, 2 a 4x
 //|         polyphase reconstruction of it.
 //|
-//|         The rest are the effects program's additions and are all
+//|         The rest were added for the effect classes and are all
 //|         default-off. ``detector="rms"`` averages a mean square over
 //|         ``rms_ms`` instead of rectifying a peak. ``feedback_detector``
 //|         reads the frame the node last put out rather than this frame's
@@ -111,7 +111,7 @@ static const dynamics_option_name_t dynamics_option_names[] = {
     { MP_QSTR_sidechain_hz, AUDIODSP_DYNAMICS_OPT_SIDECHAIN_HZ },
     { MP_QSTR_lookahead_ms, AUDIODSP_DYNAMICS_OPT_LOOKAHEAD_MS },
     { MP_QSTR_true_peak, AUDIODSP_DYNAMICS_OPT_TRUE_PEAK },
-    // The effects program's additions, every one of them default-off.
+    // Options added for the effect classes, every one of them default-off.
     { MP_QSTR_transient_fast_attack_ms,
       AUDIODSP_DYNAMICS_OPT_TRANSIENT_FAST_ATTACK_MS },
     { MP_QSTR_transient_fast_release_ms,

@@ -126,7 +126,7 @@ for channels in (1, 2):
 # A reset of the node's buffer lets go of the freeze. What the node renders
 # after the reset is pitch_reset_probe.py's to check: a reset here also puts
 # the read and write positions back where a new node starts, which upstream
-# does not (docs/how-it-works/upstream-diff.md), so those bytes are not held to
+# does not (docs/dev/upstream-record.md), so those bytes are not held to
 # CircuitPython's.
 node = node_for(1, semitones=7, mix=1.0, window=1024, overlap=128)
 emit("reset_before", node, 1)

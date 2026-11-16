@@ -3,16 +3,16 @@
 // https://github.com/adafruit/circuitpython, MIT), merged into one file
 // (this port doesn't keep CP's shared-bindings/shared-module split).
 //
-// Deviations from upstream, both documented in docs/how-it-works/upstream-diff.md:
+// Deviations from upstream, both documented in docs/dev/upstream-record.md:
 //   - mix_down_one_voice's `#if CIRCUITPY_SYNTHIO` branch is unconditional
-//     here (this port always has synthio, tier 2); the plain-uint16 level/
+//     here (this port always has synthio); the plain-uint16 level/
 //     panning fallback is dropped.
 //   - The ARM Cortex-M4/M7 CMSIS DSP intrinsics (__QADD16/__UADD8/__UADD16,
 //     the `#include "cmsis_compiler.h"`) are dropped in favor of the
 //     portable C fallback unconditionally -- numerically identical, and
 //     this port doesn't vendor CMSIS.
 //   - m_malloc_without_collect -> m_malloc (no mainline equivalent, same
-//     fix as tier 1/2).
+//     fix as audiocore and synthio).
 //
 // SPDX-FileCopyrightText: Copyright (c) 2018 Scott Shawcroft
 // SPDX-FileCopyrightText: Copyright (c) 2018 Scott Shawcroft for Adafruit Industries
@@ -166,7 +166,7 @@ MP_PROPERTY_GETTER(audiomixer_mixer_voice_obj,
     (mp_obj_t)&audiomixer_mixer_get_voice_obj);
 
 // Not upstream: Mixer.level_ramp, the frames a voice's level or pan move
-// takes. See docs/how-it-works/upstream-diff.md, "A level ramp on Mixer voices".
+// takes. See docs/dev/upstream-record.md, "A level ramp on Mixer voices".
 #define AUDIOMIXER_LEVEL_RAMP_MAX (1 << 24)
 
 static mp_obj_t audiomixer_mixer_obj_get_level_ramp(mp_obj_t self_in) {
@@ -251,7 +251,7 @@ static MP_DEFINE_CONST_DICT(audiomixer_mixer_locals_dict, audiomixer_mixer_local
 // --- mixdown engine (shared-module) -------------------------------------
 
 // Deviation from upstream, which stops every voice here -- see
-// docs/how-it-works/upstream-diff.md, "Resetting a Mixer silenced it". Anything that pulls
+// docs/dev/upstream-record.md, "Resetting a Mixer silenced it". Anything that pulls
 // from a Mixer resets it first (every effect's play() does), so upstream's
 // version makes a Mixer feeding an effect render silence forever.
 //
@@ -337,7 +337,7 @@ static inline uint32_t copy16msb(uint32_t val) {
 // dead code carried over faithfully from CP's own Mixer.c (confirmed by
 // reading it directly: neither is called there either, only
 // copy16lsb/copy16msb are) -- not a port artifact. unix/windows never
-// warned on it; emscripten's `-Wall -Werror` (phase 8d) does.
+// warned on it; emscripten's `-Wall -Werror` does.
 static inline uint32_t copy8lsb(uint32_t val) __attribute__((unused));
 static inline uint32_t copy8lsb(uint32_t val) {
     val &= 0x00ff;
@@ -485,7 +485,7 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
         uint32_t last_word = 0;
 
         // Not upstream: with level_ramp set, a move walks to its new level in
-        // a straight line instead (docs/how-it-works/upstream-diff.md, "A
+        // a straight line instead (docs/dev/upstream-record.md, "A
         // level ramp on Mixer voices"). One step per packed word: a word is a
         // frame in a stereo mixer and two frames in a mono one. A voice's first
         // level lands as CircuitPython's does; the walk starts from the next.

@@ -275,7 +275,7 @@ static void audiobiquad_allpass_reset_buffer(mp_obj_t self_in,
 // audiocore for the audio path, and the three shared properties. The node
 // types audiodsp ported from CircuitPython have had this since they were
 // ported; the ones audiodsp wrote itself did not, so no class built on them
-// could release one and Tier 1's "deinit() releases every node the class
+// could release one and the rule "deinit() releases every node the class
 // built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the

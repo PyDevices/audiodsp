@@ -5,9 +5,9 @@
 // of `audiospeed.SpeedChanger` nodes, one down by the hold ratio and one up by
 // its reciprocal, and **the pair cannot be made reciprocal**. `SpeedChanger`'s
 // rate is 16.16 fixed point, so a hold ratio only inverts exactly when the
-// down leg's Q16 value divides 2^32 -- a power of two. At the effects
-// programme's shipped hold (26 040 Hz at 48 kHz, ratio 120804/35553) the
-// second-pass refuter measured the product of the two rates at
+// down leg's Q16 value divides 2^32 -- a power of two. At audioeffects'
+// shipped hold (26 040 Hz at 48 kHz, ratio 120804/35553) a
+// second measurement put the product of the two rates at
 // 0.9999947184696794: one sample late per 189 339 frames, and at 44.1 kHz
 // 1.0000107865780592, one sample early per 92 708. A four-sample click read
 // delay 1 at frame 256 and 2 at frame 196 608; at Mix 0.5 a steady 12 kHz tone

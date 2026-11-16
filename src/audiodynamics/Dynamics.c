@@ -30,7 +30,7 @@ static const dynamics_option_name_t dynamics_option_names[] = {
     { MP_QSTR_sidechain_hz, AUDIODSP_DYNAMICS_OPT_SIDECHAIN_HZ },
     { MP_QSTR_lookahead_ms, AUDIODSP_DYNAMICS_OPT_LOOKAHEAD_MS },
     { MP_QSTR_true_peak, AUDIODSP_DYNAMICS_OPT_TRUE_PEAK },
-    // The effects program's additions, every one of them default-off.
+    // Options added for the effect classes, every one of them default-off.
     { MP_QSTR_transient_fast_attack_ms,
       AUDIODSP_DYNAMICS_OPT_TRANSIENT_FAST_ATTACK_MS },
     { MP_QSTR_transient_fast_release_ms,
@@ -352,7 +352,7 @@ static void audiodynamics_dynamics_reset_buffer(mp_obj_t self_in,
 // audiocore for the audio path, and the three shared properties. The node
 // types audiodsp ported from CircuitPython have had this since they were
 // ported; the ones audiodsp wrote itself did not, so no class built on them
-// could release one and Tier 1's "deinit() releases every node the class
+// could release one and the rule "deinit() releases every node the class
 // built" was unmeasurable on a board (audiodsp#58, #60, #63).
 //
 // The inline buffers go with the object. What is cleared here is what the

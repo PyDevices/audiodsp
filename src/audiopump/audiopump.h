@@ -84,8 +84,8 @@ bool audiopump_c_parked(void);
 // audiopump.c because a C caller has to size the buffer and name a word.
 //
 // It was 32 until the output ring learned to block the pump; 32 and 33 are
-// what that wait cost. Nothing hard-codes the width -- every caller in this
-// workspace sizes its buffer with `bytearray(audiopump.STATUS_BYTES)` and
+// what that wait cost. Nothing hard-codes the width -- every caller
+// sizes its buffer with `bytearray(audiopump.STATUS_BYTES)` and
 // unpacks `"<%dQ" % audiopump.STATUS_WORDS` -- and audiopump_prepare refuses
 // a buffer that is too small, so a stale caller fails loudly rather than
 // reading a word that is not there.

@@ -2,13 +2,13 @@
 // shared-bindings/synthio/__init__.c (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT), merged into one file.
 // Docstrings dropped. `m_malloc_without_collect` -> `m_malloc` (mainline
-// has no "won't be GC-scanned" allocation variant; see docs/how-it-works/upstream-diff.md
-// tier-1 notes on the same substitution in audiocore's WaveFile).
+// has no "won't be GC-scanned" allocation variant; see docs/dev/upstream-record.md
+// notes on the same substitution in audiocore's WaveFile).
 // `synthio.from_file()` is upstream's stream-protocol body (CircuitPython
 // 11), and also opens a path. `lfo_tick()` is ported unconditionally (CP
 // gates it behind CIRCUITPY_AUDIOCORE_DEBUG) since it's exactly the
 // primitive this port's oracle-diff test strategy needs for Math/LFO, the
-// same reasoning as audiocore.get_buffer in tier 1.
+// same reasoning as audiocore.get_buffer.
 //
 // SPDX-FileCopyrightText: Copyright (c) 2021 Artyom Skrobov
 // SPDX-FileCopyrightText: Copyright (c) 2023 Jeff Epler for Adafruit Industries

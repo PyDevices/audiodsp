@@ -18,7 +18,7 @@
 
 // Per-exception varg raisers CP adds over mainline's generic mp_raise_msg_varg.
 // Only the ones actually called by the ported audio/synthio sources are here;
-// add more from CircuitPython's py/runtime.c as later tiers need them.
+// add more from CircuitPython's py/runtime.c as later modules need them.
 MP_NORETURN void mp_raise_ValueError_varg(mp_rom_error_text_t fmt, ...);
 MP_NORETURN void mp_raise_TypeError_varg(mp_rom_error_text_t fmt, ...);
 MP_NORETURN void mp_raise_IndexError_varg(mp_rom_error_text_t fmt, ...);

@@ -8,13 +8,13 @@
 // onto whatever that pointer refers to, so a lookup can confirm it got the
 // *specific* protocol it asked for (e.g. "protocol_audiosample") rather
 // than blindly reinterpreting a stream vtable as something else. Used by
-// audiocore's audiosample_get_buffer/reset_buffer dispatch (tier 1) and
+// audiocore's audiosample_get_buffer/reset_buffer dispatch and
 // every audiosample-shaped type after it (Synthesizer, Mixer, effects, …).
 //
 // CircuitPython's MICROPY_UNSAFE_PROTO variant (skips the name field
 // entirely) is intentionally not ported: upstream's own comment on it says
-// "not used in CircuitPython or tested," and it isn't defined by any port
-// in this workspace.
+// "not used in CircuitPython or tested," and no port this repository builds
+// for defines it.
 //
 // SPDX-License-Identifier: MIT
 

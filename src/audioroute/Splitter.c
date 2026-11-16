@@ -138,12 +138,12 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audioroute_splitter_clear_obj,
 // `deinit()` releases the branch. Every class in `audioeffects` that fans a
 // source out for a wet/dry mix builds one of these, and until now none of
 // them could release it: the type's whole Python surface was `tap()`, so a
-// class had to register the node as one it declines to release and its Tier 1
-// row could not be measured (audiodsp#58).
+// class had to register the node as one it declines to release and its "deinit() releases
+// every node" check could not be measured (audiodsp#58).
 //
 // What it does and does not do, said plainly. The ring is
 // `AUDIODSP_SPLITTER_RING_FRAMES` of int16 *inline in this object* -- the 32 KB
-// the Phase 2 cost table attributes to a Splitter is the object, not a
+// a cost table attributes to a Splitter is the object, not a
 // separate allocation -- so this cannot hand that memory back; dropping the
 // last reference to the object is what does, and the GC does it. What this
 // does do is release the **upstream chain** by dropping the source, and stop
