@@ -43,7 +43,6 @@ have. Start with install, then your first program.
 - [Running the parity gates](how-it-works/parity-gates.md)
 - [Keeping in step with upstream](how-it-works/upstream-sync.md)
 - [Differences from upstream, with measurements](how-it-works/upstream-diff.md)
-- [Upstream reports](upstream-reports/README.md): the fixes sent to CircuitPython.
 - [The graph runner](how-it-works/audiograph.md)
 - [Writing a pump port](how-it-works/pump-ports.md)
 - [Wheels and platforms](how-it-works/wheels-and-platforms.md)
@@ -81,7 +80,6 @@ how-it-works/sound-stability
 how-it-works/upstream-diff
 how-it-works/upstream-sync
 how-it-works/wheels-and-platforms
-porting-plan
 reference/analysis-and-utilities
 reference/audiopump
 reference/filters-and-effects
@@ -89,22 +87,4 @@ reference/mixing-and-routing
 reference/modules
 reference/sources-and-synthesis
 reference/vorbis
-upstream-reports/README
-upstream-reports/biquad-band-edges
-upstream-reports/biquad-reset
-upstream-reports/dds-oscillator-off-by-one
-upstream-reports/distortion-overdrive-drive
-upstream-reports/distortion-soft-clip-union
-upstream-reports/peaking-eq-sign
-upstream-reports/prs/biquad-reset/PR
-upstream-reports/prs/dds-oscillator-off-by-one/PR
-upstream-reports/prs/distortion-soft-clip-union/PR
-upstream-reports/prs/flanger-int32-overflow/PR
-upstream-reports/prs/peaking-eq-sign/PR
-upstream-reports/prs/speedchanger-phase-carry/PR
-upstream-reports/prs/speedchanger-rate-rounding/PR
-upstream-reports/prs/synthio-note-repress-zero-level/PR
-upstream-reports/prs/synthio-note-repress-zero-level/review-reply-relic-se
-upstream-reports/speedchanger-phase-carry
-upstream-reports/speedchanger-rate-rounding
 ```

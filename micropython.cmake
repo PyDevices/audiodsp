@@ -269,7 +269,7 @@ target_include_directories(usermod_mpaudio INTERFACE
 
 
 # CIRCUITPY_SYNTHIO_MAX_CHANNELS (phase 8e decision, made while actually
-# building the ESP32-P4 firmware -- see docs/porting-plan.md "8e"): the
+# building the ESP32-P4 firmware): the
 # header default of 2 is not just conservative, it is *broken* for
 # essentially any real patch -- confirmed in phase 7/8d, two notes held on
 # a plain 2-oscillator/detuned voice is already 4 concurrent Notes, and the

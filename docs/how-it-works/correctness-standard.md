@@ -102,7 +102,7 @@ decision that must be written there, or it is a bug.
 ## What a divergence means now
 
 * **CP-shared node, we differ from CircuitPython.** Either a bug of ours, or a
-  bug of theirs worth an upstream report ([`docs/upstream-reports/`](https://github.com/PyDevices/audiodsp/tree/main/docs/upstream-reports)), or a
+  bug of theirs worth an upstream report, or a
   deliberate departure that goes in [`docs/how-it-works/upstream-diff.md`](upstream-diff.md). Three outcomes, and
   choosing between them is the work. What it is never is "re-record ours".
 * **Our own node, the three targets disagree.** Ours, always. One of the three

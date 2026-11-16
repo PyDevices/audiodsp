@@ -141,8 +141,7 @@ void audiodsp_biquad_reset(audiodsp_biquad_state_t *state) {
     // of whatever was there before, at -1.3 dBFS for a low-pass. Both callers
     // (a note starting, and a chain's reset_buffer) mean a full reset.
     //
-    // The fifth approved deviation from the oracle. Reported upstream --
-    // docs/upstream-reports/biquad-reset.md.
+    // The fifth approved deviation from the oracle. Reported upstream.
     memset(state, 0, sizeof(*state));
 }
 

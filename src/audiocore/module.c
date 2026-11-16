@@ -6,7 +6,7 @@
 // shared-bindings/audiocore/__init__.c, where they're gated behind
 // CIRCUITPY_AUDIOCORE_DEBUG (docs-hidden, off in CP's default config).
 // Unconditional here: this is exactly the primitive
-// docs/porting-plan.md's oracle-diffing test strategy needs -- a Python-level
+// the oracle-diffing test strategy needs -- a Python-level
 // way to pull raw PCM out of *any* audiosample (RawSample, WaveFile, and
 // every audiosample-shaped type from later tiers) without needing a real
 // output device or a Mixer wired up yet.

@@ -1,5 +1,5 @@
-// Module skeleton for audiodsp (tier 0 / phase 2 of
-// docs/porting-plan.md): registers the top-level modules the port will
+// Module skeleton for audiodsp (tier 0 / phase 2):
+// registers the top-level modules the port will
 // grow into, each currently empty (just __name__). Each tier fills in its
 // module's globals table directly in this file as ported classes/functions
 // land -- so `import <name>` succeeds from the start of a tier's work, and

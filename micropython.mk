@@ -65,7 +65,7 @@ $(BUILD)/$(notdir $(MPAUDIO_MOD_DIR))/src/cp_compat/audiodsp_build.o: $(MPAUDIO_
 # --- cp_compat: small shims for CircuitPython-only helpers (mp_arg_validate_*,
 #     cp_enum, MP_PROPERTY_GETTER/GETSET, default___enter__/__exit__) that the
 #     ported CircuitPython audio/synthio sources call directly. See
-#     docs/porting-plan.md tier 0 and src/cp_compat/*.h for provenance.
+#     src/cp_compat/*.h for provenance.
 SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/cp_compat/audiodsp_build.c \
     $(MPAUDIO_SRC_DIR)/cp_compat/argcheck.c \
@@ -131,7 +131,7 @@ SRC_USERMOD_C += \
     $(MPAUDIO_SRC_DIR)/shared/audiodsp_drift.c
 
 # --- module skeleton: empty `import <name>` targets for every top-level
-#     module this tree will grow into (see docs/porting-plan.md). Tiers add
+#     module this tree will grow into. Tiers add
 #     real classes/functions by editing mpaudio_modules.c's globals tables
 #     directly, so this stays the single source of each module's contents.
 SRC_USERMOD_C += $(MPAUDIO_SRC_DIR)/mpaudio_modules.c

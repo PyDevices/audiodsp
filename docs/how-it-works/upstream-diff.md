@@ -667,10 +667,7 @@ so the three-way is not red on a departure that is deliberate. It is also where
 a MicroPython build that predates these two fixes shows up: any such binary
 renders CircuitPython's bytes here to the byte, because the port was faithful.
 
-Found by the effects program's `Bitcrusher` (audiocomponents#71) and reported
-in [upstream-reports/speedchanger-rate-rounding.md](../upstream-reports/speedchanger-rate-rounding.md).
-The PR is prepared and unfiled:
-[upstream-reports/prs/speedchanger-rate-rounding/](../upstream-reports/prs/speedchanger-rate-rounding/PR.md).
+Found by the effects program's `Bitcrusher` (audiocomponents#71).
 
 ## `audiospeed`: the phase accumulator crosses a source buffer, upstream's restarts (audiodsp#91)
 
@@ -716,10 +713,7 @@ Upstream's `phase` is `uint32_t` in Q16, so a source buffer longer than 65535
 frames cannot be indexed at all. That limit is upstream's and this change
 neither widens nor narrows it.
 
-Found by the effects program's `Bitcrusher` (audiocomponents#71) and reported
-in [upstream-reports/speedchanger-phase-carry.md](../upstream-reports/speedchanger-phase-carry.md).
-The PR is prepared and unfiled:
-[upstream-reports/prs/speedchanger-phase-carry/](../upstream-reports/prs/speedchanger-phase-carry/PR.md).
+Found by the effects program's `Bitcrusher` (audiocomponents#71).
 
 ## `audiodelays.Echo`: a delay line shorter than one buffer stays inside its allocation
 
@@ -766,9 +760,7 @@ the signature of an overflow that only bites at the extremes.
 
 `verify_dsp` carries a stated skip for `flanger_probe.py` on circuitpython
 naming that issue, so the three-way is not red on a defect that is not ours.
-The PR is prepared and unfiled:
-[upstream-reports/prs/flanger-int32-overflow/](../upstream-reports/prs/flanger-int32-overflow/PR.md),
-where the overflow is re-measured on a stock build of the 10.3.0 tag — 1717 of
+The overflow is re-measured on a stock build of the 10.3.0 tag — 1717 of
 2048 samples of a rails render move when the multiply is widened, and none of
 an ordinary one.
 
@@ -783,9 +775,8 @@ Goal: keep this list short. Python-level API and behavior match CP unless
 noted here.
 
 Six of the entries below are upstream bugs rather than divergences, written up
-in [upstream-reports/](https://github.com/PyDevices/audiodsp/tree/main/docs/upstream-reports). **Five have been filed with
-CircuitPython and four are merged** (see that directory's README for the
-issue and PR numbers): peaking-eq-sign, dds-oscillator-off-by-one,
+for CircuitPython. **Five have been filed with
+CircuitPython and four are merged**: peaking-eq-sign, dds-oscillator-off-by-one,
 distortion-soft-clip-union and biquad-reset are fixed upstream;
 biquad-band-edges remains open, awaiting maintainer appetite on a
 three-option ask.
@@ -1227,7 +1218,7 @@ variant: the unix `coverage` variant (this project's oracle,
 CP port wires through `mp3_alloc(x)`/`mp3_free(x)`
 (`shared-module/audiomp3/__init__.c`, `MP_WEAK`, defaulting to
 `m_malloc_maybe`/`m_free`). This port always uses the second (production)
-path -- see docs/porting-plan.md, "Tier 5" -- since it changes only where
+path -- since it changes only where
 the Helix decoder's internal buffers come from (GC heap vs. the C heap),
 never the rendered PCM, confirmed by the byte-exact oracle diffs below
 against a `bin/circuitpython` that itself takes the *other* path: this is a
@@ -1375,8 +1366,7 @@ an uninitialised stack union, so `.u_obj` is a pointer made of one meaningful
 byte and seven stale ones. On this port's own x86-64 oracle build,
 `Distortion(soft_clip=False)` reads back **`True`** -- the one case a user
 would reach for to get the hard curve is the one case that cannot be right
-except by luck. Drafted:
-[`docs/upstream-reports/distortion-soft-clip-union.md`](../upstream-reports/distortion-soft-clip-union.md).
+except by luck. Reported to CircuitPython.
 
 This is now a deliberate, documented divergence from the x86-64 CP oracle
 for this one field (the oracle still exhibits the original bug); the
@@ -1388,7 +1378,7 @@ everywhere), so it remains kept verbatim.
 ## Tier 5 audiomp3 on CMake/mcu ports: mp3dec.h's platform list, and a QSTR-extraction blind spot (phase 10)
 
 Wiring tier 5 into `micropython.cmake` (deferred at phase 8e, closed at
-phase 10 -- see docs/porting-plan.md) surfaced two separate issues, one
+phase 10) surfaced two separate issues, one
 upstream (Adafruit_MP3/Helix, vendored as the build tree's `mp3`) and one in mainline
 MicroPython's own CMake glue (`py/mkrules.cmake`, `py/py.cmake`).
 
@@ -1455,8 +1445,7 @@ regardless of the gather-loop's component-only reach. Verified end to end
 by rebuilding both mcu data points from a clean build directory: ESP32-P4
 (`MP3DEC_GENERIC` branch) and RPI_PICO (native-ARM branch, exercising the
 "don't need the define, don't break anything" path) both built clean with
-tier 5 now included -- see docs/porting-plan.md phase 10 for the exact
-before/after firmware sizes.
+tier 5 now included.
 
 ## `RawSample` verified against the oracle directly (tier 1, for calibration)
 
@@ -1500,8 +1489,7 @@ happened to be laid out. Confirmed directly on CPython -- rendering one TR-909
 sequence gave different output under `PYTHONMALLOC=default`, `malloc`, and
 `debug`, and changed again if unrelated objects were allocated beforehand.
 
-Drafted for upstream: [`docs/upstream-reports/dds-oscillator-off-by-one.md`](../upstream-reports/dds-oscillator-off-by-one.md),
-with a repro that keeps the errant read *inside* the buffer (a loop end short
+Reported to CircuitPython, with a repro that keeps the errant read *inside* the buffer (a loop end short
 of the buffer end) so it is deterministic. Still present on `main` 2026-08-27,
 at four sites.
 
@@ -2239,8 +2227,7 @@ Nothing else moves — no existing fixture reached mode 4, which is also why
 [`tests/parity/biquad_component_probe.py`](../../tests/parity/biquad_component_probe.py) now walks all seven modes.
 
 Still present in upstream `main` as of 2026-08-27, not just in the pinned
-10.2.1, so this one is worth reporting rather than waiting out. Drafted:
-[`docs/upstream-reports/peaking-eq-sign.md`](../upstream-reports/peaking-eq-sign.md).
+10.2.1, so this one is worth reporting rather than waiting out. Reported to CircuitPython.
 
 **Closed as a departure.** Upstream merged the fix (8fabdbbfb1) and released
 it in 11.0.0-alpha.1, the oracle since 2026-10-08, which renders this port's
@@ -2410,7 +2397,7 @@ the flat-EQ passthrough, and the Nyquist refusal.
 > (2026-09-09). It is severe for us, it has a fix on our side, and it is not a
 > fire under anyone else's chair.
 >
-> [`docs/upstream-reports/biquad-band-edges.md`](../upstream-reports/biquad-band-edges.md) carries the report. It is **held**
+> The report is **held**
 > along with the other two — nothing goes upstream until we have done a great
 > deal more work across the org (2026-09-09).
 
@@ -2502,8 +2489,7 @@ match: measured on a build of upstream `main`, a `LOW_PASS` at 100 Hz reads
 than +21.6. Same two causes, same conclusion, different arithmetic on the way
 (this port had already moved to per-channel state and computes its
 coefficients in `double`, where `mp_float_t` on a board is `float`). The
-upstream numbers, and a repro that produces them, are in
-`docs/upstream-reports/biquad-band-edges.md`. **Do not quote this table
+upstream numbers are in the held report. **Do not quote this table
 upstream.**
 
 ### The fix
@@ -2659,7 +2645,7 @@ is not. Measured: `drive` 0.0 / 0.2 / 0.5 / 0.9 in OVERDRIVE render byte-
 identical output, while the same four in WAVESHAPE differ.
 
 Still present on `main` 2026-08-27. Drafted for upstream as "wire it up or
-document it": [`docs/upstream-reports/distortion-overdrive-drive.md`](../upstream-reports/distortion-overdrive-drive.md). It may
+document it". It may
 well be intentional, which is why the draft asks rather than patches.
 
 **Not fixed in the C here either.** `audioeffects` works around it instead --
@@ -2693,7 +2679,7 @@ by applying it to this port's `audiodsp_biquad_reset()` and re-running that
 measurement: 28072 -> 0.
 
 **Fixed here** -- the fifth approved deviation, taken 2026-08-27 --
-and reported upstream as [`docs/upstream-reports/biquad-reset.md`](../upstream-reports/biquad-reset.md).
+and reported upstream.
 
 **Nothing moved.** Every golden held without re-capture: `verify_biquad`,
 `verify_effects`, `verify_streaming`, `verify_acceptance`, `verify_dsp` on all
