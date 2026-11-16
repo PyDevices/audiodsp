@@ -46,6 +46,7 @@
 #include "audiopump/audiopump_ring.h"
 #include "audiopump/audiopump_tap.h"
 #include "audiopump/audiopump_drift.h"
+#include "audiopump/pcm_c_sink.h"
 #include "cp_compat/audiodsp_build.h"
 
 // The same acquire/release pair the push ring uses, and here for the same
@@ -151,7 +152,9 @@ enum {
     STATUS_DIGEST = 2,      // FNV-1a 64 over every byte, in order
     STATUS_LAST_RESULT = 3, // last audiodsp_buffer_result_t
     STATUS_RUNNING = 4,     // 1 while the pump thread is inside the loop
-    STATUS_ERROR = 5,       // 0 none, 1 buffer error, 2 null buffer, 3 done
+    STATUS_ERROR = 5,       // 0 none, 1 buffer error, 2 null buffer, 3 done,
+                            // 4 memory re-used, 5 a node faulted, 6 the C
+                            // sink closed
     STATUS_TID = 6,         // unix: pthread_self(); esp32: the pinned core
     STATUS_PARKED = 7,      // 1 while the pump is parked at a block boundary
     STATUS_RING_W = 8,      // bytes ever written into the ring
@@ -256,6 +259,15 @@ typedef struct {
     volatile bool ring_wait;
     bool to_sink;               // write every block to the driver's sink
     uint32_t sink_timeout_ms;
+    // A sink another native module published (audiopump/pcm_c_sink.h), copied
+    // here by value: a USB speaker's stream, say. When `csink_on` the blocks
+    // go to it and not to the driver's sink. `csink_gone` is the pump's alone:
+    // the sink said it has closed, and the loop ends on it. `csink_full_us` is
+    // when a service-mode write first found it full, 0 while it has room.
+    pcm_c_sink_t csink;
+    bool csink_on;
+    bool csink_gone;
+    uint64_t csink_full_us;
     // Hold each block until its wall-clock moment, so the desktop
     // pump runs at the rate a DMA sink would run it at. Nothing on the
     // desktop paces the pump otherwise, and without a pace ANY statement
@@ -647,11 +659,78 @@ static void AUDIODSP_HOT audiopump_emit_front(audiopump_ctx_t *ctx,
     }
 }
 
+// A write to a published C sink. Its write never waits, so the waiting is
+// here: a pump with a thread sleeps a millisecond at a time while the sink is
+// full, which makes the sink the pace as a DMA write is, and gives up on the
+// rest of the block once it has taken nothing for sink_timeout_ms. A pump
+// with no thread takes what fits and returns, and the tail logic comes back
+// with the rest; a sink that stays full that long is counted there too. A
+// sink that has closed is owed nothing: the loop ends on `csink_gone`.
+static uint32_t AUDIODSP_HOT audiopump_csink_write(audiopump_ctx_t *ctx,
+    const audiodsp_port_ops_t *port, const uint8_t *buffer, uint32_t length,
+    audiopump_out_t *out) {
+    const bool wait = !ctx->service_mode && port->sleep_us != NULL;
+    const uint64_t limit_us = (uint64_t)ctx->sink_timeout_ms * 1000ULL;
+    uint32_t written = 0;
+    uint64_t full_since = 0;
+    while (written < length) {
+        if (ctx->csink_gone) {
+            return length;
+        }
+        const int n = ctx->csink.write(ctx->csink.ctx, buffer + written,
+            length - written);
+        if (n < 0) {
+            ctx->csink_gone = true;
+            return length;
+        }
+        if (n > 0) {
+            written += (uint32_t)n < length - written
+                ? (uint32_t)n : length - written;
+            full_since = 0;
+            ctx->csink_full_us = 0;
+            continue;
+        }
+        const uint64_t now = audiopump_now_us();
+        if (!wait) {
+            if (ctx->csink_full_us == 0) {
+                ctx->csink_full_us = now | 1u;
+            } else if (now - ctx->csink_full_us >= limit_us) {
+                out->sink_timeouts++;
+                ctx->csink_full_us = now | 1u;
+            }
+            break;
+        }
+        if (ctx->stop) {
+            break;
+        }
+        if (full_since == 0) {
+            full_since = now | 1u;
+        } else if (now - full_since >= limit_us) {
+            out->sink_timeouts++;
+            break;
+        }
+        port->sleep_us(1000);
+    }
+    return written;
+}
+
 // The sink: what it took.
 static uint32_t AUDIODSP_HOT audiopump_emit_sink(audiopump_ctx_t *ctx,
     const audiodsp_port_ops_t *port, const uint8_t *buffer, uint32_t length,
     audiopump_out_t *out) {
     uint32_t written = 0;
+    if (ctx->csink_on && length) {
+        AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_SINK);
+        const uint64_t s0 = audiopump_now_us();
+        written = audiopump_csink_write(ctx, port, buffer, length, out);
+        out->sink_us += audiopump_now_us() - s0;
+        if (!ctx->csink_gone) {
+            out->sink_bytes += written;
+        }
+        ctx->status[STATUS_SINK_BYTES] = out->sink_bytes;
+        ctx->status[STATUS_SINK_TIMEOUTS] = out->sink_timeouts;
+        return written;
+    }
     // The sink, whatever it is: a file descriptor on a desktop, an I2S
     // channel on a board. One call either way, and the engine never learns
     // which -- a write(2) and an i2s_channel_write are the same shape and
@@ -795,7 +874,7 @@ static bool audiopump_level(audiopump_ctx_t *ctx,
         *level = ctx->ring_w - AUDIOPUMP_LOAD_ACQ(&ctx->ring_r);
         return true;
     }
-    if (ctx->to_sink && port->sink_dma_bytes != NULL) {
+    if (ctx->to_sink && !ctx->csink_on && port->sink_dma_bytes != NULL) {
         const uint64_t clocked = port->sink_dma_bytes() - ctx->dma_start;
         if (clocked > out->sink_bytes
             && clocked - out->sink_bytes > ctx->dma_lag_max) {
@@ -1312,6 +1391,12 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
                 audiopump_swap_now(ctx);
             }
         }
+        // The C sink closed under this block or an earlier one: its stream
+        // has stopped or its device has gone, and nothing is listening.
+        if (ctx->csink_gone) {
+            error = 6;
+            break;
+        }
 
         // The pace, if one was asked for: hold until this block's moment.
         // Absolute deadlines against the run's start, so a late block is
@@ -1526,6 +1611,47 @@ static void audiopump_open_sink(mp_obj_t sink) {
         audiopump_ctx.to_sink = true;
         return;
     }
+    // A published C sink, by value: what a USB speaker's c_sink() returns.
+    // Checked against what the pump will write, because the sink's contract
+    // is whole frames of its own format and nothing here converts to it.
+    mp_buffer_info_t blob;
+    if (mp_get_buffer(sink, &blob, MP_BUFFER_READ)) {
+        audiopump_ctx_t *ctx = &audiopump_ctx;
+        int why = 0;
+        if (!pcm_c_sink_copy(&ctx->csink, blob.buf, blob.len)) {
+            why = 1;
+        } else {
+            const audiosample_base_t *base = MP_OBJ_TO_PTR(ctx->sample);
+            const bool conv = ctx->conv != NULL;
+            const uint32_t channels = conv ? 2u : base->channel_count;
+            if (!conv && (base->bits_per_sample != 16 || !base->samples_signed)) {
+                why = 2;
+            } else if (ctx->csink.bits != 16
+                       || ctx->csink.rate != base->sample_rate
+                       || ctx->csink.channels != channels
+                       || ctx->csink.frame_bytes != channels * 2u) {
+                why = 3;
+            }
+        }
+        if (why) {
+            // Undo what spawn() set before it got here, so a refusal leaves
+            // no pump behind it.
+            audiodsp_pump_set_active(false);
+            if (why == 1) {
+                mp_raise_ValueError(MP_ERROR_TEXT(
+                    "sink is not a C sink this build understands"));
+            }
+            if (why == 2) {
+                mp_raise_ValueError(MP_ERROR_TEXT(
+                    "a C sink takes signed 16-bit audio"));
+            }
+            mp_raise_ValueError(MP_ERROR_TEXT(
+                "the sink's format is not the graph's"));
+        }
+        ctx->csink_on = true;
+        ctx->to_sink = true;
+        return;
+    }
     if (mp_obj_is_true(sink)) {
         if (port->sink_ready == NULL || !port->sink_ready()) {
             mp_raise_ValueError(MP_ERROR_TEXT("no i2s sink open"));
@@ -1540,6 +1666,7 @@ static void audiopump_close_sink(void) {
         port->sink_close();
     }
     audiopump_ctx.to_sink = false;
+    audiopump_ctx.csink_on = false;
 }
 
 static mp_obj_t audiopump_pull(size_t n_args, const mp_obj_t *args) {
@@ -1986,6 +2113,7 @@ bool audiopump_c_join(uint32_t timeout_ms) {
         port->sink_close();
     }
     audiopump_ctx.to_sink = false;
+    audiopump_ctx.csink_on = false;
     audiodsp_pump_set_active(false);
     MP_STATE_VM(audiopump_held)[0] = MP_OBJ_NULL;
     MP_STATE_VM(audiopump_held)[1] = MP_OBJ_NULL;

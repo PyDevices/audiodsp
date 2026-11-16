@@ -76,7 +76,7 @@ def spawn(
     sample: _AudioSample,
     blocks: int,
     status: bytearray | memoryview,
-    sink: str | bool | None = None,
+    sink: str | bool | bytes | None = None,
     ring: bytearray | memoryview | None = None,
     core: int = -1,
     prio: int = 21,
@@ -102,12 +102,16 @@ def spawn(
             pump fills with counters, as `STATUS_WORDS` little-endian 64-bit
             words. Word 0 is blocks pulled, 1 bytes seen, 2 an FNV-1a
             digest of every byte, 3 the last pull's result, 4 whether the
-            loop is running, 5 the error (0 none, 1 buffer, 2 null, 3 done),
-            14 sink timeouts and 24 the fault code. Read it with
-            ``struct.unpack``.
+            loop is running, 5 the error (0 none, 1 buffer, 2 null, 3 done,
+            6 the C sink closed), 14 sink timeouts and 24 the fault code.
+            Read it with ``struct.unpack``.
         sink: Where the audio goes. True sends it to the board's I2S output
             when the driver has opened one; a path writes it to a file on a
-            desktop. None sends it nowhere.
+            desktop. Bytes holding a C sink that another native module
+            published, such as a USB speaker's ``c_sink()``, send it there
+            from the pump's own thread: the graph must be signed 16-bit at
+            the sink's rate and channel count, and the pump ends with error
+            6 when the sink closes. None sends it nowhere.
         ring: A writable buffer of at least 64 bytes to write the audio into
             instead, which `drain` empties.
         core: The CPU core to run on, on ports that have cores. -1 lets the
@@ -128,8 +132,9 @@ def spawn(
 
     Raises:
         ValueError: A pump is already spawned, the status or ring buffer is
-            too small, the graph contains a file-backed source, or
-            ``sink=True`` when the driver has no output open.
+            too small, the graph contains a file-backed source,
+            ``sink=True`` when the driver has no output open, or a C sink
+            whose format is not the graph's.
         OSError: The thread could not be made, or a file ``sink`` could not
             be opened.
     """
@@ -138,7 +143,7 @@ def pull(
     sample: _AudioSample,
     blocks: int,
     status: bytearray | memoryview,
-    sink: str | bool | None = None,
+    sink: str | bool | bytes | None = None,
     ring: bytearray | memoryview | None = None,
     /,
 ) -> None:

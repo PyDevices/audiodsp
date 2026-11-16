@@ -9,6 +9,12 @@
 // keeping only `step` bytes of it: a tail lost the way an engine that drops
 // short writes loses it, so a probe can show that it notices.
 //
+// c_sink() hands out the same capture as a published C sink
+// (audiopump/pcm_c_sink.h), the way a USB speaker's stream is handed to
+// audiopump.spawn(sink=<bytes>): `step` bytes a write, nothing at all for the
+// first `refuse` writes or for ever, and closed once it has kept `close_at`
+// bytes.
+//
 // No thread: thread_start is NULL, so the pump stays in service mode and the
 // probe drives it with audiopump.service().
 //
@@ -23,6 +29,7 @@
 #include "py/runtime.h"
 
 #include "shared/audiodsp_port.h"
+#include "audiopump/pcm_c_sink.h"
 
 MP_REGISTER_ROOT_POINTER(mp_obj_t pumpsink_buffer);
 
@@ -132,11 +139,78 @@ static mp_obj_t pumpsink_hot(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(pumpsink_hot_obj, pumpsink_hot);
 
+static uint32_t pumpsink_c_refuse;
+static bool pumpsink_c_never;
+static bool pumpsink_c_closed;
+static size_t pumpsink_c_close_at;
+
+static int pumpsink_c_write(void *ctx, const uint8_t *data, size_t len) {
+    (void)ctx;
+    pumpsink_writes++;
+    if (pumpsink_c_closed) {
+        return -1;
+    }
+    if (pumpsink_len >= pumpsink_c_close_at) {
+        pumpsink_c_closed = true;
+        return -1;
+    }
+    if (pumpsink_c_never) {
+        return 0;
+    }
+    if (pumpsink_c_refuse) {
+        pumpsink_c_refuse--;
+        return 0;
+    }
+    size_t n = len < pumpsink_step ? len : pumpsink_step;
+    if (n > pumpsink_cap - pumpsink_len) {
+        n = pumpsink_cap - pumpsink_len;
+    }
+    memcpy(pumpsink_buf + pumpsink_len, data, n);
+    pumpsink_len += n;
+    return pumpsink_lie ? (int)len : (int)n;
+}
+
+static int pumpsink_c_space(void *ctx) {
+    (void)ctx;
+    if (pumpsink_c_closed) {
+        return -1;
+    }
+    return pumpsink_c_never || pumpsink_c_refuse ? 0 : (int)pumpsink_step;
+}
+
+// c_sink(rate, channels, refuse=0, close_at=-1, never=False): the armed
+// capture as a pcm_c_sink_t, in bytes.
+static mp_obj_t pumpsink_c_sink(size_t n_args, const mp_obj_t *args) {
+    if (pumpsink_buf == NULL) {
+        mp_raise_ValueError(MP_ERROR_TEXT("arm() first"));
+    }
+    const uint32_t channels = (uint32_t)mp_obj_get_int(args[1]);
+    pumpsink_c_refuse = n_args > 2 ? (uint32_t)mp_obj_get_int(args[2]) : 0;
+    const mp_int_t close_at = n_args > 3 ? mp_obj_get_int(args[3]) : -1;
+    pumpsink_c_close_at = close_at < 0 ? (size_t)-1 : (size_t)close_at;
+    pumpsink_c_never = n_args > 4 && mp_obj_is_true(args[4]);
+    pumpsink_c_closed = false;
+    const pcm_c_sink_t sink = {
+        .magic = PCM_C_SINK_MAGIC,
+        .version = PCM_C_SINK_VERSION,
+        .ctx = NULL,
+        .write = pumpsink_c_write,
+        .space = pumpsink_c_space,
+        .rate = (uint32_t)mp_obj_get_int(args[0]),
+        .channels = channels,
+        .bits = 16,
+        .frame_bytes = channels * 2u,
+    };
+    return mp_obj_new_bytes((const byte *)&sink, sizeof(sink));
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pumpsink_c_sink_obj, 2, 5, pumpsink_c_sink);
+
 static const mp_rom_map_elem_t pumpsink_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR__pumpsink) },
     { MP_ROM_QSTR(MP_QSTR_arm), MP_ROM_PTR(&pumpsink_arm_obj) },
     { MP_ROM_QSTR(MP_QSTR_taken), MP_ROM_PTR(&pumpsink_taken_obj) },
     { MP_ROM_QSTR(MP_QSTR_hot), MP_ROM_PTR(&pumpsink_hot_obj) },
+    { MP_ROM_QSTR(MP_QSTR_c_sink), MP_ROM_PTR(&pumpsink_c_sink_obj) },
 };
 static MP_DEFINE_CONST_DICT(pumpsink_globals, pumpsink_globals_table);
 
