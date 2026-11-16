@@ -425,10 +425,10 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
      autosize-and-retry step resized it to 0x360000 (~3.375 MiB)
      automatically, landing at 8% partition headroom -- unremarkable given
      this board's flash size, but recorded here as the actual figure.
-     **On-device verification done** once mpftp's new CLI (`docs/agent-guide.md`
-     in the `mpftp` repo -- session model changed significantly since the
+     **On-device verification done** once mcuctl's new CLI (`docs/agent-guide.md`
+     in the `mcuctl` repo -- session model changed significantly since the
      "write-to-file" workaround this project used earlier; the standalone
-     form is `./scripts/mpftp <cmd> -d COM4`, one full session per
+     form is `./scripts/mcuctl <cmd> -d COM4`, one full session per
      invocation) confirmed available: rebuilt the firmware (picking up the
      Distortion.c fix above), backed up `/wifi.py` and `/secrets.py` off
      the board first, flashed with `--erase` (required -- the new
@@ -438,20 +438,20 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
      `board_config.py`/`board_peripherals.py`, `boarddev.py`, and the
      driver files the board's own eager bring-up needs (`gt911`,
      `keypad_gpio`, `keys`, `displaydev`, ES8311/ES7210) directly over
-     serial (`mpftp put`/`cp --verify`) -- deliberately not via `mip`,
+     serial (`mcuctl put`/`cp --verify`) -- deliberately not via `mip`,
      since that would have pulled the last-published (unmodified) copies
      from GitHub and overwritten the local fixes being verified. A probe
      script (real `synthio.Synthesizer`, note press/release through a real
      7-note arpeggio, `pause()`/`resume()`, hardware volume/mute via the
      ES8311 codec, `stop()`/`close()`) ran clean end to end on real
-     hardware via `mpftp run --follow`, and ran identically clean a second
-     time after `mpftp soft-reset` -- confirming both the audio pipeline
+     hardware via `mcuctl run --follow`, and ran identically clean a second
+     time after `mcuctl soft-reset` -- confirming both the audio pipeline
      itself and codec re-init survive a soft reset without stale state.
      Wi-Fi reconnected from the restored `secrets.py` and got a real DHCP
      lease, confirming the board is left in a working state. Phase 8 is
      now fully done, including on-device hardware verification.
 9. **Tier 5 `audiomp3`** *(done)* — ported out of order (before phase 8,
-   which is blocked on mpftp/hardware coordination), since nothing else
+   which is blocked on mcuctl/hardware coordination), since nothing else
    depends on it and it needs no hardware. License checked first (see
    docs/how-it-works/upstream-diff.md, "Tier 5 audiomp3: license"): the Helix decoder
    core is RPSL 1.0/RCSL 1.0, not MIT, and this port carries it unmodified
