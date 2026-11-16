@@ -346,6 +346,7 @@ jobs:
                          "pump_probe.py csink --fault open" \
                          "pump_probe.py csink --fault roomy" \
                          "pump_probe.py csink --fault eager" \
+                         "pump_probe.py csink --fault loud" \
                          "route_probe.py ring --fault flip" \
                          "route_probe.py underrun --fault drop" \
                          "route_probe.py overrun --fault drop" \

@@ -531,9 +531,13 @@ def pull(sample, blocks, status, sink=None, ring=None):
     _run_end(ctx)
 
 
+def sink_gain(level):
+    """Set a C sink's level. There is no C sink here, so nothing to set."""
+
+
 def spawn(sample, blocks, status, sink=None, ring=None, core=-1, prio=21,
           stack=16384, psram=False, timeout_ms=200, pace=False, loop=False,
-          sink_room=0):
+          sink_room=0, sink_gain=None):
     """Adopt `sample` as the pump's tail. Returns -2: there is no thread.
 
     Not one block is pulled here. `service()` runs the loop; `core`, `prio`,

@@ -88,6 +88,7 @@ def spawn(
     pace: bool = False,
     loop: bool = False,
     sink_room: int = 0,
+    sink_gain: float | None = None,
 ) -> int:
     """Start pulling a graph on a thread of its own.
 
@@ -132,6 +133,8 @@ def spawn(
             pump writes a block. The pump then keeps the sink's capacity
             less this much queued, which is the delay it adds, however large
             the sink's own buffer is. 0 writes whenever anything fits.
+        sink_gain: For a C sink, the level the audio goes to it at, 0.0 to
+            1.0. None is 1.0. `sink_gain` changes it while the pump plays.
 
     Returns:
         The core the thread runs on, or -1 when it has no core affinity, or -2
@@ -159,6 +162,18 @@ def pull(
     It is the same loop `spawn` runs, with the same arguments, so it can be
     measured on the interpreter thread. Wrap it in ``micropython.heap_lock()``
     to check that a pull does not allocate.
+    """
+
+def sink_gain(level: float | None, /) -> None:
+    """Set the level a C sink's audio goes out at, 0.0 to 1.0.
+
+    It takes effect within a few milliseconds and steps to the new level,
+    so move it in small steps to fade. It does nothing to audio going to
+    the board's own output, a file or a ring.
+
+    Args:
+        level: 0.0 for silence to 1.0 for the graph's samples as they are.
+            None is 1.0.
     """
 
 def service(max_blocks: int = 0, /) -> int:

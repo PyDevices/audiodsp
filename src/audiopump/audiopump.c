@@ -269,6 +269,9 @@ typedef struct {
     // pump keeps (the sink's capacity - csink_room) queued and no more,
     // however large the sink's ring is. 0: write whenever anything fits.
     uint32_t csink_room;
+    // The level the blocks go to the sink at, 32768 for as they are. The
+    // interpreter stores it (sink_gain()), the pump loads it: one word.
+    uint32_t csink_gain;
     bool csink_on;
     bool csink_gone;
     uint64_t csink_full_us;
@@ -663,6 +666,27 @@ static void AUDIODSP_HOT audiopump_emit_front(audiopump_ctx_t *ctx,
     }
 }
 
+// Up to `length` bytes to the C sink at its level, in whole frames: what the
+// sink's own write returns. Below full level the samples are scaled into a
+// small scratch on the pump's stack a piece at a time, so a call may take
+// less than it was offered with room still left; the caller comes back.
+static int AUDIODSP_HOT audiopump_csink_put(audiopump_ctx_t *ctx,
+    const uint8_t *data, uint32_t length) {
+    const uint32_t gain = AUDIOPUMP_LOAD_ACQ(&ctx->csink_gain);
+    int16_t scaled[128];
+    const uint32_t frame = ctx->csink.frame_bytes;
+    if (gain >= 32768u || frame > sizeof(scaled)) {
+        return ctx->csink.write(ctx->csink.ctx, data, length);
+    }
+    uint32_t piece = length < sizeof(scaled) ? length : sizeof(scaled);
+    piece -= piece % frame;
+    const int16_t *in = (const int16_t *)(const void *)data;
+    for (uint32_t i = 0; i < piece / 2u; i++) {
+        scaled[i] = (int16_t)(((int32_t)in[i] * (int32_t)gain) >> 15);
+    }
+    return ctx->csink.write(ctx->csink.ctx, (const uint8_t *)scaled, piece);
+}
+
 // A write to a published C sink. Its write never waits, so the waiting is
 // here: a pump with a thread sleeps a millisecond at a time while the sink is
 // full, which makes the sink the pace as a DMA write is, and gives up on the
@@ -691,8 +715,7 @@ static uint32_t AUDIODSP_HOT audiopump_csink_write(audiopump_ctx_t *ctx,
             go = room >= 0 && (uint32_t)room >= ctx->csink_room;
         }
         if (go) {
-            n = ctx->csink.write(ctx->csink.ctx, buffer + written,
-                length - written);
+            n = audiopump_csink_put(ctx, buffer + written, length - written);
         }
         if (n < 0) {
             ctx->csink_gone = true;
@@ -1663,6 +1686,7 @@ static void audiopump_open_sink(mp_obj_t sink) {
             mp_raise_ValueError(MP_ERROR_TEXT(
                 "the sink's format is not the graph's"));
         }
+        AUDIOPUMP_STORE_REL(&ctx->csink_gain, 32768u);
         ctx->csink_on = true;
         ctx->to_sink = true;
         return;
@@ -1913,6 +1937,27 @@ static void audiopump_refuse_unpumpable(mp_obj_t sample) {
 
 static int audiopump_launch(int core, int prio, int stack, bool psram);
 
+// A level, 0.0 to 1.0 (None is 1.0), as the Q15 word the sink write uses.
+static uint32_t audiopump_csink_gain_from(mp_obj_t level) {
+    if (level == mp_const_none || level == MP_OBJ_NULL) {
+        return 32768u;
+    }
+    const mp_float_t v = mp_obj_get_float(level);
+    if (v >= (mp_float_t)1.0) {
+        return 32768u;
+    }
+    return v <= (mp_float_t)0.0 ? 0u : (uint32_t)(v * (mp_float_t)32768.0);
+}
+
+// sink_gain(level): the level a C sink's audio goes out at, from the next
+// piece written. It steps; a caller that wants a fade moves it in steps.
+static mp_obj_t audiopump_sink_gain(mp_obj_t level) {
+    AUDIOPUMP_STORE_REL(&audiopump_ctx.csink_gain,
+        audiopump_csink_gain_from(level));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiopump_sink_gain_obj, audiopump_sink_gain);
+
 // The pump's FreeRTOS priority on ESP32 (other ports ignore it). It shares
 // its core with the Bluetooth host, whose tasks run at 19 and 20; below them,
 // an A2DP stream decoding beside a busy display left the pump short of the
@@ -1925,7 +1970,7 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
     mp_map_t *kw_args) {
     enum { ARG_sample, ARG_blocks, ARG_status, ARG_sink, ARG_ring, ARG_core,
            ARG_prio, ARG_stack, ARG_psram, ARG_timeout_ms, ARG_pace, ARG_loop,
-           ARG_sink_room };
+           ARG_sink_room, ARG_sink_gain };
     static const mp_arg_t allowed[] = {
         { MP_QSTR_sample,     MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = MP_OBJ_NULL } },
         { MP_QSTR_blocks,     MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = MP_OBJ_NULL } },
@@ -1944,6 +1989,8 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
         { MP_QSTR_loop,       MP_ARG_BOOL, { .u_bool = false } },
         // For a C sink: the room it must have before a block is written.
         { MP_QSTR_sink_room,  MP_ARG_INT,  { .u_int = 0 } },
+        // For a C sink: the level the audio goes to it at, 0.0 to 1.0.
+        { MP_QSTR_sink_gain,  MP_ARG_OBJ,  { .u_obj = mp_const_none } },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed),
@@ -1975,6 +2022,8 @@ static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
     audiopump_open_sink(args[ARG_sink].u_obj);
     audiopump_ctx.csink_room = args[ARG_sink_room].u_int > 0
         ? (uint32_t)args[ARG_sink_room].u_int : 0;
+    AUDIOPUMP_STORE_REL(&audiopump_ctx.csink_gain,
+        audiopump_csink_gain_from(args[ARG_sink_gain].u_obj));
     if (args[ARG_pace].u_bool) {
         audiopump_ctx.paced = true;
         audiopump_ctx.pace_rate =
@@ -2789,6 +2838,7 @@ static const mp_rom_map_elem_t audiopump_globals_table[] = {
       MP_ROM_INT(AUDIOPUMP_STATUS_WORDS) },
     // spawn(sink=<bytes>) takes a published C sink in this build.
     { MP_ROM_QSTR(MP_QSTR_C_SINK), MP_ROM_TRUE },
+    { MP_ROM_QSTR(MP_QSTR_sink_gain), MP_ROM_PTR(&audiopump_sink_gain_obj) },
 };
 static MP_DEFINE_CONST_DICT(audiopump_globals, audiopump_globals_table);
 

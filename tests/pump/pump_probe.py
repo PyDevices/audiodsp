@@ -1570,7 +1570,8 @@ def csink(fault):
     never has room, and the pump must count a timeout and keep returning,
     having written nothing (``--fault roomy`` gives it room). With
     ``sink_room`` it starts no block until the sink has drained that far
-    (``--fault eager`` leaves it out). And a sink
+    (``--fault eager`` leaves it out). ``sink_gain`` sets the level the
+    samples reach it at (``--fault loud`` leaves it full). And a sink
     whose format is not the graph's is refused, leaving a pump that can
     still be spawned.
     """
@@ -1638,6 +1639,23 @@ def csink(fault):
              "nothing written while the sink was too full, %d bytes once it drained" % went
              if paced else
              "%d bytes written while too full, %d after" % (waited, went)) and ok
+
+    # sink_gain: half level halves every sample; full level leaves them be.
+    flat = _flat(8000, BLOCK_FRAMES * 4)
+    half = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 8)
+    stub.arm(half, 148)
+    audiopump.spawn(flat, 1 << 30, status(), sink=stub.c_sink(RATE, CHANNELS),
+                    sink_gain=1.0 if fault == "loud" else 0.5)
+    for _ in range(200):
+        if audiopump.service(1) & 3 == 3:
+            break
+    taken = stub.taken()[0]
+    audiopump.shutdown()
+    frames = _frames(half[:taken])
+    halved = taken == BLOCK_FRAMES * 4 * CHANNELS * 2 and all(f == 4000 for f in frames)
+    ok = say("csink: sink_gain", halved,
+             "%d frames, every one at half level" % len(frames) if halved else
+             "%d bytes, first frame %s" % (taken, frames[:1])) and ok
 
     # The wrong format is refused, and the next spawn still works.
     got = bytearray(64)
