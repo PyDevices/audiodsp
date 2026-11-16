@@ -678,7 +678,7 @@
   rails, and put the rest of the wanted level on a mixer voice after this
   node. No DSP changed: the docstring, `docs/upstream-diff.md` and a new
   `HeadroomTest` in `tests/test_cpython_audioshaper.py` say what a drive
-  class (Distortion's second fix round) had already found and was carrying
+  class (Distortion's second set of fixes) had already found and was carrying
   its own 0.74 ceiling for, uncredited. The constant lives on the CPython
   twin only — neither the MicroPython usermod's module globals nor the
   CircuitPython spike's export anything past `__version__`/`__revision__`
@@ -697,7 +697,7 @@
   `audiospeed.SpeedChanger` nodes, down by the hold ratio and up by its
   reciprocal, and that pair cannot be made reciprocal: the rate is 16.16
   fixed point and inverts exactly only at powers of two. Measured on the
-  effects programme's shipped hold, the two rates multiplied to 0.9999947 at
+  audioeffects' shipped hold, the two rates multiplied to 0.9999947 at
   48 kHz — one sample late per 189 339 frames — and 1.0000108 at 44.1 kHz,
   one sample early per 92 708. A click read delay 1 at frame 256 and 2 at
   frame 196 608; at Mix 0.5 a steady 12 kHz tone swung 10.74 dB over a
@@ -861,7 +861,7 @@ retires the last ceiling deviation. See
 - build: every merged source block in micropython.mk opens its own SRC_USERMOD_C list
 - build: the ladder's sources get their own SRC_USERMOD_C block again
 - mpaudio_modules: the own-module roll call names all six, not four
-- Effects Phase 1 integration: re-capture the DSP golden with the oracle
+- Effects integration: re-capture the DSP golden with the oracle
 - Smoke audioshaper in the clean-build workflow, and name it in the porting plan
 - Record audioshaper: what the palette could not do, and what the node measures
 - apply_cp_patches.sh carries audioshaper into a CircuitPython tree
@@ -909,7 +909,7 @@ retires the last ceiling deviation. See
 - parity: re-capture the vst3 render reference against audiocomponents at the v0.2.0 core
 - lib: delete audioinstruments and audioeffects -- they live in audiocomponents
 
-- audiodynamics: twenty-one additive options and an external key input, for the effects program (#38)
+- audiodynamics: twenty-one additive options and an external key input (#38)
 - audioroute: MidSide, a zero-latency mid/side matrix, exact identity at width=1
 - audioshaper: a new audiodsp-own module -- a table waveshaper, oversampled x2/x4/x8, with an off-by-default hysteresis option
 - packaging: numpy is the `render` extra, so a bare install says honestly what audiorender needs
@@ -934,7 +934,7 @@ retires the last ceiling deviation. See
 - AGENTS.md: the stored parity digests stay (#26 reversed) and why
 - AGENTS.md: two kinds of golden, two rules
 - parity: verify_acceptance no longer discards the caller's PYTHONPATH
-- docs: fix the four audit defects in the readability batch, and my own aarch64 note
+- docs: fix the four audit defects in the readability pass, and the aarch64 note
 - parity scripts: drop hardcoded cmods paths
 - apply_cp_patches.sh: drop the cmods-specific sibling fallback
 - docs: reword cmods-workspace mentions to a generic term
@@ -959,7 +959,7 @@ retires the last ceiling deviation. See
 - PR: cut the body to house style, 163 words to 75
 - PR draft: record the independent mechanism check against upstream main
 - check_attribution: drop an unused import that would have reddened CI
-- Attribution: catch the 12 my first sweep missed, and guard it in CI
+- Attribution: catch the 12 the first sweep missed, and guard it in CI
 - Prepare upstream PR for synthio note re-press dropping at envelope level 0
 - upstream-diff: we filed five and four are merged, not 'none has been filed'
 - Restore upstream copyright attribution to every ported file
