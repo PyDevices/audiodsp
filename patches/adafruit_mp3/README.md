@@ -1,7 +1,6 @@
 # Adafruit_MP3 patch queue
 
-Owned by audiodsp (Phase 2 of the modernization program moved ownership
-here from the parent workspace's own patches/adafruit_mp3). Applied by
+The patches audiodsp applies to the Adafruit_MP3 decoder. Applied by
 [`scripts/fetch_deps.sh`](../../scripts/fetch_deps.sh) on top of the pinned Adafruit_MP3 commit
 declared in `DEPENDENCIES.lock`.
 
@@ -10,7 +9,7 @@ declared in `DEPENDENCIES.lock`.
   (the Windows MicroPython target) also defines; the patch additionally
   excludes `__GNUC__` so mingw falls through to the portable C path.
   CircuitPython never hits this (no Windows port). Full rationale:
-  [`docs/how-it-works/upstream-diff.md`](../../docs/how-it-works/upstream-diff.md), "Tier 5 audiomp3".
+  [`docs/dev/upstream-record.md`](../../docs/dev/upstream-record.md#audiomp3-three-windows-only-local-fixes-no-unix-impact).
 - `0002-msvc-x64-portable-path.patch` — 64-bit MSVC, which builds the
   Windows CPython wheel, has no inline assembly, so `src/assembly.h` also
   sends `_WIN64` to the portable C path, with an MSVC `CLZ`. No firmware

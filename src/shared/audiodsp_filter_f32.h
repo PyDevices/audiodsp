@@ -27,8 +27,8 @@
 // What float buys, precisely: with `float` state and a flush of any state
 // word below AUDIODSP_FILTER_F32_FLUSH, a decaying tail reaches **exact zero**
 // in finite time and silence in gives silence out for ever. That is the
-// "Tier 1 silence" invariant every EQ, filter and phaser class in
-// audiocomponents is held to. The second thing this carries, and the reason
+// "silence in, silence out" invariant every EQ, filter and phaser class in
+// audioeffects is held to. The second thing this carries, and the reason
 // the all-pass is here rather than a patch to the biquad, is an **unclamped**
 // feedback: `audiofilters/Phaser.c:211` limits it to 0.1..0.9, so a phaser
 // built on the ported node can never reach the feedback-free topology the

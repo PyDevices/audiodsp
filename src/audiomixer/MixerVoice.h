@@ -5,7 +5,7 @@
 //
 // Deviation from upstream: CP guards level/panning as synthio_block_slot_t
 // behind `#if CIRCUITPY_SYNTHIO` (some CP boards omit synthio). This port
-// always has synthio (tier 2), so the block-input path is unconditional and
+// always has synthio, so the block-input path is unconditional and
 // the plain-float fallback fields/branches are dropped.
 //
 // SPDX-FileCopyrightText: Copyright (c) 2018 DeanM for Adafruit Industries

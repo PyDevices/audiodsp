@@ -3,8 +3,7 @@
 #
 # Point USER_C_MODULES at this repo (or this file) directly, e.g.:
 #   idf.py build -DUSER_C_MODULES=<path to audiodsp>
-# Or let the parent workspace's own aggregator discover it alongside
-# other usermods.
+# Or point it at a directory of usermods that includes this one.
 
 set(MPAUDIO_MOD_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(MPAUDIO_SRC_DIR ${MPAUDIO_MOD_DIR}/src)
@@ -148,17 +147,17 @@ target_include_directories(usermod_mpaudio INTERFACE ${MPAUDIO_SRC_DIR})
 # lock takes whatever mutex the bound driver hands it, and which driver bound
 # is a run-time answer -- audiopump.driver().
 
-# --- tier 5: audiomp3 (MP3Decoder) ---
+# --- audiomp3 (MP3Decoder) ---
 #
 # See micropython.mk for the full rationale (license, the cloned mp3
-# sibling in the parent workspace, the allocator wiring, the mp3dec.h
+# dependency, the allocator wiring, the mp3dec.h
 # platform-detection escape hatch) -- only the CMake-specific parts
 # (target-arch detection, per-file compile flags) are re-explained here.
 #
 # mp3dec.h's closed (__GNUC__, arch) list covers ARM (both `ARM` and
 # `__ARMEL__`) and x86 (`__i386__`/`__amd64__`) but nothing else -- crucially,
-# neither Xtensa nor RISC-V is in it, so *every* esp32 target this workspace
-# builds (Xtensa: esp32/esp32s2/esp32s3; RISC-V: esp32c2/c3/c5/c6/p4) needs
+# neither Xtensa nor RISC-V is in it, so *every* esp32 target
+# (Xtensa: esp32/esp32s2/esp32s3; RISC-V: esp32c2/c3/c5/c6/p4) needs
 # the `MP3DEC_GENERIC` escape hatch, while rp2 (RP2040/RP2350, both ARM
 # Cortex-M, matching the `__GNUC__ && __ARMEL__` branch natively) does not.
 # `CONFIG_IDF_TARGET_ARCH_RISCV`/`_ARCH_XTENSA` are the sdkconfig-derived
@@ -197,7 +196,7 @@ if(NOT EXISTS ${MPAUDIO_MP3_SRC_DIR}/mp3dec.c)
     set(MPAUDIO_MP3_SRC_DIR ${MPAUDIO_MOD_DIR}/../mp3/src)
 endif()
 # Neither there: fetch our own pinned copy (DEPENDENCIES.lock, plus our
-# patches) into .deps/, the way a fresh clone outside any workspace builds.
+# patches) into .deps/, the way a fresh clone with nothing beside it builds.
 if(NOT EXISTS ${MPAUDIO_MP3_SRC_DIR}/mp3dec.c AND NOT DEFINED ENV{AUDIODSP_OPTIONAL_DEPS})
     message(STATUS "audiodsp: fetching Adafruit_MP3 into .deps/ (scripts/fetch_deps.sh)")
     execute_process(COMMAND bash ${MPAUDIO_MOD_DIR}/scripts/fetch_deps.sh RESULT_VARIABLE _mpaudio_fetch_rc)
@@ -268,10 +267,10 @@ target_include_directories(usermod_mpaudio INTERFACE
 )
 
 
-# CIRCUITPY_SYNTHIO_MAX_CHANNELS (phase 8e decision, made while actually
-# building the ESP32-P4 firmware): the
+# CIRCUITPY_SYNTHIO_MAX_CHANNELS (decided while building the ESP32-P4
+# firmware): the
 # header default of 2 is not just conservative, it is *broken* for
-# essentially any real patch -- confirmed in phase 7/8d, two notes held on
+# essentially any real patch -- confirmed by the parity runs, two notes held on
 # a plain 2-oscillator/detuned voice is already 4 concurrent Notes, and the
 # excess is silently REFUSED rather than erroring. Corrected 2026-09-02
 # (audiodsp#14): this said "silently steals/truncates", which is the wrong
@@ -297,7 +296,7 @@ target_include_directories(usermod_mpaudio INTERFACE
 # cr78 14, tr808 13, tr909 13, drumtraks 13, linndrum 13, sp1200 12,
 # simmons_sdsv 12, dmx 11, tr707 11, tr606 8. At 8 -- and at 12 -- half the
 # kits refuse notes, and by the paragraph above that refusal is silent. A
-# ceiling below 14 is therefore a bug in this workspace, not a conservative
+# ceiling below 14 is therefore a bug here, not a conservative
 # choice; cr78 needs exactly 14.
 #
 # It also collapses the three-numbers problem: header, Make and CMake now
@@ -315,8 +314,8 @@ target_include_directories(usermod_mpaudio INTERFACE
 # board-specific target_compile_definitions -- on CMake ports CFLAGS_EXTRA
 # must be an ENVIRONMENT variable, which is how the shared infrastructure
 # reads it (cmods/micropython/py/mkrules.cmake:79-86), not a make variable
-# as on the unix Make path. Per-board tuning is the fuller phase 10 (port
-# matrix) job, not this one.
+# as on the unix Make path. Per-board tuning is a
+# separate job, not this one.
 # --- which audiodsp this firmware was built from -----------------------------
 # See micropython.mk for why this is computed from the checkout and how it is
 # described. It is computed when the firmware BUILDS, not when CMake
@@ -380,7 +379,7 @@ endif()
 # audiometer's feed and analysis, and the FFT they share with audioconvolve,
 # in IRAM: ON wherever there is IRAM, unlike the pump loop above, because the
 # meter runs inside usbif's sound-card pump and from flash it cost that core
-# 8.9 % against the spike's 4.8 % from IRAM (media modules roadmap, Phase 6).
+# 8.9 % against the spike's 4.8 % from IRAM.
 # A few kB; -DAUDIODSP_METER_IRAM=0 leaves it in flash.
 if(NOT DEFINED AUDIODSP_METER_IRAM)
     set(AUDIODSP_METER_IRAM 1)

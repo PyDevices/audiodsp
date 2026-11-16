@@ -3,7 +3,7 @@
 // dropped (RawSample.h/WaveFile.h/audiomixer/Mixer.h/audioio/__init__.h --
 // none of their symbols are referenced in this file upstream either;
 // checked with a grep across the whole file before dropping them, to avoid
-// a premature tier-3 build dependency here in tier 1).
+// a premature dependency on audiomixer here).
 //
 // The deinit-guard helpers and the three common property accessors
 // (sample_rate/bits_per_sample/channel_count) below are ported from

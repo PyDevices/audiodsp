@@ -2,7 +2,7 @@
 // repo: https://github.com/adafruit/circuitpython, MIT). Renamed from
 // `__init__.h` to `mp3_alloc.h` for this port's flat layout -- content
 // unchanged. `-include`d into buffers.o's compile (see micropython.mk) so
-// `MPDEC_ALLOCATOR(x)`/`MPDEC_FREE(x)` (the parent workspace's
+// `MPDEC_ALLOCATOR(x)`/`MPDEC_FREE(x)` (the fetched
 // mp3/src/buffers.c) resolve to these two symbols; every other vendored
 // lib/mp3 source file is unaware of them.
 //

@@ -86,8 +86,7 @@ is what the next item is for.
 exact zero on silence from its first block", "the settled reduction at ratio R
 is 20·(1−1/R) dB ± 0.01" — and beside it a deliberately broken build that must
 fail the check. This is measuring against physics and arithmetic, which survive a
-refactor and do not survive a regression. It is the effects program's own method
-and it is the right one here.
+refactor and do not survive a regression.
 
 A trait without a planted fault is not a check; it is a hope. See
 [`tests/parity/deinit_surface_probe.py`](../../tests/parity/deinit_surface_probe.py) for the shape — its `--fault` mode is run by CI first, and CI fails if the fault
@@ -95,15 +94,17 @@ A trait without a planted fault is not a check; it is a hope. See
 
 ## Where deviations are written down
 
-[upstream-diff](upstream-diff.md) records every deliberate departure from
-CircuitPython in a node CircuitPython has. Under this rule each one is a
+[The upstream record](https://github.com/PyDevices/audiodsp/blob/main/docs/dev/upstream-record.md) records every deliberate departure from
+CircuitPython in a node CircuitPython has, and
+[Where audiodsp differs from CircuitPython](upstream-diff.md) says what each
+one means for a user. Under this rule each one is a
 decision that must be written there, or it is a bug.
 
 ## What a divergence means now
 
 * **CP-shared node, we differ from CircuitPython.** Either a bug of ours, or a
   bug of theirs worth an upstream report, or a
-  deliberate departure that goes in [`docs/how-it-works/upstream-diff.md`](upstream-diff.md). Three outcomes, and
+  deliberate departure that goes in [the upstream record](https://github.com/PyDevices/audiodsp/blob/main/docs/dev/upstream-record.md). Three outcomes, and
   choosing between them is the work. What it is never is "re-record ours".
 * **Our own node, the three targets disagree.** Ours, always. One of the three
   compilations is wrong, or the kernel relies on something undefined.
@@ -171,9 +172,9 @@ CPython extension calls the shared `double` helper) and audiodsp#102 (a filtered
 in the twin).
 
 **The same rule belongs to the classes.** audiocomponents#75 is this shape one
-tier up -- a class computing `360 * 4 ** (macro / 127)` for a filter frequency
-lands its board and its desktop a ULP apart, and the effects programme's board
-proofs of 2026-09-17 name it as one of the three causes of a drive class's
+level up -- a class computing `360 * 4 ** (macro / 127)` for a filter frequency
+lands its board and its desktop a ULP apart, and board runs of an effect
+class named it as one of the three causes of a drive class's
 digests differing. The derivation ends in `float32` there too, or the board and
 the desktop are not running the same filter.
 
@@ -297,6 +298,6 @@ between two digests it is a large meaningless number.
 
 Nothing establishes that a node of ours *sounds right*, or that its algorithm is
 the one intended. Three-target agreement proves consistency, traits prove stated
-properties. Neither proves a design. That comes from a dossier, a reference
-recording, or a listener's ear, and it belongs to the effects program's gates rather
-than to this page.
+properties. Neither proves a design. That comes from a circuit model, a reference
+recording, or a listener's ear, and it belongs to the instrument and effect
+libraries' own checks rather than to this page.

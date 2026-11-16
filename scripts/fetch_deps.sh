@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetch audiodsp's pinned native dependency (the mp3 decoder) into .deps/ for
-# standalone builds (a workspace checkout with a sibling clone already in
-# place needs none of this -- the build glue prefers .deps/ and falls back to
+# standalone builds (a checkout with an Adafruit_MP3 clone already beside it
+# needs none of this -- the build glue prefers .deps/ and falls back to
 # the sibling).
 #
 #   ./scripts/fetch_deps.sh          # clone/checkout pins, apply patches

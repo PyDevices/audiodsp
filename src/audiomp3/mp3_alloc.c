@@ -3,7 +3,7 @@
 // `__init__.c` to `mp3_alloc.c` for this port's flat layout. This is the
 // default (non-coverage) allocator CP itself uses for the Helix decoder's
 // internal buffers: GC-heap `m_malloc_maybe`, same as every other buffer
-// this port allocates (see docs/how-it-works/upstream-diff.md's
+// this port allocates (see docs/dev/upstream-record.md's
 // `m_malloc_without_collect` -> `m_malloc` fix note for the established
 // convention) rather than the unix coverage variant's raw
 // malloc()/free() shortcut -- that shortcut has no effect on rendered PCM
@@ -13,7 +13,7 @@
 // Deviation from upstream, part 1: `mp3_free` uses `gc_free` (when GC is
 // enabled), not `m_free`. Unlike CP's own `m_free(ptr)`, mainline's `m_free`
 // needs an explicit size argument on any port with
-// `MICROPY_MALLOC_USES_ALLOCATED_SIZE` (this workspace's unix port:
+// `MICROPY_MALLOC_USES_ALLOCATED_SIZE` (the unix port:
 // `ports/unix/variants/mpconfigvariant_common.h`) -- but `mp3_free`'s
 // callers (Helix's own `buffers.c`, via the `MPDEC_FREE(x)` macro) only
 // ever pass a bare pointer, with no size in scope to give it. `gc_free`
@@ -27,7 +27,7 @@
 // Deviation from upstream, part 2: no `MP_WEAK` here (upstream uses it so a
 // port can opt in to its own allocator via `CIRCUITPY_AUDIOMP3_USE_PORT_ALLOCATOR`
 // -- this port has no such opt-in, so there is never a second, strong
-// definition to prefer). Needed for this workspace's windows target: a
+// definition to prefer). Needed for the Windows (mingw-w64) target: a
 // weak-only symbol with no strong definition anywhere in the link is a
 // known mingw-w64/GNU-ld PE-COFF gap (unlike ELF, where a lone weak
 // definition resolves references just fine, confirmed working on this

@@ -46,7 +46,7 @@ void audiodsp_biquad_process(const audiodsp_biquad_coefficients_t *coefficients,
 // number of fractional bits rounded with `round(ldexp(v, shift))`, and an
 // int64_t sum into a feedback state with 12 bits below the sample. Since that
 // change it differs from audiobiquad's kernel in its sine and cosine and in how
-// W0 is derived (audiodsp_biquad_cp_w0() below), both upstream's and kept so. See docs/how-it-works/upstream-diff.md, "The biquads were
+// W0 is derived (audiodsp_biquad_cp_w0() below), both upstream's and kept so. See docs/dev/upstream-record.md, "The biquads were
 // Q15, so they could not go low".
 #define AUDIODSP_BIQUAD_CP_DEFAULT_SHIFT 15
 

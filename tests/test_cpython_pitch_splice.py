@@ -13,7 +13,7 @@ antiphase, and a short crossfade restarts the note's phase at every splice:
 what comes out is the note's neighbours a splice rate either side, and
 almost nothing at the shifted pitch. Here the incoming side is moved, by up
 to a 50th of a second, to where it matches the outgoing one
-(docs/how-it-works/upstream-diff.md). This file holds that on the CPython twin, which
+(docs/dev/upstream-record.md). This file holds that on the CPython twin, which
 runs the same kernel as the native node; `verify_dsp.py` holds the native
 builds to the same bytes.
 

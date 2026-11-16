@@ -1,19 +1,19 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiofilters/
 // Distortion.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviations: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, see docs/how-it-works/upstream-diff.md); `attr, cp_compat_attr` added to
+// equivalent, see docs/dev/upstream-record.md); `attr, cp_compat_attr` added to
 // the type registration for its BlockInput/mode/soft_clip/playing
 // properties.
 //
 // Reversed from an earlier "kept verbatim" decision (see
-// docs/how-it-works/upstream-diff.md, "Distortion soft_clip: verbatim-kept union
+// docs/dev/upstream-record.md, "Distortion soft_clip: verbatim-kept union
 // type-pun turned out to be architecture-dependent"): the make_new call
 // site used to pass `args[ARG_soft_clip].u_obj` (an mp_arg_val_t union
 // member) into a `bool soft_clip` parameter instead of `.u_bool` -- an
 // upstream union type-pun that happened to produce the right truth value
 // on x86-64 (this port's unix/windows targets, and CP's own unix coverage
 // oracle), so it was kept verbatim and verified byte-for-byte there. Once
-// this port gained a second architecture (wasm32, phase 8d), the same code
+// this port gained a second architecture (wasm32), the same code
 // produced a genuinely wrong `soft_clip` value -- and every real
 // CircuitPython board is 32-bit ARM, not x86-64, so the byte-exact-on-unix
 // result was the unrepresentative case, not the type-pun's "real" upstream

@@ -7,12 +7,12 @@
 // `py/objproperty.h` -> `cp_compat/objproperty.h`; `shared-bindings/util.h`'s
 // `mp_arg_validate_*` -> `cp_compat/argcheck.h`; `supervisor/background_callback.h`
 // -> `cp_compat/background_callback.h` (a stub, not a port -- see that
-// header). `lib/mp3/src/{mp3common,coder}.h` -> the vendored `mp3/src`
-// clone in the parent workspace (see
-// docs/how-it-works/upstream-diff.md for the license and the one local patch it needed).
+// header). `lib/mp3/src/{mp3common,coder}.h` -> the fetched `mp3/src`
+// clone (see
+// docs/dev/upstream-record.md for the license and the one local patch it needed).
 // `MP_TYPE_FLAG_HAS_SPECIAL_ACCESSORS` keeps upstream's flag; this port adds
 // `attr, cp_compat_attr` for property invocation on a native type, same as
-// every other tier -- see docs/how-it-works/upstream-diff.md, "Property invocation needs
+// every other ported module -- see docs/dev/upstream-record.md, "Property invocation needs
 // an explicit attr slot."
 //
 // Deviation from upstream: `mp_obj_malloc_with_finaliser` here is mainline's
@@ -24,7 +24,7 @@
 // mingw-w64's headers happen to expose it transitively through
 // `<sys/types.h>`/`<unistd.h>` already, which is why this was never needed
 // on unix or windows; emscripten's libc does not, and the wasm build
-// (phase 8d) failed with "use of undeclared identifier 'EINVAL'" without it.
+// failed with "use of undeclared identifier 'EINVAL'" without it.
 //
 // Deviation from upstream, 2026-09-21: `<unistd.h>` replaced by `<stdio.h>`.
 // Nothing in here calls a POSIX function -- the reads and seeks all go
@@ -70,8 +70,8 @@
 #define DO_DEBUG (0)
 
 // Deviation from upstream, this port's own windows target only (see
-// docs/how-it-works/upstream-diff.md, "Tier 5 audiomp3: MP_STREAM_POLL is unavailable on
-// win32 for real files"): mainline's own extmod/vfs_posix_file.c raises
+// docs/dev/upstream-record.md, "audiomp3: three Windows-only local fixes, no unix
+// impact"): mainline's own extmod/vfs_posix_file.c raises
 // NotImplementedError from MP_STREAM_POLL on _WIN32 for regular POSIX-style
 // file objects (not sockets) rather than returning a value -- so this
 // port's unix build takes the code below unchanged, but on windows the poll
@@ -363,7 +363,7 @@ void common_hal_audiomp3_mp3file_construct(audiomp3_mp3file_obj_t *self,
     } else {
         self->inbuf.size = DEFAULT_INPUT_BUFFER_SIZE;
         // Deviation from upstream: m_malloc_without_collect -> m_malloc, same
-        // established fix as every other tier (see docs/how-it-works/upstream-diff.md) --
+        // established fix as every other ported module (see docs/dev/upstream-record.md) --
         // mainline has no non-collecting allocator.
         self->inbuf.buf = m_malloc(DEFAULT_INPUT_BUFFER_SIZE);
         if (self->inbuf.buf == NULL) {

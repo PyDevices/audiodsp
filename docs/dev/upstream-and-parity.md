@@ -1,4 +1,4 @@
-# Keeping the CircuitPython modules in step with upstream
+# Keeping in step with CircuitPython
 
 Eight of audiodsp's modules are ports of CircuitPython's: `audiocore`,
 `synthio`, `audiomixer`, `audiospeed`, `audiodelays`, `audiofilters`,
@@ -9,8 +9,104 @@ modules should run on these unchanged, so what upstream adds comes in too. This 
 how, what the last one took, and every place this port differs from upstream
 on purpose, so the next resync can tell intent from drift.
 
-The reasons behind each difference, with their measurements, are in
-[upstream-diff.md](upstream-diff.md). This page is the index into it.
+What a user sees of each difference is in
+[Where audiodsp differs from CircuitPython](../how-it-works/upstream-diff.md).
+The reasons behind each one, with their measurements, are in
+[the upstream record](upstream-record.md); this page is the index into it.
+What each module is held to is in
+[the correctness standard](../how-it-works/correctness-standard.md), and the
+parity gates that hold it are below.
+
+## The parity gates
+
+CI runs the CPython fixture tests and the five parity gates whose goldens live
+in this repository (`verify_acceptance`, `verify_effects`, `verify_streaming`,
+`verify_biquad`, `verify_mixdown_knee`; see
+[Contributing](../../CONTRIBUTING.md#test)). The deeper gates need built
+interpreters and the pinned CircuitPython oracle, so CI doesn't run them. This
+part is for when you do.
+
+### The oracle binary
+
+CircuitPython at the commit on the `circuitpython` line of `DEPENDENCIES.lock` is the oracle every
+CircuitPython-shared parity golden is measured against. Build it as
+CircuitPython's unix coverage variant with `CIRCUITPY_SYNTHIO_MAX_CHANNELS=64`
+and this repository as its only audio user C module (`circuitpython.mk`), at
+the same version and voice ceiling this port ships. An oracle at another
+configuration can't answer the only question worth asking. Re-pin its hash in
+`tests/test_voice_ceiling_consistency.py` in the same change that builds it.
+
+A stock `circuitpython` unix build is not the oracle: the coverage variant's own
+ceiling is 14 voices, and it changes whenever the interpreter is rebuilt.
+
+Never edit CircuitPython's own sources for the oracle. A modified oracle
+redefines what parity means and invalidates every golden without failing
+anything. The pin moves only when the port moves to a new CircuitPython
+release, in a change that re-reads every CircuitPython-shared gate and writes
+the reason down. Every pin move is a resync: take every audio fix and addition
+upstream made since the old pin, following [How](#how) below.
+
+Extending CircuitPython is the designed path, and it is additive only. New
+modules live under `src/circuitpython_spike/` and build with `src/shared/` as a
+user C module. Never make one shadow or rewrite a CircuitPython module, because
+the oracle is built with it and a behavioral change would leak into the oracle.
+After any CircuitPython-adjacent work, check that `circuitpython.mk` compiles
+only this repository's modules and `src/shared/`, never a file under
+CircuitPython's `shared-module/` or `shared-bindings/` for `synthio`,
+`audiofilters`, `audiocore`, `audiomixer` or `audiodelays`.
+
+### Running them
+
+Every script under `tests/parity/` runs unchanged against this port and the
+oracle, renders PCM and diffs it byte for byte, or documents the exact bounded
+exception in [the upstream record](upstream-record.md). The scripts' zero-argument
+defaults don't point at any directory, so pass `--micropython` and
+`--circuitpython`, or set `CP_DIR`, `MP_UNIX` or `ULAB_DIR`.
+
+The nine modules that are ours have no oracle
+([the standard](../how-it-works/correctness-standard.md)). They are held to two things: every
+target renders them identically, and their numeric traits hold.
+
+```sh
+python tests/parity/verify_dsp.py --micropython <path to the MicroPython unix binary>
+```
+
+Add `--circuitpython <oracle>` for the three-way. There is no stored digest: the
+gate is the comparison, and it refuses a run with fewer than two interpreters,
+because one interpreter can't disagree with itself. The arithmetic is all in
+`src/shared/`, so two interpreters disagreeing is never a difference of intent;
+it is a width, an undefined shift, a compiler's choice or an architecture.
+
+The traits are the other half, one file per module:
+`tests/test_cpython_<module>.py`, each opening with its trait table and the bar
+for every row. Agreement can't see a change that moves all three targets
+together; the traits can, because they are measured against arithmetic rather
+than against our own last answer.
+
+`verify_mixdown_knee` is the only gate whose material crosses the mix-down
+limiter's +/-28000 knee, so it is the only one that can see a synthio voice
+ceiling change. It sees one of the ceiling's five sites, `max_polyphony` in
+`src/cpython/synthio.py`, because that is the only one the CPython target reads;
+`tests/test_voice_ceiling_consistency.py` guards against a half-applied change.
+Its above-knee half is enforced against this port, not the oracle: the port is
+built at 64 voices and the pinned oracle at the same ceiling it ships.
+
+### Two kinds of golden
+
+The instruments digests (`instruments_*.json`, under the archived
+[audiocomponents](https://github.com/PyDevices/audiocomponents)'
+`tests/parity/golden/`) record that the port matches the pre-rewrite original
+script within one interpreter. They never consult the oracle. So a correct
+change to `src/cpython/` here can still stale those CPython digests.
+
+A CPython-target fix may re-capture the affected digests only if it carries
+independent evidence against the built oracle: a test in
+`tests/test_cpython_*.py` run against the oracle and cited in the commit
+message. The audiocomponents re-capture names the commit here that carries that
+evidence. A fix that merely asserts oracle intent doesn't qualify, since that
+would let it rewrite its own reference. The stored digest is the only thing in
+that gate that notices the engine moving under both the original and the port,
+so it stays. Each alarm costs one adjudication; that is the price of the signal.
 
 ## When
 
@@ -215,12 +311,12 @@ a resync should take upstream's version. Each entry links to its reasons.
   the native bytes by `verify_dsp.py` rather than by sharing upstream's code.
 - **`attr, cp_compat_attr`** on every type, because mainline MicroPython
   needs it to call a property
-  ([why](upstream-diff.md#property-invocation-needs-an-explicit-attr-slot-tier-01-all-tiers-after)).
+  ([why](upstream-record.md#property-invocation-needs-an-explicit-attr-slot)).
 - **`m_malloc` for `m_malloc_without_collect`**, which mainline lacks.
 - **Includes and declarations** that only make a merged file compile: a
   single `synthio_synth_t` typedef, dropped circular includes, explicit
   `<errno.h>`, `__attribute__((unused))`
-  ([WASM fixes](upstream-diff.md#phase-8d-wasm-build-fixes)).
+  ([WASM fixes](upstream-record.md#wasm-build-fixes)).
 
 ### The pump
 
@@ -232,17 +328,17 @@ modules carry what that needs. None of it changes a sample.
   while it is held. `check_for_deinit` reads the flag without the lock, as
   upstream does: it's one word, and taking the lock there deadlocked a second
   thread while a decoder's stream read had let the GIL go
-  ([the pull is a critical section](upstream-diff.md#the-pull-is-a-critical-section-and-the-funnel-stopped-raising-live-audio-path)).
+  ([the pull is a critical section](upstream-record.md#the-pull-is-a-critical-section-and-the-funnel-stopped-raising)).
 - The pull funnel returns `GET_BUFFER_ERROR` and a fault code where upstream
   raises; `audiocore.get_buffer()` and `reset_buffer()` still raise.
 - `WaveFile` and `MP3Decoder` refuse to be pulled on the pump thread, because
   they read through the VFS.
 - `Synthesizer` walks its blocks as a list, never through the iterator
   protocol
-  ([why](upstream-diff.md#synthesizer-walks-its-free-running-blocks-as-a-list-not-as-an-iterable)).
+  ([why](upstream-record.md#synthesizer-walks-its-free-running-blocks-as-a-list-not-as-an-iterable)).
 - `MultiTapDelay` builds new tap tables and swaps them in under the lock,
   where upstream resizes them in place
-  ([why](upstream-diff.md#a-released-effect-lets-go-of-its-source-and-multitapdelay-swaps-its-taps-under-the-lock)).
+  ([why](upstream-record.md#a-released-effect-lets-go-of-its-source-and-multitapdelay-swaps-its-taps-under-the-lock)).
 - The protocol has an optional `sources` slot, so a graph can be walked
   without pulling it.
 
@@ -250,7 +346,7 @@ modules carry what that needs. None of it changes a sample.
 
 - `deinit()` on the ported effects also lets go of `sample`, so a released
   node does not keep the chain behind it alive
-  ([why](upstream-diff.md#a-released-effect-lets-go-of-its-source-and-multitapdelay-swaps-its-taps-under-the-lock)).
+  ([why](upstream-record.md#a-released-effect-lets-go-of-its-source-and-multitapdelay-swaps-its-taps-under-the-lock)).
 
 ### No finalisers
 
@@ -267,62 +363,62 @@ reason, and a resync should not take them.
 
 - **audiocore**: `get_buffer()` returns a byte view, and the oracle is
   patched to match
-  ([why](upstream-diff.md), under "`audiocore.get_buffer` returns a byte view").
+  ([why](upstream-record.md#audiocoreget_buffer-returns-a-byte-view-a-circuitpython-patch)).
   A host reset keeps the frames a node has already taken
-  ([why](upstream-diff.md#a-host-reset-keeps-the-frames-a-node-has-already-taken-audiodsp181)).
+  ([why](upstream-record.md#a-host-reset-keeps-the-frames-a-node-has-already-taken-audiodsp181)).
   `WaveFile` opens a path as well as a file.
 - **synthio**: 64 voices where CircuitPython builds 14
-  ([why](upstream-diff.md#the-voice-ceiling-is-64-where-circuitpython-builds-14-2026-09-03-recorded-2026-09-06)).
+  ([why](upstream-record.md#the-voice-ceiling-is-64-where-circuitpython-builds-14-2026-09-03-recorded-2026-09-06)).
   `Note.filter` takes a tuple of `Biquad`s as a serial cascade
-  ([extension](upstream-diff.md#extension-notefilter-accepts-a-serial-biquad-cascade-2026-09-01)).
+  ([extension](upstream-record.md#extension-notefilter-accepts-a-serial-biquad-cascade-2026-09-01)).
   `from_file` opens a path as well as a file. `lfo_tick()` is always built.
 - **audiomixer**: a reset keeps every voice playing where it was instead of
   stopping them
-  ([why](upstream-diff.md#resetting-a-mixer-silenced-it-permanently-audioeffects-tier)).
+  ([why](upstream-record.md#resetting-a-mixer-silenced-it-permanently)).
   A looping sample under one word is refused
-  ([why](upstream-diff.md#audiomixer-a-looping-sample-under-one-word-is-refused-not-spun-on-audiodsp85)).
+  ([why](upstream-record.md#audiomixer-a-looping-sample-under-one-word-is-refused-not-spun-on-audiodsp85)).
   Level and panning are always block inputs, and the ARM CMSIS intrinsics are
   the portable C
-  ([why](upstream-diff.md#audiomixer-synthio-block-input-made-unconditional-arm-cmsis-dropped-tier-3)).
+  ([why](upstream-record.md#audiomixer-synthio-block-input-made-unconditional-arm-cmsis-dropped)).
   `Mixer.level_ramp` is new: set it and a level or pan move walks instead of
   waiting for a zero crossing
-  ([why](upstream-diff.md#a-level-ramp-on-mixer-voices)).
+  ([why](upstream-record.md#a-level-ramp-on-mixer-voices)).
 - **audiospeed**: the Q16 rate rounds and the phase carries across a source
   buffer
-  ([rate](upstream-diff.md#audiospeed-the-q16-rate-rounds-here-upstream-truncates-audiodsp92),
-  [phase](upstream-diff.md#audiospeed-the-phase-accumulator-crosses-a-source-buffer-upstreams-restarts-audiodsp91)).
+  ([rate](upstream-record.md#audiospeed-the-q16-rate-rounds-here-upstream-truncates-audiodsp92),
+  [phase](upstream-record.md#audiospeed-the-phase-accumulator-crosses-a-source-buffer-upstreams-restarts-audiodsp91)).
 - **audiodelays**: `Flanger` does not reproduce upstream's int32 overflow
-  ([why](upstream-diff.md#audiodelaysflanger-we-do-not-reproduce-upstreams-int32-overflow-audiodsp76)).
+  ([why](upstream-record.md#audiodelaysflanger-we-do-not-reproduce-upstreams-int32-overflow-audiodsp76)).
   `MultiTapDelay` keeps its lanes after an odd-length buffer and never spins
   on an empty source
-  ([why](upstream-diff.md#audiodelaysmultitapdelay-the-lanes-hold-and-a-pull-always-returns-audiodsp177)).
+  ([why](upstream-record.md#audiodelaysmultitapdelay-the-lanes-hold-and-a-pull-always-returns-audiodsp177)).
   `Echo` lets go of a looped source that comes back empty instead of asking
   it again for ever
-  ([why](upstream-diff.md#audiodelaysecho-a-looped-source-that-comes-back-empty-is-let-go)).
+  ([why](upstream-record.md#audiodelaysecho-a-looped-source-that-comes-back-empty-is-let-go)).
   A reset puts `PitchShift`'s read and write positions and
   `GranularPitchShift`'s jitter sequence back where a new node starts
-  ([why](upstream-diff.md#audiodelays-a-reset-puts-the-pitch-shifters-back-where-a-new-node-starts)).
+  ([why](upstream-record.md#audiodelays-a-reset-puts-the-pitch-shifters-back-where-a-new-node-starts)).
   `Echo` and `MultiTapDelay` start a line shortened under the write head at
   its top rather than write one sample past its end
-  ([why](upstream-diff.md#audiodelaysecho-and-multitapdelay-a-shortened-line-starts-again-at-its-top)).
+  ([why](upstream-record.md#audiodelaysecho-and-multitapdelay-a-shortened-line-starts-again-at-its-top)).
   Both pitch shifters return from a source with nothing to give instead of
   spinning
-  ([why](upstream-diff.md#audiodelays-the-pitch-shifters-return-from-a-source-with-nothing-to-give)).
+  ([why](upstream-record.md#audiodelays-the-pitch-shifters-return-from-a-source-with-nothing-to-give)).
   `Flanger` does the same
-  ([why](upstream-diff.md#audiodelaysflanger-a-pull-returns-when-the-source-has-nothing-to-give)).
+  ([why](upstream-record.md#audiodelaysflanger-a-pull-returns-when-the-source-has-nothing-to-give)).
   `PitchShift` moves each splice's incoming side into phase with the
   outgoing one; a resync keeps the move
-  ([why](upstream-diff.md#audiodelayspitchshift-a-splice-lands-in-phase)).
+  ([why](upstream-record.md#audiodelayspitchshift-a-splice-lands-in-phase)).
 - **audiomp3**: a rewind clears the decoder's frame-to-frame state, so a
   looped second lap decodes like the first (audiodsp#219; 11.0.0-alpha.1
   keeps it). The allocator, three Windows-only fixes and the platform list
   are this port's
-  ([allocator](upstream-diff.md#tier-5-audiomp3-allocator-wiring-diverges-from-upstream-both-are-correct),
-  [Windows](upstream-diff.md#tier-5-audiomp3-three-windows-only-local-fixes-no-unix-impact),
-  [platforms](upstream-diff.md#tier-5-audiomp3-on-cmakemcu-ports-mp3dechs-platform-list-and-a-qstr-extraction-blind-spot-phase-10)).
+  ([allocator](upstream-record.md#audiomp3-allocator-wiring-diverges-from-upstream-both-are-correct),
+  [Windows](upstream-record.md#audiomp3-three-windows-only-local-fixes-no-unix-impact),
+  [platforms](upstream-record.md#audiomp3-on-cmakemcu-ports-mp3dechs-platform-list-and-a-qstr-extraction-blind-spot)).
 
 Kept as upstream has them, on purpose, though they look wrong (so a resync
 should not "fix" them here): `audiofilters.Phaser`'s DC constant
-([why](upstream-diff.md#audiofiltersphaser-holds-a-dc-constant-forever-audiodsp36-kept-verbatim))
+([why](upstream-record.md#audiofiltersphaser-holds-a-dc-constant-forever-audiodsp36-kept-verbatim))
 and `Distortion` ignoring `drive` in OVERDRIVE mode
-([why](upstream-diff.md#distortion-ignores-drive-in-overdrive-mode-upstream-worked-around)).
+([why](upstream-record.md#distortion-ignores-drive-in-overdrive-mode-upstream-worked-around)).

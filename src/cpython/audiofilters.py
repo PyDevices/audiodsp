@@ -41,7 +41,7 @@ class _Effect(_AudioSample):
     _process_during_pull = True
     # Upstream CircuitPython's effects go round their pull loop for ever when
     # a source says it has more and hands back 0 bytes. MultiTapDelay stops
-    # (a recorded deviation, docs/how-it-works/upstream-diff.md); the rest match upstream.
+    # (a recorded deviation, docs/dev/upstream-record.md); the rest match upstream.
     _stop_on_empty_pull = False
     _lane = 0
 

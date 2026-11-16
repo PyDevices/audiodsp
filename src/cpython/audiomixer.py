@@ -180,7 +180,7 @@ class MixerVoice:
     @loop.setter
     def loop(self, value):
         # The native binding has carried `MixerVoice.loop` as a GETSET since
-        # the tier-3 port and CircuitPython has it too; this side only ever had
+        # the audiomixer port and CircuitPython has it too; this side only ever had
         # the `play(loop=)` argument, so the property is added here rather than
         # being a new surface. It is deliberately unguarded -- see play().
         self._loop = bool(value)
@@ -216,7 +216,7 @@ class Mixer(_AudioSample):
         """How many frames a voice's level or pan move takes, in a straight
         line. 0, the default, waits for a zero crossing, as CircuitPython's
         Mixer does. Not in CircuitPython; see
-        docs/how-it-works/upstream-diff.md, "A level ramp on Mixer voices"."""
+        docs/dev/upstream-record.md, "A level ramp on Mixer voices"."""
         self._check()
         return self._level_ramp
 
@@ -262,7 +262,7 @@ class Mixer(_AudioSample):
 
     def _reset_buffer(self, single_channel_output=False, audio_channel=0):
         # Deviation from upstream, which stops every voice here -- see
-        # docs/how-it-works/upstream-diff.md, "Resetting a Mixer silenced it". A host reset
+        # docs/dev/upstream-record.md, "Resetting a Mixer silenced it". A host reset
         # keeps every voice as it is, its source and the frames it has taken,
         # the rule every node follows on a reset (audiodsp#181, #178).
         self._check()

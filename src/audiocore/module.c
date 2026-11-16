@@ -8,7 +8,7 @@
 // Unconditional here: this is exactly the primitive
 // the oracle-diffing test strategy needs -- a Python-level
 // way to pull raw PCM out of *any* audiosample (RawSample, WaveFile, and
-// every audiosample-shaped type from later tiers) without needing a real
+// every other audiosample-shaped type) without needing a real
 // output device or a Mixer wired up yet.
 //
 // SPDX-FileCopyrightText: Copyright (c) 2017 Scott Shawcroft for Adafruit Industries

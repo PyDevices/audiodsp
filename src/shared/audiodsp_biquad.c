@@ -17,7 +17,7 @@
 // and it costs low frequencies, badly and silently: `b0` for a low-pass is
 // (1 - cos W0)/2, which at 100 Hz / 48 kHz is 4.3e-5, or 1.4 in Q15 - so it
 // rounds to 1 and the filter is no longer the one that was asked for. A
-// LOW_PASS at 100 Hz used to return silence. See docs/how-it-works/upstream-diff.md.
+// LOW_PASS at 100 Hz used to return silence. See docs/dev/upstream-record.md.
 //
 // Two things are widened here, for two different reasons. The coefficients get
 // as many fractional bits as they individually have room for (below), because
@@ -89,7 +89,7 @@ void audiodsp_biquad_configure_w0(audiodsp_biquad_coefficients_t *coefficients,
         }
     } else if (mode == 4) {
         // b2 is `1 - alpha * A`, not `+`. Upstream CircuitPython has the plus
-        // (shared-module/synthio/Biquad.c); see docs/how-it-works/upstream-diff.md. The sign
+        // (shared-module/synthio/Biquad.c); see docs/dev/upstream-record.md. The sign
         // is what makes numerator and denominator sum alike at DC and Nyquist,
         // which is the whole point of a peaking filter: unity everywhere except
         // the band. With it flipped the numerator gains 2*alpha*A at DC while
@@ -192,7 +192,7 @@ void audiodsp_biquad_process(const audiodsp_biquad_coefficients_t *c,
 // It is shared-module/synthio/Biquad.c as of CircuitPython main ae47a3f15d,
 // which is ahead of the pinned 11.0.0-alpha.2 in two commits from
 // adafruit/circuitpython#11679 (taken in upstream's words, ahead of the pin;
-// docs/how-it-works/upstream-sync.md):
+// docs/dev/upstream-and-parity.md):
 //
 //   * 24546b7d1d: fast_sincos() reflects the angle into [0, pi/4] and
 //     evaluates a minimax polynomial there, where it used to extrapolate one

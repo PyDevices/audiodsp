@@ -51,7 +51,9 @@ full run is long. The deeper parity checks need built interpreters and the
 pinned CircuitPython oracle beside this checkout, so CI doesn't run them and
 you don't need them for a first contribution.
 [The correctness standard](docs/how-it-works/correctness-standard.md) says
-what each module is held to.
+what each module is held to, and
+[Keeping in step with CircuitPython](docs/dev/upstream-and-parity.md) says how
+to build the oracle and run the deeper gates.
 
 ## Rules that keep the port honest
 
@@ -59,7 +61,7 @@ what each module is held to.
   `DEPENDENCIES.lock` is what every parity golden is measured against. Edit CircuitPython's own
   sources for it and parity quietly means something else. Moving the pin is a
   resync with upstream, done deliberately: see
-  [Keeping in step with upstream](docs/how-it-works/upstream-sync.md).
+  [Keeping in step with CircuitPython](docs/dev/upstream-and-parity.md).
 - **Extend CircuitPython, don't change it.** New modules live in `src/` and
   build into CircuitPython as a user C module through `circuitpython.mk`. They
   never shadow or rewrite one of CircuitPython's.
@@ -69,8 +71,9 @@ what each module is held to.
   without saying why.
 - **A fix for a bug that also exists upstream** goes in this repository's
   targets only, recorded in
-  [upstream-diff](docs/how-it-works/upstream-diff.md); open an issue before
-  adding a new deviation from CircuitPython.
+  [the upstream record](docs/dev/upstream-record.md), with what a user sees
+  in [Where audiodsp differs from CircuitPython](docs/how-it-works/upstream-diff.md).
+  Open an issue before adding a new deviation from CircuitPython.
 
 ## Build and release wheels
 
@@ -115,7 +118,7 @@ sdist alongside `LICENSE`.
 The Helix MP3 decoder that `audiomp3` wraps is RPSL/RCSL-licensed, not MIT.
 [`scripts/fetch_deps.sh`](scripts/fetch_deps.sh) fetches it, carried unmodified per upstream's own
 terms; it isn't part of this repository. See
-[upstream-diff](docs/how-it-works/upstream-diff.md).
+[the upstream record](docs/dev/upstream-record.md#audiomp3-license).
 
 The Tremor Vorbis decoder that `audiovorbis` wraps is in this repository, in
 [third_party/tremor](third_party/tremor), under Xiph.Org's BSD-3-Clause

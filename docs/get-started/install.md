@@ -41,7 +41,8 @@ are not part of this distribution. They live in the
 as their own packages, each depending on `omnipython-audiodsp`; see that
 repository for how to install them.
 
-To render on several threads, see [Render on several threads](../guides/use-threads.md).
+To render on several threads, see
+[Render on several threads](../guides/run-the-audio-pump.md#render-on-several-threads).
 
 ## MicroPython 1.29 or later
 

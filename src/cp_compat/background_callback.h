@@ -1,7 +1,7 @@
 // Compat shim for audiodsp, standing in for CircuitPython's
 // supervisor/background_callback.h (upstream repo:
 // https://github.com/adafruit/circuitpython, MIT) -- see
-// docs/how-it-works/upstream-diff.md, "audiomp3: background_callback is synchronous
+// docs/dev/upstream-record.md, "audiomp3: background_callback is synchronous
 // here" for why this is a stub rather than a port.
 //
 // CircuitPython's own unix `coverage` build variant -- our parity oracle --
@@ -21,7 +21,7 @@
 //
 // A real interrupt/scheduler-driven refill (to overlap decode with a
 // `machine.I2S` DMA pump instead of decoding synchronously inside
-// get_buffer) is a phase 8/10 concern for mcu output devices, not this one.
+// get_buffer) is a concern for mcu output devices, not this one.
 //
 // SPDX-License-Identifier: MIT
 

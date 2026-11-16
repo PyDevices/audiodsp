@@ -8,8 +8,9 @@ keep the same import names across those runtimes.
 The repository is an audio *core*, not a complete sound application. It
 provides sources, processors, mixing, and the portable audio pump; a board or
 desktop integration provides the physical output device. Instruments and
-high-level effects belong in the separate
-[audiocomponents](https://github.com/PyDevices/audiocomponents) repository.
+effects are separate libraries built on it:
+[audioinstruments](https://github.com/PyDevices/audioinstruments) and
+[audioeffects](https://github.com/PyDevices/audioeffects).
 
 ## Start by choosing a runtime
 
@@ -79,8 +80,6 @@ shows its optional extra.
 
 ## Important boundaries
 
-- `audioinstruments` and `audioeffects` no longer ship from this repository.
-  Install and change them in `audiocomponents`.
 - The `mp3` native dependency is a cloned, pinned dependency; it is not
   vendored source to edit here.
 - `audiodsp_util.float32()` matters when Python computes a setting that must
@@ -93,19 +92,9 @@ shows its optional extra.
 
 ## Testing and contributing
 
-Most deep parity checks need the sibling repositories checked out beside
-this one, built interpreters, and the fixed CircuitPython oracle. They are
-not a standalone contributor prerequisite. The repository's CI covers CPython
-fixture tests and committed in-repository parity gates; `python -m flake8` is
-the local lint gate. [CONTRIBUTING.md](https://github.com/PyDevices/audiodsp/blob/main/CONTRIBUTING.md) has the rules:
-don't modify the CircuitPython oracle, don't casually update parity goldens,
-and don't move the dependency pins.
-
-Start with a documentation correction, a focused CPython fixture, or a
-well-bounded module change; then read [the upstream-sync record](upstream-sync.md)
-for the module's intended behavior and known deliberate differences.
-
-For a first tour of the implementation, follow one simple source through
+[CONTRIBUTING.md](https://github.com/PyDevices/audiodsp/blob/main/CONTRIBUTING.md)
+has the build, the tests CI runs and the rules that keep the port honest. For
+a first tour of the implementation, follow one simple source through
 `audiocore`'s sample interface, a `synthio.Synthesizer`, and `audiomixer` or
 `audiopump`. That path explains the common contract behind the larger effect
 catalogue better than reading the module directories alphabetically.
@@ -119,22 +108,19 @@ hardware layer. The modules you import did not change. The helper package is
 ## How it is checked
 
 The committed synthesis, mixer, MIDI, streaming and effects fixtures match
-CircuitPython 11.0.0-alpha.2 PCM byte-for-byte, built at the same voice
-ceiling this port ships (the pin is the `circuitpython` line of `DEPENDENCIES.lock`). Import and API
-smoke success is not used as a substitute for those comparisons. The
-playback-facing pull protocol (`audiocore.get_buffer` and `reset_buffer`) is
-consumed by `omnipython`'s `lib/audiodev` package (`AudioOut` in
-`sample_out.py`), which pumps any audiosample into any of `audiodev`'s
-push-PCM transports.
+CircuitPython's PCM byte for byte, at the release on the `circuitpython` line
+of `DEPENDENCIES.lock` and the voice ceiling this port ships.
+[The correctness standard](correctness-standard.md) says what each module is
+held to. The pull protocol (`audiocore.get_buffer` and `reset_buffer`) is what
+`omnipython`'s `audiodev` package plays from, so any audio sample here plays
+through any of its outputs.
 
 ## Pages in this section
 
 - [Additions beyond CircuitPython](additions.md): why each added module exists.
+- [Where audiodsp differs from CircuitPython](upstream-diff.md): each behaviour that differs, and what to do about it.
 - [Sound stability](sound-stability.md): what is stable across releases, and what isn't.
 - [The correctness standard](correctness-standard.md): how each module is held to a reference.
-- [Running the parity gates](parity-gates.md): the oracle binary, the deeper gates and the golden rules.
-- [Keeping in step with upstream](upstream-sync.md): the resync procedure, and every deliberate difference.
-- [Differences from upstream, with measurements](upstream-diff.md): the reasons behind each one.
 - [The graph runner](audiograph.md): how `audiograph.Graph` renders a patch.
 - [The drift resampler](drift-resampler.md): how `audiopump.DriftResampler` holds a Ring filled on another clock.
 - [Writing a pump port](pump-ports.md): how a platform plugs in a clock, a thread and a sink.

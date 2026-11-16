@@ -29,9 +29,9 @@ buffer that is allocated only if asked for. `true_peak=True` adds the peak
 over hides. Both default off: a Dynamics built without them is the node
 exactly as it was.
 
-Twenty-one further options came with the effects program, every one of them
+Twenty-one further options came with the effect classes, every one of them
 default-off and every one of them a fixed trait of a named circuit that
-tuning the shipped knobs cannot reach. See docs/how-it-works/upstream-diff.md for the
+tuning the shipped knobs cannot reach. See docs/dev/upstream-record.md for the
 measurements; briefly:
 
 * ``detector="rms"`` with ``rms_ms`` averages a mean square instead of
@@ -100,7 +100,7 @@ _OPTIONS = {
     "sidechain_hz": 8,
     "lookahead_ms": 9,
     "true_peak": 10,
-    # The effects program's additions. New names go on the end; these numbers
+    # Options added for the effect classes. New names go on the end; these numbers
     # are the C enum's, and the C enum only ever grows.
     "transient_fast_attack_ms": 11,
     "transient_fast_release_ms": 12,

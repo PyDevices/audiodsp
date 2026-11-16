@@ -6,7 +6,7 @@
 
     mixer_level_ramp_probe.py audiomixer
 
-`Mixer.level_ramp` is this port's, not CircuitPython's (docs/how-it-works/upstream-diff.md,
+`Mixer.level_ramp` is this port's, not CircuitPython's (docs/dev/upstream-record.md,
 "A level ramp on Mixer voices"). The native mixer walks a move one packed
 word at a time and the CPython twin one int16 pair at a time; this prints
 what each renders so `verify_dsp.py` can hold them to the same bytes. The

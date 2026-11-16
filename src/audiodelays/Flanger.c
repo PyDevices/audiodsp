@@ -1,7 +1,7 @@
 // Ported from CircuitPython's shared-bindings+shared-module/audiodelays/
 // Flanger.{h,c} (upstream repo: https://github.com/adafruit/circuitpython,
 // MIT). Deviation: m_malloc_without_collect -> m_malloc (no mainline
-// equivalent, see docs/how-it-works/upstream-diff.md). `attr, cp_compat_attr` added for
+// equivalent, see docs/dev/upstream-record.md). `attr, cp_compat_attr` added for
 // min_delay_ms/rate/depth/feedback/mix/invert/lfo_value/playing. The custom
 // `__exit__` (calling common_hal_audiodelays_flanger_deinit directly
 // instead of the generic default___exit___obj method-dispatch helper) is
@@ -234,7 +234,7 @@ audioio_get_buffer_result_t audiodelays_flanger_get_buffer(audiodelays_flanger_o
     // looping source that comes back empty straight after its reset has
     // nothing at all, so the node lets go of it, as the CPython twin does.
     // Upstream CircuitPython goes round again with n == 0 in both cases and
-    // never leaves the loop (docs/how-it-works/upstream-diff.md).
+    // never leaves the loop (docs/dev/upstream-record.md).
     bool starved = false;
 
     while (length != 0) {
@@ -502,7 +502,7 @@ MP_PROPERTY_GETSET(audiodelays_flanger_mix_obj,
 
 // Not upstream: Flanger.mix_ramp, the frames a mix move walks over in a
 // straight line instead of landing at the next block. 0, the default, is
-// CircuitPython's node to the byte (docs/how-it-works/upstream-diff.md).
+// CircuitPython's node to the byte (docs/dev/upstream-record.md).
 static mp_obj_t audiodelays_flanger_obj_get_mix_ramp(mp_obj_t self_in) {
     audiodelays_flanger_obj_t *self = MP_OBJ_TO_PTR(self_in);
     check_for_deinit(self);

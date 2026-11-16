@@ -1,6 +1,6 @@
 # Scenario S1: a stranger builds audiodsp from this repository, upstream
-# MicroPython, and the declared pinned dependencies -- no parent workspace
-# of any kind. This is the standalone contract's proof, run on every push.
+# MicroPython, and the declared pinned dependencies -- no other checkout
+# beside it. This is the standalone contract's proof, run on every push.
 name: Clean standalone build
 
 # Documentation-only changes can't change this result, so they don't run it.
@@ -104,9 +104,8 @@ jobs:
         run: |
           ./scripts/fetch_deps.sh
           ./scripts/fetch_deps.sh --check
-      # v1.29.0 since the workspace pin moved there on 2026-09-09; this
-      # step said v1.28.0 until then, so the standalone build was proved
-      # against an interpreter the org no longer runs.
+      # v1.29.0 since 2026-09-09; this step said v1.28.0 until then, so the
+      # standalone build was proved against an interpreter no longer in use.
       - name: Check out upstream MicroPython v1.29.0
         uses: actions/checkout@v7
         with:
@@ -115,7 +114,7 @@ jobs:
           path: micropython
       - name: Build the unix port with the audiodsp usermod
         # The manifest names this module with c_module(), so USER_C_MODULES
-        # never points at the workspace: the parent-directory scan plus the
+        # never points at the parent directory: its scan plus the
         # manifest would include audiodsp twice. It points at tests/pump, for
         # the probes' test sink (sinkstub), and comes from the environment:
         # on make's command line it would override the manifest's own
@@ -181,7 +180,7 @@ jobs:
       # `--fault` is run first and must FAIL: a probe whose failing mode is
       # never exercised is not a gate.
       - name: The deinit surface, and proof the probe can fail
-        # Paths are workspace-root relative here, not repo-root: this job
+        # Paths are relative to the checkout root, not the repo root: this job
         # checks the repo out to `audiodsp/` and puts upstream MicroPython
         # beside it.
         run: |

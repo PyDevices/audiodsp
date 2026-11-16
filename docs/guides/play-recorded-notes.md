@@ -83,7 +83,7 @@ that uses none of them renders exactly as before and costs the same. One
 with a filter costs about 1.7 times as much on a desktop and twice as much
 on an ESP32-P4, where 48 filtered voices fit a 256-frame block and 64 only
 just do: see
-[what the filter and the LFOs cost](../how-it-works/upstream-diff.md#what-the-filter-and-the-lfos-cost).
+[what the filter and the LFOs cost](https://github.com/PyDevices/audiodsp/blob/main/docs/dev/upstream-record.md#what-the-filter-and-the-lfos-cost).
 
 They cost no memory until a voice uses them. The first `play()` that asks for
 any of them, or the first `cutoff` or nonzero `vibrato_depth` set on a voice,
@@ -97,7 +97,8 @@ small pieces rather than one large one.
 Every voice is mixed in one C call per block, summed in float and quantised
 once, through a 4-point Hermite interpolator, so a loop at pitch 1.0 is a
 wire. For why the position is fixed point and how the pitch is verified by
-measurement, see [`upstream-diff`](../how-it-works/upstream-diff.md).
+measurement, see
+[the upstream record](https://github.com/PyDevices/audiodsp/blob/main/docs/dev/upstream-record.md#audiosampler-a-sample-player-because-a-mixer-voice-cannot-change-pitch).
 
 `SampleBuffer(size)` is memory for the samples, outside the collected heap:
 `size` zeroed bytes, with a buffer, so you can read into it and play views of

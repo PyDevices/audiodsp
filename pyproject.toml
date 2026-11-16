@@ -68,7 +68,7 @@ packages = ["audiorender", "audiodsp_util"]
 # `build_ext --inplace` .so beside the wrappers instead of at the repo root.
 #
 # audiorender lives under lib/ rather than beside the wrappers because
-# <repo>/lib/<package> is the PyDevices layout for pure-Python tiers (it is
+# <repo>/lib/<package> is the layout for pure-Python packages (it is
 # what the MIP publisher expects). It is desktop-only -- numpy, a whole song
 # in memory -- so it ships in the wheel and is never MIP-published.
 [tool.setuptools.package-dir]
@@ -96,8 +96,8 @@ test-command = "python -c \"from array import array; import audiocore, synthio; 
 # is correct on both and adding an ARM runner to a matrix is all it takes
 # to get ARM wheels.
 #
-# aarch64 is the Raspberry Pi and every 64-bit SBC -- the audience the
-# org's platform-support tiers already claim desktop-Linux coverage for.
+# aarch64 is the Raspberry Pi and every 64-bit SBC -- the audience
+# desktop-Linux coverage is meant for.
 # musllinux stays skipped above: the test that admits aarch64 is what
 # excludes it, since we can name aarch64's users and cannot name Alpine's.
 [tool.cibuildwheel.linux]
@@ -107,7 +107,7 @@ manylinux-aarch64-image = "manylinux_2_28"
 
 # arm64 only, matching the runner: an x86_64 wheel cross-compiled on an
 # Apple Silicon runner could not run its test-command there, and an
-# untested wheel is a claim, not a capability (platform-support-tiers.md).
+# untested wheel is a claim, not a capability.
 # A field report from an Intel Mac is what would add x86_64.
 [tool.cibuildwheel.macos]
 archs = ["arm64"]

@@ -14,15 +14,13 @@ have. Start with install, then your first program.
 ## Guides
 
 - [Play computed audio](guides/play-computed-audio.md) with `audiopump.Ring`.
-- [Run audio off the interpreter thread](guides/run-the-audio-pump.md) with `audiopump`.
-- [Change what plays without a click](guides/change-without-a-click.md) with `fade=`.
-- [Change what plays without rewiring](guides/swap-what-plays.md) with `audioroute.Port`.
+- [Run audio off the interpreter thread](guides/run-the-audio-pump.md) with `audiopump`, or on several threads of your own.
+- [Change what plays without a click](guides/change-without-a-click.md) with `fade=` or `audioroute.Port`.
 - [Decode Ogg Vorbis](guides/decode-vorbis.md).
 - [Filter a sound](guides/filter-a-sound.md) with `audiobiquad`.
 - [Play recorded notes](guides/play-recorded-notes.md) with `audiosampler`.
 - [Meter levels](guides/meter-levels.md) for a spectrum display.
 - [Speech features](guides/speech-features.md) for a wake word model.
-- [Render on several threads](guides/use-threads.md), including free-threaded Python.
 
 ## Reference
 
@@ -38,12 +36,11 @@ have. Start with install, then your first program.
 
 - [How audiodsp works](how-it-works/index.md): the pull protocol, the three targets, the repository map.
 - [Additions beyond CircuitPython](how-it-works/additions.md)
+- [Where audiodsp differs from CircuitPython](how-it-works/upstream-diff.md)
 - [Sound stability](how-it-works/sound-stability.md)
 - [The correctness standard](how-it-works/correctness-standard.md)
-- [Running the parity gates](how-it-works/parity-gates.md)
-- [Keeping in step with upstream](how-it-works/upstream-sync.md)
-- [Differences from upstream, with measurements](how-it-works/upstream-diff.md)
 - [The graph runner](how-it-works/audiograph.md)
+- [The drift resampler](how-it-works/drift-resampler.md)
 - [Writing a pump port](how-it-works/pump-ports.md)
 - [Wheels and platforms](how-it-works/wheels-and-platforms.md)
 
@@ -67,18 +64,14 @@ guides/play-computed-audio
 guides/play-recorded-notes
 guides/run-the-audio-pump
 guides/speech-features
-guides/swap-what-plays
-guides/use-threads
 how-it-works/additions
 how-it-works/audiograph
 how-it-works/correctness-standard
 how-it-works/drift-resampler
 how-it-works/index
-how-it-works/parity-gates
 how-it-works/pump-ports
 how-it-works/sound-stability
 how-it-works/upstream-diff
-how-it-works/upstream-sync
 how-it-works/wheels-and-platforms
 reference/analysis-and-utilities
 reference/audiopump
