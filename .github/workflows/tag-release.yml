@@ -18,7 +18,7 @@ permissions:
 jobs:
   tag:
     if: github.event_name == 'push'
-    uses: PyDevices/.github/.github/workflows/reusable-tag-on-release-merge.yml@publishing-v6
+    uses: PyDevices/.github/.github/workflows/reusable-tag-on-release-merge.yml@publishing-v26
     secrets: inherit
 
   tag-manual:

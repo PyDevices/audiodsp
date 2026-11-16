@@ -13,4 +13,4 @@ permissions:
 
 jobs:
   style:
-    uses: PyDevices/.github/.github/workflows/reusable-style-check.yml@publishing-v20
+    uses: PyDevices/.github/.github/workflows/reusable-style-check.yml@publishing-v26

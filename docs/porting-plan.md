@@ -344,7 +344,7 @@ consumer there is no aggregator, so `micropython.cmake` carries the same
      `pygame_audio`/`web_audio` kept as raw-PCM-only transports (neither can
      back an `AudioOut` -- no usermod under CPython/PyScript) rather than
      deleted, since `pgdisplay`/`psdisplay` depend on them directly; full
-     `pydevices` + `gallery` test suites green, including a new
+     `omnipython` + `gallery` test suites green, including a new
      WAV-golden test (`tests/test_audio_playback_golden.py`) that renders a
      real `synthio`/`audiomixer` script through `AudioOut` on
      `bin/micropython`/`bin/circuitpython`/`micropython.exe` and diffs the

@@ -4506,7 +4506,7 @@ neither `audiodsp_pump_lock.c` nor `audiodsp_port.c`, so neither is copied,
 compiled or referenced in a CircuitPython tree — its funnel is its own, and
 its playback layer pulls from its own audio thread with no second owner to
 exclude. The CPython wheel takes both files on default hooks, where they cost
-a load and a branch; `nm -u` on `pydevices_audiodsp-0.4.0-cp312` finds no
+a load and a branch; `nm -u` on `omnipython_audiodsp-0.4.0-cp312` finds no
 pthread symbol at all, where the old lock had a real recursive mutex.
 
 The fault register is published **only from the pump's own thread**, and that

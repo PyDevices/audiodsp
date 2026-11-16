@@ -89,7 +89,7 @@ builds every module in that directory.
 MicroPython's
 [manifest reference](https://docs.micropython.org/en/v1.29.0/reference/manifest.html)
 explains `include()` and `c_module()`, and
-[micropython-pydevices](https://github.com/PyDevices/micropython-pydevices)
+[omnipython-builds](https://github.com/PyDevices/omnipython-builds)
 keeps ready-made manifests and boards for several PyDevices modules at once.
 
 ## CircuitPython 11

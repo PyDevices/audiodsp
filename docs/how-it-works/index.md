@@ -123,7 +123,7 @@ CircuitPython 11.0.0-alpha.2 PCM byte-for-byte, built at the same voice
 ceiling this port ships (the pin is the `circuitpython` line of `DEPENDENCIES.lock`). Import and API
 smoke success is not used as a substitute for those comparisons. The
 playback-facing pull protocol (`audiocore.get_buffer` and `reset_buffer`) is
-consumed by `pydevices`' `lib/audiodev` package (`AudioOut` in
+consumed by `omnipython`'s `lib/audiodev` package (`AudioOut` in
 `sample_out.py`), which pumps any audiosample into any of `audiodev`'s
 push-PCM transports.
 
