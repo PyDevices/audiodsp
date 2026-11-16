@@ -1,0 +1,31 @@
+# This repository's pages in the OmniPython documentation site: build the
+# whole site with them in it and fail on their warnings; after a push to main,
+# ask Read the Docs to rebuild the site. docs.yml still builds them alone.
+name: Docs site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'src/**/*.pyi'
+      - 'VERSION'
+      - '.github/workflows/docs-site.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'src/**/*.pyi'
+      - 'VERSION'
+      - '.github/workflows/docs-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-site:
+    uses: PyDevices/.github/.github/workflows/reusable-docs-site.yml@one-docs-build
+    with:
+      site-ref: one-docs-build
+    secrets:
+      RTD_WEBHOOK_TOKEN: ${{ secrets.RTD_WEBHOOK_TOKEN }}
