@@ -24,8 +24,6 @@ permissions:
 
 jobs:
   docs-site:
-    uses: PyDevices/.github/.github/workflows/reusable-docs-site.yml@one-docs-build
-    with:
-      site-ref: one-docs-build
+    uses: PyDevices/.github/.github/workflows/reusable-docs-site.yml@main
     secrets:
       RTD_WEBHOOK_TOKEN: ${{ secrets.RTD_WEBHOOK_TOKEN }}
