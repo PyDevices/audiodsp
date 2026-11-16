@@ -342,6 +342,11 @@ jobs:
                          "pump_probe.py graph --fault unqueued" \
                          "pump_probe.py table --fault refused" \
                          "pump_probe.py tail --fault drop" \
+                         "pump_probe.py csink --fault drop" \
+                         "pump_probe.py csink --fault open" \
+                         "pump_probe.py csink --fault roomy" \
+                         "pump_probe.py csink --fault eager" \
+                         "pump_probe.py csink --fault loud" \
                          "route_probe.py ring --fault flip" \
                          "route_probe.py underrun --fault drop" \
                          "route_probe.py overrun --fault drop" \

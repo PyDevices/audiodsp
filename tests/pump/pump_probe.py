@@ -1529,6 +1529,153 @@ def tail(fault):
                else "the ramps arrived broken at frame %d" % at) and ok
 
 
+def _csink_run(sample, sink_args, timeout_ms=200, loop=False, spin=None,
+               step=37 * CHANNELS * 2, lie=False):
+    """Play *sample* into the stub's published C sink, in service mode.
+
+    Returns (bytes the sink kept, the status words, service() calls made).
+    `spin` bounds the run by time, in milliseconds, for a sink that never
+    lets the pump finish.
+    """
+    import _pumpsink
+    got = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 120)
+    _pumpsink.arm(got, step, lie)
+    block = status()
+    audiopump.spawn(sample, 1 << 30, block,
+                    sink=_pumpsink.c_sink(RATE, CHANNELS, *sink_args),
+                    loop=loop, timeout_ms=timeout_ms)
+    calls = 0
+    start = _ticks_us()
+    while calls < 200000:
+        calls += 1
+        if audiopump.service(1) & 3 == 3:
+            break
+        if spin is not None and _ticks_us() - start > spin * 1000:
+            break
+    words = struct.unpack("<%dQ" % audiopump.STATUS_WORDS, block)
+    taken = _pumpsink.taken()[0]
+    audiopump.shutdown()
+    return bytes(got[:taken]), words, calls
+
+
+def csink(fault):
+    """A published C sink as the pump's output: audiopump.spawn(sink=<bytes>).
+
+    What a USB speaker's stream hands over, played here through the test
+    driver's stand-in. Four things a real one does. It takes less than a
+    block at a time and nothing at all for a while, and the sample must
+    still arrive whole and in order (``--fault drop`` has it claim bytes it
+    did not keep). It closes mid-stream, and the pump must end with error 6
+    instead of writing to it for ever (``--fault open`` never closes it). It
+    never has room, and the pump must count a timeout and keep returning,
+    having written nothing (``--fault roomy`` gives it room). With
+    ``sink_room`` it starts no block until the sink has drained that far
+    (``--fault eager`` leaves it out). ``sink_gain`` sets the level the
+    samples reach it at (``--fault loud`` leaves it full). And a sink
+    whose format is not the graph's is refused, leaving a pump that can
+    still be spawned.
+    """
+    try:
+        import _pumpsink
+    except ImportError:
+        return say("csink", True, "skipped: this build has no _pumpsink test driver")
+    if not hasattr(_pumpsink, "c_sink"):
+        return say("csink", True, "skipped: this _pumpsink has no C sink")
+    if audiopump.threaded():
+        return say("csink", True, "skipped: the pump has a thread here, so no service mode")
+    source = tone()
+    want = bytes(source)
+
+    def raw(loop=False):
+        return audiocore.RawSample(source, sample_rate=RATE, channel_count=CHANNELS)
+
+    # Short writes, after 50 refusals.
+    got, words, calls = _csink_run(raw(), (50,), lie=fault == "drop")
+    whole = got == want and words[ERROR_AT] == 3
+    ok = say("csink: short writes", whole,
+             "%d of %d bytes, in order, in %d service calls" % (len(got), len(want), calls)
+             if whole else
+             "%d of %d bytes, error %d" % (len(got), len(want), words[ERROR_AT]))
+
+    # Closed after ten blocks' worth: the loop ends, and says why.
+    close_at = -1 if fault == "open" else BLOCK_FRAMES * CHANNELS * 2 * 10
+    got, words, calls = _csink_run(raw(), (0, close_at), loop=True, spin=500,
+                                   step=BLOCK_FRAMES * CHANNELS * 2)
+    closed = words[ERROR_AT] == 6 and len(got) == close_at
+    ok = say("csink: closed", closed,
+             "ended with error 6 after %d bytes" % len(got) if closed else
+             "error %d after %d bytes and %d service calls" % (
+                 words[ERROR_AT], len(got), calls)) and ok
+
+    # Never any room: counted, nothing written, and service() keeps returning.
+    never = fault != "roomy"
+    got, words, calls = _csink_run(raw(), (0, -1, never), timeout_ms=20,
+                                   loop=True, spin=200)
+    timeouts = words[14]
+    starved = timeouts >= 2 and len(got) == 0 and calls > timeouts
+    ok = say("csink: never room", starved,
+             "%d timeouts in 200 ms, 0 bytes, %d service calls" % (timeouts, calls)
+             if starved else
+             "%d timeouts, %d bytes, %d service calls" % (timeouts, len(got), calls)) and ok
+
+    # sink_room: no block starts until the sink reports that much room.
+    import _pumpsink as stub
+    held = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 120)
+    stub.arm(held, len(held))
+    block = status()
+    room = len(held) - 4096
+    audiopump.spawn(raw(), 1 << 30, block, sink=stub.c_sink(RATE, CHANNELS),
+                    loop=True, sink_room=0 if fault == "eager" else room)
+    stub.space_cut(8192)          # as if 8192 bytes were queued: too full
+    for _ in range(50):
+        audiopump.service(1)
+    waited = stub.taken()[0]
+    stub.space_cut(0)             # drained: one block may go
+    audiopump.service(1)
+    went = stub.taken()[0]
+    audiopump.shutdown()
+    paced = waited == 0 and went > 0
+    ok = say("csink: sink_room", paced,
+             "nothing written while the sink was too full, %d bytes once it drained" % went
+             if paced else
+             "%d bytes written while too full, %d after" % (waited, went)) and ok
+
+    # sink_gain: half level halves every sample; full level leaves them be.
+    flat = _flat(8000, BLOCK_FRAMES * 4)
+    half = bytearray(BLOCK_FRAMES * CHANNELS * 2 * 8)
+    stub.arm(half, 148)
+    audiopump.spawn(flat, 1 << 30, status(), sink=stub.c_sink(RATE, CHANNELS),
+                    sink_gain=1.0 if fault == "loud" else 0.5)
+    for _ in range(200):
+        if audiopump.service(1) & 3 == 3:
+            break
+    taken = stub.taken()[0]
+    audiopump.shutdown()
+    frames = _frames(half[:taken])
+    halved = taken == BLOCK_FRAMES * 4 * CHANNELS * 2 and all(f == 4000 for f in frames)
+    ok = say("csink: sink_gain", halved,
+             "%d frames, every one at half level" % len(frames) if halved else
+             "%d bytes, first frame %s" % (taken, frames[:1])) and ok
+
+    # The wrong format is refused, and the next spawn still works.
+    got = bytearray(64)
+    _pumpsink.arm(got, 4)
+    refused = False
+    try:
+        audiopump.spawn(raw(), 1 << 30, status(),
+                        sink=_pumpsink.c_sink(RATE // 2, CHANNELS))
+    except ValueError:
+        refused = True
+    if not refused:
+        audiopump.shutdown()
+    again, words, calls = _csink_run(raw(), ())
+    fine = refused and again == want
+    return say("csink: wrong format", fine,
+               "refused, and the next spawn played %d bytes" % len(again) if fine else
+               "refused: %s; the next spawn played %d of %d bytes" % (
+                   refused, len(again), len(want))) and ok
+
+
 def switch(fault):
     """A sample changed under a kept tail: none of the old block follows it.
 
@@ -1594,7 +1741,7 @@ CASES = (("identity", identity), ("alloc", alloc), ("storm", storm),
          ("driver", driver), ("unpumpable", unpumpable), ("swap", swap),
          ("writes", writes), ("reads", reads), ("tear", tear), ("fade", fade),
          ("graph", graph), ("table", table), ("tail", tail),
-         ("switch", switch), ("hotmem", hotmem))
+         ("switch", switch), ("csink", csink), ("hotmem", hotmem))
 
 
 def main():
