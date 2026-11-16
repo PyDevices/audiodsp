@@ -10,8 +10,7 @@
 //
 // The audiosample "pull" protocol: every audio source (RawSample, WaveFile,
 // synthio.Synthesizer, Mixer, every effect) implements this, and everything
-// downstream (Mixer, effects, outputs) composes purely through it. See
-// docs/porting-plan.md, "The audiosample pull protocol is the spine."
+// downstream (Mixer, effects, outputs) composes purely through it. The audiosample pull protocol is the spine.
 //
 // SPDX-FileCopyrightText: Copyright (c) 2018 Dan Halbert for Adafruit Industries
 // SPDX-FileCopyrightText: Copyright (c) 2018 Scott Shawcroft for Adafruit Industries

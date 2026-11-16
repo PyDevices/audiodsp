@@ -6,7 +6,7 @@
 
 Two deliberate departures from CircuitPython 10.3.0, both of them upstream
 bugs this port declines to reproduce. `docs/how-it-works/upstream-diff.md` carries the
-measurements and `docs/upstream-reports/` the reports.
+measurements.
 
 The parity gate cannot see either one. `resampler_probe.py` only ever asks
 for 2.0, 1.0 and 0.5, which are exact in Q16 and land on a buffer boundary

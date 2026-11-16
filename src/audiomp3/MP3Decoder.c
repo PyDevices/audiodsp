@@ -8,7 +8,7 @@
 // `mp_arg_validate_*` -> `cp_compat/argcheck.h`; `supervisor/background_callback.h`
 // -> `cp_compat/background_callback.h` (a stub, not a port -- see that
 // header). `lib/mp3/src/{mp3common,coder}.h` -> the vendored `mp3/src`
-// clone in the parent workspace (see docs/porting-plan.md "Tier 5 audiomp3" and
+// clone in the parent workspace (see
 // docs/how-it-works/upstream-diff.md for the license and the one local patch it needed).
 // `MP_TYPE_FLAG_HAS_SPECIAL_ACCESSORS` keeps upstream's flag; this port adds
 // `attr, cp_compat_attr` for property invocation on a native type, same as

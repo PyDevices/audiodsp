@@ -70,8 +70,7 @@ what each module is held to.
 - **A fix for a bug that also exists upstream** goes in this repository's
   targets only, recorded in
   [upstream-diff](docs/how-it-works/upstream-diff.md); open an issue before
-  adding a new deviation from CircuitPython. The fixes already sent upstream
-  are in [upstream reports](docs/upstream-reports/README.md).
+  adding a new deviation from CircuitPython.
 
 ## Build and release wheels
 
