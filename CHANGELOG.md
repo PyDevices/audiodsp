@@ -876,7 +876,7 @@ retires the last ceiling deviation. See
 - A parity probe and a golden for audioshaper.Waveshaper
 - Cite the Freeverb kernel by line, and say precisely where its all-passes sit
 - audiobiquad reaches CircuitPython too, additively
-- The tilt converts dB through expf, not powf, and the plan names tier 7's sixth
+- The tilt converts dB through expf, not powf
 - audioshaper.Waveshaper: the curve arrives as data, and the shaping happens above the sample rate
 - Record audioverb in upstream-diff, README and the module lists, and test it
 - audiobiquad on MicroPython: the same two kernels, the same block reads
