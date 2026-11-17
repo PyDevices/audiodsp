@@ -67,7 +67,7 @@ class SplitterTap(_AudioSample):
         # rewinding one branch mid-stream would desynchronise the rest. But a
         # *released* tap must refuse rather than quietly succeed: the guard on
         # this target lives in each `_reset_buffer`/`_get_buffer`, because
-        # `_AudioSample.__getattribute__` lets underscore names through, and
+        # `audiocore`'s released-node guard lets underscore names through, and
         # a body of bare `pass` was the one that never asked. On the native
         # builds `audiosample_reset_buffer` guards this for every type at
         # once.
