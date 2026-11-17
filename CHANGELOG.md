@@ -1,3 +1,9 @@
+## v0.6.16.dev5 (2026-11-17)
+
+- audiocore (CPython): reading a live node's attributes costs nothing extra (#433)
+- audiocore: WaveFile refuses an audio object as its file instead of crashing (#432)
+- Release workflows: pinned to publishing-v28 (#431)
+
 ## v0.6.16.dev4 (2026-11-17)
 
 - Type stubs: stubtest holds each one to its module, and audiorender is typed (#427)
