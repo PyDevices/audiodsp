@@ -221,6 +221,20 @@ jobs:
           "$MP" "$PROBE" | tee /tmp/cp11_files.txt
           grep -q "CP11 FILES PASS" /tmp/cp11_files.txt
 
+      # A file argument that is an audio object is refused with OSError, as
+      # CircuitPython does, and not read through (audiodsp#428). The planted
+      # fault runs first and must FAIL.
+      - name: Audio objects are refused as files
+        run: |
+          MP=./micropython/ports/unix/build-standard/micropython
+          PROBE=audiodsp/tests/parity/stream_argument_probe.py
+          if "$MP" "$PROBE" --fault; then
+            echo "the planted fault passed, so this probe proves nothing" >&2
+            exit 1
+          fi
+          "$MP" "$PROBE" | tee /tmp/stream_argument.txt
+          grep -q "STREAM ARGUMENT PASS" /tmp/stream_argument.txt
+
       # Ogg Vorbis. The probe is the behaviour (laps, the mixer, cut and
       # foreign files, deinit, the pump's refusal); verify_vorbis is the
       # samples, compared with ffmpeg's own decode of files it makes fresh,

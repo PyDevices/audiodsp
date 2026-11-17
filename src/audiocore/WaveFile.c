@@ -70,7 +70,7 @@ void common_hal_audioio_wavefile_construct(audioio_wavefile_obj_t *self,
     uint8_t *buffer,
     size_t buffer_size) {
     // Make sure the file supports reading and seeking.
-    mp_get_stream_raise(file, MP_STREAM_OP_READ | MP_STREAM_OP_IOCTL);
+    audiodsp_get_stream_raise(file, MP_STREAM_OP_READ | MP_STREAM_OP_IOCTL);
 
     // Load the wave
     self->file = file;

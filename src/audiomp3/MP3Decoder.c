@@ -620,7 +620,7 @@ static mp_obj_t audiomp3_mp3file_make_new(const mp_obj_type_t *type, size_t n_ar
         stream = mp_call_function_2(MP_OBJ_FROM_PTR(&mp_builtin_open_obj), stream, MP_ROM_QSTR(MP_QSTR_rb));
     }
 
-    const mp_stream_p_t *stream_p = mp_get_stream_raise(stream, MP_STREAM_OP_READ);
+    const mp_stream_p_t *stream_p = audiodsp_get_stream_raise(stream, MP_STREAM_OP_READ);
 
     if (stream_p->is_text) {
         mp_raise_TypeError(MP_ERROR_TEXT("file must be a file opened in byte mode"));
@@ -667,7 +667,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(audiomp3_mp3file_get_file_obj, audiomp3_mp3file_obj_ge
 static mp_obj_t audiomp3_mp3file_obj_set_file(mp_obj_t self_in, mp_obj_t stream) {
     audiomp3_mp3file_obj_t *self = MP_OBJ_TO_PTR(self_in);
     check_for_deinit(self);
-    const mp_stream_p_t *stream_p = mp_get_stream_raise(stream, MP_STREAM_OP_READ);
+    const mp_stream_p_t *stream_p = audiodsp_get_stream_raise(stream, MP_STREAM_OP_READ);
 
     if (stream_p->is_text) {
         mp_raise_TypeError(MP_ERROR_TEXT("file must be a file opened in byte mode"));
