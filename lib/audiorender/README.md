@@ -17,7 +17,7 @@ extra rather than as a dependency — the core modules run on boards and in
 wasm, where numpy has no place — so ask for the extra:
 
 ```sh
-python -m pip install --pre "omnipython-audiodsp[render]"
+python -m pip install "omnipython-audiodsp[render]"
 ```
 
 Installing `omnipython-audiodsp` without
