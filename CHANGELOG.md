@@ -1,3 +1,7 @@
+## v0.6.16.dev6 (2026-11-17)
+
+- Publishing: pre-releases reach PyPI as well as finals (#435)
+
 ## v0.6.16.dev5 (2026-11-17)
 
 - audiocore (CPython): reading a live node's attributes costs nothing extra (#433)
