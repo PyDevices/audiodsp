@@ -1,3 +1,13 @@
+## v0.6.16.dev4 (2026-11-17)
+
+- Type stubs: stubtest holds each one to its module, and audiorender is typed (#427)
+- Changelog: the tilt entry drops a reference readers can't follow (#425)
+- Changelog: entries drop internal round and program labels (#424)
+- docs: a short page on where audiodsp differs from CircuitPython (#423)
+- Docs: maintainer notes leave the published site (#422)
+- audiopump: the pump plays to a C sink, such as a USB speaker's stream (#420)
+- Docs and examples: mpftp is now mcuctl (#421)
+
 ## v0.6.16.dev2 (2026-11-11)
 
 - audiomath.Multiply: a mix move walks over 20 ms (#411)
