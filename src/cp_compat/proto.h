@@ -21,6 +21,7 @@
 #pragma once
 
 #include "py/obj.h"
+#include "py/stream.h"
 
 #define MP_PROTOCOL_HEAD \
     uint16_t name;
@@ -28,3 +29,11 @@
 
 const void *mp_proto_get(uint16_t name, mp_const_obj_t obj);
 const void *mp_proto_get_or_throw(uint16_t name, mp_const_obj_t obj);
+
+// mp_get_stream_raise() for an argument that must be a file. Mainline
+// MicroPython keeps no name on a stream's protocol, so it takes an audio
+// object's named protocol (audiosample, synthio_block) for a stream and the
+// caller reads through it: a RawSample passed as a file died with a
+// segmentation fault (audiodsp#428). CircuitPython names stream protocols
+// too, so it refuses these with the same OSError this raises.
+const mp_stream_p_t *audiodsp_get_stream_raise(mp_obj_t obj, int flags);

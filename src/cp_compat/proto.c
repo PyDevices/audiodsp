@@ -34,3 +34,11 @@ const void *mp_proto_get_or_throw(uint16_t name, mp_const_obj_t obj) {
     mp_raise_TypeError_varg(MP_ERROR_TEXT("'%q' object does not support '%q'"),
         mp_obj_get_type(obj)->name, name);
 }
+
+const mp_stream_p_t *audiodsp_get_stream_raise(mp_obj_t obj, int flags) {
+    if (mp_proto_get(MP_QSTR_protocol_audiosample, obj) != NULL
+        || mp_proto_get(MP_QSTR_synthio_block, obj) != NULL) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("stream operation not supported"));
+    }
+    return mp_get_stream_raise(obj, flags);
+}

@@ -620,7 +620,7 @@ static mp_obj_t synthio_from_file(size_t n_args, const mp_obj_t *pos_args, mp_ma
     }
     // Any readable, seekable binary stream works, regardless of which
     // filesystem it came from.
-    const mp_stream_p_t *stream_p = mp_get_stream_raise(file_obj, MP_STREAM_OP_READ | MP_STREAM_OP_IOCTL);
+    const mp_stream_p_t *stream_p = audiodsp_get_stream_raise(file_obj, MP_STREAM_OP_READ | MP_STREAM_OP_IOCTL);
     if (stream_p->is_text) {
         mp_raise_TypeError(MP_ERROR_TEXT("file must be a file opened in byte mode"));
     }
