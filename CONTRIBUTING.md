@@ -90,13 +90,12 @@ it in the same pull request.
 [Wheels and platforms](docs/how-it-works/wheels-and-platforms.md) lists what
 that is and what it leaves out.
 
-Final releases then go to production PyPI too, after a maintainer approves the
-`pypi` environment. That upload is the `pypi` job in this repository's own
-`publish-release-packages.yml`, not in the reusable workflow, because PyPI's
-Trusted Publishing only matches the workflow that runs the upload
-([why](https://github.com/PyDevices/.github/blob/main/docs/publishing-automation.md#production-pypi-opt-in-protected-trusted-publishing)).
+Every release, pre-releases included, then goes to PyPI. That upload is the
+`pypi` job in this repository's own `publish-release-packages.yml`, not in the
+reusable workflow, because PyPI's Trusted Publishing only matches the workflow
+that runs the upload.
 
-After TestPyPI publication, run `python scripts/test_testpypi_install.py` on
+After publication, run `python scripts/check_pypi_install.py` on
 fresh Linux and Windows hosts. It takes an optional version and defaults to
 the one in `VERSION`; it builds a bare environment and one with the `[render]`
 extra.

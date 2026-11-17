@@ -34,9 +34,6 @@ dependencies = []
 # modules run on boards and in wasm, where numpy has no place -- so numpy is
 # an extra, not a dependency, and the bare wheel stays dependency-free:
 #   pip install "omnipython-audiodsp[render]"
-# TestPyPI carries no usable numpy (only a 2.4.0.dev0 pre-release and a 2015
-# 1.9.3 sdist), so the documented TestPyPI install line also passes
-# --extra-index-url https://pypi.org/simple/.
 [project.optional-dependencies]
 render = ["numpy"]
 

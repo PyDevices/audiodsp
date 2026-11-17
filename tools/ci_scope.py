@@ -68,7 +68,7 @@ RULES = (
     ("examples/**", ("lint",)),
     (".flake8", ("lint",)),
     ("scripts/check_attribution.py", ("lint",)),
-    ("scripts/test_testpypi_install.py", ("lint",)),
+    ("scripts/check_pypi_install.py", ("lint",)),
     ("tools/check_*.py", ("lint",)),
     ("tools/design_*.py", ("lint",)),
     ("tools/graph_vs_rack.py", ("lint",)),

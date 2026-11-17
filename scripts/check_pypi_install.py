@@ -3,9 +3,9 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Smoke a fresh omnipython-audiodsp install from TestPyPI.
+"""Smoke a fresh omnipython-audiodsp install from PyPI.
 
-    scripts/test_testpypi_install.py [VERSION] [--skip-render]
+    scripts/check_pypi_install.py [VERSION] [--skip-render]
 
 `docs/how-it-works/wheels-and-platforms.md` names this as a post-release step to run on fresh
 Linux and Windows hosts. Two things used to stop it being one (audiodsp#72):
@@ -24,9 +24,7 @@ and the `[render]` install is the only check anywhere that the extra's name is
 still spelled the way `pyproject.toml` declares it (audiodsp#35). `--skip-render`
 drops the second if numpy's download is not welcome.
 
-`--extra-index-url` is not optional: TestPyPI alone cannot resolve numpy, and
-a run without it fails in the dependency resolver with nothing to do with
-this package (audiodsp#30).
+The version is pinned exactly, so a pre-release installs without `--pre`.
 """
 
 import subprocess
@@ -36,9 +34,6 @@ import venv
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-
-INDEX = ("--index-url", "https://test.pypi.org/simple/",
-         "--extra-index-url", "https://pypi.org/simple/")
 
 #: The bare install's smoke: a synth renders a full block, and a two-sample
 #: `RawSample` reports GET_BUFFER_DONE rather than more-data.
@@ -65,7 +60,7 @@ print('[render] install OK: numpy', numpy.__version__)
 
 def smoke(label, requirement, code):
     """Build a throwaway venv, install `requirement` into it, run `code`."""
-    with tempfile.TemporaryDirectory(prefix="audiodsp-testpypi-") as directory:
+    with tempfile.TemporaryDirectory(prefix="audiodsp-pypi-") as directory:
         root = Path(directory)
         venv.EnvBuilder(with_pip=True).create(root)
         python = root / ("Scripts/python.exe" if sys.platform == "win32"
@@ -74,7 +69,7 @@ def smoke(label, requirement, code):
         # Run from the throwaway directory, never the caller's: inside a
         # source checkout, pip reads the tree as an already-installed
         # distribution and the smoke import resolves to the unbuilt sources.
-        subprocess.run([str(python), "-m", "pip", "install", *INDEX,
+        subprocess.run([str(python), "-m", "pip", "install",
                         requirement], check=True, cwd=root)
         subprocess.run([str(python), "-c", code], check=True, cwd=root)
 
@@ -87,14 +82,14 @@ def main(argv):
 
     version = arguments[0] if arguments else \
         (ROOT / "VERSION").read_text().strip()
-    print("smoking omnipython-audiodsp %s from TestPyPI" % version)
+    print("smoking omnipython-audiodsp %s from PyPI" % version)
 
     smoke("bare", "omnipython-audiodsp==%s" % version, BARE)
     if "--skip-render" in argv:
         print("== [render]: skipped")
     else:
         smoke("[render]", "omnipython-audiodsp[render]==%s" % version, RENDER)
-    print("all TestPyPI install checks passed for %s" % version)
+    print("all PyPI install checks passed for %s" % version)
     return 0
 
 
