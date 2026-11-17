@@ -1,3 +1,7 @@
+## v0.6.16 (2026-11-17)
+
+- Install: every release is on PyPI (#437)
+
 ## v0.6.16.dev6 (2026-11-17)
 
 - Publishing: pre-releases reach PyPI as well as finals (#435)
