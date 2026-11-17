@@ -48,26 +48,13 @@ jobs:
           done
           echo "every probe ran"
 
-  credentials:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Confirm inherited TestPyPI credentials
-        env:
-          TESTPYPI_API_TOKEN: ${{ secrets.TESTPYPI_API_TOKEN }}
-        run: |
-          if [[ -z "$TESTPYPI_API_TOKEN" ]]; then
-            echo "TESTPYPI_API_TOKEN is unavailable; ensure the organization secret is visible to PyDevices/audiodsp." >&2
-            exit 1
-          fi
-
   publish:
     needs:
       - parity
-      - credentials
     # publishing-v12 (cut 2026-09-26) is the first publishing tag that carries
     # PyDevices/.github's caller-side PyPI change (#53: the coordinator's
     # pypi-gate job and its pypi-publish / dist-artifact / version outputs).
-    uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-v30
+    uses: PyDevices/.github/.github/workflows/reusable-publish-release-packages.yml@publishing-v31
     with:
       build-kind: native-and-wasm
       distribution-name: omnipython-audiodsp
@@ -93,10 +80,9 @@ jobs:
       expected-wheel-count: 30
       linux-aarch64: true
       wheel-filename-prefix: omnipython_audiodsp
-      # Production PyPI too, every version (pre-releases since publishing-v30): the name
-      # was parked at 0.6.0 by mirroring TestPyPI's files, and its Trusted
-      # Publisher (this workflow, environment "pypi") is configured. The
-      # coordinator only decides; the upload is the pypi job below.
+      # PyPI, every version, pre-releases included. Its Trusted Publisher
+      # (this workflow, environment "pypi") is configured. The coordinator
+      # only decides; the upload is the pypi job below.
       pypi-publish: true
       release-ref: ${{ inputs.release-ref }}
     secrets: inherit
@@ -135,7 +121,7 @@ jobs:
     if: >-
       !cancelled() && needs.publish.outputs.pypi-publish == 'true'
     # Same placeholder as the publish job above: the same tag, both lines.
-    uses: PyDevices/.github/.github/workflows/reusable-report-pypi-result.yml@publishing-v30
+    uses: PyDevices/.github/.github/workflows/reusable-report-pypi-result.yml@publishing-v31
     with:
       distribution-name: omnipython-audiodsp
       version: ${{ needs.publish.outputs.version }}
