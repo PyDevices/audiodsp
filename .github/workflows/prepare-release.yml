@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   release-pr:
-    uses: PyDevices/.github/.github/workflows/reusable-prepare-release-pr.yml@publishing-v26
+    uses: PyDevices/.github/.github/workflows/reusable-prepare-release-pr.yml@publishing-v28
     with:
       version: ${{ inputs.version }}
     secrets: inherit
