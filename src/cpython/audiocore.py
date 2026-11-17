@@ -34,13 +34,71 @@ def raise_deinited_error():
     raise ValueError(DEINITED_MESSAGE)
 
 
+def _released_getattribute(self, name):
+    if not name.startswith("_") and name != "deinit":
+        namespace = object.__getattribute__(self, "__dict__")
+        if namespace.get("_deinited", False):
+            raise_deinited_error()
+    return object.__getattribute__(self, name)
+
+
+def _released_class(cls):
+    """The subclass a released `cls` instance moves into: `cls` with the guard.
+
+    Made once per class and kept in that class's own namespace, so a subclass
+    never finds its parent's copy. It has the parent's names and no slots of
+    its own, so moving an instance in and out of it changes nothing else.
+    """
+    released = cls.__dict__.get("_audiocore_released_cls")
+    if released is None:
+        released = type(cls)(cls.__name__, (cls,), {
+            "__slots__": (),
+            "__module__": cls.__module__,
+            "__qualname__": cls.__qualname__,
+            "__getattribute__": _released_getattribute,
+            "_audiocore_live_cls": cls,
+        })
+        type.__setattr__(cls, "_audiocore_released_cls", released)
+    return released
+
+
+def _set_released(sample, released):
+    cls = type(sample)
+    live = cls.__dict__.get("_audiocore_live_cls")
+    if released and live is None:
+        sample.__class__ = _released_class(cls)
+    elif not released and live is not None:
+        sample.__class__ = live
+
+
 class _AudioSample:
-    def __getattribute__(self, name):
-        if not name.startswith("_") and name != "deinit":
-            namespace = object.__getattribute__(self, "__dict__")
-            if namespace.get("_deinited", False):
-                raise_deinited_error()
-        return object.__getattribute__(self, name)
+    # A released node refuses every public name but `deinit` (see
+    # `DEINITED_MESSAGE`). The guard is a `__getattribute__`, and a Python
+    # `__getattribute__` costs a function call on every attribute read, which
+    # was half the time of a render. So only a released node carries it:
+    # setting `_deinited` to a true value moves the instance into a subclass
+    # of its class that has the guard (`_released_class`), and setting it
+    # false again moves it back. `_deinited` stays in the instance's
+    # `__dict__`, where every reader of it looks.
+    @property
+    def _deinited(self):
+        try:
+            return object.__getattribute__(self, "__dict__")["_deinited"]
+        except KeyError:
+            raise AttributeError("_deinited") from None
+
+    @_deinited.setter
+    def _deinited(self, value):
+        object.__getattribute__(self, "__dict__")["_deinited"] = value
+        _set_released(self, value)
+
+    @_deinited.deleter
+    def _deinited(self):
+        try:
+            del object.__getattribute__(self, "__dict__")["_deinited"]
+        except KeyError:
+            raise AttributeError("_deinited") from None
+        _set_released(self, False)
 
     def _check(self):
         if getattr(self, "_deinited", False):
