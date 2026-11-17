@@ -13,6 +13,7 @@ Both nodes are audio samples, so they play wherever a `RawSample` does and
 take any audio sample as their source.
 """
 
+from types import TracebackType
 from typing import Protocol, Self
 
 __version__: str
@@ -101,7 +102,7 @@ class Multiply:
         """Release the node and let go of its source and modulator. Every
         later use raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 class SubOctave:
     """An analog-style octave divider.
@@ -183,7 +184,7 @@ class SubOctave:
         """Release the node and let go of its source. Every later use raises
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 def remix_s16(
     source: bytes | bytearray | memoryview,

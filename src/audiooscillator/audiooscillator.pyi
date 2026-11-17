@@ -10,6 +10,7 @@ a wavetable with no band limiting; this oscillator does neither. Steps are
 band-limited with PolyBLEP and the triangle's corners with PolyBLAMP.
 """
 
+from types import TracebackType
 from typing import Protocol, Self
 
 __version__: str
@@ -150,4 +151,4 @@ class Oscillator:
         """Release the oscillator and let go of its inputs. Every later use
         raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

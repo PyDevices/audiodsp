@@ -15,6 +15,7 @@ Beyond CircuitPython's own API this build adds `lfo_tick`,
 `Synthesizer.release_then_press`.
 """
 
+from types import TracebackType
 from array import array
 from typing import BinaryIO, Protocol, Self, Sequence, Union
 
@@ -198,10 +199,10 @@ class LFO:
         self,
         waveform: _ReadableBuffer | None = None,
         *,
-        rate: _BlockInput = 1.0,
-        scale: _BlockInput = 1.0,
-        offset: _BlockInput = 0.0,
-        phase_offset: _BlockInput = 0.0,
+        rate: _BlockInput = 1,
+        scale: _BlockInput = 1,
+        offset: _BlockInput = 0,
+        phase_offset: _BlockInput = 0,
         once: bool = False,
         interpolate: bool = True,
     ) -> None: ...
@@ -238,7 +239,7 @@ class MathOperation:
     that performs it.
     """
 
-    def __call__(self, a: _BlockInput, b: _BlockInput = 0.0, c: _BlockInput = 1.0) -> Math:
+    def __call__(self, a: _BlockInput, b: _BlockInput = 0, c: _BlockInput = 1) -> Math:
         """Make a `Math` block that performs this operation."""
     SUM: MathOperation
     """``a + b + c``. For a two input sum, set one argument to 0.0. To hold a
@@ -288,8 +289,8 @@ class Math:
         self,
         operation: MathOperation,
         a: _BlockInput,
-        b: _BlockInput = 0.0,
-        c: _BlockInput = 1.0,
+        b: _BlockInput = 0,
+        c: _BlockInput = 1,
     ) -> None: ...
     a: _BlockInput
     """The first input."""
@@ -346,16 +347,16 @@ class Note:
         self,
         frequency: float,
         *,
-        panning: _BlockInput = 0.0,
-        amplitude: _BlockInput = 1.0,
-        bend: _BlockInput = 0.0,
+        panning: _BlockInput = 0,
+        amplitude: _BlockInput = 1,
+        bend: _BlockInput = 0,
         waveform: _ReadableBuffer | None = None,
         waveform_loop_start: _BlockInput = 0,
         waveform_loop_end: _BlockInput = ...,
         envelope: Envelope | None = None,
         filter: Biquad | None = None,
-        ring_frequency: float = 0.0,
-        ring_bend: float = 0.0,
+        ring_frequency: float = 0,
+        ring_bend: float = 0,
         ring_waveform: _ReadableBuffer | None = None,
         ring_waveform_loop_start: _BlockInput = 0,
         ring_waveform_loop_end: _BlockInput = ...,
@@ -449,14 +450,14 @@ class Synthesizer:
         """How many presses were dropped because every channel was held. There
         is no stealing policy; this only counts. It includes presses that
         arrive through `audiopump.Events`, and is not reset by `release_all`."""
-    def press(self, press: _NoteOrNoteSequence = ()) -> None:
+    def press(self, press: _NoteOrNoteSequence, /) -> None:
         """Turn some notes on. Pressing a note that is already pressed has no
         effect.
 
         Args:
             press: A note or a sequence of notes.
         """
-    def release(self, release: _NoteOrNoteSequence = ()) -> None:
+    def release(self, release: _NoteOrNoteSequence, /) -> None:
         """Turn some notes off. Releasing a note that is not pressed has no
         effect.
 
@@ -488,7 +489,7 @@ class Synthesizer:
         retrigger: _LFOOrLFOSequence = (),
     ) -> None:
         """Another name for `change`."""
-    def release_all_then_press(self, press: _NoteOrNoteSequence) -> None:
+    def release_all_then_press(self, press: _NoteOrNoteSequence, /) -> None:
         """Turn off every playing note, then turn on the given notes. A note
         that was playing returns to the attack phase from an amplitude of 0.
 
@@ -497,7 +498,7 @@ class Synthesizer:
         """
     def release_all(self) -> None:
         """Turn off every playing note."""
-    def note_info(self, note: Note) -> tuple[EnvelopeState | None, float]:
+    def note_info(self, note: Note, /) -> tuple[EnvelopeState | None, float]:
         """Report a note's envelope state.
 
         Returns:
@@ -507,7 +508,7 @@ class Synthesizer:
     def deinit(self) -> None:
         """Release the synthesizer. Every later use raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 class MidiTrack:
     """Plays a stream of MIDI note events, as an audio sample.
@@ -551,7 +552,7 @@ class MidiTrack:
     def deinit(self) -> None:
         """Release the track. Every later use raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 def from_file(
     file: str | BinaryIO,
@@ -572,11 +573,11 @@ def from_file(
             instantly.
     """
 
-def midi_to_hz(midi_note: float) -> float:
+def midi_to_hz(midi_note: float, /) -> float:
     """Convert a MIDI note number to Hz, where 60 is middle C and 69 is concert
     A."""
 
-def voct_to_hz(ctrl: float) -> float:
+def voct_to_hz(ctrl: float, /) -> float:
     """Convert a 1 volt per octave signal to Hz, where 2.0 (24/12) is middle C
     and 2.75 (33/12) is concert A.
 
@@ -584,11 +585,12 @@ def voct_to_hz(ctrl: float) -> float:
         ValueError: ``ctrl`` is outside -11 to 11.
     """
 
-def lfo_tick(*blocks: _BlockInput) -> tuple[float, ...]:
+def lfo_tick(block: _BlockInput, /, *blocks: _BlockInput) -> tuple[float, ...]:
     """Advance the LFO and math blocks one update and read them.
 
     Args:
-        blocks: Blocks, or plain numbers.
+        block: A block, or a plain number. It is required.
+        blocks: More blocks, or plain numbers.
 
     Returns:
         Each block's value after the update, in order.

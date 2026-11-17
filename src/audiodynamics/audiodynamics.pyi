@@ -27,6 +27,7 @@ channels, and never reports itself finished: a chain with nothing left to
 read gets silence.
 """
 
+from types import TracebackType
 from typing import Protocol, Self
 
 __version__: str
@@ -277,4 +278,4 @@ class Dynamics:
         """Release the node. Later calls other than `deinit` raise
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

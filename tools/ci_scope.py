@@ -57,6 +57,13 @@ RULES = (
     # over a stub on its own.
     ("src/*/*.pyi", ("unit", "wheels", "build")),
     ("tests/test_stubs_match_modules.py", ("lint", "unit", "build")),
+    # The stubs of the pure-Python packages in lib/ reach the wheel and nothing
+    # else: no test compares them with their modules. The Stubs workflow runs
+    # mypy over them. The allowlist is read by that workflow's stubtest job
+    # alone.
+    ("lib/*/*.pyi", ("wheels",)),
+    ("lib/*/py.typed", ("wheels",)),
+    ("tools/stubs/**", ()),
     # flake8 reads the examples; nothing else does.
     ("examples/**", ("lint",)),
     (".flake8", ("lint",)),

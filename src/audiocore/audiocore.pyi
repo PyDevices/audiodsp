@@ -15,6 +15,7 @@ sample by hand, with no output device, which is how a test reads what a chain
 of nodes produces.
 """
 
+from types import TracebackType
 from typing import Self
 
 __version__: str
@@ -66,7 +67,7 @@ class RawSample:
     def deinit(self) -> None:
         """Release the sample. Every later use raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 class WaveFile:
     """Streams audio from a ``.wav`` file.
@@ -87,7 +88,7 @@ class WaveFile:
         OSError: The file cannot be opened or read.
     """
 
-    def __init__(self, file: str | object, buffer: bytearray | memoryview | None = None) -> None: ...
+    def __init__(self, file: str | object, buffer: bytearray | memoryview | None = None, /) -> None: ...
     sample_rate: int
     """Frames per second. You can change it while the sample plays, to 1 or
     more, to play it faster or slower."""
@@ -101,10 +102,10 @@ class WaveFile:
         """Release the sample and close its file. Every later use raises
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 
-def get_buffer(sample: RawSample | WaveFile | object) -> tuple[int, memoryview | None]:
+def get_buffer(sample: RawSample | WaveFile | object, /) -> tuple[int, memoryview | None]:
     """Read the next block of audio from a sample.
 
     Args:
@@ -122,7 +123,7 @@ def get_buffer(sample: RawSample | WaveFile | object) -> tuple[int, memoryview |
         ValueError: The sample was deinitialised.
     """
 
-def reset_buffer(sample: RawSample | WaveFile | object) -> None:
+def reset_buffer(sample: RawSample | WaveFile | object, /) -> None:
     """Rewind a sample so the next `get_buffer` starts from its beginning.
 
     Raises:
@@ -130,7 +131,7 @@ def reset_buffer(sample: RawSample | WaveFile | object) -> None:
         ValueError: The sample was deinitialised.
     """
 
-def get_structure(sample: RawSample | WaveFile | object) -> tuple[int, int, int, int]:
+def get_structure(sample: RawSample | WaveFile | object, /) -> tuple[int, int, int, int]:
     """Describe how a sample hands out its audio.
 
     Returns:

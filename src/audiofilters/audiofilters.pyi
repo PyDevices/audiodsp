@@ -15,6 +15,7 @@ A setting that takes a `synthio.BlockInput` can be a number, or a
 `synthio.LFO` or `synthio.Math` that is read once a block.
 """
 
+from types import TracebackType
 from typing import Protocol, Self, Union
 
 _BlockInput = Union[float, object, None]
@@ -67,7 +68,7 @@ class Filter:
         self,
         *,
         filter: _Biquad | tuple[_Biquad, ...] | list[_Biquad] | None = None,
-        mix: _BlockInput = 1.0,
+        mix: _BlockInput = 1,
         buffer_size: int = 512,
         sample_rate: int = 8000,
         bits_per_sample: int = 16,
@@ -78,7 +79,7 @@ class Filter:
         """Free the filter. Later calls other than `deinit` raise
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
     sample_rate: int
     """Frames per second. Writable, to 1 or more."""
     @property
@@ -129,9 +130,9 @@ class Phaser:
     def __init__(
         self,
         *,
-        frequency: _BlockInput = 1000.0,
+        frequency: _BlockInput = 1000,
         feedback: _BlockInput = None,
-        mix: _BlockInput = 1.0,
+        mix: _BlockInput = 1,
         stages: int = 6,
         buffer_size: int = 512,
         sample_rate: int = 8000,
@@ -143,7 +144,7 @@ class Phaser:
         """Free the effect. Later calls other than `deinit` raise
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
     sample_rate: int
     """Frames per second. Writable, to 1 or more."""
     @property
@@ -199,12 +200,12 @@ class Distortion:
     def __init__(
         self,
         *,
-        drive: _BlockInput = 0.0,
-        pre_gain: _BlockInput = 0.0,
-        post_gain: _BlockInput = 0.0,
+        drive: _BlockInput = 0,
+        pre_gain: _BlockInput = 0,
+        post_gain: _BlockInput = 0,
         mode: DistortionMode = ...,
         soft_clip: bool = False,
-        mix: _BlockInput = 1.0,
+        mix: _BlockInput = 1,
         buffer_size: int = 512,
         sample_rate: int = 8000,
         bits_per_sample: int = 16,
@@ -215,7 +216,7 @@ class Distortion:
         """Free the effect. Later calls other than `deinit` raise
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
     sample_rate: int
     """Frames per second. Writable, to 1 or more."""
     @property

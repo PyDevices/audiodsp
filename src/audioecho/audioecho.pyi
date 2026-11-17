@@ -32,6 +32,7 @@ line; `audiomodal.Bank`, `audioverb.Tank` and `audioconvolve.Convolver` do
 the same.
 """
 
+from types import TracebackType
 from typing import Protocol, Self
 
 __version__: str
@@ -182,4 +183,4 @@ class FeedbackDelay:
         """Release the node. Later calls other than `deinit` raise
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

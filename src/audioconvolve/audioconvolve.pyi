@@ -8,6 +8,7 @@ room, a cabinet or a spring, or with a room it synthesizes itself. It adds one
 block of latency once an impulse is loaded.
 """
 
+from types import TracebackType
 from typing import Protocol, Self
 
 __version__: str
@@ -175,4 +176,4 @@ class Convolver:
         """Release the convolver and let go of its source. Every later use
         raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

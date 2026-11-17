@@ -10,6 +10,7 @@ is the other half of a lo-fi effect: the waveshaper quantises the value, the
 hold quantises the time.
 """
 
+from types import TracebackType
 from typing import Protocol, Self
 
 __version__: str
@@ -159,7 +160,7 @@ class Waveshaper:
         """Release the node and let go of its source. Every later use
         raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 class SampleHold:
     """A zero-order hold in which ``num`` source frames carry ``den`` new
@@ -225,4 +226,4 @@ class SampleHold:
         """Release the node and let go of its source. Every later use
         raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

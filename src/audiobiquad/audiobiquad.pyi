@@ -26,6 +26,7 @@ A node that has not played yet, or has just been reset, takes its levels at
 once.
 """
 
+from types import TracebackType
 from typing import Protocol, Self, Union
 
 __version__: str
@@ -154,7 +155,7 @@ class Biquad:
         """Release the node. Later calls other than `deinit` raise
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 class AllPass:
     """A cascade of first-order all-pass stages.
@@ -231,4 +232,4 @@ class AllPass:
         """Release the node. Later calls other than `deinit` raise
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

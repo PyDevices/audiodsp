@@ -45,6 +45,14 @@ class Rules(unittest.TestCase):
         self.assertEqual(self.jobs("tests/test_stubs_match_modules.py"), {"lint", "unit", "build"})
         self.assertEqual(self.jobs(".github/workflows/stubs.yml"), set())
 
+    def test_the_pure_python_stubs_reach_only_the_wheel(self):
+        self.assertEqual(self.jobs("lib/audiorender/render.pyi"), {"wheels"})
+        self.assertEqual(self.jobs("lib/audiodsp_util/py.typed"), {"wheels"})
+
+    def test_the_stubtest_tool_reaches_lint_and_its_allowlist_nothing(self):
+        self.assertEqual(self.jobs("tools/check_stubtest.py"), {"lint"})
+        self.assertEqual(self.jobs("tools/stubs/stubtest_allowlist.txt"), set())
+
     def test_the_sources_packaging_and_unknown_files_reach_everything(self):
         for path in ("src/shared/audiodsp_graph.c", "src/cpython/_audiodsp.c", "setup.py", "pyproject.toml",
                      "MANIFEST.in", "micropython.mk", "DEPENDENCIES.lock", "third_party/tremor/x.c",

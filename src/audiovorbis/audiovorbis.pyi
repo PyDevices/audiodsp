@@ -12,6 +12,7 @@ The decoder reads its file during playback, so keep the file open while the
 sample plays. Decoding is integer-only, using Xiph's Tremor.
 """
 
+from types import TracebackType
 from typing import BinaryIO, Self
 
 __version__: str
@@ -42,7 +43,7 @@ class VorbisDecoder:
         ValueError: The file has more than two channels.
     """
 
-    def __init__(self, file: str | BinaryIO, buffer: bytearray | memoryview | None = None) -> None: ...
+    def __init__(self, file: str | BinaryIO, buffer: bytearray | memoryview | None = None, /) -> None: ...
     file: BinaryIO
     """The file being decoded. Assign a new file object, opened in binary
     mode, to play another with the same decoder."""
@@ -77,4 +78,4 @@ class VorbisDecoder:
     def deinit(self) -> None:
         """Release the decoder. Every later use raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

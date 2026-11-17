@@ -14,6 +14,7 @@ Nothing in the module makes a voice on its own: you reach one through
 `Mixer.voice`.
 """
 
+from types import TracebackType
 from typing import Protocol, Self
 
 class _AudioSample(Protocol):
@@ -49,7 +50,7 @@ class _MixerVoice:
     follows the rules of `level`."""
     loop: bool
     """Whether the voice starts its source again when it ends."""
-    def play(self, sample: _AudioSample, /, *, loop: bool = False) -> None:
+    def play(self, sample: _AudioSample, *, loop: bool = False) -> None:
         """Play a source on this voice, from its start, replacing what the
         voice was playing.
 
@@ -61,7 +62,7 @@ class _MixerVoice:
         Raises:
             ValueError: The source's format does not match the mixer's.
         """
-    def stop(self, *, voice: int = 0) -> None:
+    def stop(self, voice: int = 0) -> None:
         """Stop the voice at once. ``voice`` is accepted and ignored, as in
         CircuitPython."""
     def end(self) -> None:
@@ -125,7 +126,7 @@ class Mixer:
     @property
     def channel_count(self) -> int:
         """Number of channels: 1 or 2."""
-    def play(self, sample: _AudioSample, /, *, voice: int = 0, loop: bool = False) -> Self:
+    def play(self, sample: _AudioSample, *, voice: int = 0, loop: bool = False) -> Self:
         """Play a source on one voice, from its start.
 
         Args:
@@ -150,4 +151,4 @@ class Mixer:
         """Free the mixer. Later calls other than `deinit` raise
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
