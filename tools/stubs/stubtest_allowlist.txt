@@ -1,0 +1,160 @@
+# What stubtest finds that the stubs do not change.
+#
+# The stubs describe the module built into MicroPython and CircuitPython. Each
+# module also has a CPython twin in the wheel, and stubtest compares the stub
+# with that twin. An entry here is either a point where CPython is built
+# differently in a way no caller sees (the first block), or a difference
+# between the two interpreters that audiodsp#426 lists (the second). Remove an
+# entry when the difference is fixed: stubtest fails on an entry that matches
+# nothing.
+#
+# Each line is a regular expression matched against the whole name.
+
+# --- Differences in how CPython is built; no call written against the stub fails ---
+
+# The CPython wrappers define __all__. The MicroPython modules have no __all__,
+# so every public name is exported there.
+[a-z0-9]+\.__all__
+
+# Each CPython module re-exports a private helper base class, _AudioSample, and
+# the stubs name that type another way. Nothing imports it.
+[a-z0-9]+\._AudioSample(\..*)?
+
+# The CPython wrappers set bits_per_sample and channel_count on the instance in
+# __init__, so stubtest does not find them on the class. Every instance has them.
+[a-z0-9]+\.[A-Za-z0-9]+\.(bits_per_sample|channel_count)
+
+# The same, for the other attributes the CPython wrappers set on the instance.
+audiosampler\.Sampler\.voice|audiomixer\.Mixer\.voice|synthio\.Biquad\.mode|synthio\.LFO\.waveform|synthio\.Synthesizer\.(blocks|refused)
+
+# CPython builds these four enumerations on enum.Enum and MicroPython builds
+# them as plain classes with the same members. The members and their names match.
+synthio\.(FilterMode|EnvelopeState|MathOperation)(\.__new__)?
+audiofilters\.DistortionMode(\.__new__)?
+
+# RawSample and Graph are C extension types on CPython, which stubtest sees as
+# final and with no readable signature. Graph's calls are checked by hand and
+# match on both interpreters.
+audiocore\.RawSample
+audiograph\.Graph(\.__init__)?
+
+# --- Differences between the interpreters, listed in audiodsp#426 ---
+
+# play(sample) on effects: MicroPython takes one positional argument, CPython also takes sample= and loop=; Dynamics.key and Multiply.modulate take sample= on CPython too.
+audiobiquad.AllPass.play
+audiobiquad.Biquad.play
+audioconvolve.Convolver.play
+audiodynamics.Dynamics.key
+audiodynamics.Dynamics.play
+audioecho.FeedbackDelay.play
+audioladder.Ladder.play
+audiomath.Multiply.modulate
+audiomath.Multiply.play
+audiomath.SubOctave.play
+audiomodal.Bank.play
+audioroute.MidSide.play
+audioshaper.SampleHold.play
+audioshaper.Waveshaper.play
+audioverb.Tank.play
+
+# stop() and playing exist on these effects on CPython only.
+audioconvolve.Convolver.playing
+audioconvolve.Convolver.stop
+audiodynamics.Dynamics.playing
+audiodynamics.Dynamics.stop
+audioecho.FeedbackDelay.playing
+audioecho.FeedbackDelay.stop
+audioladder.Ladder.playing
+audioladder.Ladder.stop
+audiomath.Multiply.playing
+audiomath.Multiply.stop
+audiomath.SubOctave.playing
+audiomath.SubOctave.stop
+audiomodal.Bank.playing
+audiomodal.Bank.stop
+audioshaper.SampleHold.playing
+audioshaper.SampleHold.stop
+audioshaper.Waveshaper.playing
+audioshaper.Waveshaper.stop
+audioverb.Tank.playing
+audioverb.Tank.stop
+
+# Constructors keyword-only on MicroPython and positional on CPython.
+audiobiquad.AllPass.__init__
+audiobiquad.Biquad.__init__
+audioecho.FeedbackDelay.__init__
+audioladder.Ladder.__init__
+audiomodal.Bank.__init__
+audiooscillator.Oscillator.__init__
+audioshaper.Waveshaper.__init__
+audioverb.Tank.__init__
+
+# Positional only on MicroPython; CPython also takes the names, and for audiocore a few extra arguments.
+audiocore.WaveFile.__init__
+audiocore.get_buffer
+audiocore.get_structure
+audiocore.reset_buffer
+audiofeatures.Frontend.attach
+audiofeatures.Frontend.feed
+audiofeatures.Frontend.readinto
+audiofeatures.Frontend.readinto_raw
+audiofeatures.quantize
+audiomath.remix_s16
+audiometer.Meter.attach
+audiometer.Meter.feed
+audiometer.Meter.levels
+audiometer.db_byte
+audiomodal.Bank.set_mode
+audiomodal.Bank.set_modes
+audiomp3.MP3Decoder.__init__
+audiomp3.MP3Decoder.open
+audiopump.Events.at
+audiopump.Events.cancel
+audiopump.Ring.write
+audiopump.Tap.readinto
+audiopump.drain
+audiopump.info
+audiopump.join
+audiopump.pull
+audiopump.reset
+audiopump.service
+audiopump.sink_gain
+audioroute.Splitter.tap
+audiovorbis.VorbisDecoder.__init__
+audiovorbis.VorbisDecoder.open
+synthio.Synthesizer.note_info
+synthio.Synthesizer.press
+synthio.Synthesizer.release
+synthio.Synthesizer.release_all_then_press
+synthio.midi_to_hz
+synthio.voct_to_hz
+
+# Positional or keyword on MicroPython; keyword only on CPython.
+synthio.Synthesizer.change
+synthio.Synthesizer.release_then_press
+
+# Defaults: None on MicroPython, a number on CPython.
+audioconvolve.Convolver.__init__
+audioconvolve.Convolver.load
+audioconvolve.Convolver.room_peak_gain_for
+audioconvolve.Convolver.synthesize
+audiodelays.GranularPitchShift.__init__
+audiomath.Multiply.__init__
+audiometer.Meter.__init__
+audiometer.Meter.configure
+audiopump.DriftResampler.__init__
+audioroute.MidSide.__init__
+audiosampler.Sampler.__init__
+audiosampler.SamplerVoice.play
+
+# Names present on one side only, and constructors CPython has and MicroPython refuses.
+audiocore.RawSample.max_buffer_length
+audiocore.RawSample.samples_signed
+audiocore.RawSample.single_buffer
+audiodelays.Flanger.lfo_value
+audiograph.Graph.max_buffer_length
+audiograph.Graph.samples_signed
+audiograph.Graph.single_buffer
+audiopump.Ring.from_usb
+audioroute.SplitterTap.__init__
+audiosampler.SamplerVoice.__init__

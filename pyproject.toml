@@ -76,6 +76,12 @@ packages = ["audiorender", "audiodsp_util"]
 audiorender = "lib/audiorender"
 audiodsp_util = "lib/audiodsp_util"
 
+# The pure-Python packages carry their stubs and a py.typed marker, so type
+# checkers read them. The native modules' stubs are copied in by setup.py.
+[tool.setuptools.package-data]
+audiorender = ["*.pyi", "py.typed"]
+audiodsp_util = ["*.pyi", "py.typed"]
+
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
 

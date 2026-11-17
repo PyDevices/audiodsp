@@ -18,6 +18,7 @@ All voices are mixed in one C call per block, through a 4-point Hermite
 interpolator.
 """
 
+from types import TracebackType
 from typing import Self
 
 __version__: str
@@ -67,7 +68,7 @@ class SampleBuffer:
     def deinit(self) -> None:
         """Free the bytes at once. The buffer then has a length of 0."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 class SamplerVoice:
     """One voice of a `Sampler`.
@@ -218,7 +219,7 @@ class SamplerVoice:
         """Stop the voice with no fade and let go of its buffer. The voice
         belongs to its sampler, which keeps working."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 class Sampler:
     """A bank of sample-playing voices, played like any audio sample.
@@ -273,4 +274,4 @@ class Sampler:
         """Stop every voice and let go of every buffer. Every later use raises
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

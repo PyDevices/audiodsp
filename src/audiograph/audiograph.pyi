@@ -58,6 +58,7 @@ Every node kind and every parameter index is a constant below; a kind's
 parameters carry its name as a prefix.
 """
 
+from types import TracebackType
 from typing import Self, Sequence
 
 __version__: str
@@ -719,4 +720,4 @@ class Graph:
         """Free the graph. A graph released while the pump is pulling it stops
         cleanly."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

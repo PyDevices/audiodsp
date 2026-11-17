@@ -12,6 +12,7 @@ All of them are audio samples (a `Splitter` itself is not; its taps are), so
 they play wherever an `audiocore.RawSample` does.
 """
 
+from types import TracebackType
 from typing import Protocol, Self
 
 __version__: str
@@ -61,7 +62,7 @@ class Splitter:
         """Release the splitter and its taps, and let go of the source. Every
         later use raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 class SplitterTap:
     """One branch of a `Splitter`: the same audio, as an audio sample.
@@ -81,7 +82,7 @@ class SplitterTap:
     def deinit(self) -> None:
         """Release this tap. Every later use raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 class MidSide:
     """Scales the difference between the left and right channels.
@@ -143,7 +144,7 @@ class MidSide:
         """Release the node and let go of its source. Every later use raises
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 class Port:
     """A wire whose source can be changed while it plays.
@@ -173,12 +174,14 @@ class Port:
     @property
     def source(self) -> _AudioSample:
         """The stream the port is passing through now."""
-    def play(self, source: _AudioSample, /, *, after: int = 0) -> None:
+    def play(self, sample: _AudioSample, *, loop: bool = False, after: int = 0) -> None:
         """Point the port at a different source. It takes effect between
         blocks, and the player does not need to stop.
 
         Args:
-            source: The stream to pass through from now on.
+            sample: The stream to pass through from now on.
+            loop: Ignored. It is accepted so a call written for another audio
+                object works here.
             after: Frames to keep playing the current source first. The port
                 switches at the start of the first pull after that many
                 frames have played, which gives a level the old source is
@@ -188,8 +191,8 @@ class Port:
                 plays switches at once, and so does ``after=0``.
 
         Raises:
-            TypeError: ``source`` is not an audio sample.
-            ValueError: ``source`` is None, ``after`` is negative, or the
+            TypeError: ``sample`` is not an audio sample.
+            ValueError: ``sample`` is None, ``after`` is negative, or the
                 source's sample rate, channel count, bit depth or signedness
                 differs from the port's.
         """
@@ -197,4 +200,4 @@ class Port:
         """Let go of the source and release the port; the source itself is
         not released. Every later use raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

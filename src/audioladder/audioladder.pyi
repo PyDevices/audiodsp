@@ -31,6 +31,7 @@ what this module is for.
     ladder.clear()                 # empty the integrators; stops a sustained tone
 """
 
+from types import TracebackType
 from typing import Protocol, Self
 
 __version__: str
@@ -181,4 +182,4 @@ class Ladder:
         """Release the filter and let go of its source. Every later use
         raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

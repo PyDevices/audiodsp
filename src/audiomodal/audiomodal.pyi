@@ -8,6 +8,7 @@ sinusoids at frequencies that are not harmonics of anything. Give `Bank` that
 list of modes and a short noise burst for the stick, and it is that object.
 """
 
+from types import TracebackType
 from typing import Protocol, Self
 
 __version__: str
@@ -132,4 +133,4 @@ class Bank:
         """Release the bank and let go of its stimulus. Every later use
         raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

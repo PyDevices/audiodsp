@@ -13,6 +13,7 @@ Audio at any rate from 16 kHz to 384 kHz is accepted; other rates are
 resampled to 16 kHz first, and stereo or wider audio is mixed to mono.
 """
 
+from types import TracebackType
 from typing import Self
 
 __version__: str
@@ -124,9 +125,9 @@ class Frontend:
     def deinit(self) -> None:
         """Free the queue. Later calls other than `deinit` raise `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
-def quantize(value: int) -> int:
+def quantize(value: int, /) -> int:
     """The int8 a model takes for one raw frontend value.
 
     This is ``(value * 256 + 333) // 666 - 128``, which is what `readinto`

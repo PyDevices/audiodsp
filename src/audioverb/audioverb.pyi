@@ -17,6 +17,7 @@ comb and all-pass lengths are constants.
     audio_out.play(plate)
 """
 
+from types import TracebackType
 from typing import Protocol, Self, Sequence
 
 __version__: str
@@ -190,4 +191,4 @@ class Tank:
         """Release the node and let go of its source. Every later use
         raises `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...

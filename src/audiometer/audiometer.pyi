@@ -10,6 +10,7 @@ attach an `audiopump.Tap` and it reads whatever the pump is playing or
 recording, in C.
 """
 
+from types import TracebackType
 from typing import Self
 
 __version__: str
@@ -103,9 +104,9 @@ class Meter:
     def deinit(self) -> None:
         """Free the meter. Later calls other than `deinit` raise `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
-def db_byte(power: float) -> int:
+def db_byte(power: float, /) -> int:
     """The byte a power reads as on the meter's scale.
 
     Args:

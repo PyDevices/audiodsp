@@ -10,6 +10,7 @@ line lengths are fixed in the code. To choose your own network, see
 arguments on every port.
 """
 
+from types import TracebackType
 from typing import Protocol, Self, Union
 
 _BlockInput = Union[float, object, None]
@@ -69,7 +70,7 @@ class Freeverb:
         """Free the effect. Later calls other than `deinit` raise
         `ValueError`."""
     def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
     sample_rate: int
     """Frames per second. Writable, to 1 or more."""
     @property
