@@ -689,20 +689,23 @@ while the main thread did something else:
 
 | the main thread | graph on the heap (PSRAM) | graph in internal RAM |
 |---|---|---|
-| nothing | 35.0% | 33.1% |
-| copies 1 MB every 20 ms, 64 KB at a time | 46.5% | 39.6% |
-| copies 1 MB every 20 ms in one piece | 65.9% | 53.4% |
-| redraws an 800 by 480 screen every 20 ms | 48.5% | 44.3% |
+| nothing | 35% | 33% |
+| copies 1 MB every 20 ms, 64 KB at a time | 47% | 39 to 40% |
+| copies 1 MB every 20 ms in one piece | 66% | 48 to 53% |
+| redraws its whole screen every 20 ms | 49% | 43 to 44% |
 
 That is the board with a 128 KB second-level cache. Its slowest block while
 redrawing went from 110 to 128% of a block's time to 94 to 109%. On the
 other board, with a 256 KB cache and half the free internal RAM, the same
-46 KB bought nothing in the same table (65.4% and 66.8% for the megabyte
-copy), and the slowest block moved from 125 to 145% to 116 to 138%. A drum
-machine's graphs came to 90 KB. Internal RAM is also what Wi-Fi, Bluetooth
-and a video encoder need, so a driver that hands it out has to leave them
-room: with about 100 KB of graphs held on the second board, a screen cast
-would not start.
+memory bought nothing in the same table (65% and 67% for the megabyte copy),
+and the slowest block went from 125 to 207% in eight runs to 114 to 138% in
+eight. A heavier patch was another matter there: a drum machine with 90 KB
+of graphs, redrawing its screen, lost 104 and 466 ms of sound in two 30 s
+runs with its graphs on the heap, and none in three runs with a third of
+them in internal RAM. Internal RAM is also what
+Wi-Fi, Bluetooth and a video encoder need, so a driver that hands it out has
+to leave them room: with about 100 KB of graphs held on the second board,
+and 53 KB of internal RAM left, a screen cast did not start.
 
 ## Limits, and what is checked
 
