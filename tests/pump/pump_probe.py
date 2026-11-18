@@ -93,7 +93,8 @@ What each case is for
     plays the fixture to its end must take at least one block and give back
     exactly as many. ``--fault leak`` skips the ``deinit()`` and must fail.
     An ``audiograph.Graph`` takes its buffers, tables and node state from
-    there too: one that has been pulled gives every block back on
+    the driver's ``mem_alloc_graph`` pair, which ``_pumpsink`` counts with
+    the same counters: one that has been pulled gives every block back on
     ``deinit()``, a second one when it is collected, and two that traded
     patches with ``swap()`` give back what they hold between them. The same
     fault skips those ``deinit()`` calls. Skipped on a build without
@@ -831,7 +832,7 @@ def _hotmem_graph(_pumpsink, fault):
         g.deinit()
     taken2, given2 = _pumpsink.hot()
     taken = taken1 - taken0
-    ok = say("graph memory from the hot pair", taken > 0 and first != second,
+    ok = say("graph memory from the driver", taken > 0 and first != second,
              "%d blocks taken, two pulls rendered" % taken)
     ok = say("graph: all given back on deinit()",
              given2 - given0 == taken and taken2 == taken1,

@@ -19,40 +19,41 @@
 //
 // What a pull reads and writes on every block: the block buffers, the node
 // table and each node's state, the queue and the two output blocks. Where the
-// bound driver has hot memory (shared/audiodsp_port.h, mem_alloc_hot), all of
-// it comes from there and not from the interpreter's heap, which on a board
-// with PSRAM is the slow memory. A block larger than AUDIOGRAPH_HOT_MAX is a
-// delay line or a table, read in order and not worth the fast memory: it
-// goes to the driver's general memory when the driver has that.
+// bound driver hands out memory for it (shared/audiodsp_port.h,
+// mem_alloc_graph), all of it comes from there and not from the interpreter's
+// heap, which on a board with PSRAM is the slow memory. A block larger than
+// AUDIOGRAPH_FAST_MAX is a delay line or a table, read in order and not worth
+// the fast memory: it goes to the driver's general memory when the driver
+// has that.
 //
 // None of this is the garbage collector's, so each block carries a header
 // that chains it to its graph, and deinit() or the finaliser gives every one
 // back. Nothing in such a block may be the only reference to a heap object:
 // a borrowed table is kept alive through `keep`.
 //
-// With no hot memory bound, a graph lives on the interpreter's heap as it
+// With no such memory bound, a graph lives on the interpreter's heap as it
 // always has, with no headers and nothing to give back.
-#define AUDIOGRAPH_HOT_MAX 16384u
+#define AUDIOGRAPH_FAST_MAX 16384u
 
 struct audiograph_block {
     struct audiograph_block *next;
-    // Given back through mem_free, not mem_free_hot.
+    // Given back through mem_free, not mem_free_graph.
     uint32_t general;
 };
 
-static const audiodsp_port_ops_t *graph_hot_port(void) {
+static const audiodsp_port_ops_t *graph_port(void) {
     const audiodsp_port_ops_t *port = audiodsp_port();
-    return (port->mem_alloc_hot != NULL && port->mem_free_hot != NULL) ? port : NULL;
+    return (port->mem_alloc_graph != NULL && port->mem_free_graph != NULL) ? port : NULL;
 }
 
 // `size` zeroed bytes, chained to `*chain` when they are the driver's.
 static void *graph_alloc(struct audiograph_block **chain, size_t size) {
-    const audiodsp_port_ops_t *port = graph_hot_port();
+    const audiodsp_port_ops_t *port = graph_port();
     if (port == NULL) {
         return m_malloc0(size);
     }
     const size_t whole = sizeof(struct audiograph_block) + size;
-    const bool general = size > AUDIOGRAPH_HOT_MAX
+    const bool general = size > AUDIOGRAPH_FAST_MAX
         && port->mem_alloc != NULL && port->mem_free != NULL;
     struct audiograph_block *block;
     if (general) {
@@ -61,7 +62,7 @@ static void *graph_alloc(struct audiograph_block **chain, size_t size) {
             memset(block, 0, whole);
         }
     } else {
-        block = port->mem_alloc_hot(whole);
+        block = port->mem_alloc_graph(whole);
     }
     if (block == NULL) {
         m_malloc_fail(size);
@@ -81,7 +82,7 @@ static void graph_free_chain(struct audiograph_block **chain) {
         if (block->general) {
             port->mem_free(block);
         } else {
-            port->mem_free_hot(block);
+            port->mem_free_graph(block);
         }
         block = next;
     }
