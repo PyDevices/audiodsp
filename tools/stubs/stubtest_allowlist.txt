@@ -90,7 +90,6 @@ audioshaper.Waveshaper.__init__
 audioverb.Tank.__init__
 
 # Positional only on MicroPython; CPython also takes the names, and for audiocore a few extra arguments.
-audiocore.WaveFile.__init__
 audiocore.get_buffer
 audiocore.get_structure
 audiocore.reset_buffer
@@ -106,7 +105,6 @@ audiometer.Meter.levels
 audiometer.db_byte
 audiomodal.Bank.set_mode
 audiomodal.Bank.set_modes
-audiomp3.MP3Decoder.__init__
 audiomp3.MP3Decoder.open
 audiopump.Events.at
 audiopump.Events.cancel
@@ -122,16 +120,10 @@ audiopump.sink_gain
 audioroute.Splitter.tap
 audiovorbis.VorbisDecoder.__init__
 audiovorbis.VorbisDecoder.open
-synthio.Synthesizer.note_info
 synthio.Synthesizer.press
 synthio.Synthesizer.release
 synthio.Synthesizer.release_all_then_press
 synthio.midi_to_hz
-synthio.voct_to_hz
-
-# Positional or keyword on MicroPython; keyword only on CPython.
-synthio.Synthesizer.change
-synthio.Synthesizer.release_then_press
 
 # Defaults: None on MicroPython, a number on CPython.
 audioconvolve.Convolver.__init__

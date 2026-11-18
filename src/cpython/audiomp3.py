@@ -36,7 +36,7 @@ class MP3Decoder(_AudioSample):
     buffer, as it does there.
     """
 
-    def __init__(self, file, buffer=None):
+    def __init__(self, file, buffer=None, /):
         self._input_bytes = _INPUT_BYTES
         if buffer is not None:
             size = memoryview(buffer).nbytes
