@@ -172,7 +172,7 @@ class _AudioSample:
         self._check()
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, exc_type, exc, tb, /):
         self.deinit()
 
 
@@ -180,7 +180,7 @@ RawSample = _audiodsp.RawSample
 
 
 class WaveFile(_AudioSample):
-    def __init__(self, file, buffer=None):
+    def __init__(self, file, buffer=None, /):
         if buffer is not None:
             # The native binding's checks. Each half has to hold whole 32-bit
             # words, so the length is a multiple of 8 (CircuitPython 11,

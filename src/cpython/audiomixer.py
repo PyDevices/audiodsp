@@ -185,7 +185,9 @@ class MixerVoice:
         # being a new surface. It is deliberately unguarded -- see play().
         self._loop = bool(value)
 
-    def stop(self): self._sample = None
+    def stop(self, voice=0):
+        # CircuitPython accepts and ignores the argument.
+        self._sample = None
 
     def reset(self):
         """Rewind to the start of whatever is playing, keeping it playing."""

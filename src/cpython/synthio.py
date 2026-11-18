@@ -230,7 +230,8 @@ class LFO:
         self._phase = 0.0
 
 
-def lfo_tick(*blocks):
+def lfo_tick(block, /, *blocks):
+    blocks = (block,) + blocks
     _advance_blocks(48000, 256)
     return tuple(_value(block) for block in blocks)
 
@@ -399,7 +400,7 @@ class Synthesizer(_AudioSample):
         result._midi_note = note
         return result
 
-    def press(self, notes):
+    def press(self, notes, /):
         # Mirrors CircuitPython's synthio_span_change_note exactly
         # (shared-module/synthio/__init__.c): a note already playing
         # re-enters ATTACK from its current level with its oscillator
@@ -489,7 +490,7 @@ class Synthesizer(_AudioSample):
         # happen; answer the last channel rather than raising out of a render.
         return self.max_polyphony - 1
 
-    def release(self, notes):
+    def release(self, notes, /):
         if isinstance(notes, (int, Note)): notes = (notes,)
         for item in notes:
             if isinstance(item, int):
@@ -503,14 +504,14 @@ class Synthesizer(_AudioSample):
                     note._envelope_state.release()
 
     def release_all(self): self.release(tuple(self._notes))
-    def change(self, *, release=(), press=(), retrigger=()):
+    def change(self, release=(), press=(), retrigger=()):
         self.release(release); self.press(press)
         for note in retrigger:
             if isinstance(note, Note): note._accum = 0
     release_then_press = change
-    def release_all_then_press(self, notes): self.release_all(); self.press(notes)
+    def release_all_then_press(self, notes, /): self.release_all(); self.press(notes)
 
-    def note_info(self, note):
+    def note_info(self, note, /):
         note = self._coerce(note)
         if note not in self._notes or note._envelope_state is None:
             return EnvelopeState.RELEASE, 0.0
@@ -826,14 +827,14 @@ def from_file(file, *, sample_rate=11025, waveform=None, envelope=None):
         if close: stream.close()
 
 
-def midi_to_hz(note):
+def midi_to_hz(note, /):
     note = float(note)
     # CircuitPython derives this from the first entry in its ninth-octave
     # MIDI table, rather than using 440 * 2**((note-69)/12).
     return 8372.0 * 2.0 ** (note / 12.0 - 10.0)
 
 
-def voct_to_hz(ctrl):
+def voct_to_hz(ctrl, /):
     ctrl = float(ctrl)
     if not -11 <= ctrl <= 11: raise ValueError("ctrl must be between -11 and 11")
     return 8372.0 * 2.0 ** (ctrl - 7.0)
