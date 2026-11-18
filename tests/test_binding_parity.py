@@ -137,6 +137,11 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
                     % (sorted(micropython - circuitpython),
                        sorted(circuitpython - micropython)))
 
+    #: Names MicroPython's binding has alone, by type. A Graph's finaliser
+    #: gives back memory a driver handed it (`mem_alloc_graph`), which only
+    #: the MicroPython binding ever takes.
+    MICROPYTHON_ONLY = {"audiograph_graph": {"__del__"}}
+
     def test_every_type_exposes_the_same_names(self):
         """The one that would have caught all four of the day's instances."""
         for module in MODULES:
@@ -144,8 +149,11 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
             circuitpython = circuitpython_surfaces(module)
             for name in sorted(set(micropython) & set(circuitpython)):
                 with self.subTest(type=name):
+                    alone = self.MICROPYTHON_ONLY.get(name, set())
+                    # The control: an exemption for a name that isn't there is stale.
+                    self.assertLessEqual(alone, micropython[name])
                     self.assertEqual(
-                        micropython[name], circuitpython[name],
+                        micropython[name] - alone, circuitpython[name],
                         "%s exposes different names on the two targets: "
                         "MicroPython only %s, CircuitPython only %s"
                         % (name,
