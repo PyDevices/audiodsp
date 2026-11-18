@@ -9,10 +9,83 @@
 #include "cp_compat/context_manager_helpers.h"
 #include "py/binary.h"
 #include "py/runtime.h"
+#include "shared/audiodsp_port.h"
 #include "shared/audiodsp_pump_lock.h"
 
 // A table page's size: small enough to fit a fragmented heap.
 #define AUDIOGRAPH_PAGE_BYTES 4096u
+
+// --- where a graph's memory comes from --------------------------------------
+//
+// What a pull reads and writes on every block: the block buffers, the node
+// table and each node's state, the queue and the two output blocks. Where the
+// bound driver has hot memory (shared/audiodsp_port.h, mem_alloc_hot), all of
+// it comes from there and not from the interpreter's heap, which on a board
+// with PSRAM is the slow memory. A block larger than AUDIOGRAPH_HOT_MAX is a
+// delay line or a table, read in order and not worth the fast memory: it
+// goes to the driver's general memory when the driver has that.
+//
+// None of this is the garbage collector's, so each block carries a header
+// that chains it to its graph, and deinit() or the finaliser gives every one
+// back. Nothing in such a block may be the only reference to a heap object:
+// a borrowed table is kept alive through `keep`.
+//
+// With no hot memory bound, a graph lives on the interpreter's heap as it
+// always has, with no headers and nothing to give back.
+#define AUDIOGRAPH_HOT_MAX 16384u
+
+struct audiograph_block {
+    struct audiograph_block *next;
+    // Given back through mem_free, not mem_free_hot.
+    uint32_t general;
+};
+
+static const audiodsp_port_ops_t *graph_hot_port(void) {
+    const audiodsp_port_ops_t *port = audiodsp_port();
+    return (port->mem_alloc_hot != NULL && port->mem_free_hot != NULL) ? port : NULL;
+}
+
+// `size` zeroed bytes, chained to `*chain` when they are the driver's.
+static void *graph_alloc(struct audiograph_block **chain, size_t size) {
+    const audiodsp_port_ops_t *port = graph_hot_port();
+    if (port == NULL) {
+        return m_malloc0(size);
+    }
+    const size_t whole = sizeof(struct audiograph_block) + size;
+    const bool general = size > AUDIOGRAPH_HOT_MAX
+        && port->mem_alloc != NULL && port->mem_free != NULL;
+    struct audiograph_block *block;
+    if (general) {
+        block = port->mem_alloc(whole);
+        if (block != NULL) {
+            memset(block, 0, whole);
+        }
+    } else {
+        block = port->mem_alloc_hot(whole);
+    }
+    if (block == NULL) {
+        m_malloc_fail(size);
+    }
+    block->general = general;
+    block->next = *chain;
+    *chain = block;
+    return block + 1;
+}
+
+static void graph_free_chain(struct audiograph_block **chain) {
+    const audiodsp_port_ops_t *port = audiodsp_port();
+    struct audiograph_block *block = *chain;
+    *chain = NULL;
+    while (block != NULL) {
+        struct audiograph_block *next = block->next;
+        if (block->general) {
+            port->mem_free(block);
+        } else {
+            port->mem_free_hot(block);
+        }
+        block = next;
+    }
+}
 
 // A live graph, or a raise.
 static audiograph_graph_obj_t *graph_self(mp_obj_t self_in) {
@@ -88,37 +161,45 @@ static mp_obj_t audiograph_graph_make_new(const mp_obj_type_t *type,
     if (queue < 1 || queue > 65536) {
         mp_raise_ValueError(MP_ERROR_TEXT("queue must be from 1 to 65536"));
     }
-    audiograph_graph_obj_t *self = mp_obj_malloc(audiograph_graph_obj_t, type);
+    // With a finaliser, for the memory that isn't the collector's. It reads
+    // the two chains and the deinit mark, so those are set before anything
+    // below can raise.
+    audiograph_graph_obj_t *self = mp_obj_malloc_with_finaliser(audiograph_graph_obj_t, type);
+    self->patch_blocks = NULL;
+    self->out_blocks = NULL;
+    self->keep = mp_const_none;
+    self->base.channel_count = (uint8_t)channels;
     // Every table goes in pages of a few KB, so a large patch still fits a
     // fragmented heap. The GC keeps a block alive only through a pointer to
     // its start, so the first pointer into each page is that start.
     size_t per = AUDIOGRAPH_PAGE_BYTES / ((size_t)frames * sizeof(int16_t));
     per = per ? per : 1;
-    int16_t **bufs = m_new(int16_t *, (size_t)buffers);
+    struct audiograph_block **chain = &self->patch_blocks;
+    int16_t **bufs = graph_alloc(chain, sizeof(int16_t *) * (size_t)buffers);
     for (mp_int_t i = 0; i < buffers; i += (mp_int_t)per) {
         size_t n = (size_t)(buffers - i) < per ? (size_t)(buffers - i) : per;
-        int16_t *page = m_new0(int16_t, n * (size_t)frames);
+        int16_t *page = graph_alloc(chain, sizeof(int16_t) * n * (size_t)frames);
         for (size_t k = 0; k < n; ++k) {
             bufs[i + (mp_int_t)k] = page + k * (size_t)frames;
         }
     }
     uint32_t node_pages = audiodsp_graph_pages((uint32_t)nodes, AUDIODSP_GRAPH_NODE_PAGE);
-    audiodsp_graph_node_t **table = m_new(audiodsp_graph_node_t *, node_pages);
-    float **shadow = m_new(float *, node_pages);
+    audiodsp_graph_node_t **table = graph_alloc(chain, sizeof(audiodsp_graph_node_t *) * node_pages);
+    float **shadow = graph_alloc(chain, sizeof(float *) * node_pages);
     for (uint32_t i = 0; i < node_pages; ++i) {
-        table[i] = m_new0(audiodsp_graph_node_t, AUDIODSP_GRAPH_NODE_PAGE);
-        shadow[i] = m_new0(float, AUDIODSP_GRAPH_SHADOW_PAGE);
+        table[i] = graph_alloc(chain, sizeof(audiodsp_graph_node_t) * AUDIODSP_GRAPH_NODE_PAGE);
+        shadow[i] = graph_alloc(chain, sizeof(float) * AUDIODSP_GRAPH_SHADOW_PAGE);
     }
     uint32_t record_pages = audiodsp_graph_pages((uint32_t)queue, AUDIODSP_GRAPH_RECORD_PAGE);
-    audiodsp_graph_record_t **records = m_new(audiodsp_graph_record_t *, record_pages);
+    audiodsp_graph_record_t **records = graph_alloc(chain, sizeof(audiodsp_graph_record_t *) * record_pages);
     for (uint32_t i = 0; i < record_pages; ++i) {
-        records[i] = m_new0(audiodsp_graph_record_t, AUDIODSP_GRAPH_RECORD_PAGE);
+        records[i] = graph_alloc(chain, sizeof(audiodsp_graph_record_t) * AUDIODSP_GRAPH_RECORD_PAGE);
     }
     audiodsp_graph_init(&self->graph, (uint32_t)args[ARG_sample_rate].u_int,
         (uint32_t)frames, (uint32_t)channels, bufs, (uint32_t)buffers, table,
         (uint32_t)nodes);
     audiodsp_graph_queue_init(&self->graph, records, (uint32_t)queue, shadow);
-    self->out = m_new0(int16_t, 2u * (size_t)frames * (size_t)channels);
+    self->out = graph_alloc(&self->out_blocks, sizeof(int16_t) * 2u * (size_t)frames * (size_t)channels);
     self->which = 0;
     self->pumped = false;
     self->base.sample_rate = (uint32_t)args[ARG_sample_rate].u_int;
@@ -181,7 +262,7 @@ static mp_obj_t audiograph_graph_add(size_t n_args, const mp_obj_t *args) {
     float arg = n_args > 5 ? (float)mp_obj_get_float(args[5]) : 0.0f;
     size_t size = audiodsp_graph_node_data_size((audiodsp_graph_kind_t)kind,
         self->graph.sample_rate, arg);
-    void *data = size ? m_new0(uint8_t, size) : NULL;
+    void *data = size ? graph_alloc(&self->patch_blocks, size) : NULL;
     int index = audiodsp_graph_add(&self->graph, (audiodsp_graph_kind_t)kind,
         (uint32_t)group, inputs, (uint32_t)len, output, data, arg);
     if (index < 0) {
@@ -510,6 +591,9 @@ static mp_obj_t audiograph_graph_swap(mp_obj_t self_in, mp_obj_t other_in) {
     mp_obj_t keep = self->keep;
     self->keep = other->keep;
     other->keep = keep;
+    struct audiograph_block *blocks = self->patch_blocks;
+    self->patch_blocks = other->patch_blocks;
+    other->patch_blocks = blocks;
     audiodsp_pump_lock_release();
     return mp_const_none;
 }
@@ -659,9 +743,15 @@ static MP_DEFINE_CONST_FUN_OBJ_3(audiograph_graph_write_obj,
 
 // deinit(): marks the graph released, under the pump lock, so a pump pulling
 // it stops on it with fault=deinited rather than rendering a freed graph.
+// A pull holds that lock for its whole block and every later one refuses a
+// released graph, so once the mark is made nothing reads the graph's memory
+// again, and what came from the driver goes back to it. Also the finaliser:
+// a soft reset finalises a graph while the pump may still be running.
 static mp_obj_t audiograph_graph_deinit(mp_obj_t self_in) {
     audiograph_graph_obj_t *self = MP_OBJ_TO_PTR(self_in);
     AUDIODSP_PUMP_SWAP(audiosample_mark_deinit(&self->base));
+    graph_free_chain(&self->patch_blocks);
+    graph_free_chain(&self->out_blocks);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audiograph_graph_deinit_obj,
@@ -715,6 +805,7 @@ static const audiosample_p_t audiograph_graph_proto = {
 
 static const mp_rom_map_elem_t audiograph_graph_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&audiograph_graph_deinit_obj) },
+    { MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&audiograph_graph_deinit_obj) },
     { MP_ROM_QSTR(MP_QSTR___enter__), MP_ROM_PTR(&default___enter___obj) },
     { MP_ROM_QSTR(MP_QSTR___exit__), MP_ROM_PTR(&default___exit___obj) },
     { MP_ROM_QSTR(MP_QSTR_enable), MP_ROM_PTR(&audiograph_graph_enable_obj) },

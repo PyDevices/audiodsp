@@ -92,7 +92,12 @@ What each case is for
     ``deinit()``. Through ``_pumpsink``, which counts both: a decoder that
     plays the fixture to its end must take at least one block and give back
     exactly as many. ``--fault leak`` skips the ``deinit()`` and must fail.
-    Skipped on a build without ``_pumpsink`` or without ``audiomp3``.
+    An ``audiograph.Graph`` takes its buffers, tables and node state from
+    there too: one that has been pulled gives every block back on
+    ``deinit()``, a second one when it is collected, and two that traded
+    patches with ``swap()`` give back what they hold between them. The same
+    fault skips those ``deinit()`` calls. Skipped on a build without
+    ``_pumpsink``; the decoder's half also without ``audiomp3``.
 
 ``tear``    One ``set()`` is one change. The six nodes whose ``set()``
     takes a table of options -- ``Waveshaper``, ``Ladder``, ``Bank``,
@@ -814,15 +819,75 @@ def reads(fault):
 # --- hotmem ----------------------------------------------------------------
 
 
+def _hotmem_graph(_pumpsink, fault):
+    import gc
+    taken0, given0 = _pumpsink.hot()
+    keep = []
+    g = graph_compiled(keep)
+    taken1, _given = _pumpsink.hot()
+    first = bytes(audiocore.get_buffer(g)[1])
+    second = bytes(audiocore.get_buffer(g)[1])
+    if fault != "leak":
+        g.deinit()
+    taken2, given2 = _pumpsink.hot()
+    taken = taken1 - taken0
+    ok = say("graph memory from the hot pair", taken > 0 and first != second,
+             "%d blocks taken, two pulls rendered" % taken)
+    ok = say("graph: all given back on deinit()",
+             given2 - given0 == taken and taken2 == taken1,
+             "%d of %d given back" % (given2 - given0, taken)) and ok
+    refused = False
+    try:
+        g.buffer()
+    except ValueError:
+        refused = True
+    ok = say("graph: a released graph refuses", refused or fault == "leak",
+             "buffer() after deinit()") and ok
+    del keep[:]
+    g = None
+
+    # Two graphs that traded patches: between them they hold what both took,
+    # whichever one each block now belongs to.
+    taken0, given0 = _pumpsink.hot()
+    a = graph_compiled(keep)
+    b = audiograph.Graph(sample_rate=RATE, frames=BLOCK_FRAMES,
+                         channel_count=CHANNELS, buffers=4, nodes=4)
+    a.swap(b)
+    audiocore.get_buffer(b)
+    taken1, _given = _pumpsink.hot()
+    if fault != "leak":
+        a.deinit()
+        b.deinit()
+    _taken, given1 = _pumpsink.hot()
+    ok = say("graph: swapped graphs give back both patches",
+             given1 - given0 == taken1 - taken0,
+             "%d of %d given back" % (given1 - given0, taken1 - taken0)) and ok
+    del keep[:]
+    a = b = None
+
+    # The finaliser: a graph nobody released goes back when it is collected.
+    def dropped():
+        taken0, given0 = _pumpsink.hot()
+        graph_compiled([])
+        return _pumpsink.hot()[0] - taken0, given0
+    taken, given0 = dropped()
+    if fault != "leak":
+        gc.collect()
+    back = _pumpsink.hot()[1] - given0
+    return say("graph: a dropped graph is given back when collected",
+               back >= taken, "%d of %d given back" % (back, taken)) and ok
+
+
 def hotmem(fault):
     try:
         import _pumpsink
     except ImportError:
         return say("hotmem", True, "skipped: this build has no _pumpsink test driver")
+    ok = _hotmem_graph(_pumpsink, fault)
     try:
         import audiomp3
     except ImportError:
-        return say("hotmem", True, "skipped: this build has no audiomp3")
+        return say("hotmem", True, "decoder skipped: this build has no audiomp3") and ok
     taken0, given0 = _pumpsink.hot()
     decoder = audiomp3.MP3Decoder(_mp3_fixture())
     taken1, given1 = _pumpsink.hot()
@@ -837,7 +902,7 @@ def hotmem(fault):
     taken2, given2 = _pumpsink.hot()
     taken = taken1 - taken0
     ok = say("decoder buffers from the hot pair", taken > 0,
-             "%d taken for %d buffers decoded" % (taken, blocks))
+             "%d taken for %d buffers decoded" % (taken, blocks)) and ok
     back = given2 - given0
     return say("all given back on deinit()", back == taken and taken2 == taken1,
                "%d of %d given back" % (back, taken)) and ok

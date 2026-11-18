@@ -28,6 +28,12 @@ typedef struct {
     // Two output blocks of frames * channel_count samples; a pull renders
     // into the one the last pull did not hand out.
     int16_t *out;
+    // The driver's memory this graph holds (Graph.c, "where a graph's memory
+    // comes from"): the patch's, which swap() trades with the rest of the
+    // patch, and the output blocks', which stay. Both NULL when the graph is
+    // on the interpreter's heap.
+    struct audiograph_block *patch_blocks;
+    struct audiograph_block *out_blocks;
     uint8_t which;
     // A pull has come from the pump's own thread. While that pump runs,
     // the calls that would render or rewire beside it refuse.
