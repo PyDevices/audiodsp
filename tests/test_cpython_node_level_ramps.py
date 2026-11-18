@@ -23,7 +23,7 @@ one at the new. That is what this holds them to.
 
 The C in `src/shared` is the authority; this target runs the same C, apart
 from the Flanger's Python twin, so the native builds are held to the same
-bytes by `tests/parity/node_level_ramp_probe.py`.
+bytes by `tests/parity/node_level_ramp_probe.py` and `flanger_level_ramp_probe.py`.
 
     python -m unittest tests.test_cpython_node_level_ramps
 """

@@ -41,7 +41,7 @@ Recutting its lines keeps a walk under way.
 
 [`tests/test_cpython_node_level_ramps.py`](../../tests/test_cpython_node_level_ramps.py)
 holds both walks' shape on the CPython twin, and `node_level_ramp_probe.py`
-holds MicroPython and CPython to the same bytes through `verify_dsp.py`.
+holds MicroPython and CPython to the same bytes through `verify_dsp.py`, with the Flanger's `mix_ramp` in `flanger_level_ramp_probe.py`, which CircuitPython sits out.
 
 ## A level ramp on Mixer voices
 
@@ -2077,7 +2077,7 @@ silent 2x for ordinary 16-bit audio. This port's own `audiocore.get_buffer`
 returns a byte view (audiodsp 413d87a), and the parity probes compare `len()`
 and slices across all three interpreters, so the oracle has to agree.
 
-The rewrite lives in `src/circuitpython_spike/apply_replacements.py` with the
+The rewrite lives in `src/circuitpython/apply_replacements.py` with the
 upstream text it replaces. It is idempotent, and it fails loudly rather than
 quietly if neither its marker nor the original text is present -- that means
 the file moved upstream and a person should re-read it.
@@ -4289,7 +4289,7 @@ the routes `play()` cannot see. **Upstream still spins**, which is why
 [`tests/parity/mixer_short_loop_probe.py`](../../tests/parity/mixer_short_loop_probe.py) is not in `verify_dsp.py`'s `PROBES`:
 the oracle would hang the three-way rather than report a difference.
 `audiomixer` is a stock CircuitPython module and not part of
-[`src/circuitpython_spike/`](https://github.com/PyDevices/audiodsp/tree/main/src/circuitpython_spike), so per this repository's rule the fix lands on the
+[`src/circuitpython/`](https://github.com/PyDevices/audiodsp/tree/main/src/circuitpython), so per this repository's rule the fix lands on the
 MicroPython and CPython targets only and the oracle is left alone.
 
 ### Refused rather than padded

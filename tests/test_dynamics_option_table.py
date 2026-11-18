@@ -11,7 +11,7 @@ say which slot:
     src/shared/audiodsp_dynamics.h   the C enum -- the authority
     src/audiodynamics/Dynamics.c    MicroPython, name -> enum constant
     src/cpython/audiodynamics.py    the CPython twin, name -> a LITERAL INTEGER
-    src/circuitpython_spike/shared-bindings/audiodynamics/Dynamics.c
+    src/circuitpython/shared-bindings/audiodynamics/Dynamics.c
                                     the CircuitPython binding, name -> constant
 
 **There are four, and this file first said three.** The fourth was found by the
@@ -44,7 +44,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 HEADER = ROOT / "src" / "shared" / "audiodsp_dynamics.h"
 BINDING = ROOT / "src" / "audiodynamics" / "Dynamics.c"
-SPIKE = (ROOT / "src" / "circuitpython_spike" / "shared-bindings"
+SPIKE = (ROOT / "src" / "circuitpython" / "shared-bindings"
          / "audiodynamics" / "Dynamics.c")
 TWIN = ROOT / "src" / "cpython" / "audiodynamics.py"
 

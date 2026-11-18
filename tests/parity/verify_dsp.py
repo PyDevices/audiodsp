@@ -211,6 +211,12 @@ PROBES = (
     # A node's mix, post gain or makeup walks a move over 20 ms, and a Port
     # switches after the frames it is told to.
     ("node_level_ramp_probe.py", "audioshaper", {}, None),
+    # The Flanger's `mix` walk over `mix_ramp` frames, a probe of its own
+    # because CircuitPython's Flanger has no `mix_ramp` to set.
+    ("flanger_level_ramp_probe.py", "audiodelays",
+     {"circuitpython": "Flanger.mix_ramp is this port's, not "
+                       "CircuitPython's - docs/dev/upstream-record.md"},
+     None),
     ("tank_probe.py", "audioverb", {}, None),
     # The node's own state: Tone out and back through 0 (#168) and the
     # network re-cut in place on a playing node (#169). Its own file, so the
