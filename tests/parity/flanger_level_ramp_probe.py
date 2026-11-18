@@ -81,4 +81,16 @@ def render(node, rate, channels, move_at, move, reset_at=None):
     return sums
 
 
+for name, build, mover, control, old, new in CASES:
+    for rate in (48000, 22050):
+        for channels in (1, 2):
+            def move(node):
+                mover(node, control, new)
+            for tag, move_at, reset_at in (("move", MOVE_AT, None),
+                                           ("first", 0, None),
+                                           ("reset", MOVE_AT, MOVE_AT + 1)):
+                print("RAMP", "%s-%s-%d-%dch" % (name, tag, rate, channels),
+                      render(build(rate, channels, control, old), rate,
+                             channels, move_at, move, reset_at))
+
 print("done flanger-level-ramp")
