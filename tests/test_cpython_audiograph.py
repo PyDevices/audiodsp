@@ -113,6 +113,10 @@ class TheModule(unittest.TestCase):
     def test_every_method_the_board_has(self):
         table = (ROOT / "src" / "audiograph" / "Graph.c").read_text()
         names = set(re.findall(r"MP_ROM_QSTR\(MP_QSTR_(\w+)\)", table))
+        # The board's finaliser gives back memory a driver handed the graph;
+        # this one's memory is CPython's own.
+        self.assertIn("__del__", names)
+        names.discard("__del__")
         missing = sorted(n for n in names if not hasattr(ag.Graph, n))
         self.assertEqual(missing, [])
 

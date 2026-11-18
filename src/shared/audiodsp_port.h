@@ -158,6 +158,25 @@ typedef struct {
     void *(*mem_alloc_hot)(size_t size);
     void (*mem_free_hot)(void *ptr);
 
+    // --- memory a graph renders through ---------------------------------------
+    //
+    // What an audiograph.Graph reads and writes on every block: its block
+    // buffers, node table, node state and queue, in zeroed blocks of 16 KB
+    // at most (audiograph/Graph.c), some tens of kilobytes for a synth. Where
+    // the heap is PSRAM, that memory shares a cache with everything else the
+    // program touches, and a pull slows down while the program moves a lot of
+    // data. A driver whose board gains from keeping it in faster memory hands
+    // that out here, keeps its own reserve, and gives out slower memory when
+    // the fast kind runs short: NULL only when there is none at all. Its own
+    // pair, apart from the decoder's above, because the two are measured and
+    // decided separately on each board. Both or neither: with either NULL a
+    // graph lives on the interpreter's heap, as it always has. Thread-safe,
+    // and must not raise: mem_free_graph is called from a finaliser. A driver
+    // that also builds against an older audiodsp fills them only #ifdef
+    // AUDIODSP_PORT_MEM_GRAPH_HOOKS.
+    void *(*mem_alloc_graph)(size_t size);
+    void (*mem_free_graph)(void *ptr);
+
     // --- a port that renders from an interrupt -------------------------------
     //
     // A port with no threads can still render away from the interpreter, from
@@ -178,6 +197,8 @@ typedef struct {
 #define AUDIODSP_PORT_MEM_HOOKS (1)
 // And the mem_*_hot pair.
 #define AUDIODSP_PORT_MEM_HOT_HOOKS (1)
+// And the mem_*_graph pair.
+#define AUDIODSP_PORT_MEM_GRAPH_HOOKS (1)
 
 // The bound driver, resolved once. Never NULL.
 const audiodsp_port_ops_t *audiodsp_port(void);

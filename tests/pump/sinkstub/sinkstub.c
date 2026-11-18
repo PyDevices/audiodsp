@@ -98,6 +98,9 @@ static const audiodsp_port_ops_t pumpsink_ops = {
     .sink_write = pumpsink_sink_write,
     .mem_alloc_hot = pumpsink_mem_alloc_hot,
     .mem_free_hot = pumpsink_mem_free_hot,
+    // A graph's memory through the same counted pair: hot() counts both.
+    .mem_alloc_graph = pumpsink_mem_alloc_hot,
+    .mem_free_graph = pumpsink_mem_free_hot,
 };
 
 const audiodsp_port_ops_t *audiodsp_port_driver(void) {

@@ -657,6 +657,56 @@ and you don't need to park.
 the two differ in sample rate, block size or channel count. Node ids are
 the patch's, so after a swap use the ids you got from building `new`.
 
+## Where a graph's memory lives
+
+A pull reads and writes the same memory on every block: the block buffers,
+the node table, each node's state, the queue and the two output blocks. On a
+board whose heap is PSRAM that memory sits behind the same cache as
+everything else the program touches, and a pull slows down whenever the rest
+of the program moves a lot of data.
+
+So where the bound driver hands out memory for a graph (the `mem_alloc_graph`
+pair in [`src/shared/audiodsp_port.h`](../../src/shared/audiodsp_port.h); on
+an ESP32 with PSRAM that would be internal RAM), a graph takes all of it from
+there instead of the heap. A block over 16 KB, a long delay line, goes to the
+driver's general memory. The driver keeps its own reserve and hands out
+slower memory when the fast kind runs short, so a graph is never refused for
+that reason. On a port whose driver has no such memory, a graph lives on the
+heap as before.
+
+No driver hands it out yet: which boards gain enough to spend the memory is
+decided board by board, from measurements like the ones below.
+
+That memory isn't the garbage collector's. `deinit()` gives it back at once,
+and a graph that is dropped gives it back when it is collected. On a board
+with a large heap a collection can be a long time coming, so call `deinit()`
+on a graph you replace, or use it in a `with` block.
+
+What it buys depends on the board, which is why the driver decides. Measured
+on two ESP32-P4 boards playing a synth through the pump (one voice bank, a
+filter and effects; 46 KB of graph memory), as the pump's share of its core
+while the main thread did something else:
+
+| the main thread | graph on the heap (PSRAM) | graph in internal RAM |
+|---|---|---|
+| nothing | 35% | 33% |
+| copies 1 MB every 20 ms, 64 KB at a time | 47% | 39 to 40% |
+| copies 1 MB every 20 ms in one piece | 66% | 48 to 53% |
+| redraws its whole screen every 20 ms | 49% | 43 to 44% |
+
+That is the board with a 128 KB second-level cache. Its slowest block while
+redrawing went from 110 to 128% of a block's time to 94 to 109%. On the
+other board, with a 256 KB cache and half the free internal RAM, the same
+memory bought nothing in the same table (65% and 67% for the megabyte copy),
+and the slowest block went from 125 to 207% in eight runs to 114 to 138% in
+eight. A heavier patch was another matter there: a drum machine with 90 KB
+of graphs, redrawing its screen, lost 104 to 466 ms of sound in each of
+three 30 s runs with its graphs on the heap, and none in three runs with a
+third of them in internal RAM. Internal RAM is also what
+Wi-Fi, Bluetooth and a video encoder need, so a driver that hands it out has
+to leave them room: with about 100 KB of graphs held on the second board,
+and 53 KB of internal RAM left, a screen cast did not start.
+
 ## Limits, and what is checked
 
 A block is at most 256 frames, a node has at most eight inputs and sixteen
