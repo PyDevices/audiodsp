@@ -700,9 +700,9 @@ other board, with a 256 KB cache and half the free internal RAM, the same
 memory bought nothing in the same table (65% and 67% for the megabyte copy),
 and the slowest block went from 125 to 207% in eight runs to 114 to 138% in
 eight. A heavier patch was another matter there: a drum machine with 90 KB
-of graphs, redrawing its screen, lost 104 and 466 ms of sound in two 30 s
-runs with its graphs on the heap, and none in three runs with a third of
-them in internal RAM. Internal RAM is also what
+of graphs, redrawing its screen, lost 104 to 466 ms of sound in each of
+three 30 s runs with its graphs on the heap, and none in three runs with a
+third of them in internal RAM. Internal RAM is also what
 Wi-Fi, Bluetooth and a video encoder need, so a driver that hands it out has
 to leave them room: with about 100 KB of graphs held on the second board,
 and 53 KB of internal RAM left, a screen cast did not start.
