@@ -284,7 +284,7 @@ static audioio_get_buffer_result_t audioecho_feedback_delay_get_buffer(
         // harmless on mono while a source hands out at least
         // AUDIODSP_FEEDBACK_DELAY_FRAMES per pull, because `produced` is then
         // 0 for the only chunk. Both twins already read it this way -
-        // `circuitpython_spike/shared-module/audioecho/FeedbackDelay.c` and
+        // `circuitpython/shared-module/audioecho/FeedbackDelay.c` and
         // the CPython `audioecho.py`, which appends contiguously.
         audiodsp_feedback_delay_process_s16(&self->config, &self->state,
             &self->buffer[produced * self->base.channel_count],

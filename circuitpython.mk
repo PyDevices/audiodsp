@@ -10,7 +10,7 @@
 # audiofilters, audiodelays, audiofreeverb and audiospeed, and its audio
 # outputs (audiobusio, audioio, audiopwmio) play anything that speaks its
 # audiosample protocol. So this compiles only the modules CircuitPython lacks,
-# written against that protocol (src/circuitpython_spike/), plus the
+# written against that protocol (src/circuitpython/), plus the
 # runtime-neutral DSP they share with the MicroPython and CPython builds
 # (src/shared/). CircuitPython's own audio modules stay CircuitPython's: a
 # second audiocore under the same name would not link, and boards' audio
@@ -23,20 +23,20 @@
 
 AUDIODSP_CP_DIR := $(USERMOD_DIR)
 AUDIODSP_CP_SRC := $(AUDIODSP_CP_DIR)/src
-AUDIODSP_CP_SPIKE := $(AUDIODSP_CP_SRC)/circuitpython_spike
+AUDIODSP_CP_GLUE := $(AUDIODSP_CP_SRC)/circuitpython
 
 # The bindings include "shared-bindings/<module>/..." and "shared-module/...",
 # and the DSP "shared/audiodsp_*.h". CircuitPython's own -I$(TOP) comes first,
 # so its audiocore and synthio headers are the ones these resolve to.
-CFLAGS_USERMOD += -I$(AUDIODSP_CP_SPIKE) -I$(AUDIODSP_CP_SRC)
+CFLAGS_USERMOD += -I$(AUDIODSP_CP_GLUE) -I$(AUDIODSP_CP_SRC)
 
 AUDIODSP_CP_MODULES := audiodynamics audioroute audiomath audioecho audioshaper \
 	audioladder audiooscillator audioconvolve audiobiquad audioverb audiomodal \
 	audiosampler audiovorbis audiopump audiograph
 
 AUDIODSP_CP_SOURCES := \
-	$(foreach m,$(AUDIODSP_CP_MODULES),$(sort $(wildcard $(AUDIODSP_CP_SPIKE)/shared-bindings/$(m)/*.c))) \
-	$(foreach m,$(AUDIODSP_CP_MODULES),$(sort $(wildcard $(AUDIODSP_CP_SPIKE)/shared-module/$(m)/*.c)))
+	$(foreach m,$(AUDIODSP_CP_MODULES),$(sort $(wildcard $(AUDIODSP_CP_GLUE)/shared-bindings/$(m)/*.c))) \
+	$(foreach m,$(AUDIODSP_CP_MODULES),$(sort $(wildcard $(AUDIODSP_CP_GLUE)/shared-module/$(m)/*.c)))
 
 AUDIODSP_CP_SOURCES += $(addprefix $(AUDIODSP_CP_SRC)/shared/, \
 	audiodsp_dynamics.c \

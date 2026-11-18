@@ -5,7 +5,7 @@
 """Our two hand-written bindings per module must expose the same surface.
 
 audiodsp carries each of its nine own modules twice: `src/<module>/*.c` binds it
-for MicroPython, and `src/circuitpython_spike/shared-bindings/<module>/*.c`
+for MicroPython, and `src/circuitpython/shared-bindings/<module>/*.c`
 binds it for the patched CircuitPython build. They are separate files with
 separate locals dicts, and until this file existed nothing held them to each
 other.
@@ -93,7 +93,7 @@ def micropython_surfaces(module):
 
 def circuitpython_surfaces(module):
     return surfaces(
-        glob.glob(str(ROOT / "src" / "circuitpython_spike" / "shared-bindings"
+        glob.glob(str(ROOT / "src" / "circuitpython" / "shared-bindings"
                       / module / "*.c")), "__init__.c")
 
 
@@ -172,7 +172,7 @@ class TheTwoBindingsExposeTheSameSurface(unittest.TestCase):
 class TheCircuitPythonRingIsThePumpsRing(unittest.TestCase):
     """`audiopump.Ring` and `audiopump.DriftResampler` are bound twice too: `src/audiopump/audiopump_ring.c`
     for MicroPython, where the pump pulls it, and
-    `src/circuitpython_spike/shared-bindings/audiopump/Ring.c` for
+    `src/circuitpython/shared-bindings/audiopump/Ring.c` for
     CircuitPython, where the board's audio output does. The point of the
     CircuitPython one is that a producer written against either runs on both,
     so the two must expose the same names. DriftResampler is the same: its
@@ -203,7 +203,7 @@ class TheCircuitPythonRingIsThePumpsRing(unittest.TestCase):
                          circuitpython["audiopump_driftresampler"])
 
     def test_the_circuitpython_module_carries_only_the_ring_and_resampler(self):
-        source = (ROOT / "src" / "circuitpython_spike" / "shared-bindings"
+        source = (ROOT / "src" / "circuitpython" / "shared-bindings"
                   / "audiopump" / "__init__.c").read_text()
         table = re.search(r"globals_table\[\]\s*=\s*\{(.*?)\n\};", source, re.DOTALL)
         self.assertIsNotNone(table)

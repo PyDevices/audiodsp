@@ -63,7 +63,7 @@ def circuitpython_sources(repo=REPO):
     modules = re.search(r"^AUDIODSP_CP_MODULES\s*:=\s*(.*)$", joined, re.M).group(1).split()
     shared = re.search(r"addprefix \$\(AUDIODSP_CP_SRC\)/shared/,(.*?)\)\s*$",
                        joined, re.M | re.S).group(1).split()
-    spike = repo / "src" / "circuitpython_spike"
+    spike = repo / "src" / "circuitpython"
     files = []
     for module in modules:
         for kind in ("shared-bindings", "shared-module"):

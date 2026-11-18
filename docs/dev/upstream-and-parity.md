@@ -47,7 +47,7 @@ the reason down. Every pin move is a resync: take every audio fix and addition
 upstream made since the old pin, following [How](#how) below.
 
 Extending CircuitPython is the designed path, and it is additive only. New
-modules live under `src/circuitpython_spike/` and build with `src/shared/` as a
+modules live under `src/circuitpython/` and build with `src/shared/` as a
 user C module. Never make one shadow or rewrite a CircuitPython module, because
 the oracle is built with it and a behavioral change would leak into the oracle.
 After any CircuitPython-adjacent work, check that `circuitpython.mk` compiles

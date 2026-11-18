@@ -14,10 +14,5 @@ audio pump holding up under live use such as a stompbox or a stage rig.
   cutoff following the output rate, so a 48 kHz stream can play on a
   44.1 kHz output.
 
-## Housekeeping
-
-- The CircuitPython glue's folder takes a lasting name (`src/circuitpython_spike/`
-  becomes `src/circuitpython/`).
-
 Bugs, and things you need that don't work yet, go to
 [issues](https://github.com/PyDevices/audiodsp/issues).
