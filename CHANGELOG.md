@@ -1,3 +1,12 @@
+## v0.6.17.dev0 (2026-11-20)
+
+- audiofm: match the classic instrument's timing, detune, tremolo and output, with headroom for chords (#445)
+- Roadmap: audiofm on CircuitPython-compatible boards (#444)
+- audiofm: six-operator FM voices that play the classic voice format and its 32-voice banks (#443)
+- audiograph: a graph can take its memory from the driver, and gives it back (#442)
+- CPython twins: press, release, note_info, file are positional only (#441)
+- Parity gate: the Flanger's mix_ramp probe skips CircuitPython; the CircuitPython glue folder is src/circuitpython (#440)
+
 ## v0.6.16 (2026-11-17)
 
 - Install: every release is on PyPI (#437)
