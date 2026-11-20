@@ -113,6 +113,7 @@ typedef struct {
     int32_t target;
     int32_t inc;
     int32_t outlevel;
+    uint32_t unit;      // 44100 / sample rate, Q16: scales every step
     uint8_t rates[4];
     uint8_t levels[4];
     int8_t rate_scaling;
@@ -175,6 +176,7 @@ typedef struct {
     uint32_t voice_count;
     // Rate-dependent constants, set once by audiodsp_fm_init().
     uint32_t lfo_unit;
+    uint32_t env_unit;      // 44100 / sample_rate, Q16
     int32_t pitchenv_unit;
     uint32_t freq_scale;    // 2**40 / sample_rate
     audiodsp_fm_lfo_t lfo;

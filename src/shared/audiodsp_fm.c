@@ -124,12 +124,18 @@ static void fm_env_advance(audiodsp_fm_env_t *env, uint8_t stage) {
         int qrate = (env->rates[stage] * 41) >> 6;
         qrate += env->rate_scaling;
         qrate = fm_min(qrate, 63);
-        env->inc = (4 + (qrate & 3)) << (2 + FM_LG_N + (qrate >> 2));
+        // The rates are calibrated per sample at 44.1 kHz; `unit` scales
+        // the step so an envelope takes the same time at any sample rate.
+        int64_t inc = (int64_t)((4 + (qrate & 3)) <<
+            (2 + FM_LG_N + (qrate >> 2))) * env->unit >> 16;
+        env->inc = (int32_t)(inc > (1 << 30) ? (1 << 30) : inc);
     }
 }
 
-static void fm_env_init(audiodsp_fm_env_t *env, const uint8_t *rates,
-    const uint8_t *levels, int32_t outlevel, int rate_scaling) {
+static void fm_env_init(audiodsp_fm_env_t *env, uint32_t unit,
+    const uint8_t *rates, const uint8_t *levels, int32_t outlevel,
+    int rate_scaling) {
+    env->unit = unit;
     memcpy(env->rates, rates, 4);
     memcpy(env->levels, levels, 4);
     env->outlevel = outlevel;
@@ -595,7 +601,8 @@ static void fm_voice_start(audiodsp_fm_synth_t *synth,
         outlevel = outlevel << 5;
         outlevel += fm_scale_velocity(velocity, o[AUDIODSP_FM_OP_VELOCITY]);
         outlevel = fm_max(0, outlevel);
-        fm_env_init(&voice->env[op], o + AUDIODSP_FM_OP_RATES,
+        fm_env_init(&voice->env[op], synth->env_unit,
+            o + AUDIODSP_FM_OP_RATES,
             o + AUDIODSP_FM_OP_LEVELS, outlevel,
             fm_scale_rate(key, o[AUDIODSP_FM_OP_RATE_SCALING]));
         voice->basepitch[op] = fm_osc_logfreq(key, o[AUDIODSP_FM_OP_FIXED],
@@ -691,6 +698,7 @@ void audiodsp_fm_init(audiodsp_fm_synth_t *synth, uint32_t sample_rate,
     // 2**32 / 15.5 s / 11 per frame, so an LFO at speed 0 runs about once a
     // minute.
     synth->lfo_unit = (uint32_t)((double)FM_N * 25190424.0 / sample_rate + 0.5);
+    synth->env_unit = (uint32_t)(44100.0 * 65536.0 / sample_rate + 0.5);
     synth->pitchenv_unit = (int32_t)((double)FM_N * (1 << 24) /
         (21.3 * sample_rate) + 0.5);
     synth->freq_scale = (uint32_t)(((uint64_t)1 << 40) / sample_rate);
