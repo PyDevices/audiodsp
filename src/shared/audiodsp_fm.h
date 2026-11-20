@@ -189,6 +189,7 @@ typedef struct {
     uint32_t clock;
     audiodsp_fm_voice_t *voices;    // borrowed, voice_count of them
     int32_t bus[2][AUDIODSP_FM_N];
+    int32_t voice_out[AUDIODSP_FM_N];
     int32_t mix[AUDIODSP_FM_N];
 } audiodsp_fm_synth_t;
 

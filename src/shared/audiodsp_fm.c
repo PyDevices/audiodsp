@@ -31,6 +31,13 @@
 // computed: its output would be under a tenth of an LSB.
 #define FM_LEVEL_THRESHOLD 1120
 
+// A voice's sum is shifted down 4 bits as it joins the mix, and the mix
+// down 11 more to 16 bits. One full-level carrier then peaks at 1/32 of full
+// scale, 12 dB under the classic instrument's own output: a 16-note chord of
+// the loudest voices reaches about 0.7 of full scale instead of clipping.
+#define FM_VOICE_SHIFT 4
+#define FM_OUTPUT_SHIFT 15
+
 #define FM_OP_MAX 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 3, 3, 7, 3, 7, \
     99, 1, 31, 99, 14
 
@@ -441,7 +448,7 @@ static void fm_chain_compute_fb(audiodsp_fm_synth_t *synth,
         }
         y0 = y;
         y = mod;
-        synth->mix[i] += mod;
+        synth->voice_out[i] += mod;
     }
     voice->fb[0] = y0;
     voice->fb[1] = y;
@@ -467,7 +474,7 @@ static void fm_core_compute(audiodsp_fm_synth_t *synth,
         audiodsp_fm_op_t *param = &voice->op[op];
         int inbus = (flags >> 4) & 3;
         int outbus = flags & 3;
-        int32_t *out = outbus == 0 ? synth->mix : synth->bus[outbus - 1];
+        int32_t *out = outbus == 0 ? synth->voice_out : synth->bus[outbus - 1];
         int32_t gain1 = param->gain[0];
         int32_t gain2 = param->gain[1];
         if (gain1 >= FM_LEVEL_THRESHOLD || gain2 >= FM_LEVEL_THRESHOLD) {
@@ -662,7 +669,14 @@ static void fm_voice_compute(audiodsp_fm_synth_t *synth,
         param->freq = (int32_t)fm_freq(synth, voice->basepitch[op] +
             pitchmod);
     }
+    // One voice's carriers sum on their own, then join the mix 4 bits down:
+    // six full-level carriers stay inside int32 on their own, and so do 64
+    // such voices after the shift.
+    memset(synth->voice_out, 0, sizeof(synth->voice_out));
     fm_core_compute(synth, voice);
+    for (int i = 0; i < FM_N; i++) {
+        synth->mix[i] += synth->voice_out[i] >> FM_VOICE_SHIFT;
+    }
 
     // A released voice whose every carrier has fallen silent, and will stay
     // silent, is free again.
@@ -844,7 +858,7 @@ void audiodsp_fm_render_s16(audiodsp_fm_synth_t *synth, int16_t *out,
         }
         int16_t *dst = out + done * channels;
         for (int i = 0; i < FM_N; i++) {
-            int32_t v = synth->mix[i] >> 13;
+            int32_t v = synth->mix[i] >> (FM_OUTPUT_SHIFT - FM_VOICE_SHIFT);
             v = v > 32767 ? 32767 : (v < -32768 ? -32768 : v);
             for (uint32_t c = 0; c < channels; c++) {
                 *dst++ = (int16_t)v;
