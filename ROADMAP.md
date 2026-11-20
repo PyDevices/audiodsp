@@ -13,6 +13,9 @@ audio pump holding up under live use such as a stompbox or a stage rig.
 - `audiopump.DriftResampler` converting down as well as up, with its filter's
   cutoff following the output rate, so a 48 kHz stream can play on a
   44.1 kHz output.
+- `audiofm` on CircuitPython-compatible boards: the same six-operator FM
+  voices and bank loading that MicroPython-compatible boards and the desktop
+  have now.
 
 Bugs, and things you need that don't work yet, go to
 [issues](https://github.com/PyDevices/audiodsp/issues).
