@@ -588,10 +588,16 @@ static int fm_scale_level(int note, int breakpoint, int left_depth,
 
 static const uint8_t fm_pitch_sens[8] = { 0, 10, 20, 33, 55, 92, 153, 255 };
 
-// How far each amplitude-modulation sensitivity lets the LFO pull an
-// operator down at full depth, in 64ths of an octave of level: 0, 3, 9 and
-// 24 dB.
-static const uint8_t fm_amp_sens[4] = { 0, 32, 96, 255 };
+// Amplitude modulation, as measured on the classic instrument rather than
+// taken from MSFA. An operator with any sensitivity is pulled down by
+// 1.1 dB * 2**(m * L), where L runs 0..1 opposite to the LFO value the pitch
+// uses, and m is the depth (0..255 after scaling) times a slope for each
+// sensitivity. So sensitivity alone costs 1.1 dB, depth 99 at sensitivity 1
+// swings 1.1 to 3.4 dB, at 2 to 7 dB, and at 3 down to silence.
+// FM_AMP_FLOOR is the 1.1 dB in Q24 log2; the slopes are octaves of growth
+// per unit of depth, in Q16.
+#define FM_AMP_FLOOR 3065390
+static const uint16_t fm_amp_slope[4] = { 0, 418, 697, 1638 };
 
 static void fm_voice_start(audiodsp_fm_synth_t *synth,
     audiodsp_fm_voice_t *voice, const uint8_t *p, int note, int velocity) {
@@ -656,14 +662,21 @@ static void fm_voice_compute(audiodsp_fm_synth_t *synth,
     pitchmod += synth->bend;
     uint32_t amp_depth = (uint32_t)fm_min(255,
         ((voice->amp_depth * 165) >> 6) + wheel);
-    int32_t amod = (int32_t)(((uint64_t)(amp_depth * (uint32_t)lfo_delay) *
-        (uint32_t)lfo_value) >> 32);
+    // Depth times L, in Q16 units of depth.
+    int64_t amod = (int64_t)(((uint64_t)(amp_depth * (uint32_t)lfo_delay) *
+        (uint32_t)((1 << 24) - lfo_value)) >> 32);
     for (int op = 0; op < 6; op++) {
         audiodsp_fm_op_t *param = &voice->op[op];
         param->gain[0] = param->gain[1];
         int32_t level = fm_env_sample(&voice->env[op]);
-        level -= (int32_t)(((int64_t)amod * fm_amp_sens[voice->amp_mod[op]])
-            >> 6);
+        uint8_t sens = voice->amp_mod[op] & 3;
+        if (sens != 0) {
+            // 2**(m * L - 6) in Q24, so the largest m * L (about 6.5
+            // octaves) stays inside fm_exp2's range.
+            int32_t growth = fm_exp2((int32_t)((amod * fm_amp_slope[sens]) >> 8)
+                - (6 * (1 << 24)));
+            level -= (int32_t)(((int64_t)FM_AMP_FLOOR * growth) >> 18);
+        }
         param->gain[1] = (voice->enabled & (1u << op)) ?
             fm_exp2(level - (14 * (1 << 24))) : 0;
         param->freq = (int32_t)fm_freq(synth, voice->basepitch[op] +

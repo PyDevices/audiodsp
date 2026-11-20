@@ -270,6 +270,27 @@ class VoiceTests(unittest.TestCase):
         render(synth, 1.0)
         self.assertEqual(synth.active, 0, "60 was stolen, so nothing still holds")
 
+    def test_amplitude_modulation_curve(self):
+        # Measured on a reference renderer: any sensitivity costs 1.1 dB, and
+        # a square LFO at depth 60, sensitivity 3 swings from there to 15.9 dB
+        # down.
+        def levels(depth, sens):
+            patch = sine_patch(level=99, amp_mod=sens, rates=(99, 99, 99, 99))
+            patch.lfo_amp_depth = depth
+            patch.lfo_wave = 3
+            patch.lfo_speed = 35
+            synth = audiofm.Synth(sample_rate=RATE, patch=patch)
+            synth.press(60, 100)
+            samples = render(synth, 0.6)[4800:]
+            blocks = [peak(samples[i:i + 480]) for i in range(0, len(samples) - 480, 480)]
+            return max(blocks), min(blocks)
+        plain, _ = levels(0, 0)
+        top, bottom = levels(0, 1)
+        self.assertAlmostEqual(20 * math.log10(top / plain), -1.1, delta=0.1)
+        top, bottom = levels(60, 3)
+        self.assertAlmostEqual(20 * math.log10(top / plain), -1.1, delta=0.1)
+        self.assertAlmostEqual(20 * math.log10(bottom / plain), -15.9, delta=0.5)
+
     def test_velocity_sensitivity(self):
         levels = []
         for velocity in (30, 127):

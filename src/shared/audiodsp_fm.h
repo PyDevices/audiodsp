@@ -13,7 +13,8 @@
 // scale with the sample rate; a detune step varies with the key, as
 // measured (tools/fm_tables.py); the feedback loops
 // that span two or three operators (algorithms 4 and 6) now run; added transpose,
-// oscillator key sync, operator on/off, amplitude modulation, the mod wheel,
+// oscillator key sync, operator on/off, amplitude modulation (its curve
+// measured, see audiodsp_fm.c), the mod wheel,
 // a pitch-bend range, voice stealing and an end-of-note test; parameters are
 // clamped to their ranges before any table is indexed with them; and the
 // voice-format packing is written out in both directions.
