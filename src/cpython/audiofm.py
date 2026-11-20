@@ -102,10 +102,16 @@ def _set(data, offset, kind, name, value):
 class Operator:
     """One of a `Patch`'s six operators, read and written in place."""
 
-    def __init__(self, patch, number):
-        self._data = patch._data
-        self._number = number
-        self._base = (6 - number) * 21
+    def __init__(self):
+        raise TypeError("operators come from Patch.operators")
+
+    @classmethod
+    def _of(cls, patch, number):
+        op = cls.__new__(cls)
+        op._data = patch._data
+        op._number = number
+        op._base = (6 - number) * 21
+        return op
 
     @property
     def number(self):
@@ -132,7 +138,7 @@ class Patch:
 
     def __init__(self):
         self._data = bytearray(_audiodsp.fm_init_voice())
-        self._operators = tuple(Operator(self, n) for n in range(1, 7))
+        self._operators = tuple(Operator._of(self, n) for n in range(1, 7))
 
     @property
     def operators(self):
