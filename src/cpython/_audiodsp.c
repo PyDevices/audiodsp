@@ -33,6 +33,7 @@
 #include "shared/audiodsp_oscillator.h"
 #include "shared/audiodsp_tank.h"
 #include "shared/audiodsp_modal.h"
+#include "shared/audiodsp_fm.h"
 #include "shared/audiodsp_sampler.h"
 #include "shared/audiodsp_meter.h"
 #include "shared/audiodsp_features.h"
@@ -138,6 +139,7 @@ typedef struct {
     PyObject *mp3_stream_type;
     PyObject *tank_state_type;
     PyObject *modal_state_type;
+    PyObject *fm_state_type;
     PyObject *sampler_state_type;
     PyObject *graph_type;
 } audiodsp_state_t;
@@ -2842,6 +2844,259 @@ static PyType_Spec modal_state_spec = {
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
     .slots = modal_state_slots,
 };
+
+// audiofm.Synth's voices and its kernel state. The voice array is allocated
+// here and borrowed by the kernel, the same split the MicroPython binding
+// makes.
+typedef struct {
+    PyObject_HEAD
+    audiodsp_fm_synth_t synth;
+    audiodsp_fm_voice_t *voices;
+} audiodsp_fm_object_t;
+
+static int fm_state_init(audiodsp_fm_object_t *self, PyObject *args,
+    PyObject *kwargs) {
+    static char *keywords[] = {"sample_rate", "channel_count", "voices", NULL};
+    unsigned int sample_rate = 48000;
+    unsigned int channel_count = 1;
+    unsigned int voices = 16;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|III:FMState",
+        keywords, &sample_rate, &channel_count, &voices)) {
+        return -1;
+    }
+    if (voices < 1u || voices > AUDIODSP_FM_MAX_VOICES) {
+        PyErr_SetString(PyExc_ValueError, "voices out of range");
+        return -1;
+    }
+    if (channel_count < 1u || channel_count > 2u) {
+        PyErr_SetString(PyExc_ValueError, "channel_count must be 1 or 2");
+        return -1;
+    }
+    if (sample_rate < 1000u) {
+        PyErr_SetString(PyExc_ValueError, "sample_rate must be at least 1000");
+        return -1;
+    }
+    PyMem_Free(self->voices);
+    self->voices = PyMem_Calloc(voices, sizeof(audiodsp_fm_voice_t));
+    if (self->voices == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    audiodsp_fm_init(&self->synth, sample_rate, channel_count, self->voices,
+        voices);
+    return 0;
+}
+
+static void fm_state_dealloc(audiodsp_fm_object_t *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    PyMem_Free(self->voices);
+    self->voices = NULL;
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
+static PyObject *fm_state_press(audiodsp_fm_object_t *self, PyObject *args) {
+    Py_buffer patch = {0};
+    int note, velocity;
+    if (!PyArg_ParseTuple(args, "y*ii:press", &patch, &note, &velocity)) {
+        return NULL;
+    }
+    if (patch.len != AUDIODSP_FM_PATCH_BYTES) {
+        PyBuffer_Release(&patch);
+        PyErr_SetString(PyExc_ValueError, "a patch is 156 bytes");
+        return NULL;
+    }
+    if (self->voices != NULL) {
+        audiodsp_fm_press(&self->synth, (const uint8_t *)patch.buf,
+            (uint8_t)note, (uint8_t)velocity);
+    }
+    PyBuffer_Release(&patch);
+    Py_RETURN_NONE;
+}
+
+static PyObject *fm_state_release(audiodsp_fm_object_t *self,
+    PyObject *argument) {
+    long note = PyLong_AsLong(argument);
+    if (note == -1 && PyErr_Occurred()) return NULL;
+    if (self->voices != NULL) {
+        audiodsp_fm_release(&self->synth, (uint8_t)note);
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *fm_state_release_all(audiodsp_fm_object_t *self,
+    PyObject *unused) {
+    if (self->voices != NULL) {
+        audiodsp_fm_release_all(&self->synth);
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *fm_state_reset(audiodsp_fm_object_t *self,
+    PyObject *unused) {
+    if (self->voices != NULL) {
+        audiodsp_fm_reset(&self->synth);
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *fm_state_set_sustain(audiodsp_fm_object_t *self,
+    PyObject *argument) {
+    int down = PyObject_IsTrue(argument);
+    if (down < 0) return NULL;
+    if (self->voices != NULL) {
+        audiodsp_fm_set_sustain(&self->synth, down != 0);
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *fm_state_set_bend(audiodsp_fm_object_t *self,
+    PyObject *argument) {
+    long bend = PyLong_AsLong(argument);
+    if (bend == -1 && PyErr_Occurred()) return NULL;
+    audiodsp_fm_set_bend(&self->synth, (int32_t)bend);
+    Py_RETURN_NONE;
+}
+
+static PyObject *fm_state_set_mod_wheel(audiodsp_fm_object_t *self,
+    PyObject *argument) {
+    long value = PyLong_AsLong(argument);
+    if (value == -1 && PyErr_Occurred()) return NULL;
+    audiodsp_fm_set_mod_wheel(&self->synth,
+        (uint8_t)(value < 0 ? 0 : value > 127 ? 127 : value));
+    Py_RETURN_NONE;
+}
+
+static PyObject *fm_state_active(audiodsp_fm_object_t *self,
+    PyObject *unused) {
+    return PyLong_FromUnsignedLong(self->voices == NULL ? 0 :
+        audiodsp_fm_active(&self->synth));
+}
+
+static PyObject *fm_state_render(audiodsp_fm_object_t *self,
+    PyObject *argument) {
+    long frames = PyLong_AsLong(argument);
+    if (frames == -1 && PyErr_Occurred()) return NULL;
+    if (frames < 0 || frames % AUDIODSP_FM_N) {
+        PyErr_SetString(PyExc_ValueError,
+            "frames must be a whole number of control blocks");
+        return NULL;
+    }
+    Py_ssize_t bytes = (Py_ssize_t)frames * 2 *
+        (Py_ssize_t)self->synth.channel_count;
+    PyObject *result = PyBytes_FromStringAndSize(NULL, bytes);
+    if (result != NULL) {
+        int16_t *out = (int16_t *)PyBytes_AS_STRING(result);
+        if (self->voices != NULL) {
+            audiodsp_fm_render_s16(&self->synth, out, (uint32_t)frames);
+        } else {
+            memset(out, 0, (size_t)bytes);
+        }
+    }
+    return result;
+}
+
+AUDIODSP_LOCKED_ARGS(fm_state_press, audiodsp_fm_object_t)
+AUDIODSP_LOCKED_ARGS(fm_state_release, audiodsp_fm_object_t)
+AUDIODSP_LOCKED_ARGS(fm_state_release_all, audiodsp_fm_object_t)
+AUDIODSP_LOCKED_ARGS(fm_state_reset, audiodsp_fm_object_t)
+AUDIODSP_LOCKED_ARGS(fm_state_set_sustain, audiodsp_fm_object_t)
+AUDIODSP_LOCKED_ARGS(fm_state_set_bend, audiodsp_fm_object_t)
+AUDIODSP_LOCKED_ARGS(fm_state_set_mod_wheel, audiodsp_fm_object_t)
+AUDIODSP_LOCKED_ARGS(fm_state_active, audiodsp_fm_object_t)
+AUDIODSP_LOCKED_ARGS(fm_state_render, audiodsp_fm_object_t)
+static PyMethodDef fm_state_methods[] = {
+    {"press", (PyCFunction)fm_state_press_locked, METH_VARARGS, NULL},
+    {"release", (PyCFunction)fm_state_release_locked, METH_O, NULL},
+    {"release_all", (PyCFunction)fm_state_release_all_locked, METH_NOARGS, NULL},
+    {"reset", (PyCFunction)fm_state_reset_locked, METH_NOARGS, NULL},
+    {"set_sustain", (PyCFunction)fm_state_set_sustain_locked, METH_O, NULL},
+    {"set_bend", (PyCFunction)fm_state_set_bend_locked, METH_O, NULL},
+    {"set_mod_wheel", (PyCFunction)fm_state_set_mod_wheel_locked, METH_O, NULL},
+    {"active", (PyCFunction)fm_state_active_locked, METH_NOARGS, NULL},
+    {"render", (PyCFunction)fm_state_render_locked, METH_O, NULL},
+    {NULL, NULL, 0, NULL},
+};
+
+AUDIODSP_LOCKED_INIT(fm_state_init, audiodsp_fm_object_t)
+static PyType_Slot fm_state_slots[] = {
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, fm_state_init_locked},
+    {Py_tp_dealloc, fm_state_dealloc},
+    {Py_tp_methods, fm_state_methods},
+    {0, NULL},
+};
+
+static PyType_Spec fm_state_spec = {
+    .name = "_audiodsp.FMState",
+    .basicsize = sizeof(audiodsp_fm_object_t),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = fm_state_slots,
+};
+
+// The voice format's packing, shared with the MicroPython binding so the two
+// runtimes cannot disagree about a bank.
+static PyObject *audiodsp_fm_pack_voice_py(PyObject *module, PyObject *args) {
+    Py_buffer patch = {0};
+    if (!PyArg_ParseTuple(args, "y*:fm_pack_voice", &patch)) return NULL;
+    if (patch.len < (Py_ssize_t)AUDIODSP_FM_VOICE_BYTES) {
+        PyBuffer_Release(&patch);
+        PyErr_SetString(PyExc_ValueError, "a voice is 155 bytes");
+        return NULL;
+    }
+    PyObject *result = PyBytes_FromStringAndSize(NULL,
+        AUDIODSP_FM_PACKED_BYTES);
+    if (result != NULL) {
+        audiodsp_fm_pack_voice((const uint8_t *)patch.buf,
+            (uint8_t *)PyBytes_AS_STRING(result));
+    }
+    PyBuffer_Release(&patch);
+    return result;
+}
+
+static PyObject *audiodsp_fm_unpack_voice_py(PyObject *module,
+    PyObject *args) {
+    Py_buffer packed = {0};
+    if (!PyArg_ParseTuple(args, "y*:fm_unpack_voice", &packed)) return NULL;
+    if (packed.len != (Py_ssize_t)AUDIODSP_FM_PACKED_BYTES) {
+        PyBuffer_Release(&packed);
+        PyErr_SetString(PyExc_ValueError, "a packed voice is 128 bytes");
+        return NULL;
+    }
+    PyObject *result = PyBytes_FromStringAndSize(NULL,
+        AUDIODSP_FM_PATCH_BYTES);
+    if (result != NULL) {
+        audiodsp_fm_unpack_voice((const uint8_t *)packed.buf,
+            (uint8_t *)PyBytes_AS_STRING(result));
+    }
+    PyBuffer_Release(&packed);
+    return result;
+}
+
+static PyObject *audiodsp_fm_checksum_py(PyObject *module, PyObject *args) {
+    Py_buffer data = {0};
+    if (!PyArg_ParseTuple(args, "y*:fm_checksum", &data)) return NULL;
+    uint8_t sum = audiodsp_fm_checksum((const uint8_t *)data.buf,
+        (size_t)data.len);
+    PyBuffer_Release(&data);
+    return PyLong_FromLong(sum);
+}
+
+static PyObject *audiodsp_fm_init_voice_py(PyObject *module,
+    PyObject *unused) {
+    PyObject *result = PyBytes_FromStringAndSize(NULL,
+        AUDIODSP_FM_PATCH_BYTES);
+    if (result != NULL) {
+        audiodsp_fm_init_voice((uint8_t *)PyBytes_AS_STRING(result));
+    }
+    return result;
+}
+
+static PyObject *audiodsp_fm_patch_max_py(PyObject *module,
+    PyObject *unused) {
+    return PyBytes_FromStringAndSize((const char *)audiodsp_fm_patch_max,
+        AUDIODSP_FM_PATCH_BYTES);
+}
 
 // audiosampler.Sampler's voice table, mix accumulator and the buffer each
 // voice is reading. The kernel borrows a pointer into each buffer; this
@@ -6566,6 +6821,11 @@ static PyMethodDef audiodsp_methods[] = {
     {"meter_db_byte", audiodsp_meter_db_byte_py, METH_VARARGS, NULL},
     {"remix_s16", audiodsp_py_remix_s16, METH_VARARGS, PyDoc_STR("Interleaved s16 native-endian channel convert between 1 and 2 channels. Optional writable dest.")},
     {"cast_into", audiodsp_py_cast_into, METH_VARARGS, PyDoc_STR("cast_into(dst, src, scale): float32 or float64 src * scale into int16 dst, rounded half away from zero and saturated. Allocates nothing.")},
+    {"fm_pack_voice", audiodsp_fm_pack_voice_py, METH_VARARGS, NULL},
+    {"fm_unpack_voice", audiodsp_fm_unpack_voice_py, METH_VARARGS, NULL},
+    {"fm_checksum", audiodsp_fm_checksum_py, METH_VARARGS, NULL},
+    {"fm_init_voice", audiodsp_fm_init_voice_py, METH_NOARGS, NULL},
+    {"fm_patch_max", audiodsp_fm_patch_max_py, METH_NOARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
@@ -6725,6 +6985,15 @@ static int audiodsp_exec(PyObject *module) {
     if (state->modal_state_type == NULL) return -1;
     if (PyModule_AddObjectRef(module, "ModalState",
         state->modal_state_type) < 0) return -1;
+    state->fm_state_type = PyType_FromModuleAndSpec(module,
+        &fm_state_spec, NULL);
+    if (state->fm_state_type == NULL) return -1;
+    if (PyModule_AddObjectRef(module, "FMState",
+        state->fm_state_type) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "FM_FRAMES",
+        AUDIODSP_FM_FRAMES) < 0) return -1;
+    if (PyModule_AddIntConstant(module, "FM_MAX_VOICES",
+        AUDIODSP_FM_MAX_VOICES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "MODAL_FRAMES",
         AUDIODSP_MODAL_FRAMES) < 0) return -1;
     if (PyModule_AddIntConstant(module, "MODAL_MAX_MODES",
@@ -6793,6 +7062,7 @@ static int audiodsp_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->mp3_stream_type);
     Py_VISIT(state->tank_state_type);
     Py_VISIT(state->modal_state_type);
+    Py_VISIT(state->fm_state_type);
     Py_VISIT(state->sampler_state_type);
     Py_VISIT(state->graph_type);
     return 0;
@@ -6823,6 +7093,7 @@ static int audiodsp_clear(PyObject *module) {
     Py_CLEAR(state->mp3_stream_type);
     Py_CLEAR(state->tank_state_type);
     Py_CLEAR(state->modal_state_type);
+    Py_CLEAR(state->fm_state_type);
     Py_CLEAR(state->sampler_state_type);
     Py_CLEAR(state->graph_type);
     return 0;

@@ -25,6 +25,13 @@ under the BSD-3-Clause license in third_party/kissfft/COPYING (Copyright (c)
 2003-2010 Mark Borgerding). Each directory's ORIGIN.txt names the upstream
 commit it came from and how it is built.
 
+audiofm's synthesis kernel (src/shared/audiodsp_fm.c, audiodsp_fm.h and
+audiodsp_fm_tables.h, and tools/fm_tables.py) is adapted from Music
+Synthesizer for Android (https://github.com/google/music-synthesizer-for-android),
+used under the Apache-2.0 license in third_party/msfa/LICENSE (Copyright
+2012 Google Inc.). Those files keep the Apache-2.0 notice and say what was
+changed; third_party/msfa/ORIGIN.txt names the upstream commit and files.
+
 audiomp3 compiles the Helix fixed-point MP3 decoder (Portions Copyright (c)
 1995-2002 RealNetworks, Inc.) from Adafruit_MP3
 (https://github.com/adafruit/Adafruit_MP3), at the commit DEPENDENCIES.lock

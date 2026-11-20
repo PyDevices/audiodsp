@@ -13,6 +13,11 @@ came from and why they exist.
 and `audioroute.Splitter` come from [mpvst](https://github.com/PyDevices/mpvst)'s
 audio engine, which had them and CircuitPython doesn't.
 
+`audiofm` (six-operator FM voices) is adapted from
+[Music Synthesizer for Android](https://github.com/google/music-synthesizer-for-android),
+under its Apache-2.0 licence. It plays the classic six-operator voice format,
+which nothing in CircuitPython reads. It isn't built for CircuitPython yet.
+
 The rest have no ancestor anywhere: `audiomath`, `audioecho`, `audioshaper`,
 `audioladder`, `audiooscillator`, `audioconvolve`, `audioverb`, `audiomodal`,
 `audiosampler`, `audioroute.MidSide` and `Port`, `audiobiquad` and
