@@ -282,8 +282,10 @@ class VoiceTests(unittest.TestCase):
             synth = audiofm.Synth(sample_rate=RATE, patch=patch)
             synth.press(60, 100)
             samples = render(synth, 0.6)[4800:]
-            blocks = [peak(samples[i:i + 480]) for i in range(0, len(samples) - 480, 480)]
-            return max(blocks), min(blocks)
+            blocks = sorted(peak(samples[i:i + 480]) for i in range(0, len(samples) - 480, 480))
+            # The settled levels: each step overshoots for a moment through
+            # the output highpass, as it does on the reference.
+            return blocks[-len(blocks) // 4], blocks[len(blocks) // 4]
         plain, _ = levels(0, 0)
         top, bottom = levels(0, 1)
         self.assertAlmostEqual(20 * math.log10(top / plain), -1.1, delta=0.1)
@@ -348,6 +350,28 @@ class VoiceTests(unittest.TestCase):
         self.assertGreaterEqual(peak(loud), 32767)
         for a, b in zip(quiet, loud):
             self.assertFalse(a * b < 0, "the sum wrapped")
+
+    def test_output_has_no_offset(self):
+        # Heavy feedback turns a sine towards a sawtooth with a lean to one
+        # side; the output highpass takes the lean out.
+        patch = audiofm.Patch()
+        patch.operators[0].level = 0
+        _op(patch, 6, level=99)
+        patch.algorithm = 32
+        patch.feedback = 7
+        synth = audiofm.Synth(sample_rate=RATE, patch=patch)
+        synth.press(60)
+        tail = render(synth, 1.0)[RATE // 2:]
+        self.assertLess(abs(sum(tail) / len(tail)), 0.01 * rms(tail))
+
+    def test_highpass_corner_is_20_hz(self):
+        # A first-order highpass at 20 Hz passes 16.35 Hz (key 12) at 0.63.
+        levels = []
+        for note in (12, 60):
+            synth = audiofm.Synth(sample_rate=RATE, patch=sine_patch())
+            synth.press(note)
+            levels.append(peak(render(synth, 1.0)[RATE // 2:]))
+        self.assertAlmostEqual(levels[0] / levels[1], 0.633, delta=0.02)
 
     def test_arguments_are_checked(self):
         synth = audiofm.Synth(sample_rate=RATE)

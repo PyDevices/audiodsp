@@ -38,6 +38,15 @@
 #define FM_VOICE_SHIFT 4
 #define FM_OUTPUT_SHIFT 15
 
+// The mix goes through a one-pole highpass at 20 Hz before it is scaled to
+// 16 bits, as the reference renderer's output does. A carrier modulated at
+// its own frequency puts a component at 0 Hz into the sum; without this it
+// sits as an offset that eats headroom and thumps when a note starts or
+// stops. FM_DC_OMEGA is 2 * pi * 20 Hz in Q30; divided by the sample rate it
+// gives the pole's distance from 1, in integer arithmetic only, so every
+// interpreter computes the same coefficient.
+#define FM_DC_OMEGA 134930377045LL
+
 #define FM_OP_MAX 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 3, 3, 7, 3, 7, \
     99, 1, 31, 99, 14
 
@@ -729,6 +738,8 @@ void audiodsp_fm_init(audiodsp_fm_synth_t *synth, uint32_t sample_rate,
     synth->pitchenv_unit = (int32_t)((double)FM_N * (1 << 24) /
         (21.3 * sample_rate) + 0.5);
     synth->freq_scale = (uint32_t)(((uint64_t)1 << 40) / sample_rate);
+    synth->dc_pole = (1LL << 30) - FM_DC_OMEGA / (int64_t)sample_rate;
+    synth->dc_gain = ((1LL << 30) + synth->dc_pole) / 2;
     memset(voices, 0, sizeof(*voices) * voice_count);
     uint8_t init[AUDIODSP_FM_PATCH_BYTES];
     audiodsp_fm_init_voice(init);
@@ -824,6 +835,8 @@ void audiodsp_fm_reset(audiodsp_fm_synth_t *synth) {
         voice->fb[0] = 0;
         voice->fb[1] = 0;
     }
+    synth->dc_x = 0;
+    synth->dc_y = 0;
 }
 
 void audiodsp_fm_set_sustain(audiodsp_fm_synth_t *synth, bool down) {
@@ -871,8 +884,16 @@ void audiodsp_fm_render_s16(audiodsp_fm_synth_t *synth, int16_t *out,
         }
         int16_t *dst = out + done * channels;
         for (int i = 0; i < FM_N; i++) {
-            int32_t v = synth->mix[i] >> (FM_OUTPUT_SHIFT - FM_VOICE_SHIFT);
-            v = v > 32767 ? 32767 : (v < -32768 ? -32768 : v);
+            int64_t x = synth->mix[i];
+            int64_t p = (x - synth->dc_x) * synth->dc_gain +
+                synth->dc_y * synth->dc_pole;
+            // Rounded towards zero, so silence decays to 0 rather than
+            // sticking at -1.
+            int64_t y = p >= 0 ? p >> 30 : -((-p) >> 30);
+            synth->dc_x = x;
+            synth->dc_y = y;
+            int64_t w = y >> (FM_OUTPUT_SHIFT - FM_VOICE_SHIFT);
+            int32_t v = (int32_t)(w > 32767 ? 32767 : (w < -32768 ? -32768 : w));
             for (uint32_t c = 0; c < channels; c++) {
                 *dst++ = (int16_t)v;
             }

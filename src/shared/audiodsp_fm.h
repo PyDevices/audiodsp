@@ -15,7 +15,8 @@
 // that span two or three operators (algorithms 4 and 6) now run; added transpose,
 // oscillator key sync, operator on/off, amplitude modulation (its curve
 // measured, see audiodsp_fm.c), the mod wheel,
-// a pitch-bend range, voice stealing and an end-of-note test; parameters are
+// a pitch-bend range, voice stealing, an end-of-note test, headroom in the
+// mix and a 20 Hz highpass on the output; parameters are
 // clamped to their ranges before any table is indexed with them; and the
 // voice-format packing is written out in both directions.
 //
@@ -190,6 +191,8 @@ typedef struct {
     uint32_t clock;
     audiodsp_fm_voice_t *voices;    // borrowed, voice_count of them
     int32_t bus[2][AUDIODSP_FM_N];
+    int64_t dc_x, dc_y;         // the output highpass's last input and output
+    int64_t dc_pole, dc_gain;   // its coefficients, Q30
     int32_t voice_out[AUDIODSP_FM_N];
     int32_t mix[AUDIODSP_FM_N];
 } audiodsp_fm_synth_t;
