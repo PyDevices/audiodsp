@@ -63,6 +63,13 @@ with open("mine.syx", "wb") as f:
     f.write(audiofm.Patch.pack_bank(bank))
 ```
 
+## How loud it is
+
+One note of a loud voice peaks at a sixteenth of full scale or less. That
+leaves room for sixteen notes of the loudest voices at once without
+clipping. If you play one line at a time and want it louder, raise it in a
+mixer.
+
 ## What it costs
 
 The engine is fixed point, and an operator whose level is below a tenth of an

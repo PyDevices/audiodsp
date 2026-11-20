@@ -14,6 +14,14 @@ where it uses integers and in IEEE doubles where it uses doubles, so the
 values match its runtime tables. Here they are written out once as `const`
 arrays, so a board keeps them in flash instead of 16 KB of RAM. The fine
 frequency table replaces a `log()` call per operator per note.
+
+The detune table is measured, not taken from MSFA, which uses one fixed step
+at every key. On the classic instrument a detune step is wider in cents low
+on the keyboard and narrower high up, and it depends only on the key, not on
+the operator's ratio. The curve here was fitted to the beat frequencies of
+pairs of operators, one detuned and one not, measured at keys 24 to 96 from a
+reference renderer; it matches them within 1%. Fixed-frequency operators keep
+MSFA's step, which already agreed with the same measurements.
 """
 
 import math
@@ -67,6 +75,18 @@ def fine_table():
                   for fine in range(1, 100)]
 
 
+# ln(cents per detune step) as a quadratic in the key (MIDI note after
+# transpose), fitted to measurements at keys 24, 36, ..., 96.
+DETUNE_FIT = (1.3405, -0.016461, -4.9097e-5)
+
+
+def detune_table():
+    """One detune step at each key 0..127, as a Q24 log2 offset."""
+    a, b, c = DETUNE_FIT
+    return [math.floor(math.exp(a + b * key + c * key * key)
+                       * (1 << 24) / 1200 + 0.5) for key in range(128)]
+
+
 def emit(name, values, per_line=6):
     lines = ["static const int32_t %s[%d] = {" % (name, len(values))]
     for start in range(0, len(values), per_line):
@@ -77,7 +97,7 @@ def emit(name, values, per_line=6):
 
 
 def render():
-    for value in sin_table() + exp2_table() + fine_table():
+    for value in sin_table() + exp2_table() + fine_table() + detune_table():
         assert -(1 << 31) <= value < (1 << 31), value
     parts = [
         "// Lookup tables for audiodsp_fm.c, written by tools/fm_tables.py.",
@@ -115,6 +135,10 @@ def render():
         "",
         "// Fine frequency 0..99 as log2(1 + fine / 100) in Q24.",
         emit("audiodsp_fm_fine_table", fine_table()),
+        "",
+        "// One detune step at each key 0..127 as a log2 offset in Q24: wider",
+        "// in cents low on the keyboard, narrower high up.",
+        emit("audiodsp_fm_detune_table", detune_table()),
         "",
     ]
     return "\n".join(parts)

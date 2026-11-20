@@ -138,8 +138,8 @@ class AlgorithmTests(unittest.TestCase):
             synth = audiofm.Synth(sample_rate=RATE, patch=self.everything_on(algorithm))
             synth.press(57, 110)
             samples = render(synth, 0.3)
-            self.assertGreater(peak(samples), 1000, "algorithm %d" % algorithm)
-            self.assertGreater(rms(samples), 200, "algorithm %d" % algorithm)
+            self.assertGreater(peak(samples), 250, "algorithm %d" % algorithm)
+            self.assertGreater(rms(samples), 50, "algorithm %d" % algorithm)
             self.assertLess(peak(samples), 32767, "algorithm %d clips" % algorithm)
             seen.setdefault(samples.tobytes(), []).append(algorithm)
         self.assertEqual(len(seen), 32, "algorithms that render alike: %r"
@@ -213,6 +213,15 @@ class PitchTests(unittest.TestCase):
         patch.transpose = 36
         self.assertAlmostEqual(self.measure(patch, note=57), 440.0, delta=1.0)
 
+    def test_detune_step_follows_the_key(self):
+        # Seven detune steps, in cents, as measured on a reference renderer:
+        # wide low on the keyboard, narrow high up, whatever the ratio.
+        for note, coarse, cents in ((36, 1, 13.70), (60, 4, 8.37), (84, 1, 4.73)):
+            plain = self.measure(sine_patch(level=99, coarse=coarse), note=note)
+            sharp = self.measure(sine_patch(level=99, coarse=coarse, detune=14), note=note)
+            got = 1200 * math.log2(sharp / plain)
+            self.assertAlmostEqual(got, cents, delta=cents * 0.02, msg="note %d" % note)
+
     def test_pitch_bend(self):
         def bend(synth):
             synth.bend_range = 2
@@ -238,7 +247,7 @@ class VoiceTests(unittest.TestCase):
         synth.press(60)
         render(synth, 1.0)
         self.assertEqual(synth.active, 1)
-        self.assertGreater(peak(render(synth, 0.05)), 3000)
+        self.assertGreater(peak(render(synth, 0.05)), 750)
 
     def test_sustain_holds_until_lifted(self):
         synth = audiofm.Synth(sample_rate=RATE, patch=sine_patch(level=99, rates=(99, 99, 99, 80)))
@@ -261,6 +270,29 @@ class VoiceTests(unittest.TestCase):
         render(synth, 1.0)
         self.assertEqual(synth.active, 0, "60 was stolen, so nothing still holds")
 
+    def test_amplitude_modulation_curve(self):
+        # Measured on a reference renderer: any sensitivity costs 1.1 dB, and
+        # a square LFO at depth 60, sensitivity 3 swings from there to 15.9 dB
+        # down.
+        def levels(depth, sens):
+            patch = sine_patch(level=99, amp_mod=sens, rates=(99, 99, 99, 99))
+            patch.lfo_amp_depth = depth
+            patch.lfo_wave = 3
+            patch.lfo_speed = 35
+            synth = audiofm.Synth(sample_rate=RATE, patch=patch)
+            synth.press(60, 100)
+            samples = render(synth, 0.6)[4800:]
+            blocks = sorted(peak(samples[i:i + 480]) for i in range(0, len(samples) - 480, 480))
+            # The settled levels: each step overshoots for a moment through
+            # the output highpass, as it does on the reference.
+            return blocks[-len(blocks) // 4], blocks[len(blocks) // 4]
+        plain, _ = levels(0, 0)
+        top, bottom = levels(0, 1)
+        self.assertAlmostEqual(20 * math.log10(top / plain), -1.1, delta=0.1)
+        top, bottom = levels(60, 3)
+        self.assertAlmostEqual(20 * math.log10(top / plain), -1.1, delta=0.1)
+        self.assertAlmostEqual(20 * math.log10(bottom / plain), -15.9, delta=0.5)
+
     def test_velocity_sensitivity(self):
         levels = []
         for velocity in (30, 127):
@@ -276,7 +308,7 @@ class VoiceTests(unittest.TestCase):
         render(synth, 0.05)
         patch.operators[0].level = 0
         sounding = peak(render(synth, 0.05))
-        self.assertGreater(sounding, 3000, "a sounding note keeps its patch")
+        self.assertGreater(sounding, 750, "a sounding note keeps its patch")
         synth.release_all()
         render(synth, 1.0)
         synth.press(72)
@@ -288,6 +320,58 @@ class VoiceTests(unittest.TestCase):
         samples = render(synth, 0.1)
         self.assertEqual(samples[0::2], samples[1::2])
         self.assertGreater(peak(samples), 1000)
+
+    def test_sixteen_note_chord_has_headroom(self):
+        # Six carriers, an organ's drawbars, is about as loud as a voice gets.
+        patch = audiofm.Patch()
+        patch.algorithm = 32
+        for number, (coarse, fine, level) in enumerate(
+                ((0, 0, 95), (1, 0, 99), (1, 50, 88), (2, 0, 92), (3, 0, 80), (4, 0, 76)), 1):
+            _op(patch, number, coarse=coarse, fine=fine, level=level,
+                rates=(95, 99, 99, 82), levels=(99, 99, 99, 0))
+        synth = audiofm.Synth(voices=16, sample_rate=RATE, patch=patch)
+        for note in (48, 52, 55, 59, 60, 62, 64, 67, 69, 71, 72, 74, 76, 79, 81, 84):
+            synth.press(note, 127)
+        self.assertLess(peak(render(synth, 1.0)), 32767)
+
+    def test_a_full_pool_clips_rather_than_wraps(self):
+        # 64 voices of six full carriers in phase is far past full scale: the
+        # output must hold at the rail with the single voice's sign.
+        patch = audiofm.Patch()
+        patch.algorithm = 32
+        for number in range(1, 7):
+            _op(patch, number, level=99, coarse=1)
+        one = audiofm.Synth(voices=1, sample_rate=RATE, patch=patch)
+        full = audiofm.Synth(voices=audiofm.MAX_VOICES, sample_rate=RATE, patch=patch)
+        one.press(60, 127)
+        for _ in range(audiofm.MAX_VOICES):
+            full.press(60, 127)
+        quiet, loud = render(one, 0.05), render(full, 0.05)
+        self.assertGreaterEqual(peak(loud), 32767)
+        for a, b in zip(quiet, loud):
+            self.assertFalse(a * b < 0, "the sum wrapped")
+
+    def test_output_has_no_offset(self):
+        # Heavy feedback turns a sine towards a sawtooth with a lean to one
+        # side; the output highpass takes the lean out.
+        patch = audiofm.Patch()
+        patch.operators[0].level = 0
+        _op(patch, 6, level=99)
+        patch.algorithm = 32
+        patch.feedback = 7
+        synth = audiofm.Synth(sample_rate=RATE, patch=patch)
+        synth.press(60)
+        tail = render(synth, 1.0)[RATE // 2:]
+        self.assertLess(abs(sum(tail) / len(tail)), 0.01 * rms(tail))
+
+    def test_highpass_corner_is_20_hz(self):
+        # A first-order highpass at 20 Hz passes 16.35 Hz (key 12) at 0.63.
+        levels = []
+        for note in (12, 60):
+            synth = audiofm.Synth(sample_rate=RATE, patch=sine_patch())
+            synth.press(note)
+            levels.append(peak(render(synth, 1.0)[RATE // 2:]))
+        self.assertAlmostEqual(levels[0] / levels[1], 0.633, delta=0.02)
 
     def test_arguments_are_checked(self):
         synth = audiofm.Synth(sample_rate=RATE)

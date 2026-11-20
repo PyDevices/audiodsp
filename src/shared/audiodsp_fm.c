@@ -31,6 +31,22 @@
 // computed: its output would be under a tenth of an LSB.
 #define FM_LEVEL_THRESHOLD 1120
 
+// A voice's sum is shifted down 4 bits as it joins the mix, and the mix
+// down 11 more to 16 bits. One full-level carrier then peaks at 1/32 of full
+// scale, 12 dB under the classic instrument's own output: a 16-note chord of
+// the loudest voices reaches about 0.7 of full scale instead of clipping.
+#define FM_VOICE_SHIFT 4
+#define FM_OUTPUT_SHIFT 15
+
+// The mix goes through a one-pole highpass at 20 Hz before it is scaled to
+// 16 bits, as the reference renderer's output does. A carrier modulated at
+// its own frequency puts a component at 0 Hz into the sum; without this it
+// sits as an offset that eats headroom and thumps when a note starts or
+// stops. FM_DC_OMEGA is 2 * pi * 20 Hz in Q30; divided by the sample rate it
+// gives the pole's distance from 1, in integer arithmetic only, so every
+// interpreter computes the same coefficient.
+#define FM_DC_OMEGA 134930377045LL
+
 #define FM_OP_MAX 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 3, 3, 7, 3, 7, \
     99, 1, 31, 99, 14
 
@@ -124,12 +140,18 @@ static void fm_env_advance(audiodsp_fm_env_t *env, uint8_t stage) {
         int qrate = (env->rates[stage] * 41) >> 6;
         qrate += env->rate_scaling;
         qrate = fm_min(qrate, 63);
-        env->inc = (4 + (qrate & 3)) << (2 + FM_LG_N + (qrate >> 2));
+        // The rates are calibrated per sample at 44.1 kHz; `unit` scales
+        // the step so an envelope takes the same time at any sample rate.
+        int64_t inc = (int64_t)((4 + (qrate & 3)) <<
+            (2 + FM_LG_N + (qrate >> 2))) * env->unit >> 16;
+        env->inc = (int32_t)(inc > (1 << 30) ? (1 << 30) : inc);
     }
 }
 
-static void fm_env_init(audiodsp_fm_env_t *env, const uint8_t *rates,
-    const uint8_t *levels, int32_t outlevel, int rate_scaling) {
+static void fm_env_init(audiodsp_fm_env_t *env, uint32_t unit,
+    const uint8_t *rates, const uint8_t *levels, int32_t outlevel,
+    int rate_scaling) {
+    env->unit = unit;
     memcpy(env->rates, rates, 4);
     memcpy(env->levels, levels, 4);
     env->outlevel = outlevel;
@@ -435,7 +457,7 @@ static void fm_chain_compute_fb(audiodsp_fm_synth_t *synth,
         }
         y0 = y;
         y = mod;
-        synth->mix[i] += mod;
+        synth->voice_out[i] += mod;
     }
     voice->fb[0] = y0;
     voice->fb[1] = y;
@@ -461,7 +483,7 @@ static void fm_core_compute(audiodsp_fm_synth_t *synth,
         audiodsp_fm_op_t *param = &voice->op[op];
         int inbus = (flags >> 4) & 3;
         int outbus = flags & 3;
-        int32_t *out = outbus == 0 ? synth->mix : synth->bus[outbus - 1];
+        int32_t *out = outbus == 0 ? synth->voice_out : synth->bus[outbus - 1];
         int32_t gain1 = param->gain[0];
         int32_t gain2 = param->gain[1];
         if (gain1 >= FM_LEVEL_THRESHOLD || gain2 >= FM_LEVEL_THRESHOLD) {
@@ -515,7 +537,7 @@ static int32_t fm_osc_logfreq(int note, int fixed, int coarse, int fine,
         logfreq = fm_note_logfreq(note);
         logfreq += fm_coarse_ratio[coarse & 31];
         logfreq += audiodsp_fm_fine_table[fine];
-        logfreq += 12606 * (detune - 7);
+        logfreq += audiodsp_fm_detune_table[note & 127] * (detune - 7);
     } else {
         // ((1 << 24) * log2(10) * .01) << 3: fixed frequencies run in decades
         // from 1 Hz, and fine moves within the decade.
@@ -575,10 +597,16 @@ static int fm_scale_level(int note, int breakpoint, int left_depth,
 
 static const uint8_t fm_pitch_sens[8] = { 0, 10, 20, 33, 55, 92, 153, 255 };
 
-// How far each amplitude-modulation sensitivity lets the LFO pull an
-// operator down at full depth, in 64ths of an octave of level: 0, 3, 9 and
-// 24 dB.
-static const uint8_t fm_amp_sens[4] = { 0, 32, 96, 255 };
+// Amplitude modulation, as measured on the classic instrument rather than
+// taken from MSFA. An operator with any sensitivity is pulled down by
+// 1.1 dB * 2**(m * L), where L runs 0..1 opposite to the LFO value the pitch
+// uses, and m is the depth (0..255 after scaling) times a slope for each
+// sensitivity. So sensitivity alone costs 1.1 dB, depth 99 at sensitivity 1
+// swings 1.1 to 3.4 dB, at 2 to 7 dB, and at 3 down to silence.
+// FM_AMP_FLOOR is the 1.1 dB in Q24 log2; the slopes are octaves of growth
+// per unit of depth, in Q16.
+#define FM_AMP_FLOOR 3065390
+static const uint16_t fm_amp_slope[4] = { 0, 418, 697, 1638 };
 
 static void fm_voice_start(audiodsp_fm_synth_t *synth,
     audiodsp_fm_voice_t *voice, const uint8_t *p, int note, int velocity) {
@@ -595,7 +623,8 @@ static void fm_voice_start(audiodsp_fm_synth_t *synth,
         outlevel = outlevel << 5;
         outlevel += fm_scale_velocity(velocity, o[AUDIODSP_FM_OP_VELOCITY]);
         outlevel = fm_max(0, outlevel);
-        fm_env_init(&voice->env[op], o + AUDIODSP_FM_OP_RATES,
+        fm_env_init(&voice->env[op], synth->env_unit,
+            o + AUDIODSP_FM_OP_RATES,
             o + AUDIODSP_FM_OP_LEVELS, outlevel,
             fm_scale_rate(key, o[AUDIODSP_FM_OP_RATE_SCALING]));
         voice->basepitch[op] = fm_osc_logfreq(key, o[AUDIODSP_FM_OP_FIXED],
@@ -642,20 +671,34 @@ static void fm_voice_compute(audiodsp_fm_synth_t *synth,
     pitchmod += synth->bend;
     uint32_t amp_depth = (uint32_t)fm_min(255,
         ((voice->amp_depth * 165) >> 6) + wheel);
-    int32_t amod = (int32_t)(((uint64_t)(amp_depth * (uint32_t)lfo_delay) *
-        (uint32_t)lfo_value) >> 32);
+    // Depth times L, in Q16 units of depth.
+    int64_t amod = (int64_t)(((uint64_t)(amp_depth * (uint32_t)lfo_delay) *
+        (uint32_t)((1 << 24) - lfo_value)) >> 32);
     for (int op = 0; op < 6; op++) {
         audiodsp_fm_op_t *param = &voice->op[op];
         param->gain[0] = param->gain[1];
         int32_t level = fm_env_sample(&voice->env[op]);
-        level -= (int32_t)(((int64_t)amod * fm_amp_sens[voice->amp_mod[op]])
-            >> 6);
+        uint8_t sens = voice->amp_mod[op] & 3;
+        if (sens != 0) {
+            // 2**(m * L - 6) in Q24, so the largest m * L (about 6.5
+            // octaves) stays inside fm_exp2's range.
+            int32_t growth = fm_exp2((int32_t)((amod * fm_amp_slope[sens]) >> 8)
+                - (6 * (1 << 24)));
+            level -= (int32_t)(((int64_t)FM_AMP_FLOOR * growth) >> 18);
+        }
         param->gain[1] = (voice->enabled & (1u << op)) ?
             fm_exp2(level - (14 * (1 << 24))) : 0;
         param->freq = (int32_t)fm_freq(synth, voice->basepitch[op] +
             pitchmod);
     }
+    // One voice's carriers sum on their own, then join the mix 4 bits down:
+    // six full-level carriers stay inside int32 on their own, and so do 64
+    // such voices after the shift.
+    memset(synth->voice_out, 0, sizeof(synth->voice_out));
     fm_core_compute(synth, voice);
+    for (int i = 0; i < FM_N; i++) {
+        synth->mix[i] += synth->voice_out[i] >> FM_VOICE_SHIFT;
+    }
 
     // A released voice whose every carrier has fallen silent, and will stay
     // silent, is free again.
@@ -691,9 +734,12 @@ void audiodsp_fm_init(audiodsp_fm_synth_t *synth, uint32_t sample_rate,
     // 2**32 / 15.5 s / 11 per frame, so an LFO at speed 0 runs about once a
     // minute.
     synth->lfo_unit = (uint32_t)((double)FM_N * 25190424.0 / sample_rate + 0.5);
+    synth->env_unit = (uint32_t)(44100.0 * 65536.0 / sample_rate + 0.5);
     synth->pitchenv_unit = (int32_t)((double)FM_N * (1 << 24) /
         (21.3 * sample_rate) + 0.5);
     synth->freq_scale = (uint32_t)(((uint64_t)1 << 40) / sample_rate);
+    synth->dc_pole = (1LL << 30) - FM_DC_OMEGA / (int64_t)sample_rate;
+    synth->dc_gain = ((1LL << 30) + synth->dc_pole) / 2;
     memset(voices, 0, sizeof(*voices) * voice_count);
     uint8_t init[AUDIODSP_FM_PATCH_BYTES];
     audiodsp_fm_init_voice(init);
@@ -789,6 +835,8 @@ void audiodsp_fm_reset(audiodsp_fm_synth_t *synth) {
         voice->fb[0] = 0;
         voice->fb[1] = 0;
     }
+    synth->dc_x = 0;
+    synth->dc_y = 0;
 }
 
 void audiodsp_fm_set_sustain(audiodsp_fm_synth_t *synth, bool down) {
@@ -836,8 +884,16 @@ void audiodsp_fm_render_s16(audiodsp_fm_synth_t *synth, int16_t *out,
         }
         int16_t *dst = out + done * channels;
         for (int i = 0; i < FM_N; i++) {
-            int32_t v = synth->mix[i] >> 13;
-            v = v > 32767 ? 32767 : (v < -32768 ? -32768 : v);
+            int64_t x = synth->mix[i];
+            int64_t p = (x - synth->dc_x) * synth->dc_gain +
+                synth->dc_y * synth->dc_pole;
+            // Rounded towards zero, so silence decays to 0 rather than
+            // sticking at -1.
+            int64_t y = p >= 0 ? p >> 30 : -((-p) >> 30);
+            synth->dc_x = x;
+            synth->dc_y = y;
+            int64_t w = y >> (FM_OUTPUT_SHIFT - FM_VOICE_SHIFT);
+            int32_t v = (int32_t)(w > 32767 ? 32767 : (w < -32768 ? -32768 : w));
             for (uint32_t c = 0; c < channels; c++) {
                 *dst++ = (int16_t)v;
             }

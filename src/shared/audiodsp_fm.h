@@ -9,10 +9,14 @@
 // every table that depended on the sample rate moved into a per-synth
 // struct, so two synths at different rates can run side by side; the
 // sine and exp2 tables are precomputed constants (audiodsp_fm_tables.h);
-// the frequency lookup is computed from the exp2 table; the feedback loops
+// the frequency lookup is computed from the exp2 table; envelope steps
+// scale with the sample rate; a detune step varies with the key, as
+// measured (tools/fm_tables.py); the feedback loops
 // that span two or three operators (algorithms 4 and 6) now run; added transpose,
-// oscillator key sync, operator on/off, amplitude modulation, the mod wheel,
-// a pitch-bend range, voice stealing and an end-of-note test; parameters are
+// oscillator key sync, operator on/off, amplitude modulation (its curve
+// measured, see audiodsp_fm.c), the mod wheel,
+// a pitch-bend range, voice stealing, an end-of-note test, headroom in the
+// mix and a 20 Hz highpass on the output; parameters are
 // clamped to their ranges before any table is indexed with them; and the
 // voice-format packing is written out in both directions.
 //
@@ -113,6 +117,7 @@ typedef struct {
     int32_t target;
     int32_t inc;
     int32_t outlevel;
+    uint32_t unit;      // 44100 / sample rate, Q16: scales every step
     uint8_t rates[4];
     uint8_t levels[4];
     int8_t rate_scaling;
@@ -175,6 +180,7 @@ typedef struct {
     uint32_t voice_count;
     // Rate-dependent constants, set once by audiodsp_fm_init().
     uint32_t lfo_unit;
+    uint32_t env_unit;      // 44100 / sample_rate, Q16
     int32_t pitchenv_unit;
     uint32_t freq_scale;    // 2**40 / sample_rate
     audiodsp_fm_lfo_t lfo;
@@ -185,6 +191,9 @@ typedef struct {
     uint32_t clock;
     audiodsp_fm_voice_t *voices;    // borrowed, voice_count of them
     int32_t bus[2][AUDIODSP_FM_N];
+    int64_t dc_x, dc_y;         // the output highpass's last input and output
+    int64_t dc_pole, dc_gain;   // its coefficients, Q30
+    int32_t voice_out[AUDIODSP_FM_N];
     int32_t mix[AUDIODSP_FM_N];
 } audiodsp_fm_synth_t;
 
