@@ -44,6 +44,14 @@ Generated from [`audiomodal.pyi`](https://github.com/PyDevices/audiodsp/blob/mai
 .. automodule:: audiomodal
 ```
 
+## `audiofm`
+
+Generated from [`audiofm.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiofm/audiofm.pyi); the file reads on its own.
+
+```{eval-rst}
+.. automodule:: audiofm
+```
+
 ## `audiosampler`
 
 Generated from [`audiosampler.pyi`](https://github.com/PyDevices/audiodsp/blob/main/src/audiosampler/audiosampler.pyi); the file reads on its own.

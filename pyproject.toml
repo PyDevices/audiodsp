@@ -15,7 +15,7 @@ requires-python = ">=3.11"
 # RealNetworks Public Source License 1.0, which its source files state
 # themselves (the sdist carries them).
 license = "MIT AND BSD-3-Clause AND Apache-2.0 AND RPSL-1.0"
-license-files = ["LICENSE", "NOTICE", "third_party/tremor/COPYING", "third_party/microfrontend/LICENSE", "third_party/kissfft/COPYING"]
+license-files = ["LICENSE", "NOTICE", "third_party/tremor/COPYING", "third_party/microfrontend/LICENSE", "third_party/kissfft/COPYING", "third_party/msfa/LICENSE"]
 authors = [{name = "PyDevices contributors"}]
 classifiers = [
   "Programming Language :: Python :: 3",
@@ -42,7 +42,7 @@ Repository = "https://github.com/PyDevices/audiodsp"
 Issues = "https://github.com/PyDevices/audiodsp/issues"
 
 [tool.setuptools]
-py-modules = ["audiocore", "synthio", "audiomixer", "audiofilters", "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics", "audioroute", "audiomath", "audioecho", "audioconvolve", "audiobiquad", "audioshaper", "audioladder", "audiooscillator", "audioverb", "audiomodal", "audiosampler", "audiometer", "audiofeatures", "audiopump", "audiovorbis", "audiomp3", "audiograph"]
+py-modules = ["audiocore", "synthio", "audiomixer", "audiofilters", "audiodelays", "audiofreeverb", "audiospeed", "audiodynamics", "audioroute", "audiomath", "audioecho", "audioconvolve", "audiobiquad", "audioshaper", "audioladder", "audiooscillator", "audioverb", "audiomodal", "audiofm", "audiosampler", "audiometer", "audiofeatures", "audiopump", "audiovorbis", "audiomp3", "audiograph"]
 # Keep py-modules explicit: src/cpython is the root package directory now, and
 # an automatic scan there would also pick up anything else that lands in it.
 packages = ["audiorender", "audiodsp_util"]

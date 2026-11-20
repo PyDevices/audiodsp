@@ -19,13 +19,14 @@ have. Start with install, then your first program.
 - [Decode Ogg Vorbis](guides/decode-vorbis.md).
 - [Filter a sound](guides/filter-a-sound.md) with `audiobiquad`.
 - [Play recorded notes](guides/play-recorded-notes.md) with `audiosampler`.
+- [Play FM voices](guides/play-fm-voices.md) with `audiofm`.
 - [Meter levels](guides/meter-levels.md) for a spectrum display.
 - [Speech features](guides/speech-features.md) for a wake word model.
 
 ## Reference
 
 - [The modules](reference/modules.md): what ships, and where each is documented.
-- [Sources and synthesis](reference/sources-and-synthesis.md): `audiocore`, `audiomp3`, `synthio`, `audiooscillator`, `audiomodal`, `audiosampler`, `audiograph`.
+- [Sources and synthesis](reference/sources-and-synthesis.md): `audiocore`, `audiomp3`, `synthio`, `audiooscillator`, `audiomodal`, `audiofm`, `audiosampler`, `audiograph`.
 - [Filters and effects](reference/filters-and-effects.md): `audiobiquad`, `audiodynamics`, `audioecho`, `audioshaper`, `audioladder`, `audioverb`, `audiofilters`, `audiodelays`, `audiofreeverb`, `audiospeed`, `audioconvolve`.
 - [Mixing and routing](reference/mixing-and-routing.md): `audiomixer`, `audioroute`.
 - [Analysis and utilities](reference/analysis-and-utilities.md): `audiometer`, `audiofeatures`, `audiomath`.
@@ -60,6 +61,7 @@ guides/change-without-a-click
 guides/decode-vorbis
 guides/filter-a-sound
 guides/meter-levels
+guides/play-fm-voices
 guides/play-computed-audio
 guides/play-recorded-notes
 guides/run-the-audio-pump

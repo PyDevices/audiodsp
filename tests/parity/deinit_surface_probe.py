@@ -60,6 +60,7 @@ import audioladder
 import audiomath
 import audiomixer
 import audiomodal
+import audiofm
 import audiooscillator
 import audiosampler
 import audioroute
@@ -128,6 +129,7 @@ NODES = (
     ("audiomath.SubOctave", lambda: audiomath.SubOctave(**PCM)),
     ("audiomixer.Mixer", lambda: audiomixer.Mixer(voice_count=2, **PCM)),
     ("audiomodal.Bank", lambda: audiomodal.Bank(modes=4, **PCM)),
+    ("audiofm.Synth", lambda: audiofm.Synth(voices=2, sample_rate=8000)),
     ("audiooscillator.Oscillator", lambda: audiooscillator.Oscillator(
         frequency=440.0, **PCM)),
     ("audiosampler.Sampler", lambda: audiosampler.Sampler(voice_count=2, **PCM)),
@@ -252,7 +254,7 @@ def check_splitter(deinit):
 OWN = (
     "audiobiquad.AllPass", "audiobiquad.Biquad", "audioconvolve.Convolver",
     "audiodynamics.Dynamics", "audioecho.FeedbackDelay", "audioladder.Ladder",
-    "audiomath.Multiply", "audiomath.SubOctave", "audiomodal.Bank",
+    "audiomath.Multiply", "audiomath.SubOctave", "audiomodal.Bank", "audiofm.Synth",
     "audiooscillator.Oscillator",
     "audioroute.MidSide", "audiosampler.Sampler", "audioroute.Port", "audioshaper.SampleHold",
     "audioshaper.Waveshaper", "audioverb.Tank",
@@ -283,6 +285,9 @@ NODE_CALLS = {
         lambda n: n.modulate(sync=source()),
     ("audioladder.Ladder", "modulate"):
         lambda n: n.modulate(cutoff=source()),
+    ("audiofm.Synth", "press"): lambda n: n.press(60),
+    ("audiofm.Synth", "release"): lambda n: n.release(60),
+    ("audiofm.Synth", "release_all"): lambda n: n.release_all(),
 }
 
 #: Not checked: releasing is the one call a released node must still take.

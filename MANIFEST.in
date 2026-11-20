@@ -5,6 +5,7 @@ recursive-include lib/audiodsp_util *.py *.pyi py.typed
 include third_party/tremor/*.c third_party/tremor/*.h third_party/tremor/COPYING third_party/tremor/ORIGIN.txt third_party/tremor/README
 recursive-include third_party/microfrontend *.c *.cc *.h LICENSE ORIGIN.txt
 recursive-include third_party/kissfft *.c *.h COPYING ORIGIN.txt
+include third_party/msfa/LICENSE third_party/msfa/ORIGIN.txt
 # audiomp3: the Helix decoder setup.py fetches into .deps/mp3, patched, so an
 # sdist builds without git or a network. Its sources are listed in setup.py; buffers.c is
 # included by src/audiomp3/mp3_buffers.c rather than compiled itself.

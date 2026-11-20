@@ -24,6 +24,7 @@ It adds modules CircuitPython doesn't have ([why each exists](../how-it-works/ad
 | `audioconvolve` | Apply an impulse response by partitioned FFT | [reasons](../how-it-works/additions.md) |
 | `audiooscillator` | A band-limited oscillator read sample by sample | [reference](sources-and-synthesis.md#audiooscillator) |
 | `audiomodal` | A bank of resonators | [reference](sources-and-synthesis.md#audiomodal) |
+| `audiofm` | Six-operator FM voices that play the classic voice format | [guide](../guides/play-fm-voices.md), [reference](sources-and-synthesis.md#audiofm) |
 | `audiograph` | A whole patch rendered by one C call per block | [reference](sources-and-synthesis.md#audiograph), [how it works](../how-it-works/audiograph.md) |
 | `audiosampler` | Recorded notes played at any pitch, looped, under an envelope | [guide](../guides/play-recorded-notes.md) |
 | `audiometer` | Band levels for a spectrum meter | [guide](../guides/meter-levels.md) |

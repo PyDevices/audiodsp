@@ -149,6 +149,7 @@ setup(
                 "src/shared/audiodsp_convolve.c",
                 "src/shared/audiodsp_tank.c",
                 "src/shared/audiodsp_modal.c",
+                "src/shared/audiodsp_fm.c",
                 "src/shared/audiodsp_sampler.c",
                 "src/shared/audiodsp_meter.c",
                 "src/shared/audiodsp_graph.c",

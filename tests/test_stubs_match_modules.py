@@ -41,7 +41,7 @@ SRC = ROOT / "src"
 MODULES = (
     "audiocore", "audiofeatures", "audiomath", "audiometer", "audiomp3",
     "audiovorbis", "audiooscillator", "audiopump", "audioroute",
-    "audiosampler", "audiomodal", "audioconvolve", "synthio",
+    "audiosampler", "audiomodal", "audiofm", "audioconvolve", "synthio",
     "audiobiquad", "audiodelays", "audiodynamics", "audioecho",
     "audiofilters", "audiofreeverb", "audiograph", "audioladder",
     "audiomixer", "audioshaper", "audiospeed", "audioverb",

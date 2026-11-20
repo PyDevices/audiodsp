@@ -144,6 +144,10 @@ PROBES = (
     ("filter_f32_frames_probe.py", "audiobiquad", {}, None),
     ("modal_probe.py", "audiomodal", {}, None),
     ("sampler_probe.py", "audiosampler", {}, None),
+    # audiofm renders fixed point from integer inputs, so every interpreter
+    # agrees to the bit. Not built into CircuitPython (circuitpython.mk).
+    ("fm_probe.py", "audiofm",
+     {"circuitpython": "audiofm is not added to CircuitPython"}, None),
     # audiometer reads levels rather than rendering PCM; the bytes it prints
     # are the comparison. Not built into CircuitPython (circuitpython.mk).
     ("meter_probe.py", "audiometer",

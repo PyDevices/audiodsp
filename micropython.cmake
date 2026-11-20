@@ -61,6 +61,7 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_convolve.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_tank.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_modal.c
+    ${MPAUDIO_SRC_DIR}/shared/audiodsp_fm.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_oscillator.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_sampler.c
     ${MPAUDIO_SRC_DIR}/shared/audiodsp_meter.c
@@ -125,6 +126,9 @@ target_sources(usermod_mpaudio INTERFACE
     ${MPAUDIO_SRC_DIR}/audioverb/module.c
     ${MPAUDIO_SRC_DIR}/audiomodal/Bank.c
     ${MPAUDIO_SRC_DIR}/audiomodal/module.c
+    ${MPAUDIO_SRC_DIR}/audiofm/Patch.c
+    ${MPAUDIO_SRC_DIR}/audiofm/Synth.c
+    ${MPAUDIO_SRC_DIR}/audiofm/module.c
     ${MPAUDIO_SRC_DIR}/audiosampler/SampleBuffer.c
     ${MPAUDIO_SRC_DIR}/audiosampler/Sampler.c
     ${MPAUDIO_SRC_DIR}/audiosampler/SamplerVoice.c

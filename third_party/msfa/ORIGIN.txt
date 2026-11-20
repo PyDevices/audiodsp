@@ -1,0 +1,28 @@
+Music Synthesizer for Android (MSFA): a six-operator FM synthesis engine.
+
+Source: https://github.com/google/music-synthesizer-for-android
+        (app/src/main/jni)
+Commit: f67d41d313b7dc85f6fb99e79e515cc9d208cfff (2017-09-12)
+License: Apache-2.0, see LICENSE (Copyright 2012 Google Inc.)
+
+No MSFA file is kept here. audiofm's kernel is adapted from these files and
+lives in src/shared, where each adapted file keeps the Apache-2.0 notice and
+says what changed:
+
+  src/shared/audiodsp_fm.c, audiodsp_fm.h
+      from dx7note.cc/.h, env.cc/.h, lfo.cc/.h, pitchenv.cc/.h,
+      fm_core.cc/.h, fm_op_kernel.cc/.h, exp2.h, sin.h, freqlut.cc,
+      patch.cc and synth_unit.cc
+  src/shared/audiodsp_fm_tables.h, written by tools/fm_tables.py
+      from the table set-up in sin.cc and exp2.cc
+
+The changes, in short: C instead of C++; per-synth rather than global
+sample-rate tables; constant sine and exp2 tables; feedback loops that span
+two or three operators; transpose, oscillator key sync, operator on/off,
+amplitude modulation, the mod wheel, a pitch-bend range, voice stealing and
+an end-of-note test; parameters clamped before any table lookup; and the
+voice packing written in both directions. The NEON kernels, the resonant
+filter and the MIDI and ring-buffer plumbing are not used.
+
+tools/fm_tables.py --check confirms the generated header is current;
+its sine and exp2 tables equal MSFA's runtime tables value for value.
