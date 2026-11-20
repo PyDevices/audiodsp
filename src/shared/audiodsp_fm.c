@@ -521,7 +521,7 @@ static int32_t fm_osc_logfreq(int note, int fixed, int coarse, int fine,
         logfreq = fm_note_logfreq(note);
         logfreq += fm_coarse_ratio[coarse & 31];
         logfreq += audiodsp_fm_fine_table[fine];
-        logfreq += 12606 * (detune - 7);
+        logfreq += audiodsp_fm_detune_table[note & 127] * (detune - 7);
     } else {
         // ((1 << 24) * log2(10) * .01) << 3: fixed frequencies run in decades
         // from 1 Hz, and fine moves within the decade.

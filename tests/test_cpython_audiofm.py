@@ -213,6 +213,15 @@ class PitchTests(unittest.TestCase):
         patch.transpose = 36
         self.assertAlmostEqual(self.measure(patch, note=57), 440.0, delta=1.0)
 
+    def test_detune_step_follows_the_key(self):
+        # Seven detune steps, in cents, as measured on a reference renderer:
+        # wide low on the keyboard, narrow high up, whatever the ratio.
+        for note, coarse, cents in ((36, 1, 13.70), (60, 4, 8.37), (84, 1, 4.73)):
+            plain = self.measure(sine_patch(level=99, coarse=coarse), note=note)
+            sharp = self.measure(sine_patch(level=99, coarse=coarse, detune=14), note=note)
+            got = 1200 * math.log2(sharp / plain)
+            self.assertAlmostEqual(got, cents, delta=cents * 0.02, msg="note %d" % note)
+
     def test_pitch_bend(self):
         def bend(synth):
             synth.bend_range = 2

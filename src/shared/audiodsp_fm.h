@@ -9,7 +9,9 @@
 // every table that depended on the sample rate moved into a per-synth
 // struct, so two synths at different rates can run side by side; the
 // sine and exp2 tables are precomputed constants (audiodsp_fm_tables.h);
-// the frequency lookup is computed from the exp2 table; the feedback loops
+// the frequency lookup is computed from the exp2 table; envelope steps
+// scale with the sample rate; a detune step varies with the key, as
+// measured (tools/fm_tables.py); the feedback loops
 // that span two or three operators (algorithms 4 and 6) now run; added transpose,
 // oscillator key sync, operator on/off, amplitude modulation, the mod wheel,
 // a pitch-bend range, voice stealing and an end-of-note test; parameters are
