@@ -1,3 +1,7 @@
+## v0.6.17.dev1 (2026-11-23)
+
+- audiopump: a pump that falls behind cedes its core; silent mixing chains cost nothing (#448)
+
 ## v0.6.17.dev0 (2026-11-20)
 
 - audiofm: match the classic instrument's timing, detune, tremolo and output, with headroom for chords (#445)
