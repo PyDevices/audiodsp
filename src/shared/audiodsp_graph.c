@@ -1958,6 +1958,36 @@ static void run_noise(audiodsp_graph_node_t *n, int16_t *out, uint32_t frames) {
 
 // One input into a mixer's sum at gain g1: ramped across the block from the
 // gain it had (*now) when that moved, skipped at a gain of 0 that did not.
+// Whether a block of samples is all zero. A parked voice's outputs are zeroed
+// once and stay so, and an idle instrument's mixers then sum nothing but
+// those: a mixer that knows every input is silent writes zeros without the
+// float work, which on a board is most of what an idle kit costs. Any finite,
+// infinite or NaN gain times a zero sample comes out of sat16 as 0, so the
+// shortcut writes the same samples the long way would. It stops at the first
+// sound, so a sounding input costs a sample or two to look at.
+static bool silent16(const int16_t *in, uint32_t frames) {
+    if (in == NULL) {
+        return true;
+    }
+    uint32_t i = 0;
+    if (((uintptr_t)in & 3u) == 0) {
+        const uint32_t *w = (const uint32_t *)(const void *)in;
+        const uint32_t words = frames / 2u;
+        for (uint32_t k = 0; k < words; ++k) {
+            if (w[k] != 0u) {
+                return false;
+            }
+        }
+        i = words * 2u;
+    }
+    for (; i < frames; ++i) {
+        if (in[i] != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void mix_input(float *acc, const int16_t *in, float *now, float g1,
     uint32_t frames) {
     const float g0 = *now;
@@ -1988,6 +2018,24 @@ static void run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
             d->gain_now[k] = n->param[k];
         }
         d->primed = true;
+    }
+    if (offset == 0.0f) {
+        bool quiet = true;
+        for (uint32_t k = 0; k < n->ninputs && quiet; ++k) {
+            if (n->inputs[k] != AUDIODSP_GRAPH_NONE) {
+                quiet = silent16(graph->bufs[n->inputs[k]], frames);
+            }
+        }
+        if (quiet) {
+            // Where each gain ends up, as mix_input leaves it.
+            for (uint32_t k = 0; k < n->ninputs; ++k) {
+                if (n->inputs[k] != AUDIODSP_GRAPH_NONE) {
+                    d->gain_now[k] = n->param[k];
+                }
+            }
+            memset(out, 0, frames * sizeof(int16_t));
+            return;
+        }
     }
     for (uint32_t i = 0; i < frames; ++i) {
         acc[i] = offset;
@@ -2021,6 +2069,23 @@ static void run_pan(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         }
         d->primed = true;
     }
+    bool quiet = true;
+    for (uint32_t k = 0; k < n->ninputs && quiet; ++k) {
+        if (n->inputs[k] != AUDIODSP_GRAPH_NONE) {
+            quiet = silent16(graph->bufs[n->inputs[k]], frames);
+        }
+    }
+    if (quiet) {
+        for (uint32_t k = 0; k < n->ninputs; ++k) {
+            if (n->inputs[k] != AUDIODSP_GRAPH_NONE) {
+                d->left_now[k] = left[k];
+                d->right_now[k] = right[k];
+            }
+        }
+        memset(out, 0, frames * sizeof(int16_t));
+        memset(graph->bufs[d->right], 0, frames * sizeof(int16_t));
+        return;
+    }
     for (int side = 0; side < 2; ++side) {
         float *now = side ? d->right_now : d->left_now;
         const float *gain = side ? right : left;
@@ -2047,7 +2112,7 @@ static void run_vca(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     const int16_t *cv = n->inputs[which] == AUDIODSP_GRAPH_NONE
         ? NULL : graph->bufs[n->inputs[which]];
     const float k = n->param[AUDIODSP_GRAPH_VCA_GAIN] / AUDIODSP_GRAPH_UNIT;
-    if (audio == NULL || cv == NULL) {
+    if (audio == NULL || cv == NULL || silent16(audio, frames)) {
         memset(out, 0, frames * sizeof(int16_t));
         return;
     }
@@ -2075,7 +2140,7 @@ static void run_out(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     const int16_t *right = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
         ? graph->bufs[n->inputs[1]] : left;
     const float scale = n->param[0];
-    if (left == NULL) {
+    if (left == NULL || (silent16(left, frames) && silent16(right, frames))) {
         memset(out, 0, (size_t)frames * graph->channel_count * sizeof(int16_t));
         return;
     }
@@ -2179,7 +2244,7 @@ static void run_tanh(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     const int16_t *in = n->inputs[0] == AUDIODSP_GRAPH_NONE
         ? NULL : graph->bufs[n->inputs[0]];
-    if (in == NULL) {
+    if (in == NULL || silent16(in, frames)) {
         memset(out, 0, frames * sizeof(int16_t));
         return;
     }
