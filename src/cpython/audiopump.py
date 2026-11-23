@@ -49,7 +49,7 @@ __revision__ = _audiodsp.__revision__
 
 _fnv = _audiodsp.fnv1a64
 
-STATUS_WORDS = 34
+STATUS_WORDS = 35
 STATUS_BYTES = STATUS_WORDS * 8
 
 # Why a service() call gave the thread back, packed as `blocks << 2 | why`.
