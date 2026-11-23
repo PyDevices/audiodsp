@@ -103,6 +103,14 @@ typedef struct {
     // it MUST NOT raise, because one of its callers is a finaliser.
     void (*park_spin)(uint32_t max_us);
     void (*sleep_us)(uint64_t us);
+    // The pump has rendered for a long stretch without once waiting on its
+    // sink: it can't keep up, and on a port where it runs above other work on
+    // its core (the Bluetooth host and the IPC task on an ESP32) nothing below
+    // it has run since. Give that work the core for a moment -- on FreeRTOS,
+    // one tick -- and return. NULL on a port whose scheduler shares the CPU
+    // anyway, where the pump just keeps going. A driver that also builds
+    // against an older audiodsp fills it only #ifdef AUDIODSP_PORT_CEDE.
+    void (*cede)(void);
 
     // --- the sink -----------------------------------------------------------
     //
@@ -199,6 +207,8 @@ typedef struct {
 #define AUDIODSP_PORT_MEM_HOT_HOOKS (1)
 // And the mem_*_graph pair.
 #define AUDIODSP_PORT_MEM_GRAPH_HOOKS (1)
+// The table has `cede`.
+#define AUDIODSP_PORT_CEDE (1)
 
 // The bound driver, resolved once. Never NULL.
 const audiodsp_port_ops_t *audiodsp_port(void);

@@ -94,6 +94,17 @@ wake, and False only in that unfinished case.
 `sleep_us` is the control side's wait: pacing, and the bounded waits in
 teardown. It **must not raise**, because one of its callers is a finaliser.
 
+### Behind for too long — `cede`
+
+A pump that keeps up waits on its sink every block. One that can't keep up
+never waits, and if your thread runs above other work on its core, that work
+stops. On an ESP32 the pump runs above the Bluetooth host and the IPC task, so
+`bluetooth.BLE().active(True)` would never return. After 25 ms of rendering
+without a wait, the loop calls `cede()`: give the core away for a moment (the
+esp32 driver sleeps one FreeRTOS tick) and return. Each one is counted in the
+status block's word 34. Leave it NULL where the scheduler shares the CPU
+anyway, as a desktop's does.
+
 ### The sink — `sink_open`, `sink_close`, `sink_ready`, `sink_write`, `sink_dma_bytes`, `sink_rx_bytes`
 
 One write, whatever it is written to. On a desktop that is the file
@@ -125,6 +136,7 @@ not raise and it must be safe to call twice.
 | `stack_free` | `uxTaskGetStackHighWaterMark` | — | — | — | — |
 | `park_spin` | `ulTaskNotifyTake` | `SwitchToThread` | `sched_yield` | — | — |
 | `sleep_us` | `vTaskDelay` / `esp_rom_delay_us` | waitable timer | `nanosleep` | `mp_hal_delay_us` | — |
+| `cede` | `vTaskDelay(1)` | — | — | — | — |
 | `sink_open`/`close` | — (the channel is its own surface) | `_open` + `_O_BINARY` | `open` | — (`audioio.AudioOut` is the surface) | — |
 | `sink_ready`/`sink_write` | `i2s_channel_write` | `_write` | `write` | the DAC's DMA ring | — |
 | `sink_dma_bytes`/`rx_bytes` | the ISR counters | — | — | the DMA's position / — | — |

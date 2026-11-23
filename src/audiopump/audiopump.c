@@ -185,7 +185,20 @@ enum {
     // --- what the output ring's back-pressure cost --------------------------
     STATUS_RING_WAITS = 32,     // times the pump waited for the drain
     STATUS_RING_WAIT_US = 33,   // total time it spent waiting
+    // --- a pump that can't keep up -------------------------------------------
+    STATUS_CEDES = 34,          // times it gave its core away (port->cede)
 };
+
+// How long the pump may render without once waiting on its sink, the ring or
+// a park before it cedes its core, and how long a write must take to count as
+// a wait. A pump that keeps up waits on the sink every block, for most of a
+// block, and never gets near the limit; catching up a drained DMA queue is a
+// few blocks without a wait, well under it. Past the limit it is behind and
+// stays behind, its audio is already breaking up, and on an ESP32 it has held
+// the Bluetooth host and the IPC task off its core the whole time: one tick
+// for them costs the audio little that isn't lost already.
+#define AUDIOPUMP_BUSY_US (25000u)
+#define AUDIOPUMP_WAITED_US (100u)
 
 // How long the pump sleeps in one go while it waits for the ring's consumer.
 // This is a CEILING and not a period: the drain wakes it (audiopump_drain
@@ -354,6 +367,9 @@ typedef struct {
     uint64_t acc_ring_waits;
     uint64_t acc_ring_wait_us;
     uint64_t acc_event_us_max;
+    // When the pump last waited (0: not yet), and how often it has ceded.
+    uint64_t busy_since;
+    uint64_t cedes;
     uint64_t wall_start;
     audiodsp_buffer_result_t acc_result;
     bool begun;                 // run_begin() has published the first words
@@ -1083,6 +1099,8 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
     // meant.
     const bool ring_waits_here = ctx->ring != NULL && !ctx->service_mode
         && port->park_spin != NULL;
+    // Every wait the loop counts, summed, as of the end of the last block.
+    uint64_t waits_seen = out.sink_us + ring_wait_us + park_us;
 
     while (blocks < ctx->blocks && !ctx->stop) {
         AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_TOP);
@@ -1450,6 +1468,22 @@ static int AUDIODSP_HOT audiopump_run_blocks(audiopump_ctx_t *ctx,
                 AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_PACE);
                 port->sleep_us(due - at);
             }
+        }
+
+        // Behind for too long: let the rest of the core run (AUDIOPUMP_BUSY_US).
+        if (port->cede != NULL && !ctx->service_mode) {
+            const uint64_t waits = out.sink_us + ring_wait_us + park_us;
+            const uint64_t now = audiopump_now_us();
+            if (ctx->busy_since == 0 || waits - waits_seen >= AUDIOPUMP_WAITED_US) {
+                ctx->busy_since = now;
+            } else if (now - ctx->busy_since >= AUDIOPUMP_BUSY_US) {
+                AUDIODSP_PUMP_PHASE(AUDIODSP_PUMP_PHASE_PACE);
+                port->cede();
+                ctx->cedes++;
+                ctx->status[STATUS_CEDES] = ctx->cedes;
+                ctx->busy_since = audiopump_now_us();
+            }
+            waits_seen = waits;
         }
 
         bytes += length;
@@ -1963,7 +1997,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audiopump_sink_gain_obj, audiopump_sink_gain);
 // an A2DP stream decoding beside a busy display left the pump short of the
 // I2S rate (42.5k of 44.1k frames a second on an ESP32 with PSRAM), and the
 // DMA ran dry. Each pull is short and then waits on the DMA, so ranking it
-// above the host costs the host nothing it notices.
+// above the host costs the host nothing it notices -- while it keeps up. A
+// graph it can't render in time never waits, so the loop cedes the core
+// after AUDIOPUMP_BUSY_US without a wait, and the host and the IPC task run.
 #define AUDIOPUMP_TASK_PRIO 21
 
 static mp_obj_t audiopump_spawn(size_t n_args, const mp_obj_t *pos_args,
