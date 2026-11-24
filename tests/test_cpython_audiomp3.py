@@ -62,8 +62,8 @@ class DecodesLikeMicroPython(unittest.TestCase):
             self.assertEqual(decoder.rms_level, 0.0)
             audiocore.get_buffer(decoder)
             self.assertEqual(decoder.samples_decoded, 2304)
-            structure = audiocore.get_structure(decoder)
-            self.assertEqual(structure["sample_rate"], 44100)
+            single_buffer, signed, _, spacing = audiocore.get_structure(decoder)
+            self.assertEqual((single_buffer, signed, spacing), (0, 1, 1))
             decoder.deinit()
             with self.assertRaises(ValueError):
                 decoder.sample_rate

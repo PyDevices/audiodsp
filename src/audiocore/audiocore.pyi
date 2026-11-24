@@ -105,12 +105,21 @@ class WaveFile:
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None, /) -> None: ...
 
 
-def get_buffer(sample: RawSample | WaveFile | object, /) -> tuple[int, memoryview | None]:
+def get_buffer(
+    sample: RawSample | WaveFile | object,
+    single_channel_output: bool = False,
+    audio_channel: int = 0,
+    /,
+) -> tuple[int, memoryview | None]:
     """Read the next block of audio from a sample.
 
     Args:
         sample: Any audio sample: a `RawSample`, a `WaveFile`, or a node from
             another audiodsp module.
+        single_channel_output: True to read one channel of a stereo sample,
+            as a host that wants mono does. The default is False.
+        audio_channel: Which channel, 0 or 1, when ``single_channel_output``
+            is True. The default is 0.
 
     Returns:
         ``(status, block)``. ``status`` is 0 when this was the last block, 1
@@ -123,16 +132,37 @@ def get_buffer(sample: RawSample | WaveFile | object, /) -> tuple[int, memoryvie
         ValueError: The sample was deinitialised.
     """
 
-def reset_buffer(sample: RawSample | WaveFile | object, /) -> None:
+def reset_buffer(
+    sample: RawSample | WaveFile | object,
+    single_channel_output: bool = False,
+    audio_channel: int = 0,
+    /,
+) -> None:
     """Rewind a sample so the next `get_buffer` starts from its beginning.
+
+    Args:
+        sample: Any audio sample.
+        single_channel_output: True to read one channel of a stereo sample,
+            as a host that wants mono does. The default is False.
+        audio_channel: Which channel, 0 or 1, when ``single_channel_output``
+            is True. The default is 0.
 
     Raises:
         TypeError: ``sample`` is not an audio sample.
         ValueError: The sample was deinitialised.
     """
 
-def get_structure(sample: RawSample | WaveFile | object, /) -> tuple[int, int, int, int]:
+def get_structure(
+    sample: RawSample | WaveFile | object,
+    single_channel_output: bool = False,
+    /,
+) -> tuple[int, int, int, int]:
     """Describe how a sample hands out its audio.
+
+    Args:
+        sample: Any audio sample.
+        single_channel_output: True to describe one channel of a stereo
+            sample. The default is False.
 
     Returns:
         ``(single_buffer, samples_signed, max_buffer_length, spacing)``:

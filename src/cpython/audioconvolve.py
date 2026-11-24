@@ -67,8 +67,9 @@ def _frames_of(impulse, channels):
 
 class Convolver(_AudioSample):
     def __init__(self, impulse=None, impulse_channels=1, sample_rate=48000,
-                 max_taps=0, ir_channels=0, gain=1.0, mix=None,
+                 max_taps=0, ir_channels=0, gain=None, mix=None,
                  channel_count=2, wet_gain=None):
+        gain = 1.0 if gain is None else gain
         channel_count = int(channel_count)
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
@@ -129,7 +130,7 @@ class Convolver(_AudioSample):
         self._check()
         self._apply(options)
 
-    def load(self, impulse, channels=1, gain=1.0):
+    def load(self, impulse, channels=1, gain=None):
         """Replace the impulse. Deliberately does not grow the convolver to
         fit -- the capacity was chosen at construction and something
         downstream may already be pulling, so an impulse longer than the room
@@ -143,6 +144,7 @@ class Convolver(_AudioSample):
         stepped through while audio plays. A convolver with nothing loaded
         starts its one-partition latency from empty here, and an empty
         impulse unloads it back to that passthrough."""
+        gain = 1.0 if gain is None else gain
         self._check()
         if channels not in (1, 2):
             raise ValueError("channels must be 1 or 2")
@@ -151,8 +153,8 @@ class Convolver(_AudioSample):
             raise ValueError("impulse is longer than max_taps")
         self._state.load(taps, channels, float(gain))
 
-    def synthesize(self, decay=2.0, damping_hz=0.0, predelay_ms=0.0,
-                   diffusion_ms=0.0, seed=1):
+    def synthesize(self, decay=None, damping_hz=None, predelay_ms=None,
+                   diffusion_ms=None, seed=1):
         """Build a decaying-noise impulse in place, filling the whole
         capacity, so a reverb is available without a file to load.
 
@@ -172,17 +174,25 @@ class Convolver(_AudioSample):
         the new room rings on the history as if it had always been loaded
         (audiodsp#163). A convolver with nothing loaded starts its
         one-partition latency from empty here, as it always has."""
+        decay = 2.0 if decay is None else decay
+        damping_hz = 0.0 if damping_hz is None else damping_hz
+        predelay_ms = 0.0 if predelay_ms is None else predelay_ms
+        diffusion_ms = 0.0 if diffusion_ms is None else diffusion_ms
         self._check()
         self._state.synthesize(float(decay), float(damping_hz),
                                float(predelay_ms), float(diffusion_ms),
                                int(seed) & 0xFFFFFFFF)
 
-    def room_peak_gain_for(self, decay=2.0, damping_hz=0.0, predelay_ms=0.0,
-                           diffusion_ms=0.0, seed=1):
+    def room_peak_gain_for(self, decay=None, damping_hz=None, predelay_ms=None,
+                           diffusion_ms=None, seed=1):
         """The `room_peak_gain` `synthesize` would read for the same
         arguments, without building the room: read off its taps alone, so a
         level can be set before `synthesize` and the block in flight fades to
         the new room at its new level."""
+        decay = 2.0 if decay is None else decay
+        damping_hz = 0.0 if damping_hz is None else damping_hz
+        predelay_ms = 0.0 if predelay_ms is None else predelay_ms
+        diffusion_ms = 0.0 if diffusion_ms is None else diffusion_ms
         self._check()
         return self._state.room_peak(float(decay), float(damping_hz),
                                      float(predelay_ms), float(diffusion_ms),
@@ -224,9 +234,9 @@ class Convolver(_AudioSample):
     def playing(self):
         return self._source is not None
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         self._check()
-        self._source = sample
+        self._source = source
         self._pending = b""
         self._source_done = False
 

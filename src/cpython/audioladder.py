@@ -105,7 +105,7 @@ def _frames_for(buffer_size, channel_count):
 
 
 class Ladder(_AudioSample):
-    def __init__(self, sample_rate=48000, cutoff=None, **options):
+    def __init__(self, *, sample_rate=48000, cutoff=None, **options):
         channel_count = int(options.pop("channel_count", 2))
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
@@ -179,9 +179,9 @@ class Ladder(_AudioSample):
     def playing(self):
         return self._source is not None
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         self._check()
-        self._source = sample
+        self._source = source
         self._pending = b""
 
     def stop(self):

@@ -342,7 +342,7 @@ class GranularPitchShift:
         mix: _BlockInput = 1,
         grain_size: int = 1024,
         density: int = 2,
-        spread: _BlockInput = 0,
+        spread: _BlockInput = 0.0,
         buffer_size: int = 512,
         sample_rate: int = 8000,
         bits_per_sample: int = 16,

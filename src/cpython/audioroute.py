@@ -128,7 +128,7 @@ class Splitter:
         #: before the source is asked again. audiodsp#87.
         self._pending = b""
 
-    def tap(self, index):
+    def tap(self, index, /):
         if self._deinited:
             raise_deinited_error()
         index = int(index)
@@ -215,8 +215,9 @@ class MidSide(_AudioSample):
     so the node costs nothing to leave in a chain that is not using it.
     """
 
-    def __init__(self, source=None, width=1.0, sample_rate=48000,
+    def __init__(self, source=None, width=None, sample_rate=48000,
                  channel_count=2):
+        width = 1.0 if width is None else width
         channel_count = int(channel_count)
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
@@ -243,10 +244,10 @@ class MidSide(_AudioSample):
         self._check()
         self._apply(options)
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         """Set the source the matrix reads from."""
         self._check()
-        self._source = sample
+        self._source = source
         self._pending = b""
 
     # No public stop() or `playing`: the native node has neither, and the
@@ -344,15 +345,15 @@ class Port(_AudioSample):
 
         With `after` a number of frames, the port plays what it plays now
         for that many more frames and switches at the start of the next
-        pull: time for a level the old source is walking to land before the
+        pull: time for a level the old sample is walking to land before the
         new one takes over. Until that pull, `source` is still the old one,
         and a `play()` replaces the switch that was waiting. A port nothing
         has pulled since it was pointed at what it plays now switches at
         once: that has not started, so there is nothing to finish. Pointed
-        at the same source again, the port has not started anything new."""
+        at the same sample again, the port has not started anything new."""
         self._check()
         if sample is None:
-            raise ValueError("a Port needs a source")
+            raise ValueError("a Port needs a sample")
         after = int(after)
         if after < 0:
             raise ValueError("after must be 0 or more")

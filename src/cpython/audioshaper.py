@@ -128,7 +128,7 @@ CLIP_HEADROOM = 0.74
 
 
 class Waveshaper(_AudioSample):
-    def __init__(self, sample_rate=48000, curve=None, oversample=4,
+    def __init__(self, *, sample_rate=48000, curve=None, oversample=4,
                  **options):
         channel_count = int(options.pop("channel_count", 2))
         if channel_count not in (1, 2):
@@ -142,7 +142,6 @@ class Waveshaper(_AudioSample):
         if oversample < 1 or oversample & (oversample - 1):
             raise ValueError("oversample must be a power of two, 1 to %d"
                              % (_audiodsp.SHAPER_MAX_OVERSAMPLE,))
-        curve = options.pop("curve", curve)
         if curve is None:
             raise ValueError("curve is required")
         options.pop("sample_rate", None)
@@ -203,9 +202,9 @@ class Waveshaper(_AudioSample):
     def playing(self):
         return self._source is not None
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         self._check()
-        self._source = sample
+        self._source = source
         self._pending = b""
 
     def stop(self):
@@ -340,10 +339,6 @@ class SampleHold(_AudioSample):
         self._check()
         return 0
 
-    @property
-    def playing(self):
-        return self._source is not None
-
     def set(self, num, den):
         """Change the ratio mid-stream. The pair moves together or not at
         all: half a new ratio is exactly the transient state the exact
@@ -363,13 +358,17 @@ class SampleHold(_AudioSample):
         self._check()
         self._state.reset()
 
-    def play(self, sample, *, loop=False):
+    @property
+    def playing(self):
+        return self._source is not None
+
+    def play(self, source, /):
         self._check()
-        if (int(sample.bits_per_sample) != self.bits_per_sample or
-                int(sample.channel_count) != self.channel_count):
+        if (int(source.bits_per_sample) != self.bits_per_sample or
+                int(source.channel_count) != self.channel_count):
             raise ValueError("source format does not match the one this node "
                              "was built with")
-        self._source = sample
+        self._source = source
         self._pending = b""
         self._source_done = False
         self._exhausted = False

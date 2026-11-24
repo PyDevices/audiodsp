@@ -135,7 +135,7 @@ FRAMES = _audiodsp.DYNAMICS_FRAMES
 
 
 class Dynamics(_AudioSample):
-    def __init__(self, mode=DYN_COMPRESS, **options):
+    def __init__(self, mode=DYN_COMPRESS, /, **options):
         sample_rate = int(options.pop("sample_rate", 48000))
         channel_count = int(options.pop("channel_count", 2))
         if channel_count not in (1, 2):
@@ -193,12 +193,12 @@ class Dynamics(_AudioSample):
     def playing(self):
         return self._source is not None
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         self._check()
-        self._source = sample
+        self._source = source
         self._pending = b""
 
-    def key(self, sample):
+    def key(self, source, /):
         """Feed the detector from `sample` instead of from the audio.
 
         The gain still lands on whatever `play()` is playing. Pass None to go
@@ -206,7 +206,7 @@ class Dynamics(_AudioSample):
         same way an absent source does: silence, never a short block.
         """
         self._check()
-        self._key_source = sample
+        self._key_source = source
         self._key_pending = b""
 
     def stop(self):

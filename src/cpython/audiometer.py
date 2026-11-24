@@ -43,7 +43,7 @@ __revision__ = _audiodsp.__revision__
 
 MAX_BANDS = _audiodsp.METER_MAX_BANDS
 #: attach() this to meter usbif's sound card (MicroPython on a board only).
-def db_byte(power):
+def db_byte(power, /):
     """The level byte a power reads as (1.0 is a full-scale sine)."""
     return _audiodsp.meter_db_byte(power)
 
@@ -51,7 +51,9 @@ def db_byte(power):
 class Meter:
     """N log-spaced band levels between ``low_hz`` and ``high_hz``."""
 
-    def __init__(self, bands=32, *, low_hz=35.0, high_hz=20000.0):
+    def __init__(self, bands=32, *, low_hz=None, high_hz=None):
+        low_hz = 35.0 if low_hz is None else low_hz
+        high_hz = 20000.0 if high_hz is None else high_hz
         self._state = _audiodsp.MeterState()
         self._tap = None
         self._tap_cursor = 0
@@ -67,18 +69,20 @@ class Meter:
             raise ValueError("meter is deinitialized")
         return self._state
 
-    def configure(self, bands, *, low_hz=35.0, high_hz=20000.0):
+    def configure(self, bands, *, low_hz=None, high_hz=None):
         """Change the bands; 0 turns the meter off. Takes effect at the next feed."""
+        low_hz = 35.0 if low_hz is None else low_hz
+        high_hz = 20000.0 if high_hz is None else high_hz
         self._live().configure(bands, float(low_hz), float(high_hz))
 
-    def feed(self, buffer, sample_rate, channel_count=2):
+    def feed(self, buffer, sample_rate, channel_count=2, /):
         """Interleaved s16 frames. Runs an analysis each sixtieth of a second of audio."""
         state = self._live()
         if self._tap is not None:
             raise ValueError("meter is attached to a source; detach() first")
         state.feed(buffer, sample_rate, channel_count)
 
-    def attach(self, source, sample_rate=None):
+    def attach(self, tap, sample_rate, /):
         """Meter what the pump plays through ``source``, an `audiopump.Tap`.
 
         Only what the pump plays from now on is metered.
@@ -89,17 +93,17 @@ class Meter:
         """
         self._live()
         self._tap = None
-        if not isinstance(source, audiopump.Tap):
+        if not isinstance(tap, audiopump.Tap):
             raise TypeError("attach() takes an audiopump.Tap")
         if sample_rate is None:
             raise TypeError("a tap needs its sample_rate")
         rate = int(sample_rate)
         if rate < 1000 or rate > 384000:
             raise ValueError("sample_rate 1 kHz..384 kHz")
-        self._tap = source
+        self._tap = tap
         self._tap_rate = rate
-        self._tap_channels = source._frame // 2
-        self._tap_cursor = source._w
+        self._tap_channels = tap._frame // 2
+        self._tap_cursor = tap._w
         self._drained_at = self._clock()
 
     def detach(self):
@@ -127,7 +131,7 @@ class Meter:
             state.feed(data, self._tap_rate, self._tap_channels)
         self._drained_at += taken / frame / self._tap_rate
 
-    def levels(self, buf=None):
+    def levels(self, buf=None, /):
         """(seq, levels, peak, rms). With ``buf``, the levels are copied into it."""
         state = self._live()
         if self._tap is not None:

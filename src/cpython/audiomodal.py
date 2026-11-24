@@ -71,7 +71,7 @@ _OPTIONS = {
 
 
 class Bank(_AudioSample):
-    def __init__(self, sample_rate=48000, modes=8, **options):
+    def __init__(self, *, sample_rate=48000, modes=8, **options):
         channel_count = int(options.pop("channel_count", 2))
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
@@ -108,7 +108,7 @@ class Bank(_AudioSample):
         self._check()
         self._apply(options)
 
-    def set_mode(self, index, frequency, decay, gain):
+    def set_mode(self, index, frequency, decay, gain, /):
         """One mode, positionally, because that is the order a modal table is
         published in and the order someone reading one will type."""
         self._check()
@@ -118,7 +118,7 @@ class Bank(_AudioSample):
         self._state.set_mode(index, float(frequency), float(decay),
                              float(gain))
 
-    def set_modes(self, table):
+    def set_modes(self, table, /):
         """The whole table in one call. An instrument changing kit mid-bar
         cannot afford a call per mode."""
         self._check()
@@ -156,9 +156,9 @@ class Bank(_AudioSample):
     def playing(self):
         return self._source is not None
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         self._check()
-        self._source = sample
+        self._source = source
         self._pending = b""
 
     def stop(self):

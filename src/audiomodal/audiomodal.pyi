@@ -86,6 +86,12 @@ class Bank:
     def ringing(self) -> bool:
         """Whether any mode still holds energy. This is exact, not a
         threshold, so a voice allocator can ask whether a drum has stopped."""
+    def stop(self) -> None:
+        """Let go of the source. The node keeps handing out silence, and what
+        it holds (a tail, a held level) carries on from there."""
+    @property
+    def playing(self) -> bool:
+        """Whether a source is playing."""
     def play(self, source: _AudioSample, /) -> None:
         """Set the stream that excites the modes, replacing the last one."""
     def set_mode(self, index: int, frequency: float, decay: float, gain: float, /) -> None:

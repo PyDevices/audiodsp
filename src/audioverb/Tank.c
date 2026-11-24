@@ -202,6 +202,32 @@ static mp_obj_t audioverb_tank_play(mp_obj_t self_in, mp_obj_t sample) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(audioverb_tank_play_obj, audioverb_tank_play);
 
+// Let go of the source. The node keeps handing out silence, and its own
+// state (a tail, a held level) carries on from there.
+static mp_obj_t audioverb_tank_stop(mp_obj_t self_in) {
+    audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
+    audiodsp_pump_lock_acquire();
+    self->source = MP_OBJ_NULL;
+    self->pending = NULL;
+    self->pending_frames = 0;
+    self->source_done = false;
+    audiodsp_pump_lock_release();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_stop_obj,
+    audioverb_tank_stop);
+
+static mp_obj_t audioverb_tank_obj_get_playing(mp_obj_t self_in) {
+    audioverb_tank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
+    return mp_obj_new_bool(self->source != MP_OBJ_NULL);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audioverb_tank_get_playing_obj,
+    audioverb_tank_obj_get_playing);
+MP_PROPERTY_GETTER(audioverb_tank_playing_obj,
+    (mp_obj_t)&audioverb_tank_get_playing_obj);
+
 // `delays` and `taps` in `set()` re-cut the network in place (audiodsp#169).
 // A class that changes a reverb's size or character used to have to build a
 // new node for it, and the old node took with it any source frames it had
@@ -451,6 +477,8 @@ static const mp_rom_map_elem_t audioverb_tank_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___enter__), MP_ROM_PTR(&default___enter___obj) },
     { MP_ROM_QSTR(MP_QSTR___exit__), MP_ROM_PTR(&default___exit___obj) },
     { MP_ROM_QSTR(MP_QSTR_play), MP_ROM_PTR(&audioverb_tank_play_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stop), MP_ROM_PTR(&audioverb_tank_stop_obj) },
+    { MP_ROM_QSTR(MP_QSTR_playing), MP_ROM_PTR(&audioverb_tank_playing_obj) },
     { MP_ROM_QSTR(MP_QSTR_set), MP_ROM_PTR(&audioverb_tank_set_obj) },
     { MP_ROM_QSTR(MP_QSTR_clear), MP_ROM_PTR(&audioverb_tank_clear_obj) },
     AUDIOSAMPLE_FIELDS,

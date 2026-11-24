@@ -123,9 +123,6 @@ static mp_obj_t audiometer_meter_attach(size_t n_args, const mp_obj_t *args) {
     if (!mp_obj_is_type(src, &audiopump_tap_type)) {
         mp_raise_TypeError(MP_ERROR_TEXT("attach() takes an audiopump.Tap"));
     }
-    if (n_args < 3) {
-        mp_raise_TypeError(MP_ERROR_TEXT("a tap needs its sample_rate"));
-    }
     mp_int_t rate = mp_obj_get_int(args[2]);
     if (rate < 1000 || rate > 384000) {
         mp_raise_ValueError(MP_ERROR_TEXT("sample_rate 1 kHz..384 kHz"));
@@ -136,7 +133,7 @@ static mp_obj_t audiometer_meter_attach(size_t n_args, const mp_obj_t *args) {
     self->tap_cursor = audiopump_tap_position(src);
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiometer_meter_attach_obj, 2, 3, audiometer_meter_attach);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiometer_meter_attach_obj, 3, 3, audiometer_meter_attach);
 
 static mp_obj_t audiometer_meter_detach(mp_obj_t self_in) {
     audiometer_detach_all(audiometer_get(self_in));

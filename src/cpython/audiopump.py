@@ -522,7 +522,7 @@ def _run_blocks(ctx, budget):
 # --- the module's surface ---------------------------------------------------
 
 
-def pull(sample, blocks, status, sink=None, ring=None):
+def pull(sample, blocks, status, sink=None, ring=None, /):
     """Pull `blocks` blocks of `sample` on this thread, start to finish."""
     ctx = _prepare(sample, blocks, status, ring)
     _open_sink(sink)
@@ -531,7 +531,7 @@ def pull(sample, blocks, status, sink=None, ring=None):
     _run_end(ctx)
 
 
-def sink_gain(level):
+def sink_gain(level, /):
     """Set a C sink's level. There is no C sink here, so nothing to set."""
 
 
@@ -559,7 +559,7 @@ def spawn(sample, blocks, status, sink=None, ring=None, core=-1, prio=21,
     return -2
 
 
-def service(max_blocks=0):
+def service(max_blocks=0, /):
     """Advance the pump. Returns ``blocks << SERVICE_SHIFT | why``.
 
     `max_blocks` caps the blocks this call pulls; 0 means as many as the
@@ -582,7 +582,7 @@ def service(max_blocks=0):
     return ((ctx.done - before) << SERVICE_SHIFT) | why
 
 
-def drain(out):
+def drain(out, /):
     """Move what the pump has made into `out`. Returns the bytes moved."""
     view = memoryview(out).cast("B")
     if view.readonly:
@@ -608,7 +608,7 @@ def drain(out):
     return take
 
 
-def join(timeout_ms=30000):
+def join(timeout_ms=30000, /):
     """True once the loop has ended and the pump has let go of the graph.
 
     There is no thread to wait for, so this never pulls the rest of the graph
@@ -697,7 +697,7 @@ def shutdown():
     _tap = None
 
 
-def reset(sample):
+def reset(sample, /):
     """Rewind `sample`, as the pump does when a looped tail ends."""
     if not _has_protocol(sample):
         raise TypeError("object does not implement the audiocore sample "
@@ -705,7 +705,7 @@ def reset(sample):
     sample._reset_buffer(False, 0)
 
 
-def info(sample):
+def info(sample, /):
     """(sample_rate, channel_count, bits_per_sample, max_buffer_length,
     samples_signed, single_buffer) -- what the graph says it is."""
     _check(sample)
@@ -861,7 +861,7 @@ class Events:
             return arg
         raise ValueError("unknown op")
 
-    def at(self, frame, op, target, arg=None, loop=False):
+    def at(self, frame, op, target, arg=None, loop=False, /):
         """Schedule `op` on `target` at `frame`. Returns its token, or 0 when
         the queue was full."""
         frame = int(frame) & _MASK32
@@ -881,7 +881,7 @@ class Events:
         self._scheduled += 1
         return token
 
-    def cancel(self, token):
+    def cancel(self, token, /):
         token = int(token) & _MASK32
         for i, event in enumerate(self._ev):
             if event[1] == token:
@@ -1007,7 +1007,7 @@ class Tap:
         self._blocks += 1
         self._w = (self._w + length) & _MASK32
 
-    def readinto(self, buf):
+    def readinto(self, buf, /):
         out = memoryview(buf).cast("B")
         want = min(out.nbytes, self._cap)
         want -= want % self._frame
@@ -1135,7 +1135,7 @@ class Ring(_AudioSample):
         self._pulls += 1
         return GET_BUFFER_MORE_DATA, memoryview(dst)
 
-    def write(self, buf):
+    def write(self, buf, /):
         self._check()
         data = memoryview(buf).cast("B")
         room = self._cap - (self._w - self._r)
@@ -1225,7 +1225,8 @@ class DriftResampler(_AudioSample):
     """
 
     def __init__(self, ring, *, sample_rate=None, target=None, max_ppm=1000,
-                 bandwidth=0.01):
+                 bandwidth=None):
+        bandwidth = 0.01 if bandwidth is None else bandwidth
         if not isinstance(ring, Ring):
             raise TypeError("ring must be an audiopump.Ring")
         ring._check()

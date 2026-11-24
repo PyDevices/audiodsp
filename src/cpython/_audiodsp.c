@@ -359,9 +359,11 @@ static int rawsample_clear(audiodsp_rawsample_object_t *self) {
 }
 
 static void rawsample_dealloc(audiodsp_rawsample_object_t *self) {
+    PyTypeObject *type = Py_TYPE(self);
     PyObject_GC_UnTrack(self);
     rawsample_clear(self);
-    Py_TYPE(self)->tp_free((PyObject *)self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
 }
 
 static PyObject *rawsample_deinit(audiodsp_rawsample_object_t *self,
@@ -545,7 +547,9 @@ static PyType_Slot rawsample_slots[] = {
 static PyType_Spec rawsample_spec = {
     .name = "audiocore.RawSample",
     .basicsize = sizeof(audiodsp_rawsample_object_t),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC,
+    // A base type, as on MicroPython and CircuitPython: a script may subclass it.
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC |
+        Py_TPFLAGS_BASETYPE,
     .slots = rawsample_slots,
 };
 
@@ -5195,7 +5199,7 @@ static PyType_Spec graph_state_spec = {
     // audiograph.py re-exports this type as audiograph.Graph.
     .name = "audiograph.Graph",
     .basicsize = sizeof(audiodsp_graph_object_t),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_BASETYPE,
     .slots = graph_state_slots,
 };
 

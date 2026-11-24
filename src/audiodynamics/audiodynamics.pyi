@@ -170,6 +170,7 @@ class Dynamics:
     def __init__(
         self,
         mode: int = 0,
+        /,
         *,
         sample_rate: int = 48000,
         channel_count: int = 2,
@@ -216,6 +217,12 @@ class Dynamics:
     @property
     def channel_count(self) -> int:
         """Number of channels: 1 or 2."""
+    def stop(self) -> None:
+        """Let go of the source. The node keeps handing out silence, and what
+        it holds (a tail, a held level) carries on from there."""
+    @property
+    def playing(self) -> bool:
+        """Whether a source is playing."""
     def play(self, source: _AudioSample, /) -> None:
         """Set the stream to process, replacing the last one."""
     def key(self, source: _AudioSample | None, /) -> None:

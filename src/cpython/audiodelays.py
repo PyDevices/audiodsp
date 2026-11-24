@@ -423,6 +423,12 @@ class Flanger(_Effect):
         count = min(max(count, 1.0), min(frames - 2, 65535))
         return int(count * 65536.0) & 0xffffffff
 
+    @property
+    def lfo_value(self):
+        """Where the sweep is now, as the oscillator's triangle from 0.0 to 1.0."""
+        self._check()
+        return self._triangle(self._lfo_phase[0]) / 65535.0
+
     @staticmethod
     def _triangle(phase):
         tri = (phase & 0xffffffff) >> 15

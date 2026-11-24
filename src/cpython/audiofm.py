@@ -176,7 +176,7 @@ class Patch:
         return bytes(self._data[:_VOICE_BYTES])
 
     @staticmethod
-    def unpack(data):
+    def unpack(data, /):
         """A `Patch` from 155 voice bytes, or from a 163-byte single-voice
         system exclusive message. Values past a parameter's range are
         clamped."""
@@ -200,7 +200,7 @@ class Patch:
         return patch
 
     @staticmethod
-    def bank(data):
+    def bank(data, /):
         """The 32 voices of a bank, as a list of `Patch`. Takes the 4104-byte
         system exclusive message, checked against its checksum, or its 4096
         data bytes alone."""
@@ -224,7 +224,7 @@ class Patch:
         return patches
 
     @staticmethod
-    def pack_bank(patches):
+    def pack_bank(patches, /):
         """Up to 32 patches as a 4104-byte bank message. Missing slots are
         filled with the initial voice."""
         patches = list(patches)
@@ -322,7 +322,7 @@ class Synth(_AudioSample):
         self._check_patch(value)
         self._patch = value
 
-    def press(self, note, velocity=100):
+    def press(self, note, velocity=100, /):
         """Start `note` (0 to 127) at `velocity` (0 to 127)."""
         self._check()
         note = int(note)
@@ -333,7 +333,7 @@ class Synth(_AudioSample):
             raise ValueError("velocity must be 0 to 127")
         self._state.press(bytes(self._patch._data), note, velocity)
 
-    def release(self, note):
+    def release(self, note, /):
         """Release every voice holding `note`."""
         self._check()
         note = int(note)
