@@ -143,7 +143,14 @@ bool common_hal_audiomixer_mixervoice_get_playing(audiomixer_mixervoice_obj_t *s
 }
 
 void common_hal_audiomixer_mixervoice_stop(audiomixer_mixervoice_obj_t *self) {
+    // Under the pump lock, as play() is. Cleared in the middle of a pull, the
+    // voice was left with an empty buffer, more data promised and nothing to
+    // fetch it from, and the mix-down went round that forever holding the
+    // lock: the next play() waited on it for good. A Synth Station mix that
+    // stops and replays voices as they go quiet hung an ESP32-P4 that way.
+    audiodsp_pump_lock_acquire();
     self->sample = NULL;
+    audiodsp_pump_lock_release();
 }
 
 // Rewind to the start of whatever is playing, keeping it playing. New here:
