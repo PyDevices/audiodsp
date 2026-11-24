@@ -1407,6 +1407,34 @@ static inline int16_t sat16(float v) {
 #endif
 }
 
+// sat16 for a per-sample loop that GRAPH_UNROLL unrolls. Where the float unit
+// has IEEE min and max instructions (RISC-V's F extension: fmin.s, fmax.s) it
+// needs no branch: the sample is clamped from both sides and the two
+// averaged. For any number the two agree, so the mean is that number exactly,
+// and a NaN comes out of them as -32768 and 32767, whose mean, -0.5, rounds to
+// 0, so it returns what sat16 does for every float. With no branch in the
+// body, the unrolled samples overlap. A loop that carries state from sample to
+// sample gains nothing from it and keeps sat16. Elsewhere fminf can be a
+// library call (Xtensa, an FPU-less Cortex-M), so this is sat16 there.
+#if defined(GRAPH_SAT16_MAGIC) && defined(__riscv_flen) && defined(__GNUC__)
+static inline int16_t sat16_flat(float v) {
+    const float lo = __builtin_fminf(__builtin_fmaxf(v, -32768.0f), 32767.0f);
+    const float hi = __builtin_fmaxf(__builtin_fminf(v, 32767.0f), -32768.0f);
+    const float c = (lo + hi) * 0.5f;
+    return (int16_t)(int32_t)((c + GRAPH_ROUND_MAGIC) - GRAPH_ROUND_MAGIC);
+}
+#else
+#define sat16_flat sat16
+#endif
+
+// Unrolls the per-sample loop that follows it, where the compiler takes the
+// hint.
+#if defined(__GNUC__) && !defined(__clang__)
+#define GRAPH_UNROLL _Pragma("GCC unroll 4")
+#else
+#define GRAPH_UNROLL
+#endif
+
 static void run_env(audiodsp_graph_node_t *n, const int16_t *gate, int16_t *out,
     uint32_t frames) {
     graph_env_t *d = n->data;
@@ -1996,12 +2024,14 @@ static void mix_input(float *acc, const int16_t *in, float *now, float g1,
         if (g1 == 0.0f) {
             return;
         }
+        GRAPH_UNROLL
         for (uint32_t i = 0; i < frames; ++i) {
             acc[i] += g1 * (float)in[i];
         }
     } else {
         const float step = (g1 - g0) * (1.0f / (float)frames);
         float g = g0;
+        GRAPH_UNROLL
         for (uint32_t i = 0; i < frames; ++i) {
             g += step;
             acc[i] += g * (float)in[i];
@@ -2045,8 +2075,9 @@ static void run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
             mix_input(acc, graph->bufs[n->inputs[k]], &d->gain_now[k], n->param[k], frames);
         }
     }
+    GRAPH_UNROLL
     for (uint32_t i = 0; i < frames; ++i) {
-        out[i] = sat16(acc[i]);
+        out[i] = sat16_flat(acc[i]);
     }
 }
 
@@ -2112,11 +2143,16 @@ static void run_vca(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     const int16_t *cv = n->inputs[which] == AUDIODSP_GRAPH_NONE
         ? NULL : graph->bufs[n->inputs[which]];
     const float k = n->param[AUDIODSP_GRAPH_VCA_GAIN] / AUDIODSP_GRAPH_UNIT;
-    if (audio == NULL || cv == NULL || silent16(audio, frames)) {
+    const bool curve = n->param[AUDIODSP_GRAPH_VCA_CURVE] >= 0.5f;
+    // On the straight line a silent control is a silent output too, as a
+    // drum's spent envelope is for the rest of its tail; the curve's floor is
+    // above zero, so it still runs.
+    if (audio == NULL || cv == NULL || silent16(audio, frames)
+        || (!curve && silent16(cv, frames))) {
         memset(out, 0, frames * sizeof(int16_t));
         return;
     }
-    if (n->param[AUDIODSP_GRAPH_VCA_CURVE] >= 0.5f) {
+    if (curve) {
         // 10^(3 * (x - 1)) = e^(3 ln 10 * (x - 1))
         const float a = 6.907755279f / AUDIODSP_GRAPH_UNIT;
         const float g = n->param[AUDIODSP_GRAPH_VCA_GAIN];
@@ -2125,8 +2161,9 @@ static void run_vca(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         }
         return;
     }
+    GRAPH_UNROLL
     for (uint32_t i = 0; i < frames; ++i) {
-        out[i] = sat16((float)audio[i] * (float)cv[i] * k);
+        out[i] = sat16_flat((float)audio[i] * (float)cv[i] * k);
     }
 }
 
@@ -2145,13 +2182,15 @@ static void run_out(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         return;
     }
     if (graph->channel_count == 2) {
+        GRAPH_UNROLL
         for (uint32_t i = 0; i < frames; ++i) {
-            out[2 * i] = sat16((float)left[i] * scale);
-            out[2 * i + 1] = sat16((float)right[i] * scale);
+            out[2 * i] = sat16_flat((float)left[i] * scale);
+            out[2 * i + 1] = sat16_flat((float)right[i] * scale);
         }
     } else {
+        GRAPH_UNROLL
         for (uint32_t i = 0; i < frames; ++i) {
-            out[i] = sat16(((float)left[i] + (float)right[i]) * 0.5f * scale);
+            out[i] = sat16_flat(((float)left[i] + (float)right[i]) * 0.5f * scale);
         }
     }
 }
