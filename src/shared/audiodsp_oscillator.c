@@ -273,6 +273,92 @@ static float mix_waves(const float *values, uint8_t waves) {
     return sum;
 }
 
+// One sample of a free-running oscillator: the loop below with no inputs.
+static void free_step(const audiodsp_oscillator_config_t *config,
+    audiodsp_oscillator_state_t *state, int16_t *out, uint32_t channels,
+    float *phase, float dt, float inv_dt, float pw) {
+    const uint8_t waves = config->waves;
+    float next[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    run_segment(state, next, waves, phase, *phase + dt, dt, inv_dt, pw, 0.0f);
+    if (waves & AUDIODSP_OSCILLATOR_SAW) {
+        next[SAW] += 2.0f * *phase - 1.0f;
+    }
+    if (waves & AUDIODSP_OSCILLATOR_PULSE) {
+        next[PULSE] += state->pulse_high ? 1.0f : -1.0f;
+    }
+    if (waves & AUDIODSP_OSCILLATOR_TRIANGLE) {
+        next[TRIANGLE] += triangle_at(*phase);
+    }
+    if (waves & AUDIODSP_OSCILLATOR_SINE) {
+        next[SINE] += sin_cycle(*phase);
+    }
+    float *cur = state->pending;
+    out[0] = to_s16(mix_waves(cur, config->waveform[0]) * config->gain);
+    if (channels == 2u) {
+        out[1] = to_s16(mix_waves(cur, config->waveform[1]) * config->gain);
+    }
+    cur[SAW] = next[SAW];
+    cur[PULSE] = next[PULSE];
+    cur[TRIANGLE] = next[TRIANGLE];
+    cur[SINE] = next[SINE];
+}
+
+// With nothing patched into it, an oscillator's step, its reciprocal and its
+// pulse width hold for the whole block, so they are worked out once. The
+// clamps the loop below applies each sample change nothing here:
+// config_finish has already clamped the step and the pulse width to the same
+// bounds. A mono pulse, as a metal bank's six are, writes the same sample
+// every frame between two edges, so those frames only advance the phase; a
+// frame with an edge, or the one just after it, takes the full step. Every
+// sample comes out as the loop below would make it.
+static void free_run(const audiodsp_oscillator_config_t *config,
+    audiodsp_oscillator_state_t *state, int16_t *out, uint32_t frames,
+    uint32_t channels) {
+    const float dt = config->base_dt;
+    const float inv_dt = 1.0f / dt;
+    const float pw = config->pulse_width;
+    float phase = state->phase;
+    uint32_t i = 0;
+    if (channels == 1u && config->waves == AUDIODSP_OSCILLATOR_PULSE &&
+        config->waveform[0] == AUDIODSP_OSCILLATOR_PULSE && frames > 0u) {
+        const float zero = 0.0f;
+        const int16_t high = to_s16((zero + 1.0f) * config->gain);
+        const int16_t low = to_s16((zero + -1.0f) * config->gain);
+        while (i < frames) {
+            const bool up = state->pulse_high != 0;
+            if (state->pending[PULSE] == (up ? 1.0f : -1.0f)) {
+                // The next edge: the fall at the pulse width while high, the
+                // rise at the wrap while low.
+                const float edge = up ? pw : 1.0f;
+                const int16_t v = up ? high : low;
+                while (i < frames) {
+                    const float end = phase + dt;
+                    if (end >= edge) {
+                        break;
+                    }
+                    phase = end;
+                    out[i++] = v;
+                }
+                if (i == frames) {
+                    break;
+                }
+            }
+            free_step(config, state, &out[i], 1u, &phase, dt, inv_dt, pw);
+            ++i;
+        }
+        // The loop below leaves the waveforms not playing at zero.
+        state->pending[SAW] = 0.0f;
+        state->pending[TRIANGLE] = 0.0f;
+        state->pending[SINE] = 0.0f;
+    } else {
+        for (; i < frames; ++i) {
+            free_step(config, state, &out[i * channels], channels, &phase,
+                dt, inv_dt, pw);
+        }
+    }
+    state->phase = phase;
+}
+
 void audiodsp_oscillator_process_s16(
     const audiodsp_oscillator_config_t *config,
     audiodsp_oscillator_state_t *state, int16_t *out, uint32_t frames,
@@ -282,6 +368,11 @@ void audiodsp_oscillator_process_s16(
     const int16_t *fm = inputs[AUDIODSP_OSCILLATOR_IN_FM];
     const int16_t *pwm = inputs[AUDIODSP_OSCILLATOR_IN_PWM];
     const int16_t *sync = inputs[AUDIODSP_OSCILLATOR_IN_SYNC];
+    if (pitch == NULL && fm == NULL && pwm == NULL && sync == NULL) {
+        free_run(config, state, out, frames,
+            config->channel_count == 2u ? 2u : 1u);
+        return;
+    }
     const uint32_t channels = config->channel_count == 2u ? 2u : 1u;
     const uint8_t waves = config->waves;
     const float gain = config->gain;
