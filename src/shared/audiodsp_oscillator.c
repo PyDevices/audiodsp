@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "shared/audiodsp_fp_contract.h"
+#include "shared/audiodsp_hot.h"
 
 #include "shared/audiodsp_oscillator.h"
 #include "shared/audiodsp_exp2.h"
@@ -129,6 +130,7 @@ void audiodsp_oscillator_reset(audiodsp_oscillator_state_t *state) {
 // sin(2 pi phase) for phase in [0, 1), deterministic for the same reason.
 // Folded into a quarter either side of zero, then an odd series to the
 // eleventh power.
+AUDIODSP_GRAPH_HOT
 static float sin_cycle(float phase) {
     float y;
     if (phase < 0.25f) {
@@ -170,11 +172,21 @@ static float clamp_t(float t) {
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
 }
 
+// 1 / dt, worked out the first time an event needs it. `*inv_dt` is 0 until
+// then: a sample with no event in it, which is most of them, never divides.
+static float seg_inv_dt(float dt, float *inv_dt) {
+    if (*inv_dt == 0.0f) {
+        *inv_dt = 1.0f / dt;
+    }
+    return *inv_dt;
+}
+
 // Advances `*phase` to `end` (unwrapped, so at most one reset), placing the
 // events crossed on the way. `offset` is how many samples the segment ends
 // before the sample being computed.
+AUDIODSP_GRAPH_HOT
 static void run_segment(audiodsp_oscillator_state_t *state, float *next,
-    uint8_t waves, float *phase, float end, float dt, float inv_dt, float pw,
+    uint8_t waves, float *phase, float end, float dt, float *inv_dt, float pw,
     float offset) {
     float *cur = state->pending;
     float start = *phase;
@@ -183,20 +195,26 @@ static void run_segment(audiodsp_oscillator_state_t *state, float *next,
             const float at = start > pw ? start : pw;
             if (waves & AUDIODSP_OSCILLATOR_PULSE) {
                 blep(&cur[PULSE], &next[PULSE], -2.0f,
-                    clamp_t(offset + (end - at) * inv_dt));
+                    clamp_t(offset + (end - at) * seg_inv_dt(dt, inv_dt)));
             }
             state->pulse_high = 0;
         }
         if ((waves & AUDIODSP_OSCILLATOR_TRIANGLE) && start < 0.5f &&
             end >= 0.5f) {
             blamp(&cur[TRIANGLE], &next[TRIANGLE], -8.0f * dt,
-                clamp_t(offset + (end - 0.5f) * inv_dt));
+                clamp_t(offset + (end - 0.5f) * seg_inv_dt(dt, inv_dt)));
         }
         if (end < 1.0f) {
             break;
         }
         end -= 1.0f;
-        const float t = clamp_t(offset + end * inv_dt);
+        // Only the saw, the pulse and the triangle place anything at the
+        // wrap.
+        const bool edges = (waves & (AUDIODSP_OSCILLATOR_SAW |
+            AUDIODSP_OSCILLATOR_TRIANGLE)) ||
+            (!state->pulse_high && (waves & AUDIODSP_OSCILLATOR_PULSE));
+        const float t = edges
+            ? clamp_t(offset + end * seg_inv_dt(dt, inv_dt)) : 0.0f;
         if (waves & AUDIODSP_OSCILLATOR_SAW) {
             blep(&cur[SAW], &next[SAW], -2.0f, t);
         }
@@ -274,12 +292,13 @@ static float mix_waves(const float *values, uint8_t waves) {
 }
 
 // One sample of a free-running oscillator: the loop below with no inputs.
+AUDIODSP_GRAPH_HOT
 static void free_step(const audiodsp_oscillator_config_t *config,
     audiodsp_oscillator_state_t *state, int16_t *out, uint32_t channels,
     float *phase, float dt, float inv_dt, float pw) {
     const uint8_t waves = config->waves;
     float next[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    run_segment(state, next, waves, phase, *phase + dt, dt, inv_dt, pw, 0.0f);
+    run_segment(state, next, waves, phase, *phase + dt, dt, &inv_dt, pw, 0.0f);
     if (waves & AUDIODSP_OSCILLATOR_SAW) {
         next[SAW] += 2.0f * *phase - 1.0f;
     }
@@ -311,6 +330,7 @@ static void free_step(const audiodsp_oscillator_config_t *config,
 // every frame between two edges, so those frames only advance the phase; a
 // frame with an edge, or the one just after it, takes the full step. Every
 // sample comes out as the loop below would make it.
+AUDIODSP_GRAPH_HOT
 static void free_run(const audiodsp_oscillator_config_t *config,
     audiodsp_oscillator_state_t *state, int16_t *out, uint32_t frames,
     uint32_t channels) {
@@ -359,6 +379,61 @@ static void free_run(const audiodsp_oscillator_config_t *config,
     state->phase = phase;
 }
 
+// A sine and nothing else, with only its pitch patched in: a drum machine's
+// swept kick and toms. The loop below, sample for sample, without the events a
+// sine never has. The phase still wraps where that loop wraps it, and the
+// pulse's high/low state, which a sine does not read, still moves as it would,
+// so a waveform switched on later starts from the same place.
+AUDIODSP_GRAPH_HOT
+static void pitched_sine(
+    const audiodsp_oscillator_config_t *config,
+    audiodsp_oscillator_state_t *state, int16_t *out, uint32_t frames,
+    uint32_t channels, const int16_t *pitch, uint32_t stride) {
+    const float gain = config->gain;
+    const float pw = config->pulse_width;
+    float phase = state->phase;
+    uint8_t high = state->pulse_high;
+    float *cur = state->pending;
+    float sine = cur[SINE];
+    for (uint32_t frame = 0; frame < frames; ++frame) {
+        float dt = config->base_dt;
+        if (pitch != NULL) {
+            const int32_t value = pitch[frame * stride];
+            if (value != state->pitch_last ||
+                config->pitch_scale != state->pitch_scale) {
+                state->pitch_last = value;
+                state->pitch_scale = config->pitch_scale;
+                state->pitch_ratio = audiodsp_exp2_poly((float)value
+                    * config->pitch_scale);
+            }
+            dt = config->frequency * config->inv_rate * state->pitch_ratio;
+        }
+        dt = clampf(dt, config->dt_min, config->dt_max);
+        float end = phase + dt;
+        if (high && end >= pw) {
+            high = 0;
+        }
+        if (!(end < 1.0f)) {
+            end -= 1.0f;
+            high = end >= pw ? 0 : 1;
+        }
+        phase = end;
+        const int16_t v = to_s16((0.0f + sine) * gain);
+        out[frame * channels] = v;
+        if (channels == 2u) {
+            out[frame * channels + 1u] = v;
+        }
+        sine = 0.0f + sin_cycle(phase);
+    }
+    cur[SAW] = 0.0f;
+    cur[PULSE] = 0.0f;
+    cur[TRIANGLE] = 0.0f;
+    cur[SINE] = sine;
+    state->pulse_high = high;
+    state->phase = phase;
+}
+
+AUDIODSP_GRAPH_HOT
 void audiodsp_oscillator_process_s16(
     const audiodsp_oscillator_config_t *config,
     audiodsp_oscillator_state_t *state, int16_t *out, uint32_t frames,
@@ -377,6 +452,13 @@ void audiodsp_oscillator_process_s16(
     const uint8_t waves = config->waves;
     const float gain = config->gain;
     float phase = state->phase;
+    if (fm == NULL && pwm == NULL && sync == NULL &&
+        config->waveform[0] == AUDIODSP_OSCILLATOR_SINE &&
+        (channels == 1u || config->waveform[1] == AUDIODSP_OSCILLATOR_SINE) &&
+        frames > 0u) {
+        pitched_sine(config, state, out, frames, channels, pitch, strides[0]);
+        return;
+    }
     for (uint32_t frame = 0; frame < frames; ++frame) {
         float dt = config->base_dt;
         if (pitch != NULL) {
@@ -394,7 +476,7 @@ void audiodsp_oscillator_process_s16(
             dt += (float)fm[frame * strides[1]] * config->fm_scale;
         }
         dt = clampf(dt, config->dt_min, config->dt_max);
-        const float inv_dt = 1.0f / dt;
+        float inv_dt = 0.0f;
         float pw = config->pulse_width;
         if (pwm != NULL) {
             pw = clampf(pw + (float)pwm[frame * strides[2]]
@@ -418,13 +500,13 @@ void audiodsp_oscillator_process_s16(
         }
         if (synced) {
             run_segment(state, next, waves, &phase,
-                phase + (1.0f - since) * dt, dt, inv_dt, pw, since);
+                phase + (1.0f - since) * dt, dt, &inv_dt, pw, since);
             sync_reset(state, next, waves, phase, dt, since);
             phase = 0.0f;
-            run_segment(state, next, waves, &phase, since * dt, dt, inv_dt,
+            run_segment(state, next, waves, &phase, since * dt, dt, &inv_dt,
                 pw, 0.0f);
         } else {
-            run_segment(state, next, waves, &phase, phase + dt, dt, inv_dt,
+            run_segment(state, next, waves, &phase, phase + dt, dt, &inv_dt,
                 pw, 0.0f);
         }
 

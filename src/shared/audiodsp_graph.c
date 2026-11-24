@@ -4,6 +4,7 @@
 // First, so no multiply-add here is fused on one target and not another: a
 // graph renders the same samples on every board (audiodsp_fp_contract.h).
 #include "shared/audiodsp_fp_contract.h"
+#include "shared/audiodsp_hot.h"
 
 #include "shared/audiodsp_graph.h"
 
@@ -2016,29 +2017,63 @@ static bool silent16(const int16_t *in, uint32_t frames) {
     return true;
 }
 
+// One input of a mixer into its running sum. `mode` says where the sum
+// starts and ends: MIX_ADD adds into `acc`, MIX_FIRST starts it at `base`
+// instead of reading `acc`, and MIX_LAST (alone or with MIX_FIRST) writes the
+// finished sample to `out` rather than back to `acc`. Each sample is the same
+// sum the separate passes made, in the same order: base, then each input.
+#define MIX_ADD 0u
+#define MIX_FIRST 1u
+#define MIX_LAST 2u
+
+AUDIODSP_GRAPH_HOT
 static void mix_input(float *acc, const int16_t *in, float *now, float g1,
-    uint32_t frames) {
+    uint32_t frames, uint32_t mode, float base, int16_t *out) {
     const float g0 = *now;
     *now = g1;
     if (g0 == g1) {
-        if (g1 == 0.0f) {
-            return;
-        }
-        GRAPH_UNROLL
-        for (uint32_t i = 0; i < frames; ++i) {
-            acc[i] += g1 * (float)in[i];
+        switch (mode) {
+            case MIX_FIRST:
+                GRAPH_UNROLL
+                for (uint32_t i = 0; i < frames; ++i) {
+                    acc[i] = base + g1 * (float)in[i];
+                }
+                break;
+            case MIX_LAST:
+                GRAPH_UNROLL
+                for (uint32_t i = 0; i < frames; ++i) {
+                    out[i] = sat16_flat(acc[i] + g1 * (float)in[i]);
+                }
+                break;
+            case MIX_FIRST | MIX_LAST:
+                GRAPH_UNROLL
+                for (uint32_t i = 0; i < frames; ++i) {
+                    out[i] = sat16_flat(base + g1 * (float)in[i]);
+                }
+                break;
+            default:
+                GRAPH_UNROLL
+                for (uint32_t i = 0; i < frames; ++i) {
+                    acc[i] += g1 * (float)in[i];
+                }
+                break;
         }
     } else {
         const float step = (g1 - g0) * (1.0f / (float)frames);
         float g = g0;
-        GRAPH_UNROLL
         for (uint32_t i = 0; i < frames; ++i) {
             g += step;
-            acc[i] += g * (float)in[i];
+            const float from = (mode & MIX_FIRST) ? base : acc[i];
+            if (mode & MIX_LAST) {
+                out[i] = sat16_flat(from + g * (float)in[i]);
+            } else {
+                acc[i] = from + g * (float)in[i];
+            }
         }
     }
 }
 
+AUDIODSP_GRAPH_HOT
 static void run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames, float *acc) {
     graph_mix_t *d = n->data;
@@ -2067,20 +2102,37 @@ static void run_mix(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
             return;
         }
     }
-    for (uint32_t i = 0; i < frames; ++i) {
-        acc[i] = offset;
-    }
+    // The inputs that add anything: an input held at a gain of 0 adds 0 to
+    // every sample, which leaves the sum as it was.
+    uint32_t live[AUDIODSP_GRAPH_MAX_INPUTS];
+    uint32_t count = 0;
     for (uint32_t k = 0; k < n->ninputs; ++k) {
-        if (n->inputs[k] != AUDIODSP_GRAPH_NONE) {
-            mix_input(acc, graph->bufs[n->inputs[k]], &d->gain_now[k], n->param[k], frames);
+        if (n->inputs[k] == AUDIODSP_GRAPH_NONE) {
+            continue;
         }
+        if (d->gain_now[k] == n->param[k] && n->param[k] == 0.0f) {
+            d->gain_now[k] = n->param[k];
+            continue;
+        }
+        live[count++] = k;
     }
-    GRAPH_UNROLL
-    for (uint32_t i = 0; i < frames; ++i) {
-        out[i] = sat16_flat(acc[i]);
+    if (count == 0u) {
+        const int16_t v = sat16_flat(offset);
+        for (uint32_t i = 0; i < frames; ++i) {
+            out[i] = v;
+        }
+        return;
+    }
+    for (uint32_t j = 0; j < count; ++j) {
+        const uint32_t k = live[j];
+        const uint32_t mode = (j == 0u ? MIX_FIRST : MIX_ADD) |
+            (j + 1u == count ? MIX_LAST : MIX_ADD);
+        mix_input(acc, graph->bufs[n->inputs[k]], &d->gain_now[k], n->param[k],
+            frames, mode, offset, out);
     }
 }
 
+AUDIODSP_GRAPH_HOT
 static void run_pan(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames, float *acc) {
     graph_pan_t *d = n->data;
@@ -2121,20 +2173,33 @@ static void run_pan(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         float *now = side ? d->right_now : d->left_now;
         const float *gain = side ? right : left;
         int16_t *dst = side ? graph->bufs[d->right] : out;
-        for (uint32_t i = 0; i < frames; ++i) {
-            acc[i] = 0.0f;
-        }
+        // As run_mix sums them, from 0: sat16_flat gives what sat16 does.
+        uint32_t live[AUDIODSP_GRAPH_MAX_INPUTS];
+        uint32_t count = 0;
         for (uint32_t k = 0; k < n->ninputs; ++k) {
-            if (n->inputs[k] != AUDIODSP_GRAPH_NONE) {
-                mix_input(acc, graph->bufs[n->inputs[k]], &now[k], gain[k], frames);
+            if (n->inputs[k] == AUDIODSP_GRAPH_NONE) {
+                continue;
             }
+            if (now[k] == gain[k] && gain[k] == 0.0f) {
+                continue;
+            }
+            live[count++] = k;
         }
-        for (uint32_t i = 0; i < frames; ++i) {
-            dst[i] = sat16(acc[i]);
+        if (count == 0u) {
+            memset(dst, 0, frames * sizeof(int16_t));
+            continue;
+        }
+        for (uint32_t j = 0; j < count; ++j) {
+            const uint32_t k = live[j];
+            const uint32_t mode = (j == 0u ? MIX_FIRST : MIX_ADD) |
+                (j + 1u == count ? MIX_LAST : MIX_ADD);
+            mix_input(acc, graph->bufs[n->inputs[k]], &now[k], gain[k], frames,
+                mode, 0.0f, dst);
         }
     }
 }
 
+AUDIODSP_GRAPH_HOT
 static void run_vca(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     const int16_t *audio = n->inputs[0] == AUDIODSP_GRAPH_NONE
@@ -2279,6 +2344,7 @@ static float graph_tanh(float x) {
     return p / q;
 }
 
+AUDIODSP_GRAPH_HOT
 static void run_tanh(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     const int16_t *in = n->inputs[0] == AUDIODSP_GRAPH_NONE
@@ -3341,6 +3407,7 @@ static uint32_t decay_spike(float delay, uint32_t sample_rate) {
     return (uint32_t)at;
 }
 
+AUDIODSP_GRAPH_HOT
 static void run_decay(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     int16_t *out, uint32_t frames) {
     graph_decay_t *d = n->data;
@@ -3348,6 +3415,26 @@ static void run_decay(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         ? graph->bufs[n->inputs[0]] : NULL;
     const int16_t *vel = n->ninputs > 1 && n->inputs[1] != AUDIODSP_GRAPH_NONE
         ? graph->bufs[n->inputs[1]] : NULL;
+
+    // The first rising edge of the trigger this block, as MODAL finds it.
+    int32_t rising = -1;
+    if (gate != NULL) {
+        bool high = d->high;
+        for (uint32_t i = 0; i < frames; ++i) {
+            const bool now = (float)gate[i] > DECAY_THRESHOLD;
+            if (now && !high && rising < 0) {
+                rising = (int32_t)i;
+            }
+            high = now;
+        }
+        d->high = high;
+    }
+    // Nothing ringing and no strike this block: the envelope writes silence
+    // and leaves its state as it was, so the block is that silence.
+    if (!d->ringing && rising < 0) {
+        memset(out, 0, frames * sizeof(int16_t));
+        return;
+    }
 
     float decay_sec = n->param[AUDIODSP_GRAPH_DECAY_DECAY];
     if (!(decay_sec >= 0.001f)) {
@@ -3398,20 +3485,6 @@ static void run_decay(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
     const float d_rise = use_rise ? decay_coeff(rise_sec, rate) : 0.0f;
     const float silent = fast_n > 0u ? DECAY_SILENT_FAST : DECAY_SILENT;
 
-    // The first rising edge of the trigger this block, as MODAL finds it.
-    int32_t rising = -1;
-    if (gate != NULL) {
-        bool high = d->high;
-        for (uint32_t i = 0; i < frames; ++i) {
-            const bool now = (float)gate[i] > DECAY_THRESHOLD;
-            if (now && !high && rising < 0) {
-                rising = (int32_t)i;
-            }
-            high = now;
-        }
-        d->high = high;
-    }
-
     float level = d->level;
     float rise = d->rise;
     float velocity = d->velocity;
@@ -3432,59 +3505,114 @@ static void run_decay(const audiodsp_graph_t *graph, audiodsp_graph_node_t *n,
         }
     }
 
-    for (uint32_t i = 0; i < frames; ++i) {
-        if (rising == (int32_t)i) {
-            // A new strike replaces the envelope, as trigger() does.
-            velocity = vel != NULL
-                ? (float)vel[i] * (1.0f / AUDIODSP_GRAPH_UNIT) : 1.0f;
-            sample = 0u;
-            ringing = true;
-            rise = use_rise && !burst ? velocity : 0.0f;
-            next_spike = 0u;
-            // linear_segment starts at -v/n so the first ramp sample is 0;
-            // exp_segment starts at the velocity and writes v * coeff first.
-            if (attack_n > 0u && !burst) {
-                level = -velocity / (float)attack_n;
-            } else {
+    if (!burst && attack_n == 0u && fast_n == 0u) {
+        // The plain exponential, with or without its subtracted rise: the
+        // general loop below, sample for sample, cut into the stretch before
+        // a strike and the stretch from it, so each runs without the
+        // per-sample tests.
+        uint32_t i = 0;
+        while (i < frames) {
+            if (rising == (int32_t)i) {
+                velocity = vel != NULL
+                    ? (float)vel[i] * (1.0f / AUDIODSP_GRAPH_UNIT) : 1.0f;
+                sample = 0u;
+                ringing = true;
+                rise = use_rise ? velocity : 0.0f;
                 level = velocity;
+                rising = -1;
             }
-            rising = -1;
-        }
-        if (!ringing) {
-            out[i] = 0;
-            continue;
-        }
-        float written;
-        if (burst) {
-            if (next_spike < strikes && spike_at[next_spike] == sample) {
-                // A spike this sample replaces the level and writes it.
-                level = velocity * d->table[next_spike * 2u + 1u];
-                written = level;
-                ++next_spike;
+            const uint32_t end = rising > (int32_t)i ? (uint32_t)rising : frames;
+            if (!ringing) {
+                memset(out + i, 0, (end - i) * sizeof(int16_t));
+            } else if (use_rise) {
+                // The rise falls faster than the level (it is the strike's
+                // click), so it soon stops changing the sum: once it is
+                // under 2^-30 of the level it is less than half a unit in the
+                // last place of every sum to come, and subtracting it leaves
+                // the sum as it was. It is then dropped, rather than walked
+                // on down into denormals, which some float units take a
+                // slow path for. The samples are the same.
+                const bool drops = d_rise <= d_tail;
+                uint32_t k = i;
+                for (; k < end && rise != 0.0f; ++k) {
+                    level *= d_tail;
+                    float written = level;
+                    rise *= d_rise;
+                    written -= rise;
+                    out[k] = sat16(written * AUDIODSP_GRAPH_UNIT);
+                    if (drops && fabsf(rise) < fabsf(level) * 0x1p-30f) {
+                        rise = 0.0f;
+                    }
+                }
+                for (; k < end; ++k) {
+                    level *= d_tail;
+                    out[k] = sat16(level * AUDIODSP_GRAPH_UNIT);
+                }
+                sample += end - i;
             } else {
-                // Between spikes the level falls to -40 dB over the re-strike
-                // time; after the last spike, over the decay time.
-                const bool past = next_spike >= strikes;
-                level *= past ? d_tail : d_burst;
-                written = level;
+                for (uint32_t k = i; k < end; ++k) {
+                    level *= d_tail;
+                    out[k] = sat16(level * AUDIODSP_GRAPH_UNIT);
+                }
+                sample += end - i;
             }
-            ++sample;
-        } else if (attack_n > 0u && sample < attack_n) {
-            // linear_segment: start + slope * (k + 1), slope = v / attack_n.
-            level += velocity / (float)attack_n;
-            written = level;
-            ++sample;
-        } else {
-            const uint32_t decay_from = attack_n + fast_n;
-            level *= (fast_n > 0u && sample < decay_from) ? d_fast : d_tail;
-            written = level;
-            ++sample;
+            i = end;
         }
-        if (use_rise && !burst) {
-            rise *= d_rise;
-            written -= rise;
+    } else {
+        for (uint32_t i = 0; i < frames; ++i) {
+            if (rising == (int32_t)i) {
+                // A new strike replaces the envelope, as trigger() does.
+                velocity = vel != NULL
+                    ? (float)vel[i] * (1.0f / AUDIODSP_GRAPH_UNIT) : 1.0f;
+                sample = 0u;
+                ringing = true;
+                rise = use_rise && !burst ? velocity : 0.0f;
+                next_spike = 0u;
+                // linear_segment starts at -v/n so the first ramp sample is 0;
+                // exp_segment starts at the velocity and writes v * coeff first.
+                if (attack_n > 0u && !burst) {
+                    level = -velocity / (float)attack_n;
+                } else {
+                    level = velocity;
+                }
+                rising = -1;
+            }
+            if (!ringing) {
+                out[i] = 0;
+                continue;
+            }
+            float written;
+            if (burst) {
+                if (next_spike < strikes && spike_at[next_spike] == sample) {
+                    // A spike this sample replaces the level and writes it.
+                    level = velocity * d->table[next_spike * 2u + 1u];
+                    written = level;
+                    ++next_spike;
+                } else {
+                    // Between spikes the level falls to -40 dB over the re-strike
+                    // time; after the last spike, over the decay time.
+                    const bool past = next_spike >= strikes;
+                    level *= past ? d_tail : d_burst;
+                    written = level;
+                }
+                ++sample;
+            } else if (attack_n > 0u && sample < attack_n) {
+                // linear_segment: start + slope * (k + 1), slope = v / attack_n.
+                level += velocity / (float)attack_n;
+                written = level;
+                ++sample;
+            } else {
+                const uint32_t decay_from = attack_n + fast_n;
+                level *= (fast_n > 0u && sample < decay_from) ? d_fast : d_tail;
+                written = level;
+                ++sample;
+            }
+            if (use_rise && !burst) {
+                rise *= d_rise;
+                written -= rise;
+            }
+            out[i] = sat16(written * AUDIODSP_GRAPH_UNIT);
         }
-        out[i] = sat16(written * AUDIODSP_GRAPH_UNIT);
     }
     // The rack cores check silence once per block, after the block is written
     // (OneShotEnvelopeCore at 1e-4, CowbellCore at 2e-4 past the fast stage).
