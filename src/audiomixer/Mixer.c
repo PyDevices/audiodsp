@@ -421,7 +421,13 @@ static void mix_down_one_voice(audiomixer_mixer_obj_t *self,
                     break;
                 }
             }
-            if (voice->sample) {
+            if (voice->sample == NULL) {
+                // Stopped since this pass began: nothing more will come, and
+                // the rest of the block is zero-filled like any short voice.
+                // Without this the loop consumed nothing and never ended.
+                break;
+            }
+            {
                 // Load another buffer
                 audioio_get_buffer_result_t result = audiosample_get_buffer(voice->sample, false, 0, (uint8_t **)&voice->remaining_buffer, &voice->buffer_length);
                 // A deinited sample answers GET_BUFFER_ERROR with a NULL
