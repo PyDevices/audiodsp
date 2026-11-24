@@ -162,7 +162,12 @@ CASES = (
 def render(node, rate, channels, moves=None, reset_at=None):
     """PULLS blocks; `moves` is (pull index, callable). Returns the frames,
     interleaved, and how many frames came before each pull."""
-    node.play(tone(rate, channels), loop=True)
+    # Flanger, like CircuitPython's effects, takes loop=; audiodsp's own
+    # nodes take only the source, as they do on MicroPython.
+    if isinstance(node, audiodelays.Flanger):
+        node.play(tone(rate, channels), loop=True)
+    else:
+        node.play(tone(rate, channels))
     out = array("h")
     starts = []
     for index in range(PULLS):

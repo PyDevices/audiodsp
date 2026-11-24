@@ -46,7 +46,7 @@ SAMPLE_RATE = _audiodsp.FEATURES_RATE
 STEP_MS = _audiodsp.FEATURES_STEP_MS
 
 
-def quantize(value):
+def quantize(value, /):
     """The int8 a model takes for one raw value: value * 256 / 666 - 128, rounded."""
     if not 0 <= value <= 65535:
         raise ValueError("value 0..65535")
@@ -65,18 +65,18 @@ class Frontend:
             raise ValueError("frontend is deinitialized")
         return self._state
 
-    def feed(self, buffer, sample_rate, channel_count=1):
+    def feed(self, buffer, sample_rate, channel_count=1, /):
         """Interleaved s16 frames at any rate from 16 to 384 kHz. Returns the slices waiting."""
         return self._live().feed(buffer, sample_rate, channel_count)
 
-    def attach(self, source, sample_rate=None):
+    def attach(self, tap, sample_rate, /):
         self._live()
         raise NotImplementedError("attach() needs a board's pump: on CPython, feed() the samples")
 
     def detach(self):
         self._live()
 
-    def readinto(self, buf, voice=None):
+    def readinto(self, buf, voice=None, /):
         """Whole slices of 40 int8 into ``buf``, oldest first. Returns how many.
 
         Given ``voice``, a writable buffer, each slice's voice flag goes into
@@ -84,7 +84,7 @@ class Frontend:
         """
         return self._live().read(buf, False, voice)
 
-    def readinto_raw(self, buf, voice=None):
+    def readinto_raw(self, buf, voice=None, /):
         """Whole slices of 40 uint16 (the frontend's own values) into ``buf``. Returns how many."""
         return self._live().read(buf, True, voice)
 

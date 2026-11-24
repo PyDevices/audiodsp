@@ -60,7 +60,7 @@ FRAMES = _audiodsp.MULTIPLY_FRAMES
 SUBOCTAVE_FRAMES = _audiodsp.SUBOCTAVE_FRAMES
 
 
-def remix_s16(source, src_channels, dst_channels, dest=None):
+def remix_s16(source, src_channels, dst_channels, dest=None, /):
     """Convert interleaved s16 native-endian PCM between 1 and 2 channels.
 
     Stereo→mono is (L+R)/2. Mono→stereo duplicates the sample. Same channel
@@ -96,8 +96,9 @@ _SUBOCTAVE_OPTIONS = {
 
 
 class Multiply(_AudioSample):
-    def __init__(self, source=None, modulator=None, mix=1.0,
+    def __init__(self, source=None, modulator=None, mix=None,
                  sample_rate=48000, channel_count=2):
+        mix = 1.0 if mix is None else mix
         channel_count = int(channel_count)
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
@@ -134,16 +135,16 @@ class Multiply(_AudioSample):
     def playing(self):
         return self._source is not None
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         """Set the signal - the input that gets multiplied."""
         self._check()
-        self._source = sample
+        self._source = source
         self._pending_source = b""
 
-    def modulate(self, sample):
+    def modulate(self, modulator, /):
         """Set what to multiply it by."""
         self._check()
-        self._modulator = sample
+        self._modulator = modulator
         self._pending_modulator = b""
 
     def stop(self):
@@ -260,10 +261,10 @@ class SubOctave(_AudioSample):
     def playing(self):
         return self._source is not None
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         """Set the signal to divide."""
         self._check()
-        self._source = sample
+        self._source = source
         self._pending = b""
 
     def stop(self):

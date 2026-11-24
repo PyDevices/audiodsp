@@ -124,7 +124,7 @@ class Patch:
     def pack(self) -> bytes:
         """The voice as 155 bytes, in the single-voice parameter order."""
     @staticmethod
-    def unpack(data: bytes) -> Patch:
+    def unpack(data: bytes, /) -> Patch:
         """A patch from 155 voice bytes, or from a 163-byte single-voice
         system exclusive message.
 
@@ -135,7 +135,7 @@ class Patch:
                 checksum is wrong.
         """
     @staticmethod
-    def bank(data: bytes) -> list[Patch]:
+    def bank(data: bytes, /) -> list[Patch]:
         """The 32 voices of a bank.
 
         Args:
@@ -147,7 +147,7 @@ class Patch:
                 wrong.
         """
     @staticmethod
-    def pack_bank(patches: Sequence[Patch]) -> bytes:
+    def pack_bank(patches: Sequence[Patch], /) -> bytes:
         """Up to 32 patches as a 4104-byte bank message. Missing slots get
         the initial voice."""
 
@@ -180,10 +180,10 @@ class Synth:
     def bits_per_sample(self) -> int: ...
     @property
     def channel_count(self) -> int: ...
-    def press(self, note: int, velocity: int = 100) -> None:
+    def press(self, note: int, velocity: int = 100, /) -> None:
         """Start `note`, 0 to 127, at `velocity`, 0 to 127. The patch is read
         now, so edits to it reach the next note, never a sounding one."""
-    def release(self, note: int) -> None:
+    def release(self, note: int, /) -> None:
         """Release every voice holding `note`."""
     def release_all(self) -> None:
         """Release every held note, as if every key came up."""

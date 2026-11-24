@@ -33,11 +33,24 @@ static void audiocore_check(mp_obj_t sample_in) {
     audiosample_check_for_deinit(audiosample_check(sample_in));
 }
 
-static mp_obj_t audiocore_get_buffer(mp_obj_t sample_in) {
+// The two optional arguments are the ones a host passes down the graph:
+// whether it wants one channel of a stereo sample, and which. The CPython
+// twin takes them too, so a node written for one runs on the other.
+static bool audiocore_single(size_t n_args, const mp_obj_t *args) {
+    return n_args > 1 && mp_obj_is_true(args[1]);
+}
+
+static uint8_t audiocore_channel(size_t n_args, const mp_obj_t *args) {
+    return n_args > 2 ? (uint8_t)mp_obj_get_int(args[2]) : 0;
+}
+
+static mp_obj_t audiocore_get_buffer(size_t n_args, const mp_obj_t *args) {
+    mp_obj_t sample_in = args[0];
     audiocore_check(sample_in);
     uint8_t *buffer = NULL;
     uint32_t buffer_length = 0;
-    audioio_get_buffer_result_t gbr = audiosample_get_buffer(sample_in, false, 0, &buffer, &buffer_length);
+    audioio_get_buffer_result_t gbr = audiosample_get_buffer(sample_in,
+        audiocore_single(n_args, args), audiocore_channel(n_args, args), &buffer, &buffer_length);
 
     mp_obj_t result[2] = { mp_obj_new_int_from_uint(gbr), mp_const_none };
 
@@ -58,14 +71,14 @@ static mp_obj_t audiocore_get_buffer(mp_obj_t sample_in) {
 
     return mp_obj_new_tuple(2, result);
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(audiocore_get_buffer_obj, audiocore_get_buffer);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiocore_get_buffer_obj, 1, 3, audiocore_get_buffer);
 
-static mp_obj_t audiocore_get_structure(mp_obj_t sample_in) {
+static mp_obj_t audiocore_get_structure(size_t n_args, const mp_obj_t *args) {
     bool single_buffer, samples_signed;
     uint32_t max_buffer_length;
     uint8_t spacing;
 
-    audiosample_get_buffer_structure_checked(sample_in, false, &single_buffer, &samples_signed, &max_buffer_length, &spacing);
+    audiosample_get_buffer_structure_checked(args[0], audiocore_single(n_args, args), &single_buffer, &samples_signed, &max_buffer_length, &spacing);
     mp_obj_t result[4] = {
         mp_obj_new_int_from_uint(single_buffer),
         mp_obj_new_int_from_uint(samples_signed),
@@ -74,14 +87,14 @@ static mp_obj_t audiocore_get_structure(mp_obj_t sample_in) {
     };
     return mp_obj_new_tuple(4, result);
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(audiocore_get_structure_obj, audiocore_get_structure);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiocore_get_structure_obj, 1, 2, audiocore_get_structure);
 
-static mp_obj_t audiocore_reset_buffer(mp_obj_t sample_in) {
-    audiocore_check(sample_in);
-    audiosample_reset_buffer(sample_in, false, 0);
+static mp_obj_t audiocore_reset_buffer(size_t n_args, const mp_obj_t *args) {
+    audiocore_check(args[0]);
+    audiosample_reset_buffer(args[0], audiocore_single(n_args, args), audiocore_channel(n_args, args));
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(audiocore_reset_buffer_obj, audiocore_reset_buffer);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(audiocore_reset_buffer_obj, 1, 3, audiocore_reset_buffer);
 
 static const mp_rom_map_elem_t audiocore_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audiocore) },

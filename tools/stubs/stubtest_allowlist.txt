@@ -4,9 +4,8 @@
 # module also has a CPython twin in the wheel, and stubtest compares the stub
 # with that twin. An entry here is either a point where CPython is built
 # differently in a way no caller sees (the first block), or a difference
-# between the two interpreters that audiodsp#426 lists (the second). Remove an
-# entry when the difference is fixed: stubtest fails on an entry that matches
-# nothing.
+# between the two interpreters kept on purpose (the second). Remove an entry
+# when the difference goes: stubtest fails on an entry that matches nothing.
 #
 # Each line is a regular expression matched against the whole name.
 
@@ -38,115 +37,24 @@ audiofilters\.DistortionMode(\.__new__)?
 audiocore\.RawSample
 audiograph\.Graph(\.__init__)?
 
-# --- Differences between the interpreters, listed in audiodsp#426 ---
+# --- Differences between the interpreters, kept on purpose ---
 
-# play(sample) on effects: MicroPython takes one positional argument, CPython also takes sample= and loop=; Dynamics.key and Multiply.modulate take sample= on CPython too.
-audiobiquad.AllPass.play
-audiobiquad.Biquad.play
-audioconvolve.Convolver.play
-audiodynamics.Dynamics.key
-audiodynamics.Dynamics.play
-audioecho.FeedbackDelay.play
-audioladder.Ladder.play
-audiomath.Multiply.modulate
-audiomath.Multiply.play
-audiomath.SubOctave.play
-audiomodal.Bank.play
-audioroute.MidSide.play
-audioshaper.SampleHold.play
-audioshaper.Waveshaper.play
-audioverb.Tank.play
+# CPython's RawSample and Graph also report three fields of the sample
+# protocol that MicroPython keeps inside C. A script can read more on CPython,
+# and nothing written against the stub fails.
+audiocore\.RawSample\.(max_buffer_length|samples_signed|single_buffer)
+audiograph\.Graph\.(max_buffer_length|samples_signed|single_buffer)
 
-# stop() and playing exist on these effects on CPython only.
-audioconvolve.Convolver.playing
-audioconvolve.Convolver.stop
-audiodynamics.Dynamics.playing
-audiodynamics.Dynamics.stop
-audioecho.FeedbackDelay.playing
-audioecho.FeedbackDelay.stop
-audioladder.Ladder.playing
-audioladder.Ladder.stop
-audiomath.Multiply.playing
-audiomath.Multiply.stop
-audiomath.SubOctave.playing
-audiomath.SubOctave.stop
-audiomodal.Bank.playing
-audiomodal.Bank.stop
-audioshaper.SampleHold.playing
-audioshaper.SampleHold.stop
-audioshaper.Waveshaper.playing
-audioshaper.Waveshaper.stop
-audioverb.Tank.playing
-audioverb.Tank.stop
+# A Ring reads USB device audio only on a board built with it; CPython has no
+# USB device to read.
+audiopump\.Ring\.from_usb
 
-# Constructors keyword-only on MicroPython and positional on CPython.
-audiobiquad.AllPass.__init__
-audiobiquad.Biquad.__init__
-audioecho.FeedbackDelay.__init__
-audioladder.Ladder.__init__
-audiomodal.Bank.__init__
-audiooscillator.Oscillator.__init__
-audioshaper.Waveshaper.__init__
-audioverb.Tank.__init__
+# Splitter.tap() and SamplerVoice are how scripts get these on both
+# interpreters. CPython's classes take the internal arguments its own module
+# builds them with; MicroPython refuses to build them directly.
+audioroute\.SplitterTap\.__init__
+audiosampler\.SamplerVoice\.__init__
 
-# Positional only on MicroPython; CPython also takes the names, and for audiocore a few extra arguments.
-audiocore.get_buffer
-audiocore.get_structure
-audiocore.reset_buffer
-audiofeatures.Frontend.attach
-audiofeatures.Frontend.feed
-audiofeatures.Frontend.readinto
-audiofeatures.Frontend.readinto_raw
-audiofeatures.quantize
-audiomath.remix_s16
-audiometer.Meter.attach
-audiometer.Meter.feed
-audiometer.Meter.levels
-audiometer.db_byte
-audiomodal.Bank.set_mode
-audiomodal.Bank.set_modes
-audiomp3.MP3Decoder.open
-audiopump.Events.at
-audiopump.Events.cancel
-audiopump.Ring.write
-audiopump.Tap.readinto
-audiopump.drain
-audiopump.info
-audiopump.join
-audiopump.pull
-audiopump.reset
-audiopump.service
-audiopump.sink_gain
-audioroute.Splitter.tap
-audiovorbis.VorbisDecoder.__init__
-audiovorbis.VorbisDecoder.open
-synthio.Synthesizer.press
-synthio.Synthesizer.release
-synthio.Synthesizer.release_all_then_press
-synthio.midi_to_hz
-
-# Defaults: None on MicroPython, a number on CPython.
-audioconvolve.Convolver.__init__
-audioconvolve.Convolver.load
-audioconvolve.Convolver.room_peak_gain_for
-audioconvolve.Convolver.synthesize
-audiodelays.GranularPitchShift.__init__
-audiomath.Multiply.__init__
-audiometer.Meter.__init__
-audiometer.Meter.configure
-audiopump.DriftResampler.__init__
-audioroute.MidSide.__init__
-audiosampler.Sampler.__init__
-audiosampler.SamplerVoice.play
-
-# Names present on one side only, and constructors CPython has and MicroPython refuses.
-audiocore.RawSample.max_buffer_length
-audiocore.RawSample.samples_signed
-audiocore.RawSample.single_buffer
-audiodelays.Flanger.lfo_value
-audiograph.Graph.max_buffer_length
-audiograph.Graph.samples_signed
-audiograph.Graph.single_buffer
-audiopump.Ring.from_usb
-audioroute.SplitterTap.__init__
-audiosampler.SamplerVoice.__init__
+# Waveshaper needs a curve. CPython defaults it to None so that leaving it out
+# raises ValueError, the error MicroPython raises, rather than TypeError.
+audioshaper\.Waveshaper\.__init__

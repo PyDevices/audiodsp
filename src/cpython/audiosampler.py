@@ -87,19 +87,47 @@ class SamplerVoice:
         self._cutoff = None
         self._vibrato_depth = 0.0
 
-    def play(self, buffer, *, rate=None, pitch=1.0, loop_start=0,
-             loop_end=None, loop_mode=LOOP_NONE, level=1.0, pan=0.0,
-             delay=0.0, attack=0.0, hold=0.0, decay=0.0, sustain=1.0,
-             release=0.0, cutoff=None, resonance=0.0, mod_delay=0.0,
-             mod_attack=0.0, mod_hold=0.0, mod_decay=0.0, mod_sustain=1.0,
-             mod_release=0.0, mod_to_pitch=0.0, mod_to_cutoff=0.0,
-             vibrato_delay=0.0, vibrato_rate=0.0, vibrato_depth=0.0,
-             lfo_delay=0.0, lfo_rate=0.0, lfo_to_pitch=0.0,
-             lfo_to_cutoff=0.0, lfo_to_volume=0.0):
+    def play(self, buffer, *, rate=None, pitch=None, loop_start=0,
+             loop_end=None, loop_mode=LOOP_NONE, level=None, pan=None,
+             delay=None, attack=None, hold=None, decay=None, sustain=None,
+             release=None, cutoff=None, resonance=None, mod_delay=None,
+             mod_attack=None, mod_hold=None, mod_decay=None, mod_sustain=None,
+             mod_release=None, mod_to_pitch=None, mod_to_cutoff=None,
+             vibrato_delay=None, vibrato_rate=None, vibrato_depth=None,
+             lfo_delay=None, lfo_rate=None, lfo_to_pitch=None,
+             lfo_to_cutoff=None, lfo_to_volume=None):
         """Start `buffer` (mono signed 16-bit) on this voice, replacing
         whatever it was playing, which fades out over 5 ms under the new
         note. `loop_end` left out means the end of the buffer. Raises ValueError for a loop that does not fit the buffer or
         a `loop_mode` that is not 0, 1 or 3."""
+        # None is the default for each, as on MicroPython, so a caller can
+        # pass on a value it was handed without checking it first.
+        pitch = 1.0 if pitch is None else pitch
+        level = 1.0 if level is None else level
+        pan = 0.0 if pan is None else pan
+        delay = 0.0 if delay is None else delay
+        attack = 0.0 if attack is None else attack
+        hold = 0.0 if hold is None else hold
+        decay = 0.0 if decay is None else decay
+        sustain = 1.0 if sustain is None else sustain
+        release = 0.0 if release is None else release
+        resonance = 0.0 if resonance is None else resonance
+        mod_delay = 0.0 if mod_delay is None else mod_delay
+        mod_attack = 0.0 if mod_attack is None else mod_attack
+        mod_hold = 0.0 if mod_hold is None else mod_hold
+        mod_decay = 0.0 if mod_decay is None else mod_decay
+        mod_sustain = 1.0 if mod_sustain is None else mod_sustain
+        mod_release = 0.0 if mod_release is None else mod_release
+        mod_to_pitch = 0.0 if mod_to_pitch is None else mod_to_pitch
+        mod_to_cutoff = 0.0 if mod_to_cutoff is None else mod_to_cutoff
+        vibrato_delay = 0.0 if vibrato_delay is None else vibrato_delay
+        vibrato_rate = 0.0 if vibrato_rate is None else vibrato_rate
+        vibrato_depth = 0.0 if vibrato_depth is None else vibrato_depth
+        lfo_delay = 0.0 if lfo_delay is None else lfo_delay
+        lfo_rate = 0.0 if lfo_rate is None else lfo_rate
+        lfo_to_pitch = 0.0 if lfo_to_pitch is None else lfo_to_pitch
+        lfo_to_cutoff = 0.0 if lfo_to_cutoff is None else lfo_to_cutoff
+        lfo_to_volume = 0.0 if lfo_to_volume is None else lfo_to_volume
         self._sampler._check()
         self._sampler._state.play(
             self._index, buffer,
@@ -246,7 +274,7 @@ class SampleBuffer(bytearray):
 
 class Sampler(_AudioSample):
     def __init__(self, *, voice_count=8, channel_count=2, sample_rate=48000,
-                 buffer_size=None, bits_per_sample=16, samples_signed=True):
+                 buffer_size=0, bits_per_sample=16, samples_signed=True):
         voice_count = int(voice_count)
         if not 1 <= voice_count <= MAX_VOICES:
             raise ValueError("voice_count must be 1 to %d" % (MAX_VOICES,))
@@ -261,7 +289,8 @@ class Sampler(_AudioSample):
         if int(bits_per_sample) != 16 or not samples_signed:
             raise ValueError("Sampler renders signed 16-bit only")
         width = 2 * channel_count
-        if buffer_size is None:
+        # 0, the default, and None both choose the size, as on MicroPython.
+        if buffer_size is None or buffer_size == 0:
             frames = FRAMES
         else:
             frames = int(buffer_size) // width

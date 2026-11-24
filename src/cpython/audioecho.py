@@ -158,7 +158,7 @@ _OPTIONS = {
 
 
 class FeedbackDelay(_AudioSample):
-    def __init__(self, sample_rate=48000, max_delay_ms=250.0, **options):
+    def __init__(self, *, sample_rate=48000, max_delay_ms=250.0, **options):
         channel_count = int(options.pop("channel_count", 2))
         if channel_count not in (1, 2):
             raise ValueError("channel_count must be 1 or 2")
@@ -215,9 +215,9 @@ class FeedbackDelay(_AudioSample):
     def playing(self):
         return self._source is not None
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         self._check()
-        self._source = sample
+        self._source = source
         self._pending = b""
         self._source_done = False
 

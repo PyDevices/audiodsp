@@ -400,7 +400,7 @@ class Synthesizer(_AudioSample):
         result._midi_note = note
         return result
 
-    def press(self, notes, /):
+    def press(self, press, /):
         # Mirrors CircuitPython's synthio_span_change_note exactly
         # (shared-module/synthio/__init__.c): a note already playing
         # re-enters ATTACK from its current level with its oscillator
@@ -409,8 +409,8 @@ class Synthesizer(_AudioSample):
         # press with no free channel is REFUSED, never evicted. The old
         # code evicted the oldest note - and, on an at-cap re-press,
         # evicted a bystander and leaked a slot (issues #8/#9).
-        if isinstance(notes, (int, Note)): notes = (notes,)
-        for item in notes:
+        if isinstance(press, (int, Note)): press = (press,)
+        for item in press:
             note = self._coerce(item)
             if not isinstance(note, Note): raise TypeError("note must be int or Note")
             if note in self._notes:
@@ -490,9 +490,9 @@ class Synthesizer(_AudioSample):
         # happen; answer the last channel rather than raising out of a render.
         return self.max_polyphony - 1
 
-    def release(self, notes, /):
-        if isinstance(notes, (int, Note)): notes = (notes,)
-        for item in notes:
+    def release(self, release, /):
+        if isinstance(release, (int, Note)): release = (release,)
+        for item in release:
             if isinstance(item, int):
                 frequency = midi_to_hz(item)
                 matches = [n for n in self._notes if abs(n.frequency - frequency) <= 1e-8]
@@ -509,7 +509,7 @@ class Synthesizer(_AudioSample):
         for note in retrigger:
             if isinstance(note, Note): note._accum = 0
     release_then_press = change
-    def release_all_then_press(self, notes, /): self.release_all(); self.press(notes)
+    def release_all_then_press(self, press, /): self.release_all(); self.press(press)
 
     def note_info(self, note, /):
         note = self._coerce(note)
@@ -827,11 +827,11 @@ def from_file(file, *, sample_rate=11025, waveform=None, envelope=None):
         if close: stream.close()
 
 
-def midi_to_hz(note, /):
-    note = float(note)
+def midi_to_hz(midi_note, /):
+    midi_note = float(midi_note)
     # CircuitPython derives this from the first entry in its ninth-octave
-    # MIDI table, rather than using 440 * 2**((note-69)/12).
-    return 8372.0 * 2.0 ** (note / 12.0 - 10.0)
+    # MIDI table, rather than using 440 * 2**((midi_note-69)/12).
+    return 8372.0 * 2.0 ** (midi_note / 12.0 - 10.0)
 
 
 def voct_to_hz(ctrl, /):

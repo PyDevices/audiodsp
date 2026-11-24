@@ -88,7 +88,7 @@ def _frames_for(buffer_size, channel_count):
 
 
 class Oscillator(_AudioSample):
-    def __init__(self, sample_rate=48000, channel_count=1, buffer_size=None,
+    def __init__(self, *, sample_rate=48000, channel_count=1, buffer_size=None,
                  pitch=None, fm=None, pwm=None, sync=None, **options):
         channel_count = int(channel_count)
         if channel_count not in (1, 2):

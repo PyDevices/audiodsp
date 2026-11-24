@@ -73,6 +73,12 @@ class Multiply:
     @property
     def channel_count(self) -> int:
         """Number of channels: 1 or 2."""
+    def stop(self) -> None:
+        """Let go of the source. The node keeps handing out silence, and what
+        it holds (a tail, a held level) carries on from there."""
+    @property
+    def playing(self) -> bool:
+        """Whether a source is playing."""
     def play(self, source: _AudioSample, /) -> None:
         """Replace the stream being modulated.
 
@@ -152,6 +158,12 @@ class SubOctave:
     @property
     def channel_count(self) -> int:
         """Number of channels: 1 or 2."""
+    def stop(self) -> None:
+        """Let go of the source. The node keeps handing out silence, and what
+        it holds (a tail, a held level) carries on from there."""
+    @property
+    def playing(self) -> bool:
+        """Whether a source is playing."""
     def play(self, source: _AudioSample, /) -> None:
         """Replace the stream being divided.
 

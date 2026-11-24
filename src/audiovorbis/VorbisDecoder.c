@@ -419,14 +419,22 @@ static mp_obj_t audiovorbis_vorbisdecoder_obj_set_file(mp_obj_t self_in, mp_obj_
 }
 MP_DEFINE_CONST_FUN_OBJ_2(audiovorbis_vorbisdecoder_set_file_obj, audiovorbis_vorbisdecoder_obj_set_file);
 
-static mp_obj_t audiovorbis_vorbisdecoder_obj_open(mp_obj_t self_in, mp_obj_t path) {
-    audiovorbis_vorbisdecoder_obj_t *self = MP_OBJ_TO_PTR(self_in);
+// open(filepath): by position or by name, as CircuitPython's audiomp3 takes it.
+static mp_obj_t audiovorbis_vorbisdecoder_obj_open(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    enum { ARG_filepath };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_filepath, MP_ARG_REQUIRED | MP_ARG_OBJ, {} },
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+    audiovorbis_vorbisdecoder_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+    mp_obj_t path = args[ARG_filepath].u_obj;
     check_for_deinit(self);
     mp_obj_t file = mp_call_function_2(MP_OBJ_FROM_PTR(&mp_builtin_open_obj), path, MP_ROM_QSTR(MP_QSTR_rb));
     common_hal_audiovorbis_vorbisdecoder_set_file(self, file);
     return mp_const_none;
 }
-MP_DEFINE_CONST_FUN_OBJ_2(audiovorbis_vorbisdecoder_open_obj, audiovorbis_vorbisdecoder_obj_open);
+MP_DEFINE_CONST_FUN_OBJ_KW(audiovorbis_vorbisdecoder_open_obj, 1, audiovorbis_vorbisdecoder_obj_open);
 
 MP_PROPERTY_GETSET(audiovorbis_vorbisdecoder_file_obj,
     (mp_obj_t)&audiovorbis_vorbisdecoder_get_file_obj,

@@ -233,11 +233,11 @@ def _sample_method(sample, name):
     return method
 
 
-def reset_buffer(sample, single_channel_output=False, audio_channel=0):
+def reset_buffer(sample, single_channel_output=False, audio_channel=0, /):
     _sample_method(sample, "_reset_buffer")(single_channel_output, audio_channel)
 
 
-def get_buffer(sample, single_channel_output=False, audio_channel=0):
+def get_buffer(sample, single_channel_output=False, audio_channel=0, /):
     result, data = _sample_method(sample, "_get_buffer")(single_channel_output, audio_channel)
     # Deliberately own a byte-format copy: callers may retain it after the
     # producer advances or is deinitialized. `src/audiocore/module.c` copies
@@ -263,13 +263,15 @@ def _borrow(sample, single_channel_output=False, audio_channel=0):
     return int(result), memoryview(data).cast("B")
 
 
-def get_structure(sample, single_channel_output=False):
-    return {
-        "sample_rate": sample.sample_rate,
-        "bits_per_sample": sample.bits_per_sample,
-        "channel_count": 1 if single_channel_output else sample.channel_count,
-        "samples_signed": sample.samples_signed,
-    }
+def get_structure(sample, single_channel_output=False, /):
+    """``(single_buffer, samples_signed, max_buffer_length, spacing)``, as the
+    native builds return it: spacing is the step between one channel's
+    samples, the channel count when one channel is read and 1 otherwise."""
+    _sample_method(sample, "_get_buffer")
+    spacing = int(sample.channel_count) if single_channel_output else 1
+    return (int(bool(getattr(sample, "single_buffer", False))),
+            int(bool(getattr(sample, "samples_signed", True))),
+            int(getattr(sample, "max_buffer_length", 0)), spacing)
 
 
 __all__ = ("RawSample", "WaveFile", "get_buffer", "reset_buffer", "get_structure")

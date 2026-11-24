@@ -161,9 +161,9 @@ class _Node(_AudioSample):
     def playing(self):
         return self._source is not None
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         self._check()
-        self._source = sample
+        self._source = source
         self._pending = b""
 
     def stop(self):
@@ -238,9 +238,10 @@ class Biquad(_Node):
 
     _options = _BIQUAD_OPTIONS
 
-    def __init__(self, mode=LOW_PASS, frequency=1000.0, Q=0.7071067811865475,
+    def __init__(self, *, mode=LOW_PASS, frequency=1000.0, Q=None,
                  gain_db=0.0, mix=1.0, sample_rate=48000, channel_count=2,
                  buffer_size=None):
+        Q = 0.7071067811865475 if Q is None else Q
         self._init_format(sample_rate, channel_count, buffer_size)
         self.mode = mode
         self.frequency = frequency
@@ -286,7 +287,7 @@ class AllPass(_Node):
 
     _options = _ALLPASS_OPTIONS
 
-    def __init__(self, stages=4, frequency=1000.0, feedback=0.0, mix=1.0,
+    def __init__(self, *, stages=4, frequency=1000.0, feedback=0.0, mix=1.0,
                  sample_rate=48000, channel_count=2, buffer_size=None):
         stages = int(stages)
         if stages < 1 or stages > MAX_STAGES:

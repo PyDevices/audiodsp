@@ -100,6 +100,12 @@ class Convolver:
         back, as a linear gain, before ``wet_gain``. A dark room gathers its
         energy low and reads high. 0.0 after `load` or before any
         `synthesize`."""
+    def stop(self) -> None:
+        """Let go of the source. The node keeps handing out silence, and what
+        it holds (a tail, a held level) carries on from there."""
+    @property
+    def playing(self) -> bool:
+        """Whether a source is playing."""
     def play(self, source: _AudioSample, /) -> None:
         """Set the stream to convolve, replacing the last one.
 

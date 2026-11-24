@@ -59,11 +59,11 @@ class MP3Decoder:
     @property
     def samples_decoded(self) -> int:
         """How many frames have been decoded so far."""
-    def open(self, path: str, /) -> None:
+    def open(self, filepath: str) -> None:
         """Open an MP3 file by path and decode that instead.
 
         Args:
-            path: The file to open. It is opened for reading in binary mode.
+            filepath: The file to open. It is opened for reading in binary mode.
 
         Raises:
             OSError: The file cannot be opened or read.

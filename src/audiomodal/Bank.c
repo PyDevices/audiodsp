@@ -142,6 +142,31 @@ static mp_obj_t audiomodal_bank_play(mp_obj_t self_in, mp_obj_t sample) {
 static MP_DEFINE_CONST_FUN_OBJ_2(audiomodal_bank_play_obj,
     audiomodal_bank_play);
 
+// Let go of the source. The node keeps handing out silence, and its own
+// state (a tail, a held level) carries on from there.
+static mp_obj_t audiomodal_bank_stop(mp_obj_t self_in) {
+    audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
+    audiodsp_pump_lock_acquire();
+    self->source = MP_OBJ_NULL;
+    self->pending = NULL;
+    self->pending_frames = 0;
+    audiodsp_pump_lock_release();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_stop_obj,
+    audiomodal_bank_stop);
+
+static mp_obj_t audiomodal_bank_obj_get_playing(mp_obj_t self_in) {
+    audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    audiosample_check_for_deinit(&self->base);
+    return mp_obj_new_bool(self->source != MP_OBJ_NULL);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(audiomodal_bank_get_playing_obj,
+    audiomodal_bank_obj_get_playing);
+MP_PROPERTY_GETTER(audiomodal_bank_playing_obj,
+    (mp_obj_t)&audiomodal_bank_get_playing_obj);
+
 static mp_obj_t audiomodal_bank_set(size_t n_args, const mp_obj_t *args,
     mp_map_t *kw_args) {
     audiomodal_bank_obj_t *self = MP_OBJ_TO_PTR(args[0]);
@@ -348,6 +373,8 @@ static const mp_rom_map_elem_t audiomodal_bank_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___enter__), MP_ROM_PTR(&default___enter___obj) },
     { MP_ROM_QSTR(MP_QSTR___exit__), MP_ROM_PTR(&default___exit___obj) },
     { MP_ROM_QSTR(MP_QSTR_play), MP_ROM_PTR(&audiomodal_bank_play_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stop), MP_ROM_PTR(&audiomodal_bank_stop_obj) },
+    { MP_ROM_QSTR(MP_QSTR_playing), MP_ROM_PTR(&audiomodal_bank_playing_obj) },
     { MP_ROM_QSTR(MP_QSTR_set), MP_ROM_PTR(&audiomodal_bank_set_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_mode),
       MP_ROM_PTR(&audiomodal_bank_set_mode_obj) },

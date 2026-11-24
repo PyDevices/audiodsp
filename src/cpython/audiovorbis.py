@@ -35,7 +35,7 @@ class VorbisDecoder(_AudioSample):
     Mono and stereo files play; a file with more channels is refused.
     """
 
-    def __init__(self, file, buffer=None):
+    def __init__(self, file, buffer=None, /):
         self._frames = _FRAMES
         if buffer is not None:
             half = (memoryview(buffer).nbytes // 2) & ~3

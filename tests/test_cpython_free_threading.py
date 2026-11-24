@@ -108,7 +108,12 @@ def chain(index, rate, source):
                  audioecho.FeedbackDelay(sample_rate=rate, delay_ms=40,
                                          feedback=0.3, mix=0.3)]
     for node in nodes:
-        node.play(source, loop=True)
+        # CircuitPython's effects take loop=; audiodsp's own nodes take only
+        # the source, as they do on MicroPython.
+        if isinstance(node, (audiofilters.Filter, audiofreeverb.Freeverb)):
+            node.play(source, loop=True)
+        else:
+            node.play(source)
         source = node
     return source
 
@@ -199,9 +204,9 @@ RECONFIGURE = textwrap.dedent("""
     room = audioconvolve.Convolver(max_taps=8192, mix=0.5)
     room.synthesize(decay=0.3)
     tank = audioverb.Tank(mix=0.4)
-    shaper.play(synth, loop=True)
-    room.play(shaper, loop=True)
-    tank.play(room, loop=True)
+    shaper.play(synth)
+    room.play(shaper)
+    tank.play(room)
     stop = threading.Event()
 
     def render():

@@ -101,7 +101,7 @@ _FIXED = ("sample_rate", "channel_count", "max_predelay_ms")
 
 
 class Tank(_AudioSample):
-    def __init__(self, sample_rate=48000, max_predelay_ms=200.0, delays=None,
+    def __init__(self, *, sample_rate=48000, max_predelay_ms=200.0, delays=None,
                  taps=None, **options):
         channel_count = int(options.pop("channel_count", 2))
         if channel_count not in (1, 2):
@@ -173,9 +173,9 @@ class Tank(_AudioSample):
     def playing(self):
         return self._source is not None
 
-    def play(self, sample, *, loop=False):
+    def play(self, source, /):
         self._check()
-        self._source = sample
+        self._source = source
         self._pending = b""
         self._source_done = False
 

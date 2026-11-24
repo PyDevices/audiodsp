@@ -3,7 +3,10 @@
 # stubtest then imports the module from a wheel built from this checkout and
 # compares it with its stub: a parameter the stub makes positional that the
 # module takes by keyword, a default that differs, a method the stub lacks.
-# Runs when a stub, a CPython wrapper or this file changes. That a stub names
+# tools/check_bindings.py holds each stub to the C bindings MicroPython builds,
+# read from the sources, so between the two checks a call that works on one
+# interpreter and raises on the other fails here.
+# Runs when a stub, a binding, a CPython wrapper or this file changes. That a stub names
 # what its module exports is checked by tests/test_stubs_match_modules.py in
 # the unit job.
 name: Stubs
@@ -12,6 +15,8 @@ on:
   push:
     branches: [main]
     paths:
+      - 'src/**/*.c'
+      - 'tools/check_bindings.py'
       - 'src/**/*.pyi'
       - 'lib/**/*.pyi'
       - 'src/cpython/**'
@@ -20,6 +25,8 @@ on:
       - '.github/workflows/stubs.yml'
   pull_request:
     paths:
+      - 'src/**/*.c'
+      - 'tools/check_bindings.py'
       - 'src/**/*.pyi'
       - 'lib/**/*.pyi'
       - 'src/cpython/**'
@@ -52,6 +59,9 @@ jobs:
           exit $status
       - name: mypy over the pure-Python packages' stubs
         run: cd lib && python -m mypy --no-incremental -p audiorender -p audiodsp_util
+      # Each stub against the MicroPython C bindings, read from the sources.
+      - name: stubs against the MicroPython bindings
+        run: python tools/check_bindings.py
 
   stubtest:
     runs-on: ubuntu-latest
