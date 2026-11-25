@@ -380,6 +380,18 @@ if(AUDIODSP_PUMP_IRAM AND (CONFIG_IDF_TARGET_ARCH_RISCV OR CONFIG_IDF_TARGET_ARC
     message(STATUS "audiodsp: pump block loop in IRAM (AUDIODSP_PUMP_IRAM=1)")
 endif()
 
+# The graph's per-sample kernels in IRAM: the envelope, mixer, pan, VCA and
+# saturator nodes, the oscillator and the biquad (AUDIODSP_GRAPH_HOT). About
+# 15 kB on an S3, taken from the internal RAM the heap would otherwise have, so
+# it is opt-in:
+#
+#     idf.py -DAUDIODSP_GRAPH_IRAM=1 build      (or set it in the board cmake)
+if(AUDIODSP_GRAPH_IRAM AND (CONFIG_IDF_TARGET_ARCH_RISCV OR CONFIG_IDF_TARGET_ARCH_XTENSA))
+    target_compile_definitions(usermod_mpaudio INTERFACE
+        "AUDIODSP_GRAPH_HOT=__attribute__((noinline, section(\".iram1.audiograph\")))")
+    message(STATUS "audiodsp: graph per-block path in IRAM (AUDIODSP_GRAPH_IRAM=1)")
+endif()
+
 # audiometer's feed and analysis, and the FFT they share with audioconvolve,
 # in IRAM: ON wherever there is IRAM, unlike the pump loop above, because the
 # meter runs inside usbif's sound-card pump and from flash it cost that core

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "shared/audiodsp_fp_contract.h"
+#include "shared/audiodsp_hot.h"
 
 #include "shared/audiodsp_filter_f32.h"
 
@@ -379,6 +380,7 @@ static void biquad_take(audiodsp_biquad_f32_state_t *state,
     state->svf_valid = config->svf_valid;
 }
 
+AUDIODSP_GRAPH_HOT
 static bool biquad_moved(const audiodsp_biquad_f32_state_t *state,
     const audiodsp_biquad_f32_config_t *config) {
     return state->b0 != config->b0 || state->b1 != config->b1 ||
@@ -389,6 +391,7 @@ static bool biquad_moved(const audiodsp_biquad_f32_state_t *state,
 // A new set of five arrived. Start the walk to them from wherever the
 // output is now: the section in force, or the point a walk already under way
 // has reached.
+AUDIODSP_GRAPH_HOT
 static void biquad_begin_move(const audiodsp_biquad_f32_config_t *config,
     audiodsp_biquad_f32_state_t *state, uint32_t channels) {
     if (state->ramp_left == 0u) {
@@ -435,6 +438,7 @@ static void biquad_begin_move(const audiodsp_biquad_f32_config_t *config,
 
 // Up to `frames` frames of the walk, one SVF step each. Returns how many it
 // ran; when the walk ends inside them, the memory goes back to direct form.
+AUDIODSP_GRAPH_HOT
 static uint32_t biquad_process_move(audiodsp_biquad_f32_state_t *state,
     uint32_t channels, float dry, float mix, int16_t *out, const int16_t *in,
     uint32_t frames) {
@@ -487,11 +491,44 @@ static uint32_t biquad_process_move(audiodsp_biquad_f32_state_t *state,
 }
 
 // Up to `frames` frames of the section in force, direct form.
+AUDIODSP_GRAPH_HOT
 static void biquad_process_steady(const audiodsp_biquad_f32_config_t *config,
     audiodsp_biquad_f32_state_t *state, uint32_t channels, float dry,
     float mix, int16_t *out, const int16_t *in, uint32_t frames) {
     const float b0 = config->b0, b1 = config->b1, b2 = config->b2;
     const float a1 = config->a1, a2 = config->a2;
+    if (channels == 1u) {
+        // The loop below for one channel, its memory held in registers
+        // rather than read back from the state after every store.
+        float s1 = state->s1[0];
+        float s2 = state->s2[0];
+        if (dry == 0.0f && mix == 1.0f) {
+            // All wet, as a filter in a patch nearly always is: the sum
+            // below is the filter's output itself (0 times a finite input is
+            // a zero, and a zero added to y0 is y0, or a zero when y0 is
+            // one, which to_s16 makes 0 either way).
+            for (uint32_t frame = 0; frame < frames; ++frame) {
+                const float x0 = (float)in[frame];
+                const float y0 = b0 * x0 + s1;
+                s1 = flush(b1 * x0 - a1 * y0 + s2);
+                s2 = flush(b2 * x0 - a2 * y0);
+                out[frame] = to_s16(y0);
+            }
+            state->s1[0] = s1;
+            state->s2[0] = s2;
+            return;
+        }
+        for (uint32_t frame = 0; frame < frames; ++frame) {
+            const float x0 = (float)in[frame];
+            const float y0 = b0 * x0 + s1;
+            s1 = flush(b1 * x0 - a1 * y0 + s2);
+            s2 = flush(b2 * x0 - a2 * y0);
+            out[frame] = to_s16(dry * x0 + mix * y0);
+        }
+        state->s1[0] = s1;
+        state->s2[0] = s2;
+        return;
+    }
     for (uint32_t frame = 0; frame < frames; ++frame) {
         for (uint32_t channel = 0; channel < channels; ++channel) {
             const size_t index = (size_t)frame * channels + channel;
@@ -513,6 +550,7 @@ static void biquad_process_steady(const audiodsp_biquad_f32_config_t *config,
 
 // Up to `frames` frames at one mix: through a coefficient walk while one
 // runs, then the section in force.
+AUDIODSP_GRAPH_HOT
 static void biquad_process_at(const audiodsp_biquad_f32_config_t *config,
     audiodsp_biquad_f32_state_t *state, uint32_t channels, float dry,
     float mix, int16_t *out, const int16_t *in, uint32_t frames) {
@@ -526,6 +564,7 @@ static void biquad_process_at(const audiodsp_biquad_f32_config_t *config,
     biquad_process_steady(config, state, channels, dry, mix, out, in, frames);
 }
 
+AUDIODSP_GRAPH_HOT
 void audiodsp_biquad_f32_process_s16(const audiodsp_biquad_f32_config_t *config,
     audiodsp_biquad_f32_state_t *state, int16_t *out, const int16_t *in,
     uint32_t frames) {

@@ -48,3 +48,13 @@
 #ifndef AUDIODSP_METER_HOT
 #define AUDIODSP_METER_HOT
 #endif
+
+// The same, for the graph's per-sample kernels: the node bodies a drum machine
+// or a synth spends its time in (shared/audiodsp_graph.c, the oscillator, the
+// biquad). The runner that calls them stays in flash: with it, the set came to
+// 37 kB on an ESP32-S3, more internal RAM than a board with a display and a
+// USB sound card had left for its threads. Off unless the build asks:
+// `micropython.cmake` names it for `AUDIODSP_GRAPH_IRAM=1`.
+#ifndef AUDIODSP_GRAPH_HOT
+#define AUDIODSP_GRAPH_HOT
+#endif
