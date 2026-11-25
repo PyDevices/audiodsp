@@ -1,3 +1,11 @@
+## v0.6.17rc1 (2026-11-25)
+
+- audiograph: drum-machine graphs render a block in less time (#454)
+- audiomixer: stopping a voice while the pump plays no longer hangs (#453)
+- audiooscillator: an oscillator with nothing patched in works out its step once a block (#452)
+- audiograph: mixers, VCAs and the output take a tenth less on RISC-V (#451)
+- twins: CPython and MicroPython take the same arguments (#450)
+
 ## v0.6.17.dev1 (2026-11-23)
 
 - audiopump: a pump that falls behind cedes its core; silent mixing chains cost nothing (#448)
