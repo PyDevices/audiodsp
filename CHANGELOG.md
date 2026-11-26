@@ -1,3 +1,6 @@
+## v0.6.17 (2026-11-26)
+
+
 ## v0.6.17rc1 (2026-11-25)
 
 - audiograph: drum-machine graphs render a block in less time (#454)
